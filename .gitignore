@@ -41,7 +41,9 @@ data/raw/*
 data/mart/*
 data/macro/*
 data/global/*
+data/research/*
 data/*.duckdb
+scratch/
 !data/cache/.gitkeep
 !data/master/.gitkeep
 !data/reports/.gitkeep

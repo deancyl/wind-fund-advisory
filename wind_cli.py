@@ -30,10 +30,12 @@ from src.parsers.fund_catalog import FundCatalogManager
 from src.parsers.fund_nav_fetcher import FundNAVFetcher
 from src.core.batch_fund_syncer import BatchFundSyncer
 from src.parsers.fund_rules_collector import FundTradingRulesCollector
+from src.parsers.research_report_collector import ResearchReportCollector
 from src.parsers.market_data_collector import MarketDataCollector
 from src.parsers.global_market_collector import GlobalMarketCollector
 from src.analysis.market_temperature import MarketTemperatureAnalyzer
 from src.analysis.global_linkage_analyzer import GlobalLinkageAnalyzer
+from src.analysis.between_the_lines_analyzer import BetweenTheLinesAnalyzer
 from src.analysis.fund_analyzer import FundAnalyzer
 from src.analysis.winrate_analyzer import WinRateAnalyzer
 from src.storage.lakehouse import LakehouseManager
@@ -997,6 +999,72 @@ def cmd_portfolio(args):
         console.print(f"\n[bold green]✓ 专业投资组合分析研报已成功导出至磁盘: [underline]{report_file}[/underline][/bold green]")
 
 
+def cmd_sync_reports(args):
+    console = Console()
+    collector = ResearchReportCollector()
+    symbols = [args.code] if args.code else None
+    console.print(f"[cyan]🚀 开始同步权威卖方研报数据入湖仓 (宏观策略 / 核心行业 / 重点龙头)...[/cyan]")
+    total = collector.sync_reports_to_lakehouse(symbols=symbols)
+    console.print(f"[bold green]✓ 研报数据同步完成，湖仓累计沉淀 {total} 篇卖方研报，已挂载至 DuckDB 视图 v_research_reports[/bold green]")
+
+
+def cmd_reports(args):
+    console = Console()
+    lakehouse = LakehouseManager()
+    collector = ResearchReportCollector(lakehouse=lakehouse)
+    
+    code = args.code.strip() if args.code else None
+    if code:
+        df = lakehouse.get_stock_reports(code, limit=args.limit)
+        if df.empty or len(df) < 3:
+            console.print(f"[cyan]ℹ 本地湖仓暂无或研报较少，正在全市场高规格通道拉取 {code} 最新研报...[/cyan]")
+            collector.fetch_stock_reports(code, limit=args.limit)
+            collector.sync_reports_to_lakehouse([code])
+            df = lakehouse.get_stock_reports(code, limit=args.limit)
+    else:
+        df = lakehouse.get_stock_reports(None, limit=args.limit)
+        if df.empty:
+            console.print("[cyan]ℹ 本地研报湖仓为空，正在全市场高规格通道拉取全市场最新研报...[/cyan]")
+            collector.sync_reports_to_lakehouse()
+            df = lakehouse.get_stock_reports(None, limit=args.limit)
+
+    if df.empty:
+        console.print("[yellow]! 未检索到相关研报数据[/yellow]")
+        return
+
+    table = Table(title=f"📑 权威卖方研报检索流 (共 {len(df)} 篇, 支持原文 PDF 直链)", show_lines=True)
+    table.add_column("日期", style="cyan", width=11)
+    table.add_column("标的", style="green", width=14)
+    table.add_column("券商机构", style="magenta", width=10)
+    table.add_column("分析师", style="white", width=10)
+    table.add_column("评级", style="yellow", width=8)
+    table.add_column("研报标题", style="bold white", width=36)
+    table.add_column("PDF 直读链接", style="blue underline", width=40)
+
+    for _, r in df.iterrows():
+        stk = f"{r.get('stock_name', '')} ({r.get('symbol', '')})"
+        table.add_row(
+            str(r.get("publish_date", ""))[:10],
+            stk,
+            str(r.get("org_name", "")),
+            str(r.get("analyst_name", ""))[:10],
+            str(r.get("rating", "")),
+            str(r.get("title", ""))[:34],
+            str(r.get("pdf_url", ""))
+        )
+
+    console.print(table)
+
+
+def cmd_report_subtext(args):
+    console = Console()
+    analyzer = BetweenTheLinesAnalyzer()
+    code = args.code.strip()
+    console.print(f"[cyan]🔍 正在对 {code} 卖方研报进行‘听话听音’潜台词挖掘与一致预期分析...[/cyan]")
+    res = analyzer.analyze(code, limit=args.limit)
+    analyzer.print_terminal_card(res)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Wind 投顾终端机制解析与智能投顾建议系统 CLI")
     subparsers = parser.add_subparsers(dest="subcommand", help="子命令")
@@ -1092,6 +1160,20 @@ def main():
     p_port.add_argument("--optimize", action="store_true", help="求解现代资产组合优化前沿配置建议 (最大夏普、最小方差、风险平价)")
     p_port.add_argument("--export", action="store_true", help="自动导出专业 Markdown 研报至 data/reports/")
 
+    # sync-reports
+    p_srep = subparsers.add_parser("sync-reports", help="全量同步权威卖方研报库 (宏观大势、核心行业与重点龙头)")
+    p_srep.add_argument("--code", default=None, help="单只股票/指数代码 (例如 600519 或 300750)")
+
+    # reports
+    p_rep = subparsers.add_parser("reports", help="检索全市场最新卖方研报流 (支持查看机构、分析师与原文 PDF 直链)")
+    p_rep.add_argument("code", nargs="?", default=None, help="股票代码 (可选，默认查看全市场最新宏观与行业研报)")
+    p_rep.add_argument("--limit", type=int, default=20, help="返回研报条数限制 (默认 20)")
+
+    # report-subtext
+    p_rst = subparsers.add_parser("report-subtext", help="卖方研报‘听话听音’量化透视 (挖掘主旋律下的潜台词踩刹车与真看多信号)")
+    p_rst.add_argument("code", help="股票代码 (例如 600519, 300750, 000001)")
+    p_rst.add_argument("--limit", type=int, default=30, help="分析样本研报条数 (默认 30)")
+
     if len(sys.argv) == 1:
         parser.print_help()
         return
@@ -1116,7 +1198,10 @@ def main():
         "market-temp": cmd_market_temp,
         "export-dict": cmd_export_dict,
         "sync-cache": cmd_sync_cache,
-        "portfolio": cmd_portfolio
+        "portfolio": cmd_portfolio,
+        "sync-reports": cmd_sync_reports,
+        "reports": cmd_reports,
+        "report-subtext": cmd_report_subtext
     }
 
     if args.subcommand in cmds:

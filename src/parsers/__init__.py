@@ -14,6 +14,7 @@ from .fund_nav_fetcher import FundNAVFetcher, FundNAVSummary
 from .market_data_collector import MarketDataCollector, MarketSyncSummary
 from .global_market_collector import GlobalMarketCollector, GlobalSyncSummary
 from .fund_rules_collector import FundTradingRulesCollector, FundFeeStructure, FundRulesSummary
+from .research_report_collector import ResearchReportCollector, ResearchReportItem
 
 __all__ = [
     "MasterDictParser",
@@ -37,5 +38,7 @@ __all__ = [
     "GlobalSyncSummary",
     "FundTradingRulesCollector",
     "FundFeeStructure",
-    "FundRulesSummary"
+    "FundRulesSummary",
+    "ResearchReportCollector",
+    "ResearchReportItem"
 ]

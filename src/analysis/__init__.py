@@ -17,6 +17,7 @@ from .benchmark import BenchmarkManager
 from .winrate_analyzer import WinRateAnalyzer, StrategyWinRateResult, PeriodWinRate, DCAWinRate
 from .market_temperature import MarketTemperatureAnalyzer, MarketTemperatureReport
 from .global_linkage_analyzer import GlobalLinkageAnalyzer, GlobalLinkageMetrics
+from .between_the_lines_analyzer import BetweenTheLinesAnalyzer, BetweenTheLinesResult
 from .portfolio_analyzer import (
     PortfolioAnalyzer,
     PortfolioAsset,
@@ -26,6 +27,14 @@ from .portfolio_analyzer import (
     OptimizationProposal,
     PortfolioAnalysisResult,
     PortfolioDataLoader
+)
+
+from .quarterly_backtest_model import (
+    QuarterlyBacktestEngine,
+    QuarterlyStepRecord,
+    RollingWinRate,
+    RegimePerformance,
+    StrategyBacktestSummary
 )
 
 __all__ = [
@@ -49,6 +58,8 @@ __all__ = [
     "MarketTemperatureReport",
     "GlobalLinkageAnalyzer",
     "GlobalLinkageMetrics",
+    "BetweenTheLinesAnalyzer",
+    "BetweenTheLinesResult",
     "PortfolioAnalyzer",
     "PortfolioAsset",
     "PortfolioMetrics",
@@ -56,5 +67,10 @@ __all__ = [
     "AttributionItem",
     "OptimizationProposal",
     "PortfolioAnalysisResult",
-    "PortfolioDataLoader"
+    "PortfolioDataLoader",
+    "QuarterlyBacktestEngine",
+    "QuarterlyStepRecord",
+    "RollingWinRate",
+    "RegimePerformance",
+    "StrategyBacktestSummary"
 ]

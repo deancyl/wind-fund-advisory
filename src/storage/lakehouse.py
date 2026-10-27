@@ -30,10 +30,11 @@ class LakehouseManager:
         self.master_dir = self.data_dir / "master"
         self.macro_dir = self.data_dir / "macro"
         self.global_dir = self.data_dir / "global"
+        self.research_dir = self.data_dir / "research"
         self.db_path = self.data_dir / "storage.duckdb"
 
         # 确保基础目录存在
-        for p in [self.funds_dir, self.indices_dir, self.mart_dir, self.raw_dir, self.master_dir, self.macro_dir, self.global_dir]:
+        for p in [self.funds_dir, self.indices_dir, self.mart_dir, self.raw_dir, self.master_dir, self.macro_dir, self.global_dir, self.research_dir]:
             p.mkdir(parents=True, exist_ok=True)
 
     # -------------------------------------------------------------
@@ -121,6 +122,22 @@ class LakehouseManager:
         if matched.empty:
             return None
         return matched.iloc[0].to_dict()
+
+    def get_stock_reports(self, symbol: Optional[str] = None, limit: int = 50) -> pd.DataFrame:
+        """从湖仓检索卖方研报库 (支持个股代码/全市场)"""
+        reports_path = self.research_dir / "research_reports.parquet"
+        if not reports_path.exists():
+            return pd.DataFrame()
+        try:
+            df = pd.read_parquet(reports_path)
+            if symbol:
+                import re
+                clean_code = re.sub(r"[^\d]", "", symbol).zfill(6)
+                matched = df[(df["symbol"] == clean_code) | (df["wind_code"].str.contains(clean_code, na=False))]
+                return matched.head(limit).reset_index(drop=True)
+            return df.head(limit).reset_index(drop=True)
+        except Exception:
+            return pd.DataFrame()
 
     # -------------------------------------------------------------
     # 基准指数管理 (processed/indices/{code}.parquet)
@@ -304,14 +321,43 @@ class LakehouseManager:
             pattern = str(rules_path).replace("\\", "/")
             conn.execute(f"CREATE OR REPLACE VIEW v_fund_trading_rules AS SELECT * FROM read_parquet('{pattern}')")
 
+        # 10. 卖方研报与深度研究视图
+        reports_path = self.research_dir / "research_reports.parquet"
+        if reports_path.exists():
+            pattern = str(reports_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_research_reports AS SELECT * FROM read_parquet('{pattern}')")
+
         conn.close()
 
     def query_sql(self, sql: str) -> pd.DataFrame:
-        """使用 DuckDB 对湖仓数据执行即席 SQL 查询"""
-        self.init_duckdb_views()
-        conn = duckdb.connect(str(self.db_path))
+        """使用 DuckDB 对湖仓数据执行即席 SQL 查询 (具备并发只读与多进程独占锁自愈兜底)"""
+        import time
         try:
-            df = conn.execute(sql).df()
-            return df
-        finally:
-            conn.close()
+            self.init_duckdb_views()
+        except Exception:
+            pass
+
+        # 优先以 read_only=True 连接，支持多进程无锁并发读取
+        for attempt in range(3):
+            try:
+                conn = duckdb.connect(str(self.db_path), read_only=True)
+                try:
+                    return conn.execute(sql).df()
+                finally:
+                    conn.close()
+            except Exception as e:
+                if attempt < 2 and "Cannot open file" in str(e):
+                    time.sleep(0.15)
+                    continue
+                # 独占锁异常时，无缝内存视图降级兜底
+                mem_conn = duckdb.connect(":memory:")
+                try:
+                    rep_path = str(self.research_dir / "research_reports.parquet").replace("\\", "/")
+                    if (self.research_dir / "research_reports.parquet").exists():
+                        mem_conn.execute(f"CREATE OR REPLACE VIEW v_research_reports AS SELECT * FROM read_parquet('{rep_path}')")
+                    r_path = str(self.master_dir / "fund_trading_rules.parquet").replace("\\", "/")
+                    if (self.master_dir / "fund_trading_rules.parquet").exists():
+                        mem_conn.execute(f"CREATE OR REPLACE VIEW v_fund_trading_rules AS SELECT * FROM read_parquet('{r_path}')")
+                    return mem_conn.execute(sql).df()
+                finally:
+                    mem_conn.close()
