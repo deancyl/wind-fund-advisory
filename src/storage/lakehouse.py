@@ -29,10 +29,11 @@ class LakehouseManager:
         self.raw_dir = self.data_dir / "raw"
         self.master_dir = self.data_dir / "master"
         self.macro_dir = self.data_dir / "macro"
+        self.global_dir = self.data_dir / "global"
         self.db_path = self.data_dir / "storage.duckdb"
 
         # 确保基础目录存在
-        for p in [self.funds_dir, self.indices_dir, self.mart_dir, self.raw_dir, self.master_dir, self.macro_dir]:
+        for p in [self.funds_dir, self.indices_dir, self.mart_dir, self.raw_dir, self.master_dir, self.macro_dir, self.global_dir]:
             p.mkdir(parents=True, exist_ok=True)
 
     # -------------------------------------------------------------
@@ -262,6 +263,27 @@ class LakehouseManager:
         if temp_path.exists():
             pattern = str(temp_path).replace("\\", "/")
             conn.execute(f"CREATE OR REPLACE VIEW v_market_temperature AS SELECT * FROM read_parquet('{pattern}')")
+
+        # 8. 全球宏观资产与联动视图
+        g_idx_path = self.global_dir / "global_indices.parquet"
+        if g_idx_path.exists():
+            pattern = str(g_idx_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_global_indices AS SELECT * FROM read_parquet('{pattern}')")
+
+        g_fx_path = self.global_dir / "fx_rates.parquet"
+        if g_fx_path.exists():
+            pattern = str(g_fx_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_global_fx AS SELECT * FROM read_parquet('{pattern}')")
+
+        g_comm_path = self.global_dir / "commodities.parquet"
+        if g_comm_path.exists():
+            pattern = str(g_comm_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_global_commodities AS SELECT * FROM read_parquet('{pattern}')")
+
+        g_link_path = self.mart_dir / "global_linkage_metrics.parquet"
+        if g_link_path.exists():
+            pattern = str(g_link_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_global_linkage AS SELECT * FROM read_parquet('{pattern}')")
 
         conn.close()
 

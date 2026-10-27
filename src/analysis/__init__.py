@@ -16,6 +16,17 @@ from .asset_allocation import AssetAllocationOptimizer, PortfolioWeight
 from .benchmark import BenchmarkManager
 from .winrate_analyzer import WinRateAnalyzer, StrategyWinRateResult, PeriodWinRate, DCAWinRate
 from .market_temperature import MarketTemperatureAnalyzer, MarketTemperatureReport
+from .global_linkage_analyzer import GlobalLinkageAnalyzer, GlobalLinkageMetrics
+from .portfolio_analyzer import (
+    PortfolioAnalyzer,
+    PortfolioAsset,
+    PortfolioMetrics,
+    DiversificationMetrics,
+    AttributionItem,
+    OptimizationProposal,
+    PortfolioAnalysisResult,
+    PortfolioDataLoader
+)
 
 __all__ = [
     "calculate_annualized_return",
@@ -35,5 +46,15 @@ __all__ = [
     "PeriodWinRate",
     "DCAWinRate",
     "MarketTemperatureAnalyzer",
-    "MarketTemperatureReport"
+    "MarketTemperatureReport",
+    "GlobalLinkageAnalyzer",
+    "GlobalLinkageMetrics",
+    "PortfolioAnalyzer",
+    "PortfolioAsset",
+    "PortfolioMetrics",
+    "DiversificationMetrics",
+    "AttributionItem",
+    "OptimizationProposal",
+    "PortfolioAnalysisResult",
+    "PortfolioDataLoader"
 ]

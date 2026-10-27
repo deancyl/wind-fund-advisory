@@ -4,5 +4,6 @@
 
 from .rules_engine import AdvisoryRulesEngine
 from .report_generator import InvestmentReportGenerator
+from .portfolio_report import PortfolioReportGenerator
 
-__all__ = ["AdvisoryRulesEngine", "InvestmentReportGenerator"]
+__all__ = ["AdvisoryRulesEngine", "InvestmentReportGenerator", "PortfolioReportGenerator"]

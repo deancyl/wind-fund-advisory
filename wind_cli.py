@@ -30,13 +30,17 @@ from src.parsers.fund_catalog import FundCatalogManager
 from src.parsers.fund_nav_fetcher import FundNAVFetcher
 from src.core.batch_fund_syncer import BatchFundSyncer
 from src.parsers.market_data_collector import MarketDataCollector
+from src.parsers.global_market_collector import GlobalMarketCollector
 from src.analysis.market_temperature import MarketTemperatureAnalyzer
+from src.analysis.global_linkage_analyzer import GlobalLinkageAnalyzer
 from src.analysis.fund_analyzer import FundAnalyzer
 from src.analysis.winrate_analyzer import WinRateAnalyzer
 from src.storage.lakehouse import LakehouseManager
 from src.analysis.benchmark import BenchmarkManager
 from src.advisory.rules_engine import AdvisoryRulesEngine
 from src.advisory.report_generator import InvestmentReportGenerator
+from src.analysis.portfolio_analyzer import PortfolioAnalyzer
+from src.advisory.portfolio_report import PortfolioReportGenerator
 from src.api.schemas import RiskProfile
 
 
@@ -537,9 +541,48 @@ def cmd_sync_macro(args):
     console.print(f'[dim]python wind_cli.py market-temp[/dim]')
 
 
+def cmd_sync_global(args):
+    console = Console()
+    console.print(Panel(
+        "[bold cyan]启动全球宏观资产与外部联动数据全量采集管道[/bold cyan]\n"
+        "[dim]数据范围: 海外核心股指 (美股/港股/亚太) + 全球基准汇率 (在岸/离岸/利差/美元指数) + 核心大宗商品 (黄金/原油/铜/白银)[/dim]",
+        title="🌐 全球宏观资产采集同步",
+        expand=False
+    ))
+
+    collector = GlobalMarketCollector()
+    cat = getattr(args, "category", "all")
+    delay = getattr(args, "delay", 1.2)
+
+    if cat == "indices":
+        rows = collector.sync_global_indices(delay=delay)
+        console.print(f"[bold green]✓ 全球海外核心股指同步完毕，共沉淀 {rows:,} 条日 K 线。[/bold green]")
+    elif cat == "fx":
+        rows = collector.sync_fx_rates(delay=delay)
+        console.print(f"[bold green]✓ 全球基准汇率与在离岸价差同步完毕，共沉淀 {rows:,} 交易日样本。[/bold green]")
+    elif cat == "commodities":
+        rows = collector.sync_commodities(delay=delay)
+        console.print(f"[bold green]✓ 核心大宗商品期货同步完毕，共沉淀 {rows:,} 条日 K 线。[/bold green]")
+    else:
+        summary = collector.sync_all_global_data(delay=delay)
+        table = Table(title="🌐 全球宏观外部资产入湖汇总看板", show_lines=True)
+        table.add_column("外部资产维度", style="cyan")
+        table.add_column("采集样本量", style="bold green", justify="right")
+        table.add_column("DuckDB 视图", style="magenta")
+        table.add_column("涵盖核心标的", style="white")
+
+        table.add_row("全球核心股指", f"{summary.indices_rows:,} 条", "v_global_indices", "标普500, 纳指, 道指, 恒生, 恒生科技, 日经225, 台湾加权")
+        table.add_row("全球基准汇率", f"{summary.fx_rows:,} 条", "v_global_fx", "USD/CNY, USD/CNH, 在离岸汇差, 美元指数(DXY)")
+        table.add_row("核心大宗商品", f"{summary.commodities_rows:,} 条", "v_global_commodities", "COMEX黄金(GC), WTI原油(CL), 布伦特(OIL), 铜(HG), 白银(SI)")
+
+        console.print(table)
+        console.print(f"[bold green]✓ 全球外部资产已全部入湖并挂载 DuckDB 视图！[/bold green]")
+        console.print(f"[dim]执行联动温度计测算: python wind_cli.py market-temp[/dim]")
+
+
 def cmd_market_temp(args):
     console = Console()
-    console.print("[cyan]正在调用量化模型推演当前大盘估值温度与股债性价比 (ERP)...[/cyan]")
+    console.print("[cyan]正在调用量化模型推演当前大盘估值温度与全球宏观联动传导...[/cyan]")
 
     analyzer = MarketTemperatureAnalyzer()
     report = analyzer.evaluate()
@@ -564,6 +607,8 @@ def cmd_market_temp(args):
     else:
         temp_color = "bold red"
 
+    # 1. 主看板：本土估值温度与全球宏观综合温度
+    ext_adj_str = f"{report.total_external_adjustment:+.1f} 分"
     console.print(Panel(
         f"[bold white]评估基准日期[/bold white]: {report.eval_date}\n"
         f"[bold white]沪深300收盘[/bold white]: {report.hs300_close:.2f}  |  "
@@ -571,14 +616,65 @@ def cmd_market_temp(args):
         f"PB: {report.hs300_pb:.2f}倍 (历史分位: {report.hs300_pb_percentile:.1f}%)\n"
         f"[bold white]中国10年期国债收益率[/bold white]: {report.cn_10y_treasury_yield:.2f}%\n"
         f"[bold green]股债性价比 (ERP)[/bold green]: {report.erp_value:+.2f}%  (全历史分位: {report.erp_percentile:.1f}%)\n"
-        f"[bold magenta]两融维持担保比例[/bold magenta]: {report.margin_guarantee_ratio:.1f}% (杠杆安全垫良好)\n"
+        f"[bold magenta]两融维持担保比例[/bold magenta]: {report.margin_guarantee_ratio:.1f}% (杠杆安全垫充足)\n"
+        f"─────────────────────────────────────────────────────\n"
+        f"🏛️ [bold white]本土估值基础温度[/bold white]: {report.base_valuation_score:.1f} 分\n"
+        f"🌐 [bold cyan]外生宏观修正调节[/bold cyan]: [{ 'bold red' if report.total_external_adjustment > 3 else 'bold green' }]{ext_adj_str}[/]  "
+        f"(汇率: {report.fx_pressure_factor:+.1f} | 利差: {report.us_yield_spread_factor:+.1f} | 避险: {report.risk_sentiment_factor:+.1f})\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🌡️ [bold white]大盘综合估值温度[/bold white]: [{temp_color}]{report.market_temperature_score} 分[/{temp_color}]  "
+        f"🌡️ [bold white]全球宏观综合温度[/bold white]: [{temp_color}]{report.market_temperature_score} 分[/{temp_color}]  "
         f"--> 状态研判: [bold green]{report.valuation_status}[/bold green]",
-        title="🌡️ A 股市场全景估值温度计与资产配置罗盘",
+        title="🌡️ A 股市场全景估值温度计与资产配置罗盘 (融合全球宏观传导)",
         expand=False
     ))
 
+    # 2. 全球宏观联动与外生风险雷达
+    linkage_analyzer = GlobalLinkageAnalyzer()
+    metrics = linkage_analyzer.analyze()
+    if metrics:
+        radar_table = Table(title="🌍 全球宏观联动与外生风险雷达", show_lines=True)
+        radar_table.add_column("外部监控维度", style="cyan")
+        radar_table.add_column("最新市场数值", style="white", justify="right")
+        radar_table.add_column("滚动联动/状态", style="yellow")
+        radar_table.add_column("宏观传导机制与外生影响", style="green")
+
+        # 汇率
+        spread_desc = f"价差: {metrics.cnh_cny_spread:+.4f}"
+        radar_table.add_row(
+            "人民币汇率 (USD/CNY & CNH)",
+            f"在岸 {metrics.usd_cny_latest:.4f} / 离岸 {metrics.usd_cnh_latest:.4f}",
+            spread_desc,
+            f"近20日变动 {metrics.usd_cny_20d_pct:+.2f}% (调节分: {metrics.fx_pressure_factor:+.1f})"
+        )
+
+        # 中美利差
+        spread_color = "red" if metrics.cn_us_spread_10y < -1.5 else "green"
+        radar_table.add_row(
+            "中美基准利差 (10Y 国债)",
+            f"利差 {metrics.cn_us_spread_10y:+.2f}%",
+            f"[{spread_color}]{'深度倒挂' if metrics.cn_us_spread_10y < -1.5 else '利差温和'}[/{spread_color}]",
+            f"美债收益率中枢高位约束货币空间 (调节分: {metrics.us_yield_spread_factor:+.1f})"
+        )
+
+        # 海外股市联动
+        radar_table.add_row(
+            "跨市场相关性 (A股 vs 海外)",
+            f"HS300-SPX 30D: {metrics.corr_hs300_spx_30d:+.2f}",
+            f"HS300-HSI 30D: {metrics.corr_hs300_hsi_30d:+.2f}",
+            f"创业板-纳指 30D: {metrics.corr_chinext_nasdaq_30d:+.2f} (科技产业链映射)"
+        )
+
+        # 大宗避险
+        radar_table.add_row(
+            "全球大宗与避险资产",
+            f"黄金 ${metrics.gold_close:.1f} / 原油 ${metrics.crude_oil_close:.1f}",
+            f"DXY {metrics.dxy_close:.2f} (黄金20D: {metrics.gold_20d_pct:+.1f}%)",
+            f"避险情绪调节项: {metrics.risk_sentiment_factor:+.1f} 分"
+        )
+
+        console.print(radar_table)
+
+    # 3. 资产配置比例与投顾行动指引
     alloc_table = Table(title="🧭 建议大类资产配置比例与投顾行动指引", show_lines=True)
     alloc_table.add_column("资产大类", style="cyan", justify="center")
     alloc_table.add_column("建议配比", style="bold green", justify="center")
@@ -591,7 +687,8 @@ def cmd_market_temp(args):
     console.print(alloc_table)
 
     console.print(Panel(
-        f"[bold yellow]投顾量化建议[/bold yellow]:\n{report.action_advice}",
+        f"[bold yellow]投顾量化建议[/bold yellow]:\n{report.action_advice}\n\n"
+        f"[bold cyan]全球宏观研判[/bold cyan]: {report.global_linkage_summary}",
         title="💡 投顾决策专家建议",
         expand=False
     ))
@@ -605,6 +702,175 @@ def cmd_export_dict(args):
 def cmd_sync_cache(args):
     from scripts.sync_terminal_cache import main as sync_main
     sync_main()
+
+
+def cmd_portfolio(args):
+    console = Console()
+    portfolio_name = args.name
+    weights_map = {}
+
+    TEMPLATE_CONFIGS = {
+        "保守型": ("保守防守型配置", {"CBA00101.CS": 0.60, "SHIBOR3M": 0.30, "000300.SH": 0.05, "AU9999.SGE": 0.05}),
+        "稳健型": ("稳健固收增强配置", {"CBA00101.CS": 0.60, "000300.SH": 0.15, "SHIBOR3M": 0.15, "AU9999.SGE": 0.10}),
+        "平衡型": ("全天候平衡配置", {"000300.SH": 0.25, "000905.SH": 0.15, "CBA00101.CS": 0.40, "AU9999.SGE": 0.10, "SHIBOR3M": 0.10}),
+        "成长型": ("积极成长配置", {"000300.SH": 0.30, "000905.SH": 0.20, "399006.SZ": 0.10, "CBA00101.CS": 0.25, "AU9999.SGE": 0.10, "SHIBOR3M": 0.05}),
+        "进取型": ("高弹性进攻配置", {"000300.SH": 0.35, "000905.SH": 0.25, "399006.SZ": 0.20, "CBA00101.CS": 0.10, "AU9999.SGE": 0.05, "SHIBOR3M": 0.05})
+    }
+
+    if args.weights:
+        try:
+            parts = [p.strip() for p in args.weights.split(",") if p.strip()]
+            for p in parts:
+                sym, w_str = p.split(":")
+                weights_map[sym.strip().upper()] = float(w_str.strip())
+            if not portfolio_name:
+                portfolio_name = "定制多元投资组合"
+        except Exception as e:
+            console.print(f"[red]! 权重参数解析失败，格式应为 '代码1:权重1,代码2:权重2'，如 '000300.SH:0.4,CBA00101.CS:0.6'。错误: {e}[/red]")
+            return
+    elif args.template:
+        t_name = args.template.strip()
+        if t_name in TEMPLATE_CONFIGS:
+            default_title, w_dict = TEMPLATE_CONFIGS[t_name]
+            weights_map = w_dict
+            if not portfolio_name:
+                portfolio_name = f"{t_name}投顾标准投资组合 ({default_title})"
+        else:
+            console.print(f"[red]! 未知模板类型 '{t_name}'，可选: 保守型, 稳健型, 平衡型, 成长型, 进取型[/red]")
+            return
+    else:
+        default_title, w_dict = TEMPLATE_CONFIGS["平衡型"]
+        weights_map = w_dict
+        if not portfolio_name:
+            portfolio_name = f"平衡型投顾标准投资组合 ({default_title})"
+
+    console.print(f"[cyan]正在执行投资组合量化回测与深度分析: [bold]{portfolio_name}[/bold] ...[/cyan]")
+
+    analyzer = PortfolioAnalyzer()
+    try:
+        result = analyzer.analyze_portfolio(
+            weights_map=weights_map,
+            benchmark_code=args.benchmark,
+            rebalance_freq=args.rebalance,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            portfolio_name=portfolio_name
+        )
+    except Exception as e:
+        console.print(f"[red]! 组合回测执行异常: {e}[/red]")
+        return
+
+    m = result.metrics
+    d = result.diversification
+
+    # 1. 核心看板
+    ret_color = "bold green" if m.cum_return_pct >= 0 else "bold red"
+    alpha_color = "bold green" if m.alpha_ann_pct >= 0 else "bold yellow"
+
+    console.print(Panel(
+        f"[bold white]组合名称[/bold white]: {result.portfolio_name}  |  [bold white]再平衡机制[/bold white]: {result.rebalance_freq}\n"
+        f"[bold white]回测区间[/bold white]: {m.start_date} ~ {m.end_date} (共 {m.trading_days} 交易日)  |  "
+        f"[bold white]对标基准[/bold white]: {m.benchmark_name} ({m.benchmark_code})\n"
+        f"─────────────────────────────────────────────────────────────────────────────\n"
+        f"📈 [bold white]累计收益率[/bold white]: [{ret_color}]+{m.cum_return_pct}%[/{ret_color}]  |  "
+        f"[bold white]年化复合收益率 (CAGR)[/bold white]: [{ret_color}]+{m.annualized_return_pct}%[/{ret_color}]\n"
+        f"📉 [bold white]历史最大回撤 (MDD)[/bold white]: [bold yellow]{m.max_drawdown_pct}%[/bold yellow] (谷底: {m.max_dd_trough_date})  |  "
+        f"[bold white]年化波动率[/bold white]: {m.annualized_volatility_pct}%\n"
+        f"⚖️ [bold white]夏普比率 (Sharpe)[/bold white]: [bold cyan]{m.sharpe_ratio}[/bold cyan]  |  "
+        f"[bold white]索提诺比率[/bold white]: [bold cyan]{m.sortino_ratio}[/bold cyan]  |  "
+        f"[bold white]卡玛比率[/bold white]: [bold cyan]{m.calmar_ratio}[/bold cyan]\n"
+        f"🛡️ [bold white]单日在险价值 (VaR 95%)[/bold white]: [bold magenta]-{m.var_95_pct}%[/bold magenta]  |  "
+        f"[bold white]条件在险价值 (CVaR)[/bold white]: [bold magenta]-{m.cvar_95_pct}%[/bold magenta]\n"
+        f"🚀 [bold white]年化超额 Alpha[/bold white]: [{alpha_color}]+{m.alpha_ann_pct}%[/{alpha_color}]  |  "
+        f"[bold white]系统贝塔 (Beta)[/bold white]: {m.beta}  |  "
+        f"[bold white]信息比率[/bold white]: {m.information_ratio}\n"
+        f"🌐 [bold white]分散化比率[/bold white]: [bold green]{d.diversification_ratio}[/bold green] "
+        f"(加权独立波动 {d.weighted_asset_vol_pct}% -> 组合实际波动 {d.portfolio_vol_pct}%)  |  "
+        f"[bold white]有效资产数[/bold white]: {d.effective_n_assets}",
+        title="💼 投资组合全景量化诊断体检看板",
+        expand=False
+    ))
+
+    # 2. 资产持仓与归因表
+    t_hold = Table(title="📊 资产配置权重与收益/风险归因明细表", show_lines=True)
+    t_hold.add_column("标的代码", style="cyan", justify="center")
+    t_hold.add_column("标的简称", style="bold white")
+    t_hold.add_column("目标权重", style="bold yellow", justify="center")
+    t_hold.add_column("标的累计收益", style="green", justify="right")
+    t_hold.add_column("组合收益贡献", style="bold green", justify="right")
+    t_hold.add_column("年化波动率", style="white", justify="right")
+    t_hold.add_column("边际风险(MRC)", style="magenta", justify="right")
+    t_hold.add_column("风险贡献占比(PCR)", style="bold magenta", justify="right")
+
+    for it in result.attribution:
+        t_hold.add_row(
+            it.symbol,
+            it.name,
+            f"{it.target_weight_pct}%",
+            f"+{it.asset_return_pct}%" if it.asset_return_pct >= 0 else f"{it.asset_return_pct}%",
+            f"+{it.return_contribution_pct}%" if it.return_contribution_pct >= 0 else f"{it.return_contribution_pct}%",
+            f"{it.asset_volatility_pct}%",
+            f"{it.marginal_risk_contribution}%",
+            f"{it.risk_contribution_pct}%"
+        )
+    console.print(t_hold)
+
+    # 3. 资产间相关系数矩阵表格
+    symbols = [a.symbol for a in result.assets]
+    t_corr = Table(title="🔗 资产间皮尔逊相关系数矩阵 (Correlation Heatmap)", show_lines=True)
+    t_corr.add_column("标的代码", style="cyan", justify="center")
+    for s in symbols:
+        t_corr.add_column(s, justify="center")
+
+    for s1 in symbols:
+        row = [s1]
+        for s2 in symbols:
+            val = d.correlation_matrix.get(s1, {}).get(s2, 1.0)
+            if s1 == s2:
+                val_str = "[bold white]1.000[/bold white]"
+            elif val > 0.7:
+                val_str = f"[bold red]{val:.3f}[/bold red]"
+            elif val > 0.3:
+                val_str = f"[yellow]{val:.3f}[/yellow]"
+            elif val > -0.1:
+                val_str = f"[green]{val:.3f}[/green]"
+            else:
+                val_str = f"[bold cyan]{val:.3f}[/bold cyan]"
+            row.append(val_str)
+        t_corr.add_row(*row)
+    console.print(t_corr)
+
+    # 4. ASCII 走势图
+    chart_text = PortfolioReportGenerator.render_ascii_chart(result.history_df, height=11, width=62)
+    console.print(Panel(chart_text, title="📈 组合累计净值走势 vs 基准走势拟合", expand=False))
+
+    # 5. 组合优化配置建议 (如果指定 --optimize)
+    if args.optimize and result.optimization_proposals:
+        t_opt = Table(title="✨ 现代资产配置优化前沿方案推荐 (Markowitz & Risk Parity)", show_lines=True)
+        t_opt.add_column("策略方案", style="bold cyan")
+        t_opt.add_column("策略核心导向", style="white")
+        t_opt.add_column("预期年化收益", style="bold green", justify="center")
+        t_opt.add_column("预期年化波动", style="bold yellow", justify="center")
+        t_opt.add_column("预期夏普比率", style="bold cyan", justify="center")
+        t_opt.add_column("推荐权重配置", style="white")
+
+        for prop in result.optimization_proposals:
+            w_summary = ", ".join([f"{k}: {round(v*100, 1)}%" for k, v in prop.weights.items()])
+            t_opt.add_row(
+                prop.strategy_name,
+                prop.description,
+                f"+{prop.expected_annual_return_pct}%",
+                f"{prop.expected_annual_vol_pct}%",
+                f"{prop.expected_sharpe_ratio}",
+                w_summary
+            )
+        console.print(t_opt)
+
+    # 6. 报告导出 (如果指定 --export)
+    if args.export:
+        reporter = PortfolioReportGenerator(console)
+        report_file = reporter.save_report_to_disk(result)
+        console.print(f"\n[bold green]✓ 专业投资组合分析研报已成功导出至磁盘: [underline]{report_file}[/underline][/bold green]")
 
 
 def main():
@@ -668,6 +934,11 @@ def main():
     # sync-macro
     subparsers.add_parser("sync-macro", help="全量同步宏观经济、利率中枢、两融杠杆与指数估值")
 
+    # sync-global
+    p_sg = subparsers.add_parser("sync-global", help="全量同步全球宏观市场、基准汇率、利差与核心大宗商品")
+    p_sg.add_argument("--category", choices=["all", "indices", "fx", "commodities"], default="all", help="同步类别 (all, indices, fx, commodities)")
+    p_sg.add_argument("--delay", type=float, default=1.2, help="单标的请求冷却时间 (秒)")
+
     # market-temp
     subparsers.add_parser("market-temp", help="计算大盘估值温度计分数、股债性价比 (ERP) 与大类资产配置建议")
 
@@ -676,6 +947,18 @@ def main():
 
     # sync-cache
     subparsers.add_parser("sync-cache", help="同步终端 Chromium 缓存数据")
+
+    # portfolio
+    p_port = subparsers.add_parser("portfolio", help="投资组合深度分析、历史加权回测、风险收益全景矩阵与资产配置优化")
+    p_port.add_argument("--weights", "-w", default=None, help="标的与权重映射 (例如: '000300.SH:0.4,000905.SH:0.3,CBA00101.CS:0.3')")
+    p_port.add_argument("--template", "-t", default=None, choices=["保守型", "稳健型", "平衡型", "成长型", "进取型"], help="投顾标准配置模板")
+    p_port.add_argument("--benchmark", "-b", default="000300.SH", help="业绩对标基准代码 (默认 000300.SH 沪深300)")
+    p_port.add_argument("--rebalance", "-r", default="quarterly", choices=["quarterly", "monthly", "yearly", "none"], help="定期再平衡调仓机制 (默认 quarterly 按季度)")
+    p_port.add_argument("--start-date", default=None, help="回测起始日期 (YYYY-MM-DD)")
+    p_port.add_argument("--end-date", default=None, help="回测截止日期 (YYYY-MM-DD)")
+    p_port.add_argument("--name", default=None, help="投资组合定制名称")
+    p_port.add_argument("--optimize", action="store_true", help="求解现代资产组合优化前沿配置建议 (最大夏普、最小方差、风险平价)")
+    p_port.add_argument("--export", action="store_true", help="自动导出专业 Markdown 研报至 data/reports/")
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -695,9 +978,11 @@ def main():
         "sync-funds-catalog": cmd_sync_funds_catalog,
         "sync-fund-nav": cmd_sync_fund_nav,
         "sync-macro": cmd_sync_macro,
+        "sync-global": cmd_sync_global,
         "market-temp": cmd_market_temp,
         "export-dict": cmd_export_dict,
-        "sync-cache": cmd_sync_cache
+        "sync-cache": cmd_sync_cache,
+        "portfolio": cmd_portfolio
     }
 
     if args.subcommand in cmds:

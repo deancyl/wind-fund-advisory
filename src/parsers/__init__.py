@@ -12,6 +12,7 @@ from .index_catalog import IndexCatalog
 from .fund_catalog import FundCatalogManager, FundCatalogSummary
 from .fund_nav_fetcher import FundNAVFetcher, FundNAVSummary
 from .market_data_collector import MarketDataCollector, MarketSyncSummary
+from .global_market_collector import GlobalMarketCollector, GlobalSyncSummary
 
 __all__ = [
     "MasterDictParser",
@@ -30,5 +31,7 @@ __all__ = [
     "FundNAVFetcher",
     "FundNAVSummary",
     "MarketDataCollector",
-    "MarketSyncSummary"
+    "MarketSyncSummary",
+    "GlobalMarketCollector",
+    "GlobalSyncSummary"
 ]

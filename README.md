@@ -112,19 +112,31 @@ python wind_cli.py advice --risk 平衡型
 # 输出建议书将自动保存至: data/reports/investment_advice_平衡型.md
 ```
 
-### 5. 导出全市场证券代码表
+### 5. 投资组合全景分析与现代资产配置优化
+```bash
+# 1. 基于投顾标准模板分析（支持: 保守型/稳健型/平衡型/成长型/进取型），包含优化与研报导出
+python wind_cli.py portfolio --template 平衡型 --optimize --export
+
+# 2. 定制任意权重多资产组合回测（支持基金、ETF、指数与固收）
+python wind_cli.py portfolio --weights "000300.SH:0.4,000905.SH:0.2,CBA00101.CS:0.4" --benchmark 000300.SH --rebalance quarterly
+
+# 3. 求解现代资产组合优化前沿配置（最大夏普比率、全局最小方差、风险平价/ERC）
+python wind_cli.py portfolio --template 成长型 --optimize
+```
+
+### 6. 导出全市场证券代码表
 ```bash
 # 将 Wind 内置的 6000+ A股股票与基金代码表导出为结构化 CSV
 python wind_cli.py export-dict
 ```
 
-### 6. 同步终端缓存数据
+### 7. 同步终端缓存数据
 ```bash
 # 提取终端最近加载的基金业绩走势和财经要闻
 python wind_cli.py sync-cache
 ```
 
-### 7. 运行自动化测试
+### 8. 运行自动化测试
 ```bash
 pytest -v
 ```

@@ -40,6 +40,7 @@ data/processed/*
 data/raw/*
 data/mart/*
 data/macro/*
+data/global/*
 data/*.duckdb
 !data/cache/.gitkeep
 !data/master/.gitkeep
@@ -48,6 +49,7 @@ data/*.duckdb
 !data/raw/.gitkeep
 !data/mart/.gitkeep
 !data/macro/.gitkeep
+!data/global/.gitkeep
 
 # Logs & temp files
 *.log
