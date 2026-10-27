@@ -204,6 +204,32 @@ class LakehouseManager:
             pattern = str(wr_path).replace("\\", "/")
             conn.execute(f"CREATE OR REPLACE VIEW v_winrate AS SELECT * FROM read_parquet('{pattern}')")
 
+        # 5. 全市场基金全景大宽表视图
+        cat_path = self.master_dir / "fund_catalog.parquet"
+        if cat_path.exists():
+            pattern = str(cat_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_fund_catalog AS SELECT * FROM read_parquet('{pattern}')")
+
+        snap_path = self.mart_dir / "fund_performance_snapshot.parquet"
+        if snap_path.exists():
+            pattern = str(snap_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_fund_snapshot AS SELECT * FROM read_parquet('{pattern}')")
+
+        rating_path = self.mart_dir / "fund_ratings.parquet"
+        if rating_path.exists():
+            pattern = str(rating_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_fund_ratings AS SELECT * FROM read_parquet('{pattern}')")
+
+        mgr_path = self.master_dir / "fund_managers.parquet"
+        if mgr_path.exists():
+            pattern = str(mgr_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_fund_managers AS SELECT * FROM read_parquet('{pattern}')")
+
+        etf_path = self.master_dir / "etf_catalog.parquet"
+        if etf_path.exists():
+            pattern = str(etf_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_etfs AS SELECT * FROM read_parquet('{pattern}')")
+
         conn.close()
 
     def query_sql(self, sql: str) -> pd.DataFrame:

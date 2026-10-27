@@ -26,6 +26,9 @@ from src.parsers.speed_log_parser import WindSpeedLogParser
 from src.parsers.index_fetcher import IndexDataFetcher
 from src.parsers.index_catalog import IndexCatalog
 from src.core.batch_index_syncer import BatchIndexSyncer
+from src.parsers.fund_catalog import FundCatalogManager
+from src.parsers.fund_nav_fetcher import FundNAVFetcher
+from src.core.batch_fund_syncer import BatchFundSyncer
 from src.analysis.fund_analyzer import FundAnalyzer
 from src.analysis.winrate_analyzer import WinRateAnalyzer
 from src.storage.lakehouse import LakehouseManager
@@ -390,6 +393,116 @@ def cmd_sync_all_indices(args):
     console.print(f'[dim]python wind_cli.py query "SELECT count(*) as total_k_bars, count(distinct index_code) as total_indices FROM v_indices"[/dim]')
 
 
+def cmd_sync_funds_catalog(args):
+    console = Console()
+    console.print(Panel(
+        "[bold yellow]公募基金全景数据库同步规划[/bold yellow]:\n"
+        "1. 28,000+ 只基金主代码字典 (代码、名称、类型、拼音、公司)\n"
+        "2. 20,000+ 只开放式基金业绩排行快照 (最新NAV、日增长、全周期收益率)\n"
+        "3. 18,000+ 只权威多机构综合评级 (晨星、济安金信、招商、上证)\n"
+        "4. 36,000+ 条公募基金经理在管档案 (从业年限、在管规模、最佳任期回报)\n"
+        "5. 1,700+ 只场内 ETF 基金名录与实时行情",
+        title="🚀 全市场公募基金全景大宽表同步中",
+        expand=False
+    ))
+
+    mgr = FundCatalogManager()
+    summary = mgr.sync_all_catalog_tables(force=args.force)
+
+    table = Table(title="🏆 全市场公募基金全景档案湖仓落盘报告", show_lines=True)
+    table.add_column("数据维度", style="cyan")
+    table.add_column("覆盖规模", style="white", justify="right")
+    table.add_column("DuckDB 挂载视图", style="bold green")
+    table.add_column("存储路径", style="dim")
+
+    table.add_row("全市场基金主代码档案", f"{summary.total_funds:,} 只", "v_fund_catalog", summary.catalog_path)
+    table.add_row("全周期业绩排行快照", f"{summary.ranked_funds:,} 只", "v_fund_snapshot", summary.rank_path)
+    table.add_row("晨星/济安等多机构评级", f"{summary.rated_funds:,} 只", "v_fund_ratings", summary.ratings_path)
+    table.add_row("基金经理从业与在管档案", f"{summary.total_managers:,} 条", "v_fund_managers", summary.managers_path)
+    table.add_row("场内 ETF 基金名录与行情", f"{summary.total_etfs:,} 只", "v_etfs", summary.etf_path)
+
+    console.print(table)
+    console.print(f"[bold green]✓ 基金全景大宽表已全部挂载至 DuckDB 视图！可随时执行:[/bold green]")
+    console.print(f'[dim]python wind_cli.py query "SELECT fund_type, count(*) as count FROM v_fund_catalog GROUP BY fund_type ORDER BY count DESC LIMIT 10"[/dim]')
+
+
+def cmd_sync_fund_nav(args):
+    console = Console()
+    lakehouse = LakehouseManager()
+
+    if args.status:
+        syncer = BatchFundSyncer(lakehouse)
+        cp = syncer.load_checkpoint()
+        completed = cp.get("completed_count", 0)
+        failed = cp.get("failed_count", 0)
+        console.print(Panel(
+            f"[bold green]已成功落盘基金净值时序[/bold green]: {completed:,} 只\n"
+            f"[bold red]当前失败标记标的[/bold red]: {failed} 只\n"
+            f"[bold yellow]断点文件路径[/bold yellow]: {syncer.checkpoint_path}",
+            title="📊 基金历史净值同步看板",
+            expand=False
+        ))
+        return
+
+    fetcher = FundNAVFetcher(lakehouse)
+
+    # 1. 若指定单只代码
+    if args.code:
+        code = fetcher.normalize_code(args.code)
+        console.print(f"[cyan]🚀 正在拉取基金 [bold]{code}.OF[/bold] 全历史净值时序...[/cyan]")
+        try:
+            summary = fetcher.fetch_fund_nav(code)
+            table = Table(title=f"📈 基金净值入湖成功: {summary.fund_name} ({summary.symbol})", show_lines=True)
+            table.add_column("维度", style="cyan")
+            table.add_column("数值", style="white", justify="right")
+            table.add_column("说明", style="yellow")
+
+            table.add_row("时序跨度", f"{summary.start_date} ~ {summary.end_date}", f"共 {summary.total_nav_days:,} 个净值日")
+            table.add_row("最新单位净值", f"{summary.latest_unit_nav:.4f}", f"日变动: {summary.latest_daily_return:+.2f}%")
+            table.add_row("最新累计净值", f"{summary.latest_cum_nav:.4f}", "累计分红复权")
+            table.add_row("历史最高累计净值", f"{summary.all_time_high_nav:.4f}", "全历史峰值")
+            table.add_row("Parquet 存储", summary.parquet_path, "processed/funds/ 列式存储")
+            table.add_row("DuckDB 视图", "v_funds (已挂载)", "支持统一 SQL 检索")
+            console.print(table)
+        except Exception as e:
+            console.print(f"[red]! 拉取失败: {e}[/red]")
+        return
+
+    # 2. 批量拉取头部/指定基金
+    top_n = args.top or 10
+    console.print(f"[cyan]🚀 正在准备拉取头部旗舰基金历史净值时序 (目标: 前 {top_n} 只)...[/cyan]")
+    # 从业绩排行榜中选取代表性标的
+    rank_file = lakehouse.mart_dir / "fund_performance_snapshot.parquet"
+    target_funds = []
+    if rank_file.exists():
+        df_rank = pd.read_parquet(rank_file)
+        # 挑选主动权益头部与大盘核心
+        for _, r in df_rank.head(top_n).iterrows():
+            target_funds.append({"symbol": str(r["symbol"]), "name": str(r["fund_name"])})
+    else:
+        # 保底核心标的列表
+        target_funds = [
+            {"symbol": "000001", "name": "华夏成长混合"},
+            {"symbol": "002910", "name": "易方达供给改革混合"},
+            {"symbol": "110011", "name": "易方达中小盘混合"},
+            {"symbol": "161725", "name": "招商中证白酒指数"},
+            {"symbol": "510300", "name": "华泰柏瑞沪深300ETF"}
+        ][:top_n]
+
+    syncer = BatchFundSyncer(lakehouse, min_delay=args.delay * 0.8, max_delay=args.delay * 1.3)
+
+    def on_progress(idx, total, sym, name, status, nav):
+        if status == "SUCCESS":
+            console.print(f"[bold cyan][{idx:03d}/{total:03d}][/bold cyan] {sym} [green]{name}[/green]: [bold green]✓ 净值入湖成功[/bold green] (最新NAV: {nav:.4f})")
+        elif status == "SKIPPED":
+            console.print(f"[dim][{idx:03d}/{total:03d}] {sym} {name}: ⏭️ 已存在且最新，跳过[/dim]")
+        else:
+            console.print(f"[bold red][{idx:03d}/{total:03d}] {sym} {name}: ✗ 净值拉取失败[/bold red]")
+
+    summary = syncer.sync_funds(target_funds, limit=top_n, force=args.force, on_progress=on_progress)
+    console.print(f"[bold green]✓ 批量净值拉取完成！成功: {summary.success_count}, 跳过: {summary.skipped_count}, 累计净值样本: {summary.total_nav_days:,} 根[/bold green]")
+
+
 def cmd_export_dict(args):
     from scripts.export_master_dict import main as export_main
     export_main()
@@ -446,6 +559,18 @@ def main():
     p_all.add_argument("--status", action="store_true", help="仅查看当前湖仓与断点同步进度看板")
     p_all.add_argument("--retries", type=int, default=3, help="单标的失败重试次数 (带指数退避)")
 
+    # sync-funds-catalog
+    p_fc = subparsers.add_parser("sync-funds-catalog", help="一键同步全市场公募基金五大全景宏观档案表")
+    p_fc.add_argument("--force", action="store_true", help="强制重新拉取最新快照")
+
+    # sync-fund-nav
+    p_fnav = subparsers.add_parser("sync-fund-nav", help="拉取公募基金全历史日净值时序 (单只或批量)")
+    p_fnav.add_argument("code", nargs="?", default=None, help="单只基金代码 (例如 000001 或 002910)")
+    p_fnav.add_argument("--top", type=int, default=None, help="批量同步前 N 只头部核心基金时序")
+    p_fnav.add_argument("--delay", type=float, default=1.5, help="请求基准冷却时间 (秒)")
+    p_fnav.add_argument("--force", action="store_true", help="强制覆盖已存在时序")
+    p_fnav.add_argument("--status", action="store_true", help="查看基金净值时序同步进度看板")
+
     # export-dict
     subparsers.add_parser("export-dict", help="导出全市场主代码字典至 CSV")
 
@@ -467,6 +592,8 @@ def main():
         "advice": cmd_advice,
         "pull-index": cmd_pull_index,
         "sync-all-indices": cmd_sync_all_indices,
+        "sync-funds-catalog": cmd_sync_funds_catalog,
+        "sync-fund-nav": cmd_sync_fund_nav,
         "export-dict": cmd_export_dict,
         "sync-cache": cmd_sync_cache
     }

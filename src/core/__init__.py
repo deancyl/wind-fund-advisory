@@ -6,6 +6,7 @@ from .terminal_probe import TerminalProbe, ProcessInfo, TerminalStatus
 from .session_manager import SessionManager
 from .client_bridge import WindClientBridge
 from .batch_index_syncer import BatchIndexSyncer, BatchSyncSummary
+from .batch_fund_syncer import BatchFundSyncer, BatchFundSyncSummary
 
 __all__ = [
     "TerminalProbe",
@@ -14,5 +15,7 @@ __all__ = [
     "SessionManager",
     "WindClientBridge",
     "BatchIndexSyncer",
-    "BatchSyncSummary"
+    "BatchSyncSummary",
+    "BatchFundSyncer",
+    "BatchFundSyncSummary"
 ]
