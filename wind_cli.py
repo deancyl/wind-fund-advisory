@@ -45,6 +45,7 @@ from src.advisory.report_generator import InvestmentReportGenerator
 from src.analysis.portfolio_analyzer import PortfolioAnalyzer
 from src.advisory.portfolio_report import PortfolioReportGenerator
 from src.api.schemas import RiskProfile
+from src.toolkit import WindToolkit
 
 
 def cmd_doctor(args):
@@ -1065,6 +1066,452 @@ def cmd_report_subtext(args):
     analyzer.print_terminal_card(res)
 
 
+def cmd_lidaxiao(args):
+    """李大霄投资战略核心引擎：大势研判、组合体检与好股筛查"""
+    console = Console()
+    from scripts.lidaxiao_engine import LiDaxiaoEngine
+    engine = LiDaxiaoEngine()
+
+    action = getattr(args, "action", "market") or "market"
+    if action == "market":
+        console.print("[bold cyan]正在调用李大霄投资四面体与量化估值锚推演当前大势...[/bold cyan]")
+        market_res = engine.evaluate_market_cycle()
+        macro = market_res["macro_data"]
+
+        table = Table(title="李大霄宏观大势与估值锚看板 (DuckDB实时湖仓)", show_header=True, header_style="bold magenta")
+        table.add_column("指标", style="dim", width=20)
+        table.add_column("当前数值", style="bold white")
+        table.add_column("历史分位数 / 状态", style="bold yellow")
+
+        table.add_row("评估基准日期", macro["eval_date"], "-")
+        table.add_row("沪深300 PE", f"{macro['hs300_pe']:.2f} 倍", f"分位数 {macro['pe_percentile']:.1f}% ({market_res['pe_stage']})")
+        table.add_row("沪深300 PB", f"{macro['hs300_pb']:.2f} 倍", f"分位数 {macro['pb_percentile']:.1f}%")
+        table.add_row("10年期国债收益率", f"{macro['cn_10y_yield']:.2f}%", "极低利率磨底区")
+        table.add_row("股债差 (ERP)", f"{macro['erp']:.2f}%", f"分位数 {macro['erp_percentile']:.1f}% ({market_res['spread_status']})")
+        table.add_row("两融维持担保比", f"{macro['guarantee_ratio']:.1f}%", market_res["leverage_risk"])
+        table.add_row("周期生命阶段", market_res["lifecycle"], "重心上移中")
+        console.print(table)
+
+        console.print(Panel(
+            f"[bold green]{market_res['daxiao_quote']}[/bold green]",
+            title="[bold yellow]李大霄心语与周期定性[/bold yellow]",
+            subtitle="“做好人，买好股，得好报”"
+        ))
+
+    elif action == "portfolio":
+        console.print("[bold cyan]正在以李大霄四面体与散户进阶六阶梯体检当前组合...[/bold cyan]")
+        diag = engine.diagnose_portfolio()
+        if "error" in diag:
+            console.print(f"[red]{diag['error']}[/red]")
+            return
+
+        table = Table(title=f"组合体检: {diag.get('portfolio_name')} (总额: {diag.get('total_capital_rmb'):,.2f} 元)", show_header=True)
+        table.add_column("代码", style="cyan")
+        table.add_column("标的名称", style="bold white")
+        table.add_column("金额 (占比)", style="yellow")
+        table.add_column("状态", style="bold")
+        table.add_column("大霄属性定位", style="green")
+        table.add_column("处置指令", style="dim")
+
+        for d in diag.get("details", []):
+            st = d["status"]
+            st_color = "green" if "绿灯" in st else ("red" if "红灯" in st else "yellow")
+            table.add_row(
+                d["code"],
+                d["name"],
+                f"¥{d['amount']:,.2f} ({d['weight_pct']}%)",
+                f"[{st_color}]{st}[/{st_color}]",
+                d["daxiao_tag"],
+                d["action"]
+            )
+        console.print(table)
+        console.print(Panel(diag.get("daxiao_overall_advice", ""), title="[bold yellow]大霄四面体总评与操作心法[/bold yellow]"))
+
+    elif action == "screen":
+        console.print(f"[bold cyan]正在对标的进行李大霄好股票 vs 黑五类 8 项硬核筛查...[/bold cyan]")
+        stock_data = {
+            "name": getattr(args, "name", "测试标的") or "测试标的",
+            "market_cap_billion": getattr(args, "cap", 100.0) or 100.0,
+            "listed_years": getattr(args, "years", 5) or 5,
+            "pe": getattr(args, "pe", 10.0) or 10.0,
+            "pb": getattr(args, "pb", 0.8) or 0.8,
+            "dividend_yield_pct": getattr(args, "div", 5.0) or 5.0,
+            "dividend_consecutive_years": getattr(args, "div_years", 5) or 5,
+            "is_state_owned_or_leader": getattr(args, "so", False),
+            "investor_money_type": getattr(args, "money", "余钱") or "余钱",
+            "is_st": getattr(args, "is_st", False),
+            "is_concept_only": getattr(args, "is_concept", False),
+            "net_profit_positive_3y": True,
+            "ocf_covers_net_profit": True
+        }
+        res = engine.screen_stock(stock_data)
+        color = "green" if res["score"] >= 80 else ("red" if res["score"] < 40 else "yellow")
+        console.print(Panel(
+            f"[bold {color}]标的名称: {res['name']}  |  综合得分: {res['score']} 分[/bold {color}]\n"
+            f"[bold white]大霄结论[/bold white]: {res['verdict']}\n\n"
+            f"[bold green]优势亮点:[/bold green]\n" + ("\n".join([f"  + {g}" for g in res["green_lights"]]) if res["green_lights"] else "  无显著优势") + "\n\n"
+            f"[bold red]风险警示 / 否决项:[/bold red]\n" + ("\n".join([f"  - {r}" for r in res["red_flags"]]) if res["red_flags"] else "  无一票否决红线"),
+            title="[bold yellow]李大霄好股票决策树检测报告[/bold yellow]"
+        ))
+
+
+def cmd_watchlist(args):
+    console = Console()
+    wk = WindToolkit()
+    status = wk.get_terminal_status()
+    advisor = wk.watchlist.get_advisor_profile()
+
+    user_desc = f"{advisor.get('name', '本地投顾')} ({advisor.get('en_name', 'Coco')})" if advisor.get('en_name') else advisor.get('name', '本地投顾')
+    phone_desc = advisor.get("phone", "未登记")
+    mail_desc = advisor.get("mail", "未登记")
+    wdid_desc = advisor.get("wdid", "未登记")
+
+    console.print(Panel(
+        f"[bold white]终端状态[/bold white]: {'[bold green]在线活跃运行中[/bold green]' if status['is_running'] else '[yellow]离线脱机模式[/yellow]'}  |  "
+        f"[bold white]投顾实名[/bold white]: [bold green]{user_desc}[/bold green]  |  "
+        f"[bold white]联系方式[/bold white]: {phone_desc} / {mail_desc}\n"
+        f"[bold white]终端识别码 (WDID)[/bold white]: {wdid_desc}  |  "
+        f"[bold white]认证机构[/bold white]: {status['company']}\n"
+        f"[bold white]主进程 PID[/bold white]: {status['wmain_pid'] or 'N/A'} (WBox: {status['wbox_pid'] or 'N/A'})  |  "
+        f"[bold white]终端内存[/bold white]: {status['total_memory_mb']:.1f} MB  |  "
+        f"[bold white]用户目录[/bold white]: {status['active_user_dir']}",
+        title="[bold cyan]💼 Wind 投顾终端工作台与用户会话画像[/bold cyan]"
+    ))
+
+    # 1. 自选标的大宽表
+    df_wl = wk.watchlist.build_consolidated_watchlist()
+    if not df_wl.empty:
+        table = Table(title=f"📋 投顾自选与高频盯盘核心标的 (共 {len(df_wl)} 只)", show_lines=True)
+        table.add_column("代码", style="cyan", width=12)
+        table.add_column("标的名称", style="bold green", width=16)
+        table.add_column("资产类别", style="magenta", width=10)
+        table.add_column("市场", style="yellow", width=8)
+        table.add_column("数据来源", style="white", width=14)
+        table.add_column("画像与标记说明", style="dim", width=36)
+
+        for _, r in df_wl.iterrows():
+            table.add_row(
+                str(r["symbol"]),
+                str(r["name"]),
+                str(r["asset_class"]),
+                str(r["market"]),
+                str(r["source"]),
+                str(r.get("extra_info", ""))[:35]
+            )
+        console.print(table)
+    else:
+        console.print("[yellow]! 未探测到用户自选标的记录[/yellow]")
+
+    # 2. 技术指标画线与价格预警线
+    marks = wk.watchlist.get_marked_userlines()
+    if marks:
+        m_table = Table(title=f"📐 终端用户技术画线与盯盘预警标记 (共 {len(marks)} 项)", show_lines=True)
+        m_table.add_column("标的代码", style="cyan", width=14)
+        m_table.add_column("画线类型", style="bold magenta", width=18)
+        m_table.add_column("标记参数与预警", style="white", width=42)
+        m_table.add_column("更新时间", style="dim", width=20)
+        for m in marks[:6]:
+            m_table.add_row(m["symbol"], m.get("mark_type", "指标设置"), m["params"][:40], m["updated_time"])
+        console.print(m_table)
+
+    # 3. 调阅标签流
+    tabs = wk.watchlist.get_workbench_tabs()
+    if tabs:
+        t_table = Table(title="📑 终端活跃/最近调阅标签页流", show_lines=True)
+        t_table.add_column("标签ID", style="cyan", width=18)
+        t_table.add_column("标题/功能说明", style="bold white", width=40)
+        t_table.add_column("指令代码", style="magenta", width=10)
+        t_table.add_column("关闭时间", style="dim", width=20)
+        for t in tabs[:5]:
+            t_table.add_row(t["tab_id"][:16], t["caption"][:38], t["command_code"], t["close_time"])
+        console.print(t_table)
+
+
+def cmd_f10(args):
+    console = Console()
+    wk = WindToolkit()
+    code = args.code.strip()
+    console.print(f"[cyan]🔍 正在提取 {code} F10 财务报表、业绩增速与杜邦拆解分析...[/cyan]")
+    df_fin = wk.financials.fetch_stock_financials(code, limit=args.limit)
+    if df_fin.empty:
+        console.print(f"[yellow]! 未检索到 {code} 的财务核心数据[/yellow]")
+        return
+
+    table = Table(title=f"📊 {df_fin.iloc[0]['stock_name']} ({code}) F10 历期财务核心指标宽表", show_lines=True)
+    table.add_column("报告期", style="cyan", width=11)
+    table.add_column("报告类型", style="white", width=14)
+    table.add_column("营业总收入(亿元)", style="green", justify="right", width=15)
+    table.add_column("营收同比", style="yellow", justify="right", width=10)
+    table.add_column("归母净利(亿元)", style="bold green", justify="right", width=15)
+    table.add_column("净利同比", style="yellow", justify="right", width=10)
+    table.add_column("ROE (%)", style="magenta", justify="right", width=10)
+    table.add_column("毛利率 (%)", style="cyan", justify="right", width=10)
+    table.add_column("EPS (元)", style="white", justify="right", width=10)
+    table.add_column("BPS (元)", style="dim", justify="right", width=10)
+
+    for _, r in df_fin.iterrows():
+        table.add_row(
+            str(r["report_date"]),
+            str(r["period_type"]),
+            f"{r['total_revenue_billion']:.2f}",
+            f"{r['revenue_yoy_pct']:+.2f}%",
+            f"{r['net_profit_billion']:.2f}",
+            f"{r['net_profit_yoy_pct']:+.2f}%",
+            f"{r['roe_pct']:.2f}%",
+            f"{r['gross_margin_pct']:.2f}%",
+            f"{r['eps']:.2f}",
+            f"{r['bps']:.2f}"
+        )
+    console.print(table)
+
+    # 杜邦拆解 Panel
+    dupont = wk.financials.get_dupont_analysis(code)
+    if dupont and "dupont_formula" in dupont:
+        console.print(Panel(
+            f"[bold white]杜邦拆解公式[/bold white]: [bold green]{dupont['dupont_formula']}[/bold green]\n\n"
+            f"• [bold cyan]销售净利率 (Net Margin)[/bold cyan]: {dupont['net_margin_pct']:.2f}%  (衡量产品盈利含金量与溢价壁垒)\n"
+            f"• [bold magenta]总资产周转率 (Asset Turnover)[/bold magenta]: {dupont['asset_turnover']:.4f}  (衡量资产运营与资金周转效率)\n"
+            f"• [bold yellow]权益乘数 (Financial Leverage)[/bold yellow]: {dupont['equity_multiplier']:.2f}  (衡量资本杠杆结构与财务弹性)",
+            title=f"[bold yellow]🏆 {dupont['stock_name']} 杜邦三因子分析透视 (最新报告期: {dupont['report_date']})[/bold yellow]"
+        ))
+
+
+def cmd_dividends(args):
+    console = Console()
+    wk = WindToolkit()
+    code = args.code.strip()
+    console.print(f"[cyan]💰 正在调阅 {code} 历史现金分红送配与股息率档案...[/cyan]")
+    df_div = wk.financials.fetch_dividends(code, limit=args.limit)
+    if df_div.empty:
+        console.print(f"[yellow]! 未检索到 {code} 历史分红记录[/yellow]")
+        return
+
+    table = Table(title=f"🎁 {df_div.iloc[0]['stock_name']} ({code}) 历史分红送配与除权除息流水", show_lines=True)
+    table.add_column("分红年度", style="cyan", width=11)
+    table.add_column("分红预案方案", style="bold green", width=25)
+    table.add_column("每10股派息(元)", style="yellow", justify="right", width=14)
+    table.add_column("股息率 (%)", style="magenta", justify="right", width=11)
+    table.add_column("股权登记日", style="white", width=12)
+    table.add_column("除权除息日", style="cyan", width=12)
+    table.add_column("实施进度", style="dim", width=12)
+
+    for _, r in df_div.iterrows():
+        table.add_row(
+            str(r["report_date"]),
+            str(r["plan_desc"]),
+            f"{r['cash_dividend_10']:.2f}",
+            f"{r['dividend_yield_pct']:.2f}%",
+            str(r["record_date"]) or "-",
+            str(r["ex_dividend_date"]) or "-",
+            str(r["progress"])
+        )
+    console.print(table)
+
+
+def cmd_money_flow(args):
+    console = Console()
+    wk = WindToolkit()
+
+    # 1. 检查是否为指定单一行业精准检索
+    sector_kw = getattr(args, "sector", None)
+    if sector_kw:
+        sec_info = wk.money_flow.get_sector_flow(sector_kw)
+        if sec_info:
+            chg_style = "[green]" if sec_info["change_pct"] >= 0 else "[red]"
+            flow_style = "[bold green]" if sec_info["main_net_inflow_billion"] >= 0 else "[bold red]"
+            stk_str = f"{sec_info['top_stock_name']} ({sec_info['top_stock_code']})" if sec_info['top_stock_name'] else "-"
+            console.print(Panel(
+                f"[bold white]行业名称[/bold white]: [bold cyan]{sec_info['sector_name']}[/bold cyan] ({sec_info['sector_code']})  |  "
+                f"[bold white]最新点位[/bold white]: {sec_info['latest_index']:.1f} ({chg_style}{sec_info['change_pct']:+.2f}%[/])\n\n"
+                f"• [bold magenta]主力净流入[/bold magenta]: {flow_style}{sec_info['main_net_inflow_billion']:+.2f} 亿元[/] (占比: {sec_info['main_net_inflow_rate_pct']:+.2f}%)\n"
+                f"• [bold white]超大单净流入[/bold white]: {sec_info['super_large_inflow_billion']:+.2f} 亿元  |  "
+                f"[bold white]大单净流入[/bold white]: {sec_info['large_inflow_billion']:+.2f} 亿元\n"
+                f"• [bold white]中单净流入[/bold white]: {sec_info['medium_inflow_billion']:+.2f} 亿元  |  "
+                f"[bold white]小单净流入[/bold white]: {sec_info['small_inflow_billion']:+.2f} 亿元\n"
+                f"• [bold yellow]领涨先锋龙头股[/bold yellow]: [bold white]{stk_str}[/bold white]\n"
+                f"• [dim]更新时间: {sec_info.get('updated_at')}[/dim]",
+                title=f"📊 [bold yellow]{sec_info['sector_name']} 主力资金流向与博弈拆解[/bold yellow]"
+            ))
+            return
+        else:
+            console.print(f"[yellow]! 未检索到与 '{sector_kw}' 相关的行业资金数据[/yellow]")
+
+    # 2. 排行榜展示
+    top_n = getattr(args, "top", 15) or 15
+    is_outflow = getattr(args, "outflow", False)
+    
+    if is_outflow:
+        console.print(f"[yellow]⚠️ 正在检索主力资金净流出排行榜 TOP {top_n} 行业...[/yellow]")
+        df = wk.money_flow.get_top_outflow_sectors(top_n=top_n)
+        title = f"🔻 全市场行业板块主力净流出避险警示榜 TOP {top_n}"
+    else:
+        console.print(f"[cyan]🚀 正在检索主力资金净流入排行榜 TOP {top_n} 行业...[/cyan]")
+        df = wk.money_flow.get_top_inflow_sectors(top_n=top_n)
+        title = f"🟢 全市场行业板块主力净流入先锋榜 TOP {top_n}"
+
+    if df.empty:
+        console.print("[yellow]! 未获取到行业资金流向数据[/yellow]")
+        return
+
+    table = Table(title=title, show_lines=True)
+    table.add_column("板块代码", style="cyan", width=10)
+    table.add_column("行业名称", style="bold green", width=14)
+    table.add_column("最新指数", style="white", justify="right", width=10)
+    table.add_column("涨跌幅", style="yellow", justify="right", width=10)
+    table.add_column("主力净流入(亿)", style="bold magenta", justify="right", width=14)
+    table.add_column("主力占比", style="magenta", justify="right", width=10)
+    table.add_column("超大单(亿)", style="dim", justify="right", width=11)
+    table.add_column("大单(亿)", style="dim", justify="right", width=11)
+    table.add_column("领涨龙头股票", style="bold white", width=16)
+
+    for _, r in df.iterrows():
+        chg_style = "[green]" if r["change_pct"] >= 0 else "[red]"
+        flow_style = "[bold green]" if r["main_net_inflow_billion"] >= 0 else "[bold red]"
+        stk_str = f"{r['top_stock_name']} ({r['top_stock_code']})" if r['top_stock_name'] else "-"
+        table.add_row(
+            str(r["sector_code"]),
+            str(r["sector_name"]),
+            f"{r['latest_index']:.1f}",
+            f"{chg_style}{r['change_pct']:+.2f}%[/]",
+            f"{flow_style}{r['main_net_inflow_billion']:+.2f}[/]",
+            f"{r['main_net_inflow_rate_pct']:+.2f}%",
+            f"{r['super_large_inflow_billion']:+.2f}",
+            f"{r['large_inflow_billion']:+.2f}",
+            stk_str
+        )
+    console.print(table)
+
+
+def cmd_yield_curve(args):
+    console = Console()
+    wk = WindToolkit()
+    console.print("[cyan]📈 正在解析中债官方国债收益率曲线与期限利差形态...[/cyan]")
+    curve = wk.bonds.get_latest_yield_curve()
+    analysis = wk.bonds.get_term_spreads_analysis()
+
+    if not curve:
+        console.print("[yellow]! 未获取到中债收益率曲线时序[/yellow]")
+        return
+
+    table = Table(title=f"🏛️ 中债国债各期限收益率基准曲线 (最新定价日: {curve.get('date')})", show_lines=True)
+    table.add_column("关键期限", style="cyan", width=10)
+    table.add_column("收益率 (%)", style="bold green", justify="right", width=12)
+    table.add_column("期限属性与市场功能", style="dim", width=35)
+
+    tenors = [
+        ("3月 (3M)", curve.get("y_3m", 0.0), "超短端货币市场资金与央行逆回购对标"),
+        ("6月 (6M)", curve.get("y_6m", 0.0), "半年度宏观流动性基准"),
+        ("1年 (1Y)", curve.get("y_1y", 0.0), "短端存单定价与 MLF 政策锚"),
+        ("3年 (3Y)", curve.get("y_3y", 0.0), "中短久期纯债与固收增强组合核心底仓"),
+        ("5年 (5Y)", curve.get("y_5y", 0.0), "中期基准利率与企业中长贷中枢"),
+        ("7年 (7Y)", curve.get("y_7y", 0.0), "长端利率债过渡期限"),
+        ("10年 (10Y)", curve.get("y_10y", 0.0), "无风险利率绝对中枢与大类资产定价之锚"),
+        ("30年 (30Y)", curve.get("y_30y", 0.0), "超长久期资产负债久期对冲与险资配置标的"),
+    ]
+    for t in tenors:
+        table.add_row(t[0], f"{t[1]:.4f}%", t[2])
+    console.print(table)
+
+    console.print(Panel(
+        f"[bold white]10Y - 1Y 国债基准期限利差[/bold white]: [bold magenta]{analysis.get('term_spread_10y_1y_bp'):.2f} bp[/bold magenta]  |  "
+        f"[bold white]10Y - 3Y 期限利差[/bold white]: [bold cyan]{analysis.get('term_spread_10y_3y_bp', 0.0):.2f} bp[/bold cyan]\n"
+        f"[bold white]30Y - 10Y 超长端利差[/bold white]: [bold yellow]{analysis.get('term_spread_30y_10y_bp'):.2f} bp[/bold yellow]  |  "
+        f"[bold white]3Y AAA 信用利差[/bold white]: [bold cyan]{analysis.get('credit_spread_3y_aaa_bp'):.2f} bp[/bold cyan]\n"
+        f"[bold white]收益率曲线形态定性[/bold white]: [bold green]{analysis.get('curve_regime')}[/bold green]\n\n"
+        f"[bold white]投顾配置策略建议[/bold white]:\n{analysis.get('advisory_recommendation')}",
+        title="[bold yellow]⚖️ 宏观固定收益环境与利差风险监测[/bold yellow]"
+    ))
+
+
+def cmd_etf_flow(args):
+    console = Console()
+    wk = WindToolkit()
+    top_n = getattr(args, "top", 15) or 15
+    category = getattr(args, "category", None)
+    is_outflow = getattr(args, "outflow", False)
+
+    if is_outflow:
+        console.print(f"[yellow]⚠️ 正在检索 ETF 资金净流出排行榜 TOP {top_n}...[/yellow]")
+        df = wk.etf.get_top_outflow_etfs(top_n=top_n, category=category)
+        title = f"🔻 全市场场内 ETF 资金净流出赎回榜 TOP {top_n}"
+    else:
+        console.print(f"[cyan]🚀 正在检索 ETF 资金净流入排行榜 TOP {top_n}...[/cyan]")
+        df = wk.etf.get_top_inflow_etfs(top_n=top_n, category=category)
+        title = f"🟢 全市场场内 ETF 资金净流入申购榜 TOP {top_n}"
+
+    if df.empty:
+        console.print("[yellow]! 未获取到 ETF 份额与资金流数据[/yellow]")
+        return
+
+    table = Table(title=title, show_lines=True)
+    table.add_column("代码", style="cyan", width=8)
+    table.add_column("ETF简称", style="bold green", width=18)
+    table.add_column("交易所", style="dim", width=8)
+    table.add_column("大类属性", style="magenta", width=10)
+    table.add_column("最新份额(亿份)", style="white", justify="right", width=14)
+    table.add_column("单位净值", style="yellow", justify="right", width=10)
+    table.add_column("估算规模(亿)", style="cyan", justify="right", width=12)
+    table.add_column("单日份额变动(万份)", style="dim", justify="right", width=16)
+    table.add_column("估算净流入(亿)", style="bold magenta", justify="right", width=14)
+
+    for _, r in df.iterrows():
+        flow_style = "[bold green]" if r["est_net_inflow_billion"] >= 0 else "[bold red]"
+        table.add_row(
+            str(r["etf_code"]),
+            str(r["etf_name"]),
+            str(r["market"]),
+            str(r["category"]),
+            f"{r['shares_billion']:.2f}",
+            f"{r['nav']:.4f}",
+            f"{r['aum_billion']:.2f}",
+            f"{r['shares_change_1d_million']:+.2f}",
+            f"{flow_style}{r['est_net_inflow_billion']:+.2f}[/]"
+        )
+    console.print(table)
+
+    # 打印大类流向聚类汇总
+    df_cat = wk.etf.get_category_flow_summary()
+    if not df_cat.empty:
+        c_table = Table(title="📦 ETF 各大类资产资金流动聚类看板", show_lines=True)
+        c_table.add_column("大类属性", style="bold cyan", width=12)
+        c_table.add_column("ETF只数", style="white", justify="right", width=10)
+        c_table.add_column("总规模(亿元)", style="green", justify="right", width=14)
+        c_table.add_column("当日净流入合计(亿元)", style="bold magenta", justify="right", width=18)
+        for _, cr in df_cat.iterrows():
+            c_flow_style = "[green]" if cr["total_net_inflow_billion"] >= 0 else "[red]"
+            c_table.add_row(
+                str(cr["category"]),
+                str(cr["etf_count"]),
+                f"{cr['total_aum_billion']:.2f}",
+                f"{c_flow_style}{cr['total_net_inflow_billion']:+.2f}[/]"
+            )
+        console.print(c_table)
+
+
+def cmd_sync_toolkit(args):
+    console = Console()
+    wk = WindToolkit()
+    force = getattr(args, "force", False)
+    console.print("[bold cyan]🔄 开始一键执行 WindToolkit 全量投顾数据集同步入湖...[/bold cyan]")
+    res = wk.sync_all(force=force)
+    table = Table(title="🎉 WindToolkit 数据集同步落盘报告", show_lines=True)
+    table.add_column("数据集", style="cyan", width=22)
+    table.add_column("对应湖仓 Parquet 文件", style="dim", width=36)
+    table.add_column("对应 DuckDB 视图", style="magenta", width=22)
+    table.add_column("本次沉淀记录数", style="bold green", justify="right", width=16)
+
+    mapping = [
+        ("user_watchlist", "master/user_watchlist.parquet", "v_user_watchlist"),
+        ("stock_financials", "mart/stock_financials.parquet", "v_stock_financials / v_stock_dividends"),
+        ("sector_money_flow", "mart/sector_money_flow.parquet", "v_sector_money_flow"),
+        ("chinabond_yield_curve", "macro/chinabond_yield_curve.parquet", "v_chinabond_yield_curve"),
+        ("etf_flows", "mart/etf_flows.parquet", "v_etf_flows"),
+    ]
+    for key, p, v in mapping:
+        table.add_row(key, p, v, str(res.get(key, 0)))
+    console.print(table)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Wind 投顾终端机制解析与智能投顾建议系统 CLI")
     subparsers = parser.add_subparsers(dest="subcommand", help="子命令")
@@ -1174,6 +1621,53 @@ def main():
     p_rst.add_argument("code", help="股票代码 (例如 600519, 300750, 000001)")
     p_rst.add_argument("--limit", type=int, default=30, help="分析样本研报条数 (默认 30)")
 
+    # lidaxiao
+    p_lida = subparsers.add_parser("lidaxiao", help="李大霄投资战略核心引擎：大势宏观估值研判、组合体检与好股8项筛查")
+    p_lida.add_argument("action", nargs="?", default="market", choices=["market", "portfolio", "screen"], help="操作模式: market (默认大势) | portfolio (组合体检) | screen (好股筛查)")
+    p_lida.add_argument("--name", default="测试标的", help="股票名称")
+    p_lida.add_argument("--cap", type=float, default=100.0, help="总市值(亿元)")
+    p_lida.add_argument("--years", type=int, default=5, help="上市年数")
+    p_lida.add_argument("--pe", type=float, default=10.0, help="PE市盈率")
+    p_lida.add_argument("--pb", type=float, default=0.8, help="PB市净率")
+    p_lida.add_argument("--div", type=float, default=5.0, help="股息率(%)")
+    p_lida.add_argument("--div-years", type=int, default=5, help="连续现金分红年数")
+    p_lida.add_argument("--so", action="store_true", help="是否央企/国企/龙头")
+    p_lida.add_argument("--money", default="余钱", choices=["余钱", "急钱", "杠杆"], help="资金性质")
+    p_lida.add_argument("--is-st", action="store_true", help="是否ST/*ST垃圾股")
+    p_lida.add_argument("--is-concept", action="store_true", help="是否纯概念题材股")
+
+    # watchlist
+    subparsers.add_parser("watchlist", help="查看当前登录投顾用户的自选标的、最近调阅、工作台标签与配置")
+
+    # f10
+    p_f10 = subparsers.add_parser("f10", help="查询股票/基金 F10 财务核心指标与杜邦拆解分析")
+    p_f10.add_argument("code", help="股票代码 (例如 600519 或 000858)")
+    p_f10.add_argument("--limit", type=int, default=6, help="返回历史期数限制")
+
+    # dividends
+    p_div = subparsers.add_parser("dividends", help="查询股票历史现金分红送配、股息率与除权除息日历")
+    p_div.add_argument("code", help="股票代码 (例如 600519)")
+    p_div.add_argument("--limit", type=int, default=8, help="返回历史分红期数限制")
+
+    # money-flow
+    p_mf = subparsers.add_parser("money-flow", help="全市场申万/万得行业板块主力资金流向监控与排行")
+    p_mf.add_argument("--top", type=int, default=15, help="排行榜前 N 条记录")
+    p_mf.add_argument("--sector", default=None, help="查询指定行业板块资金流 (例如 煤炭, 银行, 汽车, 半导体)")
+    p_mf.add_argument("--outflow", action="store_true", help="按主力资金净流出排行 (避险警示)")
+
+    # yield-curve
+    subparsers.add_parser("yield-curve", help="查询中债国债官方基准收益率曲线全期限形态与利差监控")
+
+    # etf-flow
+    p_etf = subparsers.add_parser("etf-flow", help="全市场场内 ETF 份额变动与估算资金净流动排行")
+    p_etf.add_argument("--top", type=int, default=15, help="排行榜前 N 条记录")
+    p_etf.add_argument("--category", choices=["宽基ETF", "行业主题", "策略红利", "跨境QDII", "固收商品"], default=None, help="筛选指定大类资产")
+    p_etf.add_argument("--outflow", action="store_true", help="按资金净流出排行 (赎回警示)")
+
+    # sync-toolkit
+    p_stk = subparsers.add_parser("sync-toolkit", help="一键批量增量同步 WindToolkit 全量投顾数据集入湖")
+    p_stk.add_argument("--force", action="store_true", help="强制覆盖已存在数据并刷新")
+
     if len(sys.argv) == 1:
         parser.print_help()
         return
@@ -1201,7 +1695,15 @@ def main():
         "portfolio": cmd_portfolio,
         "sync-reports": cmd_sync_reports,
         "reports": cmd_reports,
-        "report-subtext": cmd_report_subtext
+        "report-subtext": cmd_report_subtext,
+        "lidaxiao": cmd_lidaxiao,
+        "watchlist": cmd_watchlist,
+        "f10": cmd_f10,
+        "dividends": cmd_dividends,
+        "money-flow": cmd_money_flow,
+        "yield-curve": cmd_yield_curve,
+        "etf-flow": cmd_etf_flow,
+        "sync-toolkit": cmd_sync_toolkit
     }
 
     if args.subcommand in cmds:

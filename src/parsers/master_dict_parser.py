@@ -62,14 +62,40 @@ class MasterDictParser:
             
             # 分类与市场识别
             suffix = symbol.split(".")[-1]
+            code = symbol.split(".")[0]
             if suffix == "OF":
                 asset_class = "fund"
-            elif suffix in ("SH", "SZ", "BJ"):
-                if symbol.startswith(("000", "399")) and suffix in ("SH", "SZ"):
-                    # 可能是指数
-                    asset_class = "index" if any(k in name for k in ["指数", "全指", "综指", "成指", "300", "500", "1000"]) else "stock"
+            elif suffix == "SH":
+                if code.startswith("000"):
+                    asset_class = "index"
+                elif code.startswith(("51", "56", "58")) or "ETF" in name.upper():
+                    asset_class = "etf"
+                elif code.startswith(("01", "11", "12", "13", "14")) or any(k in name for k in ["转债", "国债", "企债"]):
+                    asset_class = "bond"
+                elif code.startswith("50"):
+                    asset_class = "fund"
                 else:
                     asset_class = "stock"
+            elif suffix == "SZ":
+                if code.startswith("399"):
+                    asset_class = "index"
+                elif code.startswith("15") or "ETF" in name.upper():
+                    asset_class = "etf"
+                elif code.startswith(("10", "11", "12", "13", "14")) or any(k in name for k in ["转债", "国债", "企债"]):
+                    asset_class = "bond"
+                elif code.startswith(("16", "18")):
+                    asset_class = "fund"
+                else:
+                    asset_class = "stock"
+            elif suffix == "BJ":
+                if code.startswith("899"):
+                    asset_class = "index"
+                else:
+                    asset_class = "stock"
+            elif suffix in ("CSI", "CNI", "WI", "GI"):
+                asset_class = "index"
+            elif suffix in ("CFE", "SHF", "CZC", "DCE", "INE"):
+                asset_class = "futures"
             elif suffix == "HK":
                 asset_class = "hk_stock"
             else:

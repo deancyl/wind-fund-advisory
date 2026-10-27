@@ -199,6 +199,139 @@ class LakehouseManager:
         return pd.read_parquet(target_path)
 
     # -------------------------------------------------------------
+    # 扩展投顾数据集管理 (自选、F10财务、分红、行业资金流、中债曲线、ETF流动)
+    # -------------------------------------------------------------
+
+    def upsert_user_watchlist(self, df: pd.DataFrame) -> Path:
+        """保存用户自选与工作台监控标的"""
+        target_path = self.master_dir / "user_watchlist.parquet"
+        df.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_user_watchlist(self) -> Optional[pd.DataFrame]:
+        """读取用户自选与工作台监控标的"""
+        target_path = self.master_dir / "user_watchlist.parquet"
+        if not target_path.exists():
+            return None
+        return pd.read_parquet(target_path)
+
+    def upsert_stock_financials(self, symbol: str, df: pd.DataFrame) -> Path:
+        """增量合并股票/基金 F10 财务指标宽表至 mart/stock_financials.parquet"""
+        target_path = self.mart_dir / "stock_financials.parquet"
+        if df.empty:
+            return target_path
+        df_in = df.copy()
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df_in], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["symbol", "report_date"], keep="last")
+            except Exception:
+                merged = df_in
+        else:
+            merged = df_in
+        merged = merged.sort_values(["symbol", "report_date"], ascending=[True, False]).reset_index(drop=True)
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_stock_financials(self, symbol: Optional[str] = None) -> Optional[pd.DataFrame]:
+        """读取 F10 财务核心指标"""
+        target_path = self.mart_dir / "stock_financials.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if symbol:
+            import re
+            clean_code = re.sub(r"[^\d]", "", symbol).zfill(6)
+            matched = df[df["symbol"].str.contains(clean_code, na=False)]
+            return matched.reset_index(drop=True)
+        return df
+
+    def upsert_stock_dividends(self, symbol: str, df: pd.DataFrame) -> Path:
+        """增量合并历史分红送配与股息率记录至 mart/stock_dividends.parquet"""
+        target_path = self.mart_dir / "stock_dividends.parquet"
+        if df.empty:
+            return target_path
+        df_in = df.copy()
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df_in], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["symbol", "report_date", "plan_desc"], keep="last")
+            except Exception:
+                merged = df_in
+        else:
+            merged = df_in
+        merged = merged.sort_values(["symbol", "report_date"], ascending=[True, False]).reset_index(drop=True)
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_stock_dividends(self, symbol: Optional[str] = None) -> Optional[pd.DataFrame]:
+        """读取历史分红送配记录"""
+        target_path = self.mart_dir / "stock_dividends.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if symbol:
+            import re
+            clean_code = re.sub(r"[^\d]", "", symbol).zfill(6)
+            matched = df[df["symbol"].str.contains(clean_code, na=False)]
+            return matched.reset_index(drop=True)
+        return df
+
+    def upsert_sector_money_flow(self, df: pd.DataFrame) -> Path:
+        """保存行业板块主力资金流向至 mart/sector_money_flow.parquet"""
+        target_path = self.mart_dir / "sector_money_flow.parquet"
+        df.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_sector_money_flow(self) -> Optional[pd.DataFrame]:
+        """读取行业板块主力资金流向"""
+        target_path = self.mart_dir / "sector_money_flow.parquet"
+        if not target_path.exists():
+            return None
+        return pd.read_parquet(target_path)
+
+    def upsert_chinabond_yield_curve(self, df: pd.DataFrame) -> Path:
+        """保存中债国债与信用债收益率曲线至 macro/chinabond_yield_curve.parquet"""
+        target_path = self.macro_dir / "chinabond_yield_curve.parquet"
+        if df.empty:
+            return target_path
+        df_in = df.copy()
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df_in], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["date", "curve_name"], keep="last")
+            except Exception:
+                merged = df_in
+        else:
+            merged = df_in
+        merged = merged.sort_values("date").reset_index(drop=True)
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_chinabond_yield_curve(self) -> Optional[pd.DataFrame]:
+        """读取中债收益率曲线"""
+        target_path = self.macro_dir / "chinabond_yield_curve.parquet"
+        if not target_path.exists():
+            return None
+        return pd.read_parquet(target_path)
+
+    def upsert_etf_flows(self, df: pd.DataFrame) -> Path:
+        """保存 ETF 份额与资金流动数据至 mart/etf_flows.parquet"""
+        target_path = self.mart_dir / "etf_flows.parquet"
+        df.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_etf_flows(self) -> Optional[pd.DataFrame]:
+        """读取 ETF 份额与资金流动数据"""
+        target_path = self.mart_dir / "etf_flows.parquet"
+        if not target_path.exists():
+            return None
+        return pd.read_parquet(target_path)
+
+    # -------------------------------------------------------------
     # DuckDB 视图与统一 SQL 查询引擎
     # -------------------------------------------------------------
 
@@ -211,123 +344,58 @@ class LakehouseManager:
         - v_winrate: 挂载 mart/strategy_winrate.parquet (若存在)
         """
         conn = duckdb.connect(str(self.db_path))
+        try:
+            self._register_views_on_connection(conn)
+        finally:
+            conn.close()
 
-        # 1. v_funds 视图
+    def _register_views_on_connection(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """在指定的 DuckDB 连接上统一注册全量湖仓 SQL 视图"""
+        # 1. v_funds 视图 (通配扫描所有 processed/funds/*.parquet)
         fund_parquets = list(self.funds_dir.glob("*.parquet"))
         if fund_parquets:
             pattern = str(self.funds_dir / "*.parquet").replace("\\", "/")
             conn.execute(f"CREATE OR REPLACE VIEW v_funds AS SELECT * FROM read_parquet('{pattern}', union_by_name=true)")
 
-        # 2. v_indices 视图
+        # 2. v_indices 视图 (通配扫描所有 processed/indices/*.parquet)
         index_parquets = list(self.indices_dir.glob("*.parquet"))
         if index_parquets:
             pattern = str(self.indices_dir / "*.parquet").replace("\\", "/")
             conn.execute(f"CREATE OR REPLACE VIEW v_indices AS SELECT * FROM read_parquet('{pattern}', union_by_name=true)")
 
-        # 3. v_scorecards 视图
-        sc_path = self.mart_dir / "fund_scorecards.parquet"
-        if sc_path.exists():
-            pattern = str(sc_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_scorecards AS SELECT * FROM read_parquet('{pattern}')")
+        # 3. 基础集市与主表视图映射
+        view_mappings = [
+            ("v_scorecards", self.mart_dir / "fund_scorecards.parquet"),
+            ("v_winrate", self.mart_dir / "strategy_winrate.parquet"),
+            ("v_fund_catalog", self.master_dir / "fund_catalog.parquet"),
+            ("v_fund_snapshot", self.mart_dir / "fund_performance_snapshot.parquet"),
+            ("v_fund_ratings", self.mart_dir / "fund_ratings.parquet"),
+            ("v_fund_managers", self.master_dir / "fund_managers.parquet"),
+            ("v_etfs", self.master_dir / "etf_catalog.parquet"),
+            ("v_macro_rates", self.macro_dir / "bond_zh_us_rate.parquet"),
+            ("v_margin_trading", self.macro_dir / "margin_trading.parquet"),
+            ("v_macro_money", self.macro_dir / "money_supply.parquet"),
+            ("v_macro_pmi", self.macro_dir / "pmi.parquet"),
+            ("v_index_valuations", self.mart_dir / "index_valuations.parquet"),
+            ("v_market_temperature", self.mart_dir / "market_temperature.parquet"),
+            ("v_global_indices", self.global_dir / "global_indices.parquet"),
+            ("v_global_fx", self.global_dir / "fx_rates.parquet"),
+            ("v_global_commodities", self.global_dir / "commodities.parquet"),
+            ("v_global_linkage", self.mart_dir / "global_linkage_metrics.parquet"),
+            ("v_fund_trading_rules", self.master_dir / "fund_trading_rules.parquet"),
+            ("v_research_reports", self.research_dir / "research_reports.parquet"),
+            ("v_user_watchlist", self.master_dir / "user_watchlist.parquet"),
+            ("v_stock_financials", self.mart_dir / "stock_financials.parquet"),
+            ("v_stock_dividends", self.mart_dir / "stock_dividends.parquet"),
+            ("v_sector_money_flow", self.mart_dir / "sector_money_flow.parquet"),
+            ("v_chinabond_yield_curve", self.macro_dir / "chinabond_yield_curve.parquet"),
+            ("v_etf_flows", self.mart_dir / "etf_flows.parquet"),
+        ]
 
-        # 4. v_winrate 视图
-        wr_path = self.mart_dir / "strategy_winrate.parquet"
-        if wr_path.exists():
-            pattern = str(wr_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_winrate AS SELECT * FROM read_parquet('{pattern}')")
-
-        # 5. 全市场基金全景大宽表视图
-        cat_path = self.master_dir / "fund_catalog.parquet"
-        if cat_path.exists():
-            pattern = str(cat_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_fund_catalog AS SELECT * FROM read_parquet('{pattern}')")
-
-        snap_path = self.mart_dir / "fund_performance_snapshot.parquet"
-        if snap_path.exists():
-            pattern = str(snap_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_fund_snapshot AS SELECT * FROM read_parquet('{pattern}')")
-
-        rating_path = self.mart_dir / "fund_ratings.parquet"
-        if rating_path.exists():
-            pattern = str(rating_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_fund_ratings AS SELECT * FROM read_parquet('{pattern}')")
-
-        mgr_path = self.master_dir / "fund_managers.parquet"
-        if mgr_path.exists():
-            pattern = str(mgr_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_fund_managers AS SELECT * FROM read_parquet('{pattern}')")
-
-        etf_path = self.master_dir / "etf_catalog.parquet"
-        if etf_path.exists():
-            pattern = str(etf_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_etfs AS SELECT * FROM read_parquet('{pattern}')")
-
-        # 6. 宏观利率与流动性视图
-        rate_path = self.macro_dir / "bond_zh_us_rate.parquet"
-        if rate_path.exists():
-            pattern = str(rate_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_macro_rates AS SELECT * FROM read_parquet('{pattern}')")
-
-        margin_path = self.macro_dir / "margin_trading.parquet"
-        if margin_path.exists():
-            pattern = str(margin_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_margin_trading AS SELECT * FROM read_parquet('{pattern}')")
-
-        money_path = self.macro_dir / "money_supply.parquet"
-        if money_path.exists():
-            pattern = str(money_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_macro_money AS SELECT * FROM read_parquet('{pattern}')")
-
-        pmi_path = self.macro_dir / "pmi.parquet"
-        if pmi_path.exists():
-            pattern = str(pmi_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_macro_pmi AS SELECT * FROM read_parquet('{pattern}')")
-
-        # 7. 市场估值与温度计视图
-        val_path = self.mart_dir / "index_valuations.parquet"
-        if val_path.exists():
-            pattern = str(val_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_index_valuations AS SELECT * FROM read_parquet('{pattern}')")
-
-        temp_path = self.mart_dir / "market_temperature.parquet"
-        if temp_path.exists():
-            pattern = str(temp_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_market_temperature AS SELECT * FROM read_parquet('{pattern}')")
-
-        # 8. 全球宏观资产与联动视图
-        g_idx_path = self.global_dir / "global_indices.parquet"
-        if g_idx_path.exists():
-            pattern = str(g_idx_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_global_indices AS SELECT * FROM read_parquet('{pattern}')")
-
-        g_fx_path = self.global_dir / "fx_rates.parquet"
-        if g_fx_path.exists():
-            pattern = str(g_fx_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_global_fx AS SELECT * FROM read_parquet('{pattern}')")
-
-        g_comm_path = self.global_dir / "commodities.parquet"
-        if g_comm_path.exists():
-            pattern = str(g_comm_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_global_commodities AS SELECT * FROM read_parquet('{pattern}')")
-
-        g_link_path = self.mart_dir / "global_linkage_metrics.parquet"
-        if g_link_path.exists():
-            pattern = str(g_link_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_global_linkage AS SELECT * FROM read_parquet('{pattern}')")
-
-        # 9. 基金交易规则与费率全景视图
-        rules_path = self.master_dir / "fund_trading_rules.parquet"
-        if rules_path.exists():
-            pattern = str(rules_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_fund_trading_rules AS SELECT * FROM read_parquet('{pattern}')")
-
-        # 10. 卖方研报与深度研究视图
-        reports_path = self.research_dir / "research_reports.parquet"
-        if reports_path.exists():
-            pattern = str(reports_path).replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_research_reports AS SELECT * FROM read_parquet('{pattern}')")
-
-        conn.close()
+        for view_name, p in view_mappings:
+            if p.exists():
+                pattern = str(p).replace("\\", "/")
+                conn.execute(f"CREATE OR REPLACE VIEW {view_name} AS SELECT * FROM read_parquet('{pattern}')")
 
     def query_sql(self, sql: str) -> pd.DataFrame:
         """使用 DuckDB 对湖仓数据执行即席 SQL 查询 (具备并发只读与多进程独占锁自愈兜底)"""
@@ -349,15 +417,10 @@ class LakehouseManager:
                 if attempt < 2 and "Cannot open file" in str(e):
                     time.sleep(0.15)
                     continue
-                # 独占锁异常时，无缝内存视图降级兜底
+                # 独占锁异常时，无缝内存视图降级兜底 (注册全量视图，绝不漏缺任何表)
                 mem_conn = duckdb.connect(":memory:")
                 try:
-                    rep_path = str(self.research_dir / "research_reports.parquet").replace("\\", "/")
-                    if (self.research_dir / "research_reports.parquet").exists():
-                        mem_conn.execute(f"CREATE OR REPLACE VIEW v_research_reports AS SELECT * FROM read_parquet('{rep_path}')")
-                    r_path = str(self.master_dir / "fund_trading_rules.parquet").replace("\\", "/")
-                    if (self.master_dir / "fund_trading_rules.parquet").exists():
-                        mem_conn.execute(f"CREATE OR REPLACE VIEW v_fund_trading_rules AS SELECT * FROM read_parquet('{r_path}')")
+                    self._register_views_on_connection(mem_conn)
                     return mem_conn.execute(sql).df()
                 finally:
                     mem_conn.close()

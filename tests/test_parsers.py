@@ -27,6 +27,16 @@ def test_master_dict_parser():
     assert record is not None
     assert record.name == "平安银行"
     assert record.market == "SZ"
+    assert record.asset_class == "stock"
+
+    # 验证指数与 ETF 分类识别
+    kc50 = parser.get("000688.SH")
+    if kc50:
+        assert kc50.asset_class == "index"
+
+    etf_rec = parser.get("512890.SH")
+    if etf_rec:
+        assert etf_rec.asset_class == "etf"
 
     search_res = parser.search("茅台", limit=5)
     assert len(search_res) > 0
