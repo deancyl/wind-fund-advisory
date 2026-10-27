@@ -29,6 +29,7 @@ from src.core.batch_index_syncer import BatchIndexSyncer
 from src.parsers.fund_catalog import FundCatalogManager
 from src.parsers.fund_nav_fetcher import FundNAVFetcher
 from src.core.batch_fund_syncer import BatchFundSyncer
+from src.parsers.fund_rules_collector import FundTradingRulesCollector
 from src.parsers.market_data_collector import MarketDataCollector
 from src.parsers.global_market_collector import GlobalMarketCollector
 from src.analysis.market_temperature import MarketTemperatureAnalyzer
@@ -111,7 +112,130 @@ def cmd_analyze(args):
     table.add_row("夏普比率 (Sharpe)", f"{card.sharpe_ratio}", "超额收益与总风险比")
     table.add_row("卡玛比率 (Calmar)", f"{card.calmar_ratio}", "收益对回撤比率")
 
+    # 附带交易规则与费率摘要
+    rule_info = lakehouse.get_fund_trading_rule(code)
+    if rule_info:
+        pur_status = rule_info.get("purchase_status", "未知")
+        red_status = rule_info.get("redemption_status", "未知")
+        min_pur = rule_info.get("min_purchase_amount", 10.0)
+        daily_lim = rule_info.get("daily_limit_amount", 1e11)
+        lim_str = "无限额" if daily_lim >= 1e8 else f"{daily_lim:,.0f}元"
+        op_fee = rule_info.get("est_total_operating_fee", 1.40)
+        pur_fee = rule_info.get("discount_purchase_fee_pct", 0.15)
+
+        table.add_row("申购/赎回准入状态", f"{pur_status} / {red_status}", f"单日限额: {lim_str}")
+        table.add_row("起购金额 / 代销费率", f"起点 {min_pur:.2f}元", f"申购手续费: {pur_fee:.2f}% (优惠)")
+        table.add_row("综合年化运作费率", f"{op_fee:.2f}% / 年", f"管理+托管+销售服务费 (每日计提)")
+
     console.print(table)
+
+
+def cmd_sync_fund_rules(args):
+    console = Console()
+    console.print(Panel(
+        "[bold cyan]启动全市场公募基金交易规则与全景费率全量同步管道[/bold cyan]\n"
+        "[dim]覆盖范围: 全市场 27,000+ 只开放式基金 (申购状态/赎回状态/购买起点/日累计限额/手续费/下一开放日/运作费率)[/dim]",
+        title="📋 基金交易规则与全景费率入湖",
+        expand=False
+    ))
+
+    collector = FundTradingRulesCollector()
+    summary = collector.sync_all_trading_rules(delay=args.delay)
+
+    table = Table(title="📋 公募基金交易规则与费率入湖看板", show_lines=True)
+    table.add_column("统计维度", style="cyan")
+    table.add_column("样本数量", style="bold green", justify="right")
+    table.add_column("占比 / 状态", style="yellow")
+    table.add_column("说明与投顾影响", style="white")
+
+    table.add_row("全市场公募基金总数", f"{summary.total_funds:,} 只", "100.0%", "涵盖全部开放式及定期开放公募基金")
+    p_pct = f"{summary.purchase_allowed_count / summary.total_funds * 100:.1f}%"
+    table.add_row("正常开放申购标的", f"{summary.purchase_allowed_count:,} 只", p_pct, "可直接买入/定投配置的核心底仓池")
+    r_pct = f"{summary.redemption_allowed_count / summary.total_funds * 100:.1f}%"
+    table.add_row("正常开放赎回标的", f"{summary.redemption_allowed_count:,} 只", r_pct, "流动性充沛，支持实时申请赎回")
+    l_pct = f"{summary.large_amount_limited_count / summary.total_funds * 100:.1f}%"
+    table.add_row("暂停大额申购标的 (限额)", f"{summary.large_amount_limited_count:,} 只", l_pct, "高人气绩优基金保护策略规模与持有人利益")
+
+    console.print(table)
+    console.print(f"[bold green]✓ 全市场基金交易规则表已成功落盘至 data/master/fund_trading_rules.parquet！[/bold green]")
+    console.print(f"[dim]DuckDB 统一视图: v_fund_trading_rules[/dim]")
+
+
+def cmd_fund_rule(args):
+    console = Console()
+    code = args.code.strip().upper()
+    console.print(f"[cyan]正在深度调阅基金 [bold]{code}[/bold] 的交易规则与全景阶梯费率...[/cyan]")
+
+    collector = FundTradingRulesCollector()
+    fee_struct = collector.get_fund_detailed_fee_structure(code)
+
+    if not fee_struct:
+        lakehouse = LakehouseManager()
+        rule = lakehouse.get_fund_trading_rule(code)
+        if not rule:
+            console.print(f"[red]! 未在本地规则库中检索到基金 {code} 的交易信息，请先运行: python wind_cli.py sync-fund-rules[/red]")
+            return
+        # 降级展示基准规则
+        console.print(Panel(
+            f"[bold white]基金代码[/bold white]: {rule.get('wind_code')} ({rule.get('symbol')})\n"
+            f"[bold white]基金简称[/bold white]: {rule.get('fund_name')}  |  类型: {rule.get('fund_type')}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"申购状态: [bold green]{rule.get('purchase_status')}[/bold green]  |  赎回状态: [bold green]{rule.get('redemption_status')}[/bold green]\n"
+            f"购买起点: {rule.get('min_purchase_amount', 10.0):.2f}元  |  单日限额: {'无限额' if rule.get('daily_limit_amount', 1e11) >= 1e8 else str(rule.get('daily_limit_amount')) + '元'}\n"
+            f"预估年化运作费率: {rule.get('est_total_operating_fee', 1.40):.2f}% (管理费 {rule.get('est_management_fee'):.2f}% + 托管费 {rule.get('est_custodian_fee'):.2f}%)\n"
+            f"优惠申购费率: {rule.get('discount_purchase_fee_pct', 0.15):.2f}%",
+            title=f"📋 基金交易规则档案: {rule.get('fund_name')}",
+            expand=False
+        ))
+        return
+
+    # 深度渲染全景卡片
+    console.print(Panel(
+        f"[bold white]基金全称[/bold white]: {fee_struct.fund_name} ({fee_struct.fund_code})\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🏷️  [bold cyan]申赎准入状态[/bold cyan]: 申购: [bold green]{fee_struct.purchase_status}[/bold green]  |  赎回: [bold green]{fee_struct.redemption_status}[/bold green]  |  定投: [bold green]{fee_struct.regular_investment_status}[/bold green]\n"
+        f"💵  [bold cyan]交易门槛与限额[/bold cyan]: 首次买入 {fee_struct.min_purchase_amount:.2f}元起  |  追加购买 {fee_struct.min_additional_amount:.2f}元起  |  单日累计限额: {'无限额' if fee_struct.daily_limit_amount < 0 else f'{fee_struct.daily_limit_amount:,.0f}元'}\n"
+        f"⏱️  [bold cyan]申赎确认周期[/bold cyan]: 买入确认日: [bold white]{fee_struct.purchase_confirm_cycle}[/bold white]  |  卖出确认日: [bold white]{fee_struct.redemption_arrive_cycle}[/bold white]\n"
+        f"─────────────────────────────────────────────────────\n"
+        f"🏛️  [bold yellow]固定运作年化费率 (每日从净值计提)[/bold yellow]:\n"
+        f"   管理费率: [bold white]{fee_struct.management_fee_pct:.2f}%/年[/bold white]  |  "
+        f"托管费率: [bold white]{fee_struct.custodian_fee_pct:.2f}%/年[/bold white]  |  "
+        f"销售服务费率: [bold white]{fee_struct.sales_service_fee_pct:.2f}%/年[/bold white]\n"
+        f"   --> 综合年化持有成本: [bold green]{fee_struct.total_operating_fee_pct:.2f}%/年[/bold green]",
+        title=f"📋 基金交易规则与全景费率深度卡: {fee_struct.fund_name}",
+        expand=False
+    ))
+
+    # 申购费率阶梯
+    if fee_struct.subscription_tiers:
+        sub_table = Table(title="🛒 前端申购费率金额阶梯 (Subscription Fee Schedule)", show_lines=True)
+        sub_table.add_column("申购金额区间", style="cyan")
+        sub_table.add_column("收费标准 (原费率 / 代销渠道优惠)", style="bold green", justify="right")
+        for tier in fee_struct.subscription_tiers:
+            sub_table.add_row(tier.get("tier", ""), tier.get("fee", ""))
+        console.print(sub_table)
+
+    # 赎回费率阶梯
+    if fee_struct.redemption_tiers:
+        red_table = Table(title="🚪 赎回费率持有期阶梯 (Redemption Fee Schedule - 严守证监会流动性规约)", show_lines=True)
+        red_table.add_column("实际持有时间区间", style="cyan")
+        red_table.add_column("适用赎回费率", style="bold red", justify="right")
+        red_table.add_column("监管归属与资金去向", style="yellow")
+        for tier in fee_struct.redemption_tiers:
+            t_name = tier.get("tier", "")
+            t_fee = tier.get("fee", "")
+            if "<7" in t_name or "小于7天" in t_name:
+                note = "【监管强制惩罚性费率】100% 计入基金资产，严打短期套利"
+            elif "730" in t_name or "2年" in t_name or "0.00%" in t_fee or "免" in t_fee:
+                note = "【长期持有免收】费率为 0.00%，鼓励中长期价值投资"
+            elif "365" in t_name or "1年" in t_name:
+                note = "中长期费率优惠区间，25% 计入基金资产"
+            elif "30天" in t_name or "1个月" in t_name:
+                note = "常规短期赎回费率，至少 75% 计入基金资产"
+            else:
+                note = "常规赎回费率，25%~50% 计入基金资产补充净值"
+            red_table.add_row(t_name, t_fee, note)
+        console.print(red_table)
 
 
 def cmd_winrate(args):
@@ -923,6 +1047,14 @@ def main():
     p_fc = subparsers.add_parser("sync-funds-catalog", help="一键同步全市场公募基金五大全景宏观档案表")
     p_fc.add_argument("--force", action="store_true", help="强制重新拉取最新快照")
 
+    # sync-fund-rules
+    p_sfr = subparsers.add_parser("sync-fund-rules", help="全量同步中国公募基金交易规则、运作费率与申赎限额主表")
+    p_sfr.add_argument("--delay", type=float, default=1.0, help="网络请求基准延迟")
+
+    # fund-rule
+    p_fr = subparsers.add_parser("fund-rule", help="深度调阅单只基金全景阶梯费率与申赎交易规则")
+    p_fr.add_argument("code", help="基金代码 (例如 000001 或 000001.OF)")
+
     # sync-fund-nav
     p_fnav = subparsers.add_parser("sync-fund-nav", help="拉取公募基金全历史日净值时序 (单只或批量)")
     p_fnav.add_argument("code", nargs="?", default=None, help="单只基金代码 (例如 000001 或 002910)")
@@ -976,6 +1108,8 @@ def main():
         "pull-index": cmd_pull_index,
         "sync-all-indices": cmd_sync_all_indices,
         "sync-funds-catalog": cmd_sync_funds_catalog,
+        "sync-fund-rules": cmd_sync_fund_rules,
+        "fund-rule": cmd_fund_rule,
         "sync-fund-nav": cmd_sync_fund_nav,
         "sync-macro": cmd_sync_macro,
         "sync-global": cmd_sync_global,

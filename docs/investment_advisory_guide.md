@@ -48,3 +48,40 @@
 1. **阈值触发再平衡**：单一大类资产偏离度达到 ±5% 时执行调仓，卖出超配资产、买入低配资产，强制践行“高抛低吸”。
 2. **季度审视机制**：每季度末检视底层基金经理的稳定性、风格漂移与超额收益可持续性。
 3. **止盈转固收**：当组合达成阶段性收益目标时，自动锁定利润并切换至稳健固收垫底。
+
+---
+
+## 五、 投资组合全景量化分析与现代配置理论 (MPT)
+
+### 1. 组合收益与风险核心度量
+- **加权组合净值与再平衡**:
+  日度组合市值 $V_t = \sum_i V_{i,t}$，根据再平衡频率（买入持有、按月、按季、按年）定期将权重重置为目标配比 $W_{target}$。
+- **在险价值 (VaR & CVaR)**:
+  - $VaR_{95\%}$: 历史分布中下行 5% 分位数单日潜在损失。
+  - $CVaR_{95\%}$ (Expected Shortfall): 突破 $VaR$ 后的平均尾部极端损失。
+- **索提诺比率 (Sortino)**:
+  $Sortino = \frac{R_{ann} - R_f}{\sqrt{\frac{1}{T}\sum \min(R_t - R_f, 0)^2} \times \sqrt{250}}$，精准剔除上行波动奖励，仅惩罚下行回撤风险。
+
+### 2. 资产相关性与分散化效益
+- **分散化比率 (Diversification Ratio)**:
+  $$DR = \frac{\sum_{i=1}^N w_i \sigma_i}{\sigma_p}$$
+  其中 $\sigma_p = \sqrt{w^T \Sigma w}$。当资产间相关系数小于 1 时，$DR > 1.0$，比率越高表明多资产配置越有效地消除了非系统性风险。
+- **有效分散资产数 (Effective N)**:
+  $$N_{eff} = \frac{1}{\sum_{i=1}^N w_i^2}$$
+  基于 Herfindahl 指数倒数，衡量组合资金是否过度集中于少数几个标的。
+
+### 3. 风险归因与边际风险贡献 (Risk Attribution)
+- **边际风险贡献 (MRC)**:
+  $$MRC_i = \frac{\partial \sigma_p}{\partial w_i} = \frac{(\Sigma w)_i}{\sigma_p}$$
+- **风险贡献占比 (PCR)**:
+  $$PCR_i = \frac{w_i \cdot MRC_i}{\sigma_p} = \frac{w_i (\Sigma w)_i}{\sigma_p^2}$$
+  所有资产的 $PCR_i$ 之和严格恒等于 $100\%$。该指标直观揭示了“名义资产配置权重”与“实际风险主导暴露”的背离。
+
+### 4. 现代资产组合前沿优化算法
+- **最大夏普组合 (Max Sharpe / Tangency Portfolio)**:
+  $$\max_{w} \frac{w^T \mu - R_f}{\sqrt{w^T \Sigma w}} \quad \text{s.t.} \quad \sum w_i = 1, \quad w_i \ge 0$$
+- **全局最小方差组合 (Global Minimum Variance, GMV)**:
+  $$\min_{w} w^T \Sigma w \quad \text{s.t.} \quad \sum w_i = 1, \quad w_i \ge 0$$
+- **等风险贡献平价组合 (Risk Parity / ERC)**:
+  求解使每项资产的风险贡献完全相等的权重向量 $w$:
+  $$\min_{w} \sum_{i=1}^N \sum_{j=1}^N \left( w_i (\Sigma w)_i - w_j (\Sigma w)_j \right)^2 \quad \text{s.t.} \quad \sum w_i = 1, \quad w_i \ge 0$$

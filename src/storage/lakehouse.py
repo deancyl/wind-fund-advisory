@@ -109,6 +109,19 @@ class LakehouseManager:
         """列出本地已沉淀的所有基金代码"""
         return [f.stem for f in self.funds_dir.glob("*.parquet")]
 
+    def get_fund_trading_rule(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """从主表获取单只基金的交易规则与基准费率"""
+        rules_path = self.master_dir / "fund_trading_rules.parquet"
+        if not rules_path.exists():
+            return None
+        import re
+        clean_code = re.sub(r"[^\d]", "", symbol).zfill(6)
+        df_rules = pd.read_parquet(rules_path)
+        matched = df_rules[df_rules["symbol"] == clean_code]
+        if matched.empty:
+            return None
+        return matched.iloc[0].to_dict()
+
     # -------------------------------------------------------------
     # 基准指数管理 (processed/indices/{code}.parquet)
     # -------------------------------------------------------------
@@ -284,6 +297,12 @@ class LakehouseManager:
         if g_link_path.exists():
             pattern = str(g_link_path).replace("\\", "/")
             conn.execute(f"CREATE OR REPLACE VIEW v_global_linkage AS SELECT * FROM read_parquet('{pattern}')")
+
+        # 9. 基金交易规则与费率全景视图
+        rules_path = self.master_dir / "fund_trading_rules.parquet"
+        if rules_path.exists():
+            pattern = str(rules_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_fund_trading_rules AS SELECT * FROM read_parquet('{pattern}')")
 
         conn.close()
 
