@@ -8,7 +8,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 import numpy as np
 import pandas as pd
 
@@ -51,10 +51,12 @@ class IndexDataFetcher:
     def __init__(
         self,
         lakehouse: Optional[LakehouseManager] = None,
-        speed_parser: Optional[WindSpeedLogParser] = None
+        speed_parser: Optional[WindSpeedLogParser] = None,
+        catalog: Optional[Any] = None
     ):
         self.lakehouse = lakehouse or LakehouseManager()
         self.speed_parser = speed_parser or WindSpeedLogParser()
+        self._catalog = catalog
 
     @staticmethod
     def normalize_symbol(symbol: str) -> str:
@@ -109,7 +111,10 @@ class IndexDataFetcher:
         拉取指数全量历史数据，融合 Wind 终端 Speed 实时行情快照，计算衍生指标并写入湖仓
         """
         std_sym = self.normalize_symbol(symbol)
-        index_name = self.INDEX_NAME_MAP.get(std_sym, f"指数_{std_sym}")
+        if self._catalog:
+            index_name = self._catalog.get_name(std_sym)
+        else:
+            index_name = self.INDEX_NAME_MAP.get(std_sym, f"指数_{std_sym}")
 
         # 1. 获取历史全量日K线
         raw_df = self.fetch_index_kline(std_sym)

@@ -24,6 +24,8 @@ from src.parsers.master_dict_parser import MasterDictParser
 from src.parsers.cef_cache_parser import CEFCacheParser
 from src.parsers.speed_log_parser import WindSpeedLogParser
 from src.parsers.index_fetcher import IndexDataFetcher
+from src.parsers.index_catalog import IndexCatalog
+from src.core.batch_index_syncer import BatchIndexSyncer
 from src.analysis.fund_analyzer import FundAnalyzer
 from src.analysis.winrate_analyzer import WinRateAnalyzer
 from src.storage.lakehouse import LakehouseManager
@@ -320,6 +322,74 @@ def cmd_pull_index(args):
     console.print(f"[dim]提示: 可使用 [bold]python wind_cli.py query \"SELECT * FROM v_indices WHERE index_code='{summary.symbol}' ORDER BY date DESC LIMIT 5\"[/bold] 进行 SQL 查询[/dim]")
 
 
+def cmd_sync_all_indices(args):
+    console = Console()
+    catalog = IndexCatalog()
+    syncer = BatchIndexSyncer(
+        min_delay=args.delay * 0.8,
+        max_delay=args.delay * 1.3,
+        max_retries=args.retries
+    )
+
+    if args.status:
+        cp = syncer.load_checkpoint()
+        cat_df = catalog.build_catalog()
+        completed = cp.get("completed_count", 0)
+        failed = cp.get("failed_count", 0)
+        total = len(cat_df)
+        pct = (completed / total * 100) if total > 0 else 0
+        console.print(Panel(
+            f"[bold cyan]全市场指数库收录总量[/bold cyan]: {total:,} 只\n"
+            f"[bold green]已成功落盘同步标的[/bold green]: {completed:,} 只 (占比 {pct:.1f}%)\n"
+            f"[bold red]当前失败标记标的[/bold red]: {failed} 只\n"
+            f"[bold yellow]断点文件路径[/bold yellow]: {syncer.checkpoint_path}",
+            title="📊 A 股全市场指数湖仓同步进度看板",
+            expand=False
+        ))
+        return
+
+    tier_str = "全市场所有指数" if args.tier == "all" else f"Tier {args.tier} 指数"
+    console.print(Panel(
+        f"[bold yellow]同步目标[/bold yellow]: {tier_str} (单线程防风控节流模式)\n"
+        f"[bold cyan]冷却抖动策略[/bold cyan]: 随机动态休眠 {args.delay*0.8:.1f}s ~ {args.delay*1.3:.1f}s\n"
+        f"[bold magenta]容错保护机制[/bold magenta]: {args.retries} 次指数退避重试 (3s/6s/12s) + 断点记忆无损续传",
+        title="🛡️ A 股全市场指数防风控入湖引擎已启动",
+        expand=False
+    ))
+
+    def on_progress(idx, total, sym, name, status, close):
+        if status == "SUCCESS":
+            console.print(f"[bold cyan][{idx:03d}/{total:03d}][/bold cyan] {sym} [green]{name}[/green]: [bold green]✓ 成功入湖[/bold green] (最新收盘: {close:.2f})")
+        elif status == "SKIPPED":
+            console.print(f"[dim][{idx:03d}/{total:03d}] {sym} {name}: ⏭️ 已存在且最新，跳过[/dim]")
+        else:
+            console.print(f"[bold red][{idx:03d}/{total:03d}] {sym} {name}: ✗ 拉取失败 (已记录断点)[/bold red]")
+
+    summary = syncer.sync_all(
+        tier=args.tier if args.tier != "all" else None,
+        limit=args.limit,
+        force=args.force,
+        on_progress=on_progress
+    )
+
+    table = Table(title="🏁 批量指数同步任务执行报告", show_lines=True)
+    table.add_column("维度", style="cyan")
+    table.add_column("数值", style="white", justify="right")
+    table.add_column("说明", style="yellow")
+
+    table.add_row("目标标的总数", f"{summary.target_count}", "本次规划任务集")
+    table.add_row("本次新增成功", f"{summary.success_count}", "成功拉取入湖")
+    table.add_row("断点记忆跳过", f"{summary.skipped_count}", "无需重复拉取 (节省请求)")
+    table.add_row("失败重试耗尽", f"{summary.failed_count}", "已记录断点待复核")
+    table.add_row("湖仓时序总根数", f"{summary.total_bars:,}", "全历史日 K 样本")
+    table.add_row("总耗时", f"{summary.elapsed_seconds:.1f} 秒", f"{summary.start_time} ~ {summary.end_time}")
+    table.add_row("断点记录文件", summary.checkpoint_file, "断点恢复保障")
+
+    console.print(table)
+    console.print(f"[bold green]✓ DuckDB 统一视图已更新，可执行:[/bold green]")
+    console.print(f'[dim]python wind_cli.py query "SELECT count(*) as total_k_bars, count(distinct index_code) as total_indices FROM v_indices"[/dim]')
+
+
 def cmd_export_dict(args):
     from scripts.export_master_dict import main as export_main
     export_main()
@@ -367,6 +437,15 @@ def main():
     p_idx = subparsers.add_parser("pull-index", help="拉取并同步核心指数全量历史与实时流数据")
     p_idx.add_argument("code", default="000001.SH", nargs="?", help="指数代码 (例如 000001.SH, 000300.SH, 399001.SZ)")
 
+    # sync-all-indices
+    p_all = subparsers.add_parser("sync-all-indices", help="批量防风控拉取 A 股全市场指数数据")
+    p_all.add_argument("--tier", choices=["1", "2", "3", "all"], default="all", help="同步梯级 (1:核心宽基 50只, 2:主流行业 167只, all:全量 751只)")
+    p_all.add_argument("--delay", type=float, default=1.5, help="请求基准冷却时间 (秒, 附带动态随机抖动)")
+    p_all.add_argument("--limit", type=int, default=None, help="最大拉取标的数量限制")
+    p_all.add_argument("--force", action="store_true", help="强制覆盖已存在数据，忽略断点跳过")
+    p_all.add_argument("--status", action="store_true", help="仅查看当前湖仓与断点同步进度看板")
+    p_all.add_argument("--retries", type=int, default=3, help="单标的失败重试次数 (带指数退避)")
+
     # export-dict
     subparsers.add_parser("export-dict", help="导出全市场主代码字典至 CSV")
 
@@ -387,6 +466,7 @@ def main():
         "query": cmd_query,
         "advice": cmd_advice,
         "pull-index": cmd_pull_index,
+        "sync-all-indices": cmd_sync_all_indices,
         "export-dict": cmd_export_dict,
         "sync-cache": cmd_sync_cache
     }

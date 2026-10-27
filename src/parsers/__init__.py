@@ -8,6 +8,7 @@ from .calendar_parser import CalendarParser
 from .cef_cache_parser import CEFCacheParser
 from .speed_log_parser import WindSpeedLogParser, SpeedQuoteSnapshot
 from .index_fetcher import IndexDataFetcher, IndexPullSummary
+from .index_catalog import IndexCatalog
 
 __all__ = [
     "MasterDictParser",
@@ -19,5 +20,6 @@ __all__ = [
     "WindSpeedLogParser",
     "SpeedQuoteSnapshot",
     "IndexDataFetcher",
-    "IndexPullSummary"
+    "IndexPullSummary",
+    "IndexCatalog"
 ]

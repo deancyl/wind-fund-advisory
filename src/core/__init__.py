@@ -5,5 +5,14 @@
 from .terminal_probe import TerminalProbe, ProcessInfo, TerminalStatus
 from .session_manager import SessionManager
 from .client_bridge import WindClientBridge
+from .batch_index_syncer import BatchIndexSyncer, BatchSyncSummary
 
-__all__ = ["TerminalProbe", "ProcessInfo", "TerminalStatus", "SessionManager", "WindClientBridge"]
+__all__ = [
+    "TerminalProbe",
+    "ProcessInfo",
+    "TerminalStatus",
+    "SessionManager",
+    "WindClientBridge",
+    "BatchIndexSyncer",
+    "BatchSyncSummary"
+]
