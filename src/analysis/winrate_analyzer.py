@@ -78,16 +78,29 @@ class WinRateAnalyzer:
         """
         clean_sym = symbol.strip().upper()
         df = fund_df if fund_df is not None else self.lakehouse.get_fund_series(clean_sym)
+        if df is None or df.empty:
+            df = self.lakehouse.get_index_series(clean_sym)
+
         if df is None or df.empty or len(df) < 25:
             return None
 
-        # 确保包含净值与基准对齐
-        fund_name = df["fund_name"].iloc[0] if "fund_name" in df.columns else clean_sym
+        # 确保包含名称与基准对齐
+        fund_name = clean_sym
+        if "fund_name" in df.columns:
+            fund_name = str(df["fund_name"].iloc[0])
+        elif "index_name" in df.columns:
+            fund_name = str(df["index_name"].iloc[0])
+
+        # 防自身比对
+        actual_benchmark = benchmark_code
+        if actual_benchmark == clean_sym:
+            actual_benchmark = "000300.SH" if clean_sym != "000300.SH" else "000001.SH"
+
         if "excess_return" not in df.columns:
-            df = self.bench_mgr.align_and_compute_excess_return(df, benchmark_code)
+            df = self.bench_mgr.align_and_compute_excess_return(df, actual_benchmark)
 
         nv = (1.0 + df["yield_pct"].astype(float) / 100.0).values
-        bench_df = self.bench_mgr.get_or_create_default_benchmark(benchmark_code)
+        bench_df = self.bench_mgr.get_or_create_default_benchmark(actual_benchmark)
         # 对齐基准净值序列
         merged = pd.merge(df[["date"]], bench_df[["date", "yield_pct"]], on="date", how="left")
         merged["yield_pct"] = merged["yield_pct"].ffill().bfill()

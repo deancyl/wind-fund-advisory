@@ -184,13 +184,13 @@ class LakehouseManager:
         fund_parquets = list(self.funds_dir.glob("*.parquet"))
         if fund_parquets:
             pattern = str(self.funds_dir / "*.parquet").replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_funds AS SELECT * FROM read_parquet('{pattern}')")
+            conn.execute(f"CREATE OR REPLACE VIEW v_funds AS SELECT * FROM read_parquet('{pattern}', union_by_name=true)")
 
         # 2. v_indices 视图
         index_parquets = list(self.indices_dir.glob("*.parquet"))
         if index_parquets:
             pattern = str(self.indices_dir / "*.parquet").replace("\\", "/")
-            conn.execute(f"CREATE OR REPLACE VIEW v_indices AS SELECT * FROM read_parquet('{pattern}')")
+            conn.execute(f"CREATE OR REPLACE VIEW v_indices AS SELECT * FROM read_parquet('{pattern}', union_by_name=true)")
 
         # 3. v_scorecards 视图
         sc_path = self.mart_dir / "fund_scorecards.parquet"

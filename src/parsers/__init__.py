@@ -6,6 +6,8 @@ from .master_dict_parser import MasterDictParser, SecurityRecord
 from .sector_parser import SectorParser, SectorNode
 from .calendar_parser import CalendarParser
 from .cef_cache_parser import CEFCacheParser
+from .speed_log_parser import WindSpeedLogParser, SpeedQuoteSnapshot
+from .index_fetcher import IndexDataFetcher, IndexPullSummary
 
 __all__ = [
     "MasterDictParser",
@@ -13,5 +15,9 @@ __all__ = [
     "SectorParser",
     "SectorNode",
     "CalendarParser",
-    "CEFCacheParser"
+    "CEFCacheParser",
+    "WindSpeedLogParser",
+    "SpeedQuoteSnapshot",
+    "IndexDataFetcher",
+    "IndexPullSummary"
 ]
