@@ -5,7 +5,10 @@ Wind 投顾终端统一命令行工具 (CLI Entrypoint)
   python wind_cli.py doctor                       # 一键体检终端与环境就绪状态
   python wind_cli.py search 茅台                   # 检索全市场证券/基金代码
   python wind_cli.py analyze 002910.OF            # 对指定基金进行量化深度诊断
+  python wind_cli.py winrate 002910.OF            # 测算基金多维滚动胜率与定投胜率矩阵
   python wind_cli.py advice --risk 平衡型          # 生成专业大类资产配置与投资建议书
+  python wind_cli.py ingest                       # 将终端最新数据增量清洗入湖 (Parquet+DuckDB)
+  python wind_cli.py query "SELECT * FROM v_winrate" # 执行即席 DuckDB SQL 统一查询
   python wind_cli.py export-dict                  # 导出全市场证券标的表至 CSV
   python wind_cli.py sync-cache                   # 同步终端网络缓存数据
 """
@@ -15,10 +18,14 @@ import argparse
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
 
 from src.parsers.master_dict_parser import MasterDictParser
 from src.parsers.cef_cache_parser import CEFCacheParser
 from src.analysis.fund_analyzer import FundAnalyzer
+from src.analysis.winrate_analyzer import WinRateAnalyzer
+from src.storage.lakehouse import LakehouseManager
+from src.analysis.benchmark import BenchmarkManager
 from src.advisory.rules_engine import AdvisoryRulesEngine
 from src.advisory.report_generator import InvestmentReportGenerator
 from src.api.schemas import RiskProfile
@@ -57,15 +64,18 @@ def cmd_search(args):
 def cmd_analyze(args):
     console = Console()
     code = args.code.strip().upper()
-    cache_parser = CEFCacheParser()
-    funds = cache_parser.extract_fund_yield_charts()
+    lakehouse = LakehouseManager()
+    df = lakehouse.get_fund_series(code)
 
-    if code not in funds:
-        console.print(f"[red]! 未在终端缓存中找到基金 {code} 的走势数据。[/red]")
-        console.print(f"[dim]当前可用缓存基金: {', '.join(list(funds.keys())[:10])}...[/dim]")
+    if df is None:
+        cache_parser = CEFCacheParser()
+        funds = cache_parser.extract_fund_yield_charts()
+        df = funds.get(code)
+
+    if df is None:
+        console.print(f"[red]! 未在本地湖仓或终端缓存中找到基金 {code} 的走势数据。[/red]")
         return
 
-    df = funds[code]
     analyzer = FundAnalyzer()
     card = analyzer.analyze_single_fund(code, df)
     if not card:
@@ -89,6 +99,136 @@ def cmd_analyze(args):
     table.add_row("卡玛比率 (Calmar)", f"{card.calmar_ratio}", "收益对回撤比率")
 
     console.print(table)
+
+
+def cmd_winrate(args):
+    console = Console()
+    code = args.code.strip().upper()
+    console.print(f"[cyan]正在深度推演基金 {code} 的多维投资策略胜率矩阵...[/cyan]")
+
+    lakehouse = LakehouseManager()
+    df = lakehouse.get_fund_series(code)
+    if df is None:
+        cache_parser = CEFCacheParser()
+        funds = cache_parser.extract_fund_yield_charts()
+        df = funds.get(code)
+        if df is not None:
+            lakehouse.upsert_fund_series(code, df)
+
+    if df is None:
+        console.print(f"[red]! 未找到基金 {code} 的时序数据。[/red]")
+        return
+
+    win_analyzer = WinRateAnalyzer(lakehouse)
+    res = win_analyzer.analyze(code, df, benchmark_code=args.benchmark)
+    if not res:
+        console.print(f"[red]时序数据不足（需至少25个交易日），无法计算胜率。[/red]")
+        return
+
+    console.print(Panel(
+        f"[bold yellow]标的名称[/bold yellow]: {res.fund_name} ({res.symbol})\n"
+        f"[bold green]日频上涨胜率[/bold green]: {res.overall_daily_win_rate}%  |  "
+        f"[bold magenta]综合盈亏比 (P/L Ratio)[/bold magenta]: {res.profit_loss_ratio} (平均单次盈利/亏损)",
+        title="🎯 策略核心胜率特征",
+        expand=False
+    ))
+
+    # 滚动持有期胜率表
+    table = Table(title="📅 任意时点买入并滚动持有各周期胜率矩阵", show_lines=True)
+    table.add_column("持有周期", style="cyan", justify="center")
+    table.add_column("获利胜率", style="bold green", justify="center")
+    table.add_column("平均区间收益", style="white", justify="right")
+    table.add_column("收益中位数", style="white", justify="right")
+    table.add_column("悲观预期 (Q25)", style="red", justify="right")
+    table.add_column("乐观预期 (Q75)", style="green", justify="right")
+    table.add_column("跑赢沪深300超额胜率", style="bold yellow", justify="center")
+    table.add_column("平均超额收益", style="yellow", justify="right")
+
+    for p in res.holding_win_rates:
+        table.add_row(
+            p.period_name,
+            f"{p.win_rate_pct}%",
+            f"{p.avg_return_pct}%",
+            f"{p.median_return_pct}%",
+            f"{p.q25_return_pct}%",
+            f"{p.q75_return_pct}%",
+            f"{p.excess_win_rate_pct}%",
+            f"{p.avg_excess_return_pct}%"
+        )
+    console.print(table)
+
+    # 定投胜率表
+    if res.dca_win_rates:
+        dca_table = Table(title="💰 动态定投周期胜率与年化收益分布", show_lines=True)
+        dca_table.add_column("定投周期", style="cyan", justify="center")
+        dca_table.add_column("定投最终盈利胜率", style="bold green", justify="center")
+        dca_table.add_column("模拟定投平均年化回报", style="bold magenta", justify="right")
+
+        for d in res.dca_win_rates:
+            dca_table.add_row(
+                d.dca_period_name,
+                f"{d.dca_win_rate_pct}%",
+                f"{d.avg_dca_annualized_pct}%"
+            )
+        console.print(dca_table)
+
+    console.print(f"[dim]胜率成果已标准化归档至: data/mart/strategy_winrate.parquet[/dim]")
+
+
+def cmd_ingest(args):
+    console = Console()
+    console.print("[cyan]正在执行本地数据湖仓增量同步清洗 (Upsert Ingestion)...[/cyan]")
+
+    lakehouse = LakehouseManager()
+    cache_parser = CEFCacheParser()
+    funds = cache_parser.extract_fund_yield_charts()
+
+    if not funds:
+        console.print("[yellow]! 未在终端缓存中检测到时序数据，请先在 Wind 终端中打开投顾或基金模块[/yellow]")
+        return
+
+    bench_mgr = BenchmarkManager(lakehouse)
+    bench_mgr.get_or_create_default_benchmark("000300.SH")
+
+    # 1. 逐只标的执行 10 日重叠 Upsert 写入 processed/funds/{symbol}.parquet
+    console.print(f"[green]正在将 {len(funds)} 只基金写入 data/processed/funds/ ...[/green]")
+    for code, df in funds.items():
+        lakehouse.upsert_fund_series(code, df, overlap_window_days=10)
+
+    # 2. 批量计算并沉淀基金综合评分卡至 data/mart/fund_scorecards.parquet
+    analyzer = FundAnalyzer()
+    df_rank = analyzer.compare_and_rank(funds)
+    if not df_rank.empty:
+        lakehouse.save_mart_dataframe("fund_scorecards", df_rank)
+        console.print("[green]✓ 基金量化诊断宽表已落盘: data/mart/fund_scorecards.parquet[/green]")
+
+    # 3. 批量测算胜率至 data/mart/strategy_winrate.parquet
+    win_analyzer = WinRateAnalyzer(lakehouse)
+    for code, df in list(funds.items())[:5]:  # 对排名前列标的测算胜率
+        win_analyzer.analyze(code, df)
+    console.print("[green]✓ 多维策略胜率矩阵已落盘: data/mart/strategy_winrate.parquet[/green]")
+
+    # 4. 刷新 DuckDB 视图
+    lakehouse.init_duckdb_views()
+    console.print("[bold green]✓ DuckDB 视图注册完成 (v_funds, v_indices, v_scorecards, v_winrate)！[/bold green]")
+    console.print(f"[bold cyan]数据湖仓已完全就绪，存储路径: {lakehouse.data_dir}[/bold cyan]")
+
+
+def cmd_query(args):
+    console = Console()
+    sql = args.sql.strip()
+    console.print(f"[cyan]执行 DuckDB SQL: [bold]{sql}[/bold][/cyan]")
+    lakehouse = LakehouseManager()
+    try:
+        df = lakehouse.query_sql(sql)
+        table = Table(title=f"📋 DuckDB SQL 查询结果 (共 {len(df)} 行)", show_lines=True)
+        for col in df.columns:
+            table.add_column(str(col), style="white")
+        for _, row in df.head(30).iterrows():
+            table.add_row(*[str(val) for val in row.values])
+        console.print(table)
+    except Exception as e:
+        console.print(f"[red]SQL 查询错误: {e}[/red]")
 
 
 def cmd_advice(args):
@@ -125,8 +265,20 @@ def main():
     p_ana = subparsers.add_parser("analyze", help="量化深度诊断单只基金")
     p_ana.add_argument("code", help="基金代码 (例如 002910.OF)")
 
+    # winrate
+    p_win = subparsers.add_parser("winrate", help="测算多维滚动持有期胜率与定投胜率")
+    p_win.add_argument("code", help="基金代码 (例如 002910.OF)")
+    p_win.add_argument("--benchmark", default="000300.SH", help="基准指数代码 (默认沪深300)")
+
+    # ingest
+    subparsers.add_parser("ingest", help="执行本地数据湖仓清洗入库 (Parquet + DuckDB)")
+
+    # query
+    p_q = subparsers.add_parser("query", help="使用 DuckDB 执行即席 SQL 查询")
+    p_q.add_argument("sql", help="SQL 语句 (例如: SELECT * FROM v_winrate LIMIT 5)")
+
     # advice
-    p_adv = subparsers.add_parser("advice", help="生成定制投资建议书")
+    p_adv = subparsers.add_parser("advice", help="生成定制投资建议书与胜率报告")
     p_adv.add_argument("--risk", default="平衡型", choices=["保守型", "稳健型", "平衡型", "成长型", "进取型"], help="投资者风险等级")
     p_adv.add_argument("--output", default=None, help="Markdown 输出路径")
 
@@ -145,6 +297,9 @@ def main():
         "doctor": cmd_doctor,
         "search": cmd_search,
         "analyze": cmd_analyze,
+        "winrate": cmd_winrate,
+        "ingest": cmd_ingest,
+        "query": cmd_query,
         "advice": cmd_advice,
         "export-dict": cmd_export_dict,
         "sync-cache": cmd_sync_cache

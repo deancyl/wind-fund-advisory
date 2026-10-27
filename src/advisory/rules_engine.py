@@ -9,6 +9,7 @@ import pandas as pd
 from ..api.schemas import RiskProfile, AllocationAsset, InvestmentAdviceResult
 from ..analysis.asset_allocation import AssetAllocationOptimizer, PortfolioWeight
 from ..analysis.fund_analyzer import FundAnalyzer
+from ..analysis.winrate_analyzer import WinRateAnalyzer
 
 
 class AdvisoryRulesEngine:
@@ -17,6 +18,7 @@ class AdvisoryRulesEngine:
     def __init__(self):
         self.alloc_optimizer = AssetAllocationOptimizer()
         self.fund_analyzer = FundAnalyzer()
+        self.winrate_analyzer = WinRateAnalyzer()
 
     def generate_advice(
         self,
@@ -33,6 +35,37 @@ class AdvisoryRulesEngine:
 
         # 运行量化评分，获取候选基金排名
         ranked_funds = self.fund_analyzer.compare_and_rank(fund_series_dict)
+
+        # 测算核心龙头标的策略胜率
+        win_rate_summary = None
+        if not ranked_funds.empty:
+            top_code = ranked_funds.iloc[0]["基金代码"]
+            top_df = fund_series_dict.get(top_code)
+            if top_df is not None:
+                wr_res = self.winrate_analyzer.analyze(top_code, top_df)
+                if wr_res:
+                    win_rate_summary = {
+                        "benchmark_symbol": top_code,
+                        "benchmark_name": wr_res.fund_name,
+                        "pl_ratio": wr_res.profit_loss_ratio,
+                        "holding_matrix": [
+                            {
+                                "period": p.period_name,
+                                "win_rate": f"{p.win_rate_pct}%",
+                                "avg_return": f"{p.avg_return_pct}%",
+                                "excess_win_rate": f"{p.excess_win_rate_pct}%"
+                            }
+                            for p in wr_res.holding_win_rates
+                        ],
+                        "dca_matrix": [
+                            {
+                                "period": d.dca_period_name,
+                                "dca_win_rate": f"{d.dca_win_rate_pct}%",
+                                "avg_annualized": f"{d.avg_dca_annualized_pct}%"
+                            }
+                            for d in wr_res.dca_win_rates
+                        ]
+                    }
 
         plan: List[AllocationAsset] = []
         equity_candidates = []
@@ -85,5 +118,6 @@ class AdvisoryRulesEngine:
             expected_annual_return=metrics["expected_annual_return_pct"],
             expected_max_drawdown=metrics["expected_max_drawdown_pct"],
             advice_summary=summary,
-            risk_warnings=warnings
+            risk_warnings=warnings,
+            win_rate_summary=win_rate_summary
         )

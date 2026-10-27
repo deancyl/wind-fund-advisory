@@ -36,9 +36,16 @@ ENV/
 data/cache/*
 data/master/*
 data/reports/*
+data/processed/*
+data/raw/*
+data/mart/*
+data/*.duckdb
 !data/cache/.gitkeep
 !data/master/.gitkeep
 !data/reports/.gitkeep
+!data/processed/.gitkeep
+!data/raw/.gitkeep
+!data/mart/.gitkeep
 
 # Logs & temp files
 *.log

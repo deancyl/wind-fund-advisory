@@ -45,3 +45,4 @@ class InvestmentAdviceResult(BaseModel):
     expected_max_drawdown: float
     advice_summary: str
     risk_warnings: List[str]
+    win_rate_summary: Optional[Dict[str, Any]] = None

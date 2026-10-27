@@ -60,12 +60,31 @@ class InvestmentReportGenerator:
                 )
             md.append("")
 
-        md.append("## 四、 投后管理与动态平衡再平衡规则\n")
+        if advice.win_rate_summary:
+            ws = advice.win_rate_summary
+            md.append(f"## 四、 投资策略多维胜率与收益体验分析（基于龙头标的: {ws['benchmark_name']}）\n")
+            md.append(f"> **策略综合盈亏比 (P/L Ratio)**：**{ws['pl_ratio']}**（平均单次盈利幅度 / 平均单次亏损幅度）\n")
+            md.append("### 1. 任意历史时点买入并滚动持有各周期胜率矩阵")
+            md.append("| 滚动持有周期 | 正收益获利胜率 | 历史区间平均收益 | 跑赢沪深300超额胜率 |")
+            md.append("| :---: | :---: | :---: | :---: |")
+            for item in ws.get("holding_matrix", []):
+                md.append(f"| **{item['period']}** | **{item['win_rate']}** | {item['avg_return']} | {item['excess_win_rate']} |")
+            md.append("")
+
+            if ws.get("dca_matrix"):
+                md.append("### 2. 模拟定投周期胜率与年化收益分布")
+                md.append("| 定投持有周期 | 定投最终盈利概率 | 模拟定投平均年化回报 |")
+                md.append("| :---: | :---: | :---: |")
+                for item in ws.get("dca_matrix", []):
+                    md.append(f"| **{item['period']}** | **{item['dca_win_rate']}** | **{item['avg_annualized']}** |")
+                md.append("")
+
+        md.append("## 五、 投后管理与动态平衡再平衡规则\n")
         md.append("1. **定期再平衡**：建议每季度末对组合进行一次权重检视，若单一大类资产偏离目标权重超过 **±5%**，触发定额再平衡。")
         md.append("2. **市场止盈与防守**：当权益市场估值突破历史 85% 分位或预期目标收益达成后，将浮盈部分平滑结转至固收与货币底仓。")
         md.append("3. **大额定投策略**：增量资金建议采用分批 6~12 个月定投方式建仓，平滑入场波动成本。\n")
 
-        md.append("## 五、 风险揭示与免责声明\n")
+        md.append("## 六、 风险揭示与免责声明\n")
         for w in advice.risk_warnings:
             md.append(f"- ⚠️ {w}")
         md.append("\n---\n*本报告由 Wind 投顾终端分析系统本地离线引擎自动生成，不构成直接的投资承诺。*")
@@ -97,3 +116,20 @@ class InvestmentReportGenerator:
         )
         self.console.print(Panel(summary_text, title="🎯 投资建议方案摘要", expand=False))
         self.console.print(table)
+
+        if advice.win_rate_summary:
+            ws = advice.win_rate_summary
+            wr_table = Table(title=f"🎲 投资策略多维胜率矩阵 (标的: {ws['benchmark_name']} | 盈亏比: {ws['pl_ratio']})", show_lines=True)
+            wr_table.add_column("持有周期", style="cyan", justify="center")
+            wr_table.add_column("获利胜率", style="bold green", justify="center")
+            wr_table.add_column("平均区间收益", style="white", justify="right")
+            wr_table.add_column("超额基准胜率", style="bold yellow", justify="center")
+
+            for item in ws.get("holding_matrix", []):
+                wr_table.add_row(
+                    item["period"],
+                    item["win_rate"],
+                    item["avg_return"],
+                    item["excess_win_rate"]
+                )
+            self.console.print(wr_table)

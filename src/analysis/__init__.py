@@ -1,5 +1,5 @@
 """
-量化分析与投研模型模块：涵盖业绩基准指标、基金多维诊断评分与资产配置优化算法。
+量化分析与投研模型模块：涵盖业绩基准指标、基金多维诊断评分、资产配置与投资策略多维胜率分析器。
 """
 
 from .metrics import (
@@ -13,6 +13,8 @@ from .metrics import (
 )
 from .fund_analyzer import FundAnalyzer, FundScoreCard
 from .asset_allocation import AssetAllocationOptimizer, PortfolioWeight
+from .benchmark import BenchmarkManager
+from .winrate_analyzer import WinRateAnalyzer, StrategyWinRateResult, PeriodWinRate, DCAWinRate
 
 __all__ = [
     "calculate_annualized_return",
@@ -25,5 +27,10 @@ __all__ = [
     "FundAnalyzer",
     "FundScoreCard",
     "AssetAllocationOptimizer",
-    "PortfolioWeight"
+    "PortfolioWeight",
+    "BenchmarkManager",
+    "WinRateAnalyzer",
+    "StrategyWinRateResult",
+    "PeriodWinRate",
+    "DCAWinRate"
 ]
