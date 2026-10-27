@@ -11,6 +11,7 @@ import pandas as pd
 from ..config import WIND_CONFIG
 from ..core.session_manager import SessionManager
 from ..parsers.cef_cache_parser import CEFCacheParser
+from ..storage.lakehouse import LakehouseManager
 
 urllib3.disable_warnings()
 
@@ -22,11 +23,13 @@ class WFCClient:
         self,
         config=WIND_CONFIG,
         session_mgr: Optional[SessionManager] = None,
-        cache_parser: Optional[CEFCacheParser] = None
+        cache_parser: Optional[CEFCacheParser] = None,
+        lakehouse: Optional[LakehouseManager] = None
     ):
         self.config = config
         self.session_mgr = session_mgr or SessionManager(config)
         self.cache_parser = cache_parser or CEFCacheParser(config.cef_cache_dir)
+        self.lakehouse = lakehouse or LakehouseManager()
         self.base_url = f"https://{self.config.default_web_server}"
 
     def _get_headers(self) -> Dict[str, str]:
@@ -84,10 +87,12 @@ class WFCClient:
             except Exception:
                 pass
 
-        # 合并返回
-        for code, df in cached_funds.items():
-            if code not in matched and code in wind_codes:
-                matched[code] = df
+        # 若仍有缺失标的，自动回退查询本地 Parquet 湖仓 (100% 离线脱机支持)
+        for code in wind_codes:
+            if code not in matched:
+                df_lake = self.lakehouse.get_fund_series(code)
+                if df_lake is not None and not df_lake.empty:
+                    matched[code] = df_lake
 
         return matched
 

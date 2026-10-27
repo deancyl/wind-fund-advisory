@@ -275,8 +275,11 @@ class PortfolioAnalyzer:
     提供回测、定期再平衡、风险度量、资产相关性、归因分解与优化配置方案。
     """
 
-    def __init__(self, data_loader: Optional[PortfolioDataLoader] = None):
-        self.loader = data_loader or PortfolioDataLoader()
+    def __init__(self, data_loader: Optional[Union[PortfolioDataLoader, LakehouseManager]] = None):
+        if isinstance(data_loader, LakehouseManager):
+            self.loader = PortfolioDataLoader(lakehouse=data_loader)
+        else:
+            self.loader = data_loader or PortfolioDataLoader()
         self.lakehouse = self.loader.lakehouse
         self.benchmark_mgr = self.loader.benchmark_mgr
 
