@@ -1,0 +1,15 @@
+# Wind 投顾终端数据分析与投资建议引擎依赖列表
+pandas>=2.0.0
+polars>=1.0.0
+numpy>=1.24.0
+duckdb>=1.0.0
+requests>=2.28.0
+urllib3>=1.26.0
+httpx>=0.24.0
+pydantic>=2.0.0
+rich>=13.0.0
+pywin32>=306
+psutil>=5.9.0
+pefile>=2023.2.7
+scipy>=1.10.0
+pytest>=8.0.0
