@@ -15,6 +15,7 @@ from .fund_analyzer import FundAnalyzer, FundScoreCard
 from .asset_allocation import AssetAllocationOptimizer, PortfolioWeight
 from .benchmark import BenchmarkManager
 from .winrate_analyzer import WinRateAnalyzer, StrategyWinRateResult, PeriodWinRate, DCAWinRate
+from .market_temperature import MarketTemperatureAnalyzer, MarketTemperatureReport
 
 __all__ = [
     "calculate_annualized_return",
@@ -32,5 +33,7 @@ __all__ = [
     "WinRateAnalyzer",
     "StrategyWinRateResult",
     "PeriodWinRate",
-    "DCAWinRate"
+    "DCAWinRate",
+    "MarketTemperatureAnalyzer",
+    "MarketTemperatureReport"
 ]

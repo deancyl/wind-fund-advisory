@@ -28,10 +28,11 @@ class LakehouseManager:
         self.mart_dir = self.data_dir / "mart"
         self.raw_dir = self.data_dir / "raw"
         self.master_dir = self.data_dir / "master"
+        self.macro_dir = self.data_dir / "macro"
         self.db_path = self.data_dir / "storage.duckdb"
 
         # 确保基础目录存在
-        for p in [self.funds_dir, self.indices_dir, self.mart_dir, self.raw_dir, self.master_dir]:
+        for p in [self.funds_dir, self.indices_dir, self.mart_dir, self.raw_dir, self.master_dir, self.macro_dir]:
             p.mkdir(parents=True, exist_ok=True)
 
     # -------------------------------------------------------------
@@ -229,6 +230,38 @@ class LakehouseManager:
         if etf_path.exists():
             pattern = str(etf_path).replace("\\", "/")
             conn.execute(f"CREATE OR REPLACE VIEW v_etfs AS SELECT * FROM read_parquet('{pattern}')")
+
+        # 6. 宏观利率与流动性视图
+        rate_path = self.macro_dir / "bond_zh_us_rate.parquet"
+        if rate_path.exists():
+            pattern = str(rate_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_macro_rates AS SELECT * FROM read_parquet('{pattern}')")
+
+        margin_path = self.macro_dir / "margin_trading.parquet"
+        if margin_path.exists():
+            pattern = str(margin_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_margin_trading AS SELECT * FROM read_parquet('{pattern}')")
+
+        money_path = self.macro_dir / "money_supply.parquet"
+        if money_path.exists():
+            pattern = str(money_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_macro_money AS SELECT * FROM read_parquet('{pattern}')")
+
+        pmi_path = self.macro_dir / "pmi.parquet"
+        if pmi_path.exists():
+            pattern = str(pmi_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_macro_pmi AS SELECT * FROM read_parquet('{pattern}')")
+
+        # 7. 市场估值与温度计视图
+        val_path = self.mart_dir / "index_valuations.parquet"
+        if val_path.exists():
+            pattern = str(val_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_index_valuations AS SELECT * FROM read_parquet('{pattern}')")
+
+        temp_path = self.mart_dir / "market_temperature.parquet"
+        if temp_path.exists():
+            pattern = str(temp_path).replace("\\", "/")
+            conn.execute(f"CREATE OR REPLACE VIEW v_market_temperature AS SELECT * FROM read_parquet('{pattern}')")
 
         conn.close()
 

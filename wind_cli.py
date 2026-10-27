@@ -29,6 +29,8 @@ from src.core.batch_index_syncer import BatchIndexSyncer
 from src.parsers.fund_catalog import FundCatalogManager
 from src.parsers.fund_nav_fetcher import FundNAVFetcher
 from src.core.batch_fund_syncer import BatchFundSyncer
+from src.parsers.market_data_collector import MarketDataCollector
+from src.analysis.market_temperature import MarketTemperatureAnalyzer
 from src.analysis.fund_analyzer import FundAnalyzer
 from src.analysis.winrate_analyzer import WinRateAnalyzer
 from src.storage.lakehouse import LakehouseManager
@@ -503,6 +505,98 @@ def cmd_sync_fund_nav(args):
     console.print(f"[bold green]✓ 批量净值拉取完成！成功: {summary.success_count}, 跳过: {summary.skipped_count}, 累计净值样本: {summary.total_nav_days:,} 根[/bold green]")
 
 
+def cmd_sync_macro(args):
+    console = Console()
+    console.print(Panel(
+        "[bold yellow]宏观经济与市场深度数据全量采集规划[/bold yellow]:\n"
+        "1. 中美基准国债收益率与利差曲线 (2Y/5Y/10Y/30Y, 10-2Y倒挂)\n"
+        "2. 全市场两融杠杆余额与平均维持担保比例 (3,400+ 交易日)\n"
+        "3. 宏观货币供应 M2/M1 剪刀差与官方制造业 PMI\n"
+        "4. 核心宽基指数 (沪深300/上证50/中证500/中证1000等) 历史 PE/PB 估值时序",
+        title="🌐 宏观与大盘微观深度数据全量同步",
+        expand=False
+    ))
+
+    collector = MarketDataCollector()
+    summary = collector.sync_all_market_data()
+
+    table = Table(title="🏆 宏观经济与市场估值湖仓落盘报告", show_lines=True)
+    table.add_column("数据资产维度", style="cyan")
+    table.add_column("覆盖规模", style="white", justify="right")
+    table.add_column("DuckDB 视图", style="bold green")
+    table.add_column("说明", style="yellow")
+
+    table.add_row("中美基准国债与利差", f"{summary.rates_rows:,} 条", "v_macro_rates", "无风险利率中枢与汇率预期")
+    table.add_row("全市场两融杠杆资金", f"{summary.margin_rows:,} 条", "v_margin_trading", "杠杆情绪与担保比例安全垫")
+    table.add_row("货币供应量 (M2/M1)", f"{summary.m2_rows:,} 个月", "v_macro_money", "M1-M2 货币剪刀差")
+    table.add_row("宏观景气度 (PMI)", f"{summary.pmi_rows:,} 个月", "v_macro_pmi", "制造业与非制造业景气度")
+    table.add_row("核心指数历史估值 (PE/PB)", f"{summary.valuation_rows:,} 条", "v_index_valuations", "8大宽基历史PE-TTM与PB")
+
+    console.print(table)
+    console.print(f"[bold green]✓ 宏观与估值宽表已全部落盘！可随时评估大盘温度计:[/bold green]")
+    console.print(f'[dim]python wind_cli.py market-temp[/dim]')
+
+
+def cmd_market_temp(args):
+    console = Console()
+    console.print("[cyan]正在调用量化模型推演当前大盘估值温度与股债性价比 (ERP)...[/cyan]")
+
+    analyzer = MarketTemperatureAnalyzer()
+    report = analyzer.evaluate()
+    if not report:
+        console.print("[yellow]! 暂未检测到估值与利率底表，正在自动执行采集同步...[/yellow]")
+        collector = MarketDataCollector()
+        collector.sync_all_market_data()
+        report = analyzer.evaluate()
+
+    if not report:
+        console.print("[red]! 无法生成市场温度计报告，请先执行: python wind_cli.py sync-macro[/red]")
+        return
+
+    # 温度颜色
+    temp = report.market_temperature_score
+    if temp < 30:
+        temp_color = "bold cyan"
+    elif temp < 50:
+        temp_color = "bold green"
+    elif temp < 70:
+        temp_color = "bold yellow"
+    else:
+        temp_color = "bold red"
+
+    console.print(Panel(
+        f"[bold white]评估基准日期[/bold white]: {report.eval_date}\n"
+        f"[bold white]沪深300收盘[/bold white]: {report.hs300_close:.2f}  |  "
+        f"滚动PE: {report.hs300_pe:.2f}倍 (历史分位: {report.hs300_pe_percentile:.1f}%)  |  "
+        f"PB: {report.hs300_pb:.2f}倍 (历史分位: {report.hs300_pb_percentile:.1f}%)\n"
+        f"[bold white]中国10年期国债收益率[/bold white]: {report.cn_10y_treasury_yield:.2f}%\n"
+        f"[bold green]股债性价比 (ERP)[/bold green]: {report.erp_value:+.2f}%  (全历史分位: {report.erp_percentile:.1f}%)\n"
+        f"[bold magenta]两融维持担保比例[/bold magenta]: {report.margin_guarantee_ratio:.1f}% (杠杆安全垫良好)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🌡️ [bold white]大盘综合估值温度[/bold white]: [{temp_color}]{report.market_temperature_score} 分[/{temp_color}]  "
+        f"--> 状态研判: [bold green]{report.valuation_status}[/bold green]",
+        title="🌡️ A 股市场全景估值温度计与资产配置罗盘",
+        expand=False
+    ))
+
+    alloc_table = Table(title="🧭 建议大类资产配置比例与投顾行动指引", show_lines=True)
+    alloc_table.add_column("资产大类", style="cyan", justify="center")
+    alloc_table.add_column("建议配比", style="bold green", justify="center")
+    alloc_table.add_column("角色与功能", style="white")
+
+    alloc_table.add_row("权益类资产 (A股核心基金/宽基ETF)", f"{report.suggested_equity_ratio}%", "博取中长期估值中枢修复与企业盈利超额回报")
+    alloc_table.add_row("固收类资产 (纯债基金/中短债)", f"{report.suggested_bond_ratio}%", "压制组合净值波动，提供充裕稳定现金流底仓")
+    alloc_table.add_row("避险与商品 (实物黄金/对冲资产)", f"{report.suggested_gold_ratio}%", "抵御外生流动性冲击与地缘宏观不确定性")
+
+    console.print(alloc_table)
+
+    console.print(Panel(
+        f"[bold yellow]投顾量化建议[/bold yellow]:\n{report.action_advice}",
+        title="💡 投顾决策专家建议",
+        expand=False
+    ))
+
+
 def cmd_export_dict(args):
     from scripts.export_master_dict import main as export_main
     export_main()
@@ -571,6 +665,12 @@ def main():
     p_fnav.add_argument("--force", action="store_true", help="强制覆盖已存在时序")
     p_fnav.add_argument("--status", action="store_true", help="查看基金净值时序同步进度看板")
 
+    # sync-macro
+    subparsers.add_parser("sync-macro", help="全量同步宏观经济、利率中枢、两融杠杆与指数估值")
+
+    # market-temp
+    subparsers.add_parser("market-temp", help="计算大盘估值温度计分数、股债性价比 (ERP) 与大类资产配置建议")
+
     # export-dict
     subparsers.add_parser("export-dict", help="导出全市场主代码字典至 CSV")
 
@@ -594,6 +694,8 @@ def main():
         "sync-all-indices": cmd_sync_all_indices,
         "sync-funds-catalog": cmd_sync_funds_catalog,
         "sync-fund-nav": cmd_sync_fund_nav,
+        "sync-macro": cmd_sync_macro,
+        "market-temp": cmd_market_temp,
         "export-dict": cmd_export_dict,
         "sync-cache": cmd_sync_cache
     }
