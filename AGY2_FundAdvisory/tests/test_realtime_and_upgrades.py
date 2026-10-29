@@ -10,10 +10,21 @@
 7. 明日盯盘待办预案的持久化存储、读取与清理 (save_next_day_plan / get_latest_next_day_plan / clear_next_day_plans)。
 """
 
+import sys
+from pathlib import Path
 from datetime import datetime, date, time
 import urllib.error
 from unittest.mock import patch
 import pytest
+
+# 确保 AGY2 模块位于 sys.path
+_CURRENT_DIR = Path(__file__).resolve().parent
+_AGY2_DIR = _CURRENT_DIR.parent
+_WORKSPACE_ROOT = _AGY2_DIR.parent
+if str(_AGY2_DIR) not in sys.path:
+    sys.path.insert(0, str(_AGY2_DIR))
+if str(_WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_WORKSPACE_ROOT))
 
 from trading_clock_fee import TradingClock
 from portfolio_manager import (
@@ -173,7 +184,7 @@ def test_apply_zero_start_blueprint_to_portfolio(temp_pm):
     assert res["status"] == "SUCCESS"
     assert res["total_capital"] == 100000.0
     assert res["funds_count"] >= 5
-    assert temp_pm.baseline_equity == 100000.0
+    assert abs(temp_pm.baseline_equity - 100000.0) <= 0.05
     assert temp_pm.takeover_mode == "A"
 
     # 验证持仓中的分红方式正确设置

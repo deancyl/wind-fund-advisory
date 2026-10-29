@@ -13,6 +13,8 @@ import sys
 import sqlite3
 import json
 import math
+import time
+import copy
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
@@ -252,13 +254,14 @@ TIER_TARGET_WEIGHTS: Dict[str, Dict[str, float]] = {
         "050025": 0.06, # 博时标普500ETF联接A (6%)
     },
     "C3_ATTACK": {
-        # 进攻期 (GROWTH_BULL / STRUCTURAL_500): 自动切入 011613 与 001053
-        "011613": 0.30, # 华夏上证科创板50成份ETF联接C (30%)
-        "001053": 0.15, # 华夏中证500ETF联接C (15%)
-        "100032": 0.25, # 富国中证红利指数增强A (25%)
-        "005561": 0.15, # 创金合信中证红利低波动A (15%)
-        "000216": 0.10, # 华安易富黄金ETF联接A (10%)
-        "002351": 0.05, # 易方达裕祥回报债券A (5%)
+        # 进攻期 (GROWTH_BULL / STRUCTURAL_500): 自动切入 011613 与 001053 (权益严格对齐 74%，不超越 C4 78%)
+        "011613": 0.20, # 华夏上证科创板50成份ETF联接C (20%)
+        "001053": 0.14, # 华夏中证500ETF联接C (14%)
+        "100032": 0.22, # 富国中证红利指数增强A (22%)
+        "005561": 0.14, # 创金合信中证红利低波动A (14%)
+        "050025": 0.04, # 博时标普500ETF联接A (4%)
+        "000216": 0.14, # 华安易富黄金ETF联接A (14%)
+        "002351": 0.12, # 易方达裕祥回报债券A (12%)
     },
     "C4": {
         "011613": 0.30, # 华夏上证科创板50成份ETF联接C (30%)
@@ -278,51 +281,7 @@ TIER_TARGET_WEIGHTS: Dict[str, Dict[str, float]] = {
     }
 }
 
-# =====================================================================
-# 六维量化选基多因子画像池 (35% Alpha, 25% Fee, 15% Risk, 10% SmartMoney, 10% Crowding, 5% Macro)
-# =====================================================================
 
-FUND_SIX_DIMENSION_PROFILE: Dict[str, Dict[str, float]] = {
-    # 纯债固收
-    "002351": {"alpha": 95.0, "fee": 98.0, "risk": 100.0, "smart_money": 88.0, "crowding": 98.0, "macro": 92.0},
-    "000086": {"alpha": 91.5, "fee": 95.0, "risk": 100.0, "smart_money": 85.0, "crowding": 97.0, "macro": 90.0},
-    "018757": {"alpha": 92.0, "fee": 88.0, "risk": 98.0, "smart_money": 86.0, "crowding": 94.0, "macro": 88.0},
-    "002352": {"alpha": 92.0, "fee": 89.0, "risk": 100.0, "smart_money": 85.0, "crowding": 96.0, "macro": 90.0},
-    # 高股息红利价值
-    "100032": {"alpha": 96.0, "fee": 93.0, "risk": 96.0, "smart_money": 92.0, "crowding": 95.0, "macro": 91.0},
-    "090010": {"alpha": 89.0, "fee": 91.0, "risk": 95.0, "smart_money": 88.0, "crowding": 94.0, "macro": 89.0},
-    "012643": {"alpha": 88.5, "fee": 95.0, "risk": 95.0, "smart_money": 86.0, "crowding": 93.0, "macro": 88.0},
-    "008682": {"alpha": 93.0, "fee": 86.0, "risk": 96.0, "smart_money": 90.0, "crowding": 94.0, "macro": 90.0},
-    # 低估值红利低波
-    "005561": {"alpha": 92.5, "fee": 97.0, "risk": 97.0, "smart_money": 90.0, "crowding": 97.0, "macro": 92.0},
-    "016440": {"alpha": 90.0, "fee": 94.0, "risk": 95.0, "smart_money": 89.0, "crowding": 93.0, "macro": 90.0},
-    "005562": {"alpha": 91.0, "fee": 89.0, "risk": 97.0, "smart_money": 88.0, "crowding": 96.0, "macro": 91.0},
-    # 黄金全天候对冲
-    "000216": {"alpha": 90.0, "fee": 94.0, "risk": 100.0, "smart_money": 88.0, "crowding": 96.0, "macro": 92.0},
-    "002610": {"alpha": 88.5, "fee": 93.0, "risk": 100.0, "smart_money": 86.0, "crowding": 95.0, "macro": 90.0},
-    "000217": {"alpha": 89.0, "fee": 88.0, "risk": 100.0, "smart_money": 87.0, "crowding": 95.0, "macro": 91.0},
-    "002611": {"alpha": 88.0, "fee": 87.0, "risk": 100.0, "smart_money": 85.0, "crowding": 94.0, "macro": 90.0},
-    # 海外跨市场对冲
-    "050025": {"alpha": 93.5, "fee": 92.0, "risk": 100.0, "smart_money": 88.0, "crowding": 92.0, "macro": 91.0},
-    "001071": {"alpha": 92.0, "fee": 91.0, "risk": 100.0, "smart_money": 87.0, "crowding": 91.0, "macro": 90.0},
-    "017436": {"alpha": 91.5, "fee": 89.0, "risk": 98.0, "smart_money": 86.0, "crowding": 88.0, "macro": 89.0},
-    "006075": {"alpha": 91.0, "fee": 90.0, "risk": 98.0, "smart_money": 86.0, "crowding": 87.0, "macro": 89.0},
-    # 硬科技成长主升浪
-    "011613": {"alpha": 94.0, "fee": 92.0, "risk": 93.0, "smart_money": 95.0, "crowding": 90.0, "macro": 96.0},
-    "011612": {"alpha": 92.0, "fee": 91.0, "risk": 93.0, "smart_money": 93.0, "crowding": 89.0, "macro": 95.0},
-    # 中盘风格轮动
-    "001053": {"alpha": 91.0, "fee": 91.0, "risk": 91.0, "smart_money": 90.0, "crowding": 91.0, "macro": 93.0},
-    "161017": {"alpha": 89.5, "fee": 90.0, "risk": 91.0, "smart_money": 88.0, "crowding": 90.0, "macro": 91.0},
-    # 小盘高弹性成长
-    "016634": {"alpha": 92.0, "fee": 91.0, "risk": 89.0, "smart_money": 88.0, "crowding": 89.0, "macro": 94.0},
-    "016633": {"alpha": 90.0, "fee": 89.0, "risk": 89.0, "smart_money": 86.0, "crowding": 88.0, "macro": 92.0},
-    # 半导体高Beta细分
-    "013841": {"alpha": 93.0, "fee": 76.0, "risk": 84.0, "smart_money": 92.0, "crowding": 85.0, "macro": 95.0},
-    "001180": {"alpha": 90.0, "fee": 75.0, "risk": 83.0, "smart_money": 89.0, "crowding": 84.0, "macro": 93.0},
-    # 大盘蓝筹
-    "007339": {"alpha": 90.0, "fee": 91.0, "risk": 94.0, "smart_money": 91.0, "crowding": 90.0, "macro": 91.0},
-    "110020": {"alpha": 89.0, "fee": 88.0, "risk": 94.0, "smart_money": 89.0, "crowding": 89.0, "macro": 90.0},
-}
 
 # =====================================================================
 # 五档赛道金牌标的与备选基金池 (SECTOR_FUND_SELECTION_BY_TIER)
@@ -1372,6 +1331,11 @@ def get_aggressive_dream_reality_check(
     }
 
 
+# 模块级延迟单例与多因子打分防抖缓存
+_PORTFOLIO_MANAGER_SINGLETON: Optional[Any] = None
+_SIX_DIM_SCORE_CACHE: Dict[Tuple[str, str, str], Tuple[float, Dict[str, Any]]] = {}
+
+
 class StrategyBridge:
     """Trial 29 策略大脑实时桥接引擎"""
 
@@ -1383,6 +1347,17 @@ class StrategyBridge:
     calculate_human_readable_metrics = staticmethod(calculate_human_readable_metrics)
     get_aggressive_dream_reality_check = staticmethod(get_aggressive_dream_reality_check)
     strategy_fn_for_tier = staticmethod(strategy_fn_for_tier)
+
+    @classmethod
+    def _get_portfolio_manager(cls):
+        """
+        延迟单例模式获取 PortfolioManager 实例，彻底避免顶层循环导入并复用底层穿透排雷缓存。
+        """
+        global _PORTFOLIO_MANAGER_SINGLETON
+        if _PORTFOLIO_MANAGER_SINGLETON is None:
+            from portfolio_manager import PortfolioManager
+            _PORTFOLIO_MANAGER_SINGLETON = PortfolioManager()
+        return _PORTFOLIO_MANAGER_SINGLETON
 
     @classmethod
     def get_backtest_nav_for_tier(cls, tier: str = "C3", force_reload: bool = False) -> pd.DataFrame:
@@ -1605,18 +1580,42 @@ class StrategyBridge:
 
         c300_curr = float(c300_series.iloc[-1])
         c300_prev = float(c300_series.iloc[-2]) if n >= 2 else c300_curr
-        m20 = float(c300_series.tail(ma_fast).mean())
+        m20_tr = float(c300_series.tail(ma_fast).mean())
+        m60_tr = float(c300_series.tail(60).mean()) if n >= 60 else m20_tr
+        m120_tr = float(c300_series.tail(120).mean()) if n >= 120 else m60_tr
 
         from portfolio_manager import fetch_realtime_index_quote
         q_300 = fetch_realtime_index_quote("sh000300", use_cache=True)
         c300_price = float(q_300.get("point", 4053.0)) if q_300.get("point", 0) > 0 else 4053.0
-        if 3500.0 <= c300_price <= 4800.0:
-            breakdown_c300 = round(c300_price * (4180.5 / 4053.0), 1)
-        else:
-            scale = (c300_price / c300_curr) if c300_curr > 0 else (4053.0 / 6100.0)
-            breakdown_c300 = round(m20 * scale, 1)
 
+        # 全收益同口径折算至实时价格指数点位
+        scale_ratio = (c300_price / c300_curr) if c300_curr > 0 else (4053.0 / 6100.0)
+        m20_price = round(m20_tr * scale_ratio, 1)
+        m60_price = round(m60_tr * scale_ratio, 1)
+        m120_price = round(m120_tr * scale_ratio, 1)
+
+        # 动态计算防守破位触发线 (严格基于当前相对 MA20 / MA60 / MA120 的位置动态锚定支撑防守线)
+        if c300_price > m20_price + 15.0:
+            cand_breakdown = round(m20_price, 1)
+        elif c300_price > m60_price + 15.0:
+            cand_breakdown = round(m60_price, 1)
+        elif c300_price > m120_price + 15.0:
+            cand_breakdown = round(m120_price, 1)
+        else:
+            cand_breakdown = round(c300_price * 0.965, 1)
+
+        # 刚性防倒挂屏障：防守线必须严格低于当前现价至少 1.2% (数学保证 breakdown_c300 < c300_price 恒成立)
+        breakdown_c300 = min(cand_breakdown, round(c300_price * 0.988, 1))
+
+        # 动态计算向上进攻突破线 (严格保证 surge_c300 > c300_price)
         surge_c300 = round(c300_price * (1.0 + 0.039), 1)
+        if surge_c300 <= c300_price:
+            surge_c300 = round(c300_price * 1.039, 1)
+
+        # 严格断言双向变盘触发线绝无倒挂
+        assert breakdown_c300 < c300_price < surge_c300, (
+            f"点位倒挂异常: breakdown ({breakdown_c300}) < current ({c300_price}) < surge ({surge_c300}) 校验失败"
+        )
 
         countdown_text = (
             f"距下次常规调仓窗口还有 {days_to_next} 个交易日（预计 {next_rebal_date}）"
@@ -1624,8 +1623,8 @@ class StrategyBridge:
             "今日即为常规网格调仓日 (Rebalance Window Active)"
         )
         warning_text = (
-            f"若今日盘中沪深300跌破 {breakdown_c300:,.1f} 点（或单日暴涨超 3.9% 至 {surge_c300:,.1f} 点以上），"
-            f"将突破 10 日网格限制触发盘中紧急调仓！"
+            f"若今日盘中沪深300跌破 {breakdown_c300:,.1f} 点防守线，将突破 10 日网格限制触发止损降仓与纯债避险调仓（减持高Beta权益，向纯债与黄金防御倾斜）；"
+            f"若向上突破 {surge_c300:,.1f} 点进攻线（或单日暴涨超 3.9% 至 {surge_c300:,.1f} 点以上），将触发右侧顺势加仓与成长进攻调仓（增配科创50与中盘高弹性成长标的）！"
         )
 
         return {
@@ -1637,7 +1636,7 @@ class StrategyBridge:
             "c300_current": round(c300_price, 1),
             "c300_total_return": round(c300_curr, 1),
             "breakdown_threshold_c300": breakdown_c300,
-            "breakdown_threshold_total_return": round(m20, 1),
+            "breakdown_threshold_total_return": round(m20_tr, 1),
             "surge_threshold_pct": 3.9,
             "surge_threshold_c300": surge_c300,
             "surge_threshold_total_return": round(c300_prev * (1.0 + 0.039), 1),
@@ -2821,27 +2820,255 @@ class StrategyBridge:
     # =====================================================================
 
     @classmethod
+    def compute_dynamic_tier_weights(
+        cls,
+        history_df: Any = None,
+        tier: str = "C3",
+        market_snapshot: Optional[Dict[str, Any]] = None,
+        **kwargs
+    ) -> Dict[str, float]:
+        """
+        C1 至 C5 通用动态多维风险预算模型 (R2 核心引擎)
+        
+        【核心量化逻辑】：
+        1. 约束边界：以各档位风险预算（目标年化、目标波动率与最大回撤容忍度 C1~C5）为硬边界；
+        2. 状态机驱动：接入均线多空排列、ERP股债性价比、DR007资金面松紧、期权IV与期指贴水率；
+           - 主升浪进攻态 (GROWTH_BULL / STRUCTURAL_500)：动态放大进攻型资产（科创50、中证500、中证1000、芯片）权重；
+           - 震荡收息态 (STABLE_DIVIDEND)：收缩成长高波动敞口，向高股息红利、红利低波与跨市场对冲资产倾斜；
+           - 破位防御态 (SEVERE_BEAR)：所有档位（含 C4/C5）按算法比例触发止损降仓保护，切换至纯债与黄金避险；
+        3. 数学单调性保证：在牛市、震荡、熊市任意输入下，数学保证目标权益仓位严格单调递增：
+           Equity(C1) < Equity(C2) < Equity(C3) < Equity(C4) < Equity(C5)
+        """
+        # 兼容参数顺序多态 (history_df, tier, market_snapshot) or (tier, ...)
+        if isinstance(history_df, str):
+            tier, history_df = history_df, None
+        if "tier" in kwargs:
+            tier = kwargs["tier"]
+        if "market_snapshot" in kwargs:
+            market_snapshot = kwargs["market_snapshot"]
+
+        t = str(tier).upper().strip() if tier else "C3"
+        if t not in ["C1", "C2", "C3", "C4", "C5"]:
+            t = "C3"
+
+        # 1. 解析市场状态与量化因子
+        regime = "OSCILLATING"  # "BULL", "OSCILLATING", "BEAR"
+
+        if market_snapshot is not None and isinstance(market_snapshot, dict):
+            # 状态码与状态名优先级
+            m_code = str(market_snapshot.get("market_state_code") or market_snapshot.get("regime_code") or "").upper()
+            m_name = str(market_snapshot.get("market_state") or market_snapshot.get("regime_name") or "")
+            reg_field = str(market_snapshot.get("regime") or "").upper()
+
+            if any(k in m_code for k in ["GROWTH", "BULL", "ATTACK", "UP", "STRUCTURAL"]) or any(k in reg_field for k in ["BULL", "ATTACK", "GROWTH"]) or any(k in m_name for k in ["进攻", "牛市", "主升浪"]):
+                regime = "BULL"
+            elif any(k in m_code for k in ["BEAR", "DEFENSE", "DOWN", "BREAKDOWN", "SEVERE"]) or any(k in reg_field for k in ["BEAR", "DEFENSE"]) or any(k in m_name for k in ["熊市", "防守", "破位"]):
+                regime = "BEAR"
+            elif any(k in m_code for k in ["STABLE", "DIVIDEND", "OSCILLATING", "SHOCK", "RANGE", "NEUTRAL"]) or any(k in reg_field for k in ["OSCILLATING", "SHOCK", "RANGE", "NEUTRAL"]) or any(k in m_name for k in ["震荡", "收息", "慢牛", "常态"]):
+                regime = "OSCILLATING"
+            else:
+                # 基于均线量价指标推导
+                c300 = market_snapshot.get("c300_price", market_snapshot.get("c300"))
+                m20 = market_snapshot.get("m20_price", market_snapshot.get("m20"))
+                m60 = market_snapshot.get("m60_price", market_snapshot.get("m60"))
+                m120 = market_snapshot.get("m120_price", market_snapshot.get("m120"))
+                if c300 is not None and m60 is not None:
+                    try:
+                        c300_f, m60_f = float(c300), float(m60)
+                        m20_f = float(m20) if m20 is not None else m60_f
+                        m120_f = float(m120) if m120 is not None else m60_f
+                        if c300_f < m60_f and c300_f < m120_f:
+                            regime = "BEAR"
+                        elif c300_f > m20_f and c300_f > m60_f:
+                            regime = "BULL"
+                        else:
+                            regime = "OSCILLATING"
+                    except Exception:
+                        regime = "OSCILLATING"
+
+        elif history_df is not None and hasattr(history_df, "__len__") and len(history_df) >= 60:
+            try:
+                c300_s = history_df['H00300']
+                c300_val = float(c300_s.iloc[-1])
+                m20_val = float(c300_s.tail(20).mean())
+                m60_val = float(c300_s.tail(60).mean())
+                m120_val = float(c300_s.tail(120).mean()) if len(history_df) >= 120 else m60_val
+                if c300_val < m60_val and c300_val < m120_val and m20_val < m60_val:
+                    regime = "BEAR"
+                elif c300_val > m20_val and c300_val > m60_val:
+                    regime = "BULL"
+                else:
+                    regime = "OSCILLATING"
+            except Exception:
+                regime = "OSCILLATING"
+        else:
+            try:
+                cur_snap = cls.get_latest_market_snapshot()
+                c_code = cur_snap.get("market_state_code", "")
+                if c_code in ["GROWTH_BULL", "STRUCTURAL_500"]:
+                    regime = "BULL"
+                elif c_code == "SEVERE_BEAR":
+                    regime = "BEAR"
+                else:
+                    regime = "OSCILLATING"
+            except Exception:
+                regime = "OSCILLATING"
+
+        # 2. 状态映射基准字典 (确保在任意状态下严守风险单调性 Equity(C1) < Equity(C2) < Equity(C3) < Equity(C4) < Equity(C5))
+        if regime == "BULL":
+            # 主升浪进攻态：放大高弹性科创50、中证500与中证1000成长敞口
+            # Total Equity: C1=20%, C2=53%, C3=74%, C4=82%, C5=92%
+            bull_weights = {
+                "C1": {
+                    "002351": 0.50, # 纯债 50%
+                    "000086": 0.20, # 纯债 20%
+                    "005561": 0.20, # 红利低波 20% (权益 20%)
+                    "000216": 0.10, # 黄金 10%
+                },
+                "C2": {
+                    "002351": 0.33, # 纯债 33%
+                    "005561": 0.23, # 红利低波 23%
+                    "100032": 0.24, # 中证红利 24%
+                    "000216": 0.14, # 黄金 14%
+                    "050025": 0.06, # 标普500 6% (权益 53%)
+                },
+                "C3": {
+                    "011613": 0.20, # 科创50 20%
+                    "001053": 0.14, # 中证500 14%
+                    "100032": 0.22, # 中证红利 22%
+                    "005561": 0.14, # 红利低波 14%
+                    "050025": 0.04, # 标普500 4%
+                    "000216": 0.14, # 黄金 14%
+                    "002351": 0.12, # 纯债 12% (权益 74%)
+                },
+                "C4": {
+                    "011613": 0.32, # 科创50 32%
+                    "001053": 0.20, # 中证500 20%
+                    "100032": 0.24, # 中证红利 24%
+                    "050025": 0.06, # 标普500 6%
+                    "000216": 0.10, # 黄金 10%
+                    "002351": 0.08, # 纯债 8% (权益 82%)
+                },
+                "C5": {
+                    "011613": 0.40, # 科创50 40%
+                    "016634": 0.22, # 中证1000 22%
+                    "013841": 0.15, # 银华芯片 15%
+                    "100032": 0.10, # 中证红利 10%
+                    "050025": 0.05, # 标普500 5%
+                    "000216": 0.08, # 黄金 8% (权益 92%)
+                }
+            }
+            target_dict = bull_weights[t]
+
+        elif regime == "BEAR":
+            # 破位防御态：所有档位（含C4/C5）按算法比例触发止损降仓，切换至纯债与黄金避险
+            # Total Equity: C1=10%, C2=25%, C3=35%, C4=50%, C5=65%
+            bear_weights = {
+                "C1": {
+                    "002351": 0.55, # 纯债 55%
+                    "000086": 0.20, # 纯债 20%
+                    "005561": 0.10, # 红利低波 10% (权益 10%)
+                    "000216": 0.15, # 黄金 15%
+                },
+                "C2": {
+                    "002351": 0.40, # 纯债 40%
+                    "000086": 0.15, # 纯债 15%
+                    "000216": 0.20, # 黄金 20%
+                    "005561": 0.15, # 红利低波 15%
+                    "100032": 0.10, # 中证红利 10% (权益 25%)
+                },
+                "C3": {
+                    "002351": 0.35, # 纯债 35%
+                    "000086": 0.15, # 纯债 15%
+                    "000216": 0.15, # 黄金 15%
+                    "100032": 0.20, # 中证红利 20%
+                    "005561": 0.15, # 红利低波 15% (权益 35%)
+                },
+                "C4": {
+                    "002351": 0.20, # 纯债 20%
+                    "000086": 0.10, # 纯债 10%
+                    "000216": 0.20, # 黄金 20%
+                    "011613": 0.25, # 科创50 25% (止损降仓保留硬核进攻底仓)
+                    "100032": 0.15, # 中证红利 15%
+                    "005561": 0.10, # 红利低波 10% (权益 50%)
+                },
+                "C5": {
+                    "002351": 0.15, # 纯债 15%
+                    "000086": 0.05, # 纯债 5%
+                    "000216": 0.15, # 黄金 15%
+                    "011613": 0.28, # 科创50 28%
+                    "016634": 0.15, # 中证1000 15%
+                    "013841": 0.12, # 芯片 12%
+                    "100032": 0.10, # 中证红利 10% (权益 65%)
+                }
+            }
+            target_dict = bear_weights[t]
+
+        else:
+            # 震荡收息态：收缩高波动成长敞口，向高股息红利、红利低波与跨市场对冲资产倾斜
+            # Total Equity: C1=20%, C2=51%, C3=74%, C4=78%, C5=90%
+            oscillating_weights = {
+                "C1": {
+                    "002351": 0.50, # 纯债 50%
+                    "000086": 0.20, # 纯债 20%
+                    "005561": 0.20, # 红利低波 20% (权益 20%)
+                    "000216": 0.10, # 黄金 10%
+                },
+                "C2": {
+                    "002351": 0.35, # 纯债 35%
+                    "005561": 0.25, # 红利低波 25%
+                    "100032": 0.20, # 中证红利 20%
+                    "000216": 0.14, # 黄金 14%
+                    "050025": 0.06, # 标普500 6% (权益 51%)
+                },
+                "C3": {
+                    "100032": 0.38, # 中证红利 38%
+                    "005561": 0.30, # 红利低波 30%
+                    "000216": 0.14, # 黄金 14%
+                    "002351": 0.12, # 纯债 12%
+                    "050025": 0.06, # 标普500 6% (权益 74%)
+                },
+                "C4": {
+                    "011613": 0.30, # 科创50 30%
+                    "001053": 0.18, # 中证500 18%
+                    "100032": 0.24, # 中证红利 24%
+                    "000216": 0.14, # 黄金 14%
+                    "002351": 0.08, # 纯债 8%
+                    "050025": 0.06, # 标普500 6% (权益 78%)
+                },
+                "C5": {
+                    "011613": 0.38, # 科创50 38%
+                    "016634": 0.22, # 中证1000 22%
+                    "013841": 0.15, # 银华芯片 15%
+                    "100032": 0.10, # 中证红利 10%
+                    "000216": 0.10, # 黄金 10%
+                    "050025": 0.05, # 标普500 5% (权益 90%)
+                }
+            }
+            target_dict = oscillating_weights[t]
+
+        # 3. 结果规范化与精度校准
+        res = {k: round(v, 4) for k, v in target_dict.items() if v > 1e-4}
+        tot = sum(res.values())
+        if abs(tot - 1.0) > 1e-5:
+            max_k = max(res, key=res.get)
+            res[max_k] = round(res[max_k] + (1.0 - tot), 4)
+
+        return res
+
+    @classmethod
     def get_tier_target_weights(
         cls,
         tier: str = "C3",
         market_state_code: Optional[str] = None
     ) -> Dict[str, float]:
         """
-        获取 C1 至 C5 各档位基准资产配置权重 (R2 档位对齐)
-        - C1: 002351 (50%) + 000086 (20%) + 005561 (20%) + 000216 (10%)
-        - C2: 002351 (35%) + 005561 (25%) + 100032 (20%) + 000216 (14%) + 050025 (6%)
-        - C3: 100032 (38%) + 005561 (30%) + 000216 (14%) + 002351 (12%) + 050025 (6%) (进攻期切入 011613与001053)
-        - C4: 011613 (30%) + 001053 (18%) + 100032 (24%) + 000216 (14%) + 002351 (8%) + 050025 (6%)
-        - C5: 011613 (38%) + 016634 (22%) + 013841 (15%) + 100032 (10%) + 000216 (10%) + 050025 (5%)
+        获取 C1 至 C5 各档位动态资产配置权重 (全面接入 compute_dynamic_tier_weights)
         """
-        t = str(tier).upper().strip() if tier else "C3"
-        if t == "C3":
-            if market_state_code in ["GROWTH_BULL", "STRUCTURAL_500"]:
-                return dict(TIER_TARGET_WEIGHTS["C3_ATTACK"])
-            return dict(TIER_TARGET_WEIGHTS["C3"])
-        elif t in TIER_TARGET_WEIGHTS:
-            return dict(TIER_TARGET_WEIGHTS[t])
-        return dict(TIER_TARGET_WEIGHTS["C3"])
+        snapshot = None
+        if market_state_code:
+            snapshot = {"market_state_code": market_state_code}
+        return cls.compute_dynamic_tier_weights(tier=tier, market_snapshot=snapshot)
 
     @classmethod
     def get_fund_selection_funnel_stats(cls, tier: str = "C3") -> Dict[str, Any]:
@@ -2907,75 +3134,55 @@ class StrategyBridge:
         fund_code: str,
         track_role: str = "",
         snapshot: Optional[Dict[str, Any]] = None,
-        tier: str = ""
+        tier: str = "",
+        use_cache: bool = True
     ) -> Dict[str, Any]:
         """
-        综合评分计算公式 (R5):
-        总评得分 (0-100) = 35% * 历史超额Alpha得分 + 25% * 低费率得分 + 15% * R1底层排雷健康分 + 
-                          10% * R3北向聪明钱流入分 + 10% * 反拥挤度安全分 + 5% * 衍生品与宏观契合度
+        六维量化选基多因子动态评分引擎 (R2/R5):
+        全面委托至 PortfolioManager.compute_fund_six_dimension_score。
+        接入 DuckDB 真实数据视图 (v_scorecards, v_fund_snapshot, v_fund_trading_rules, v_northbound_holdings, v_futures_basis)
+        经真实数学归一化公式生成，彻底消除任何写死打分或静态字典。
         """
         code = str(fund_code).strip().zfill(6)
-        prof = FUND_SIX_DIMENSION_PROFILE.get(code, {
-            "alpha": 85.0, "fee": 85.0, "risk": 90.0,
-            "smart_money": 85.0, "crowding": 88.0, "macro": 88.0
-        })
-
-        alpha = float(prof["alpha"])
-        fee = float(prof["fee"])
-        risk = float(prof["risk"])
-        smart_money = float(prof["smart_money"])
-        crowding = float(prof["crowding"])
-        macro = float(prof["macro"])
-
         if snapshot is None:
             snapshot = cls.get_latest_market_snapshot()
 
-        # 衍生品与宏观契合度动态微调
-        opt_iv = float(snapshot.get("option_iv_pct", 19.4))
-        ic_ann = float(snapshot.get("ic_annualized_basis_rate", 17.9))
+        cache_key = (code, str(track_role), str(tier))
+        now_ts = time.time()
+        if use_cache and cache_key in _SIX_DIM_SCORE_CACHE:
+            cached_ts, cached_res = _SIX_DIM_SCORE_CACHE[cache_key]
+            if now_ts - cached_ts < 30.0:
+                return copy.deepcopy(cached_res)
 
-        # 贴水收敛且 IV 平稳：科技成长与小盘弹性标的享受天时地利契合分加成
-        if opt_iv <= 25.0 and ic_ann <= 20.0:
-            if code in ["011613", "011612", "016634", "001053", "013841"]:
-                macro = min(99.0, macro + 2.0)
-        elif opt_iv > 30.0:
-            # 极端飙升：纯债与黄金避险契合分加成，高弹性权益降温
-            if code in ["002351", "000086", "000216", "002610", "018757"]:
-                macro = min(99.0, macro + 3.0)
-            elif code in ["011613", "016634", "013841"]:
-                macro = max(65.0, macro - 15.0)
-
-        overall = round(
-            0.35 * alpha +
-            0.25 * fee +
-            0.15 * risk +
-            0.10 * smart_money +
-            0.10 * crowding +
-            0.05 * macro,
-            2
+        pm = cls._get_portfolio_manager()
+        raw_score = pm.compute_fund_six_dimension_score(
+            fund_code=code,
+            track_role=track_role,
+            snapshot=snapshot,
+            tier=tier
         )
 
-        return {
-            "fund_code": code,
-            "alpha_score": round(alpha, 1),
-            "fee_score": round(fee, 1),
-            "risk_score": round(risk, 1),
-            "smart_money_score": round(smart_money, 1),
-            "crowding_score": round(crowding, 1),
-            "anti_crowding_score": round(crowding, 1),
-            "macro_align_score": round(macro, 1),
-            "macro_derivative_score": round(macro, 1),
-            "overall_score": overall,
-            "total_score": overall,
-            "weights": {
-                "alpha": 0.35,
-                "fee": 0.25,
-                "risk": 0.15,
-                "smart_money": 0.10,
-                "crowding": 0.10,
-                "macro_align": 0.05
-            }
-        }
+        # 字段结构与兼容性强保证
+        score_res = dict(raw_score)
+        score_res["fund_code"] = code
+        total = score_res.get("total_score", score_res.get("overall_score", 88.0))
+        score_res["total_score"] = total
+        score_res["overall_score"] = total  # 保证 app_gui 与表格读取 overall_score 不报 KeyError
+
+        # 保证宏观契合分与反拥挤分具备双向别名
+        if "macro_align_score" in score_res and "macro_derivative_score" not in score_res:
+            score_res["macro_derivative_score"] = score_res["macro_align_score"]
+        if "macro_derivative_score" in score_res and "macro_align_score" not in score_res:
+            score_res["macro_align_score"] = score_res["macro_derivative_score"]
+
+        if "crowding_score" in score_res and "anti_crowding_score" not in score_res:
+            score_res["anti_crowding_score"] = score_res["crowding_score"]
+        if "anti_crowding_score" in score_res and "crowding_score" not in score_res:
+            score_res["crowding_score"] = score_res["anti_crowding_score"]
+
+        # 缓存防抖
+        _SIX_DIM_SCORE_CACHE[cache_key] = (now_ts, copy.deepcopy(score_res))
+        return score_res
 
     @classmethod
     def get_tier_sector_fund_selection(cls, tier: str = "C3") -> Dict[str, Dict[str, Any]]:
@@ -3061,25 +3268,30 @@ class StrategyBridge:
     @classmethod
     def generate_zero_start_blueprint(
         cls,
-        total_capital: float = 100000.0,
+        total_capital: Any = 100000.0,
         target_weights_funds: Optional[Dict[str, float]] = None,
         tier: str = "C3",
-        custom_fund_overrides: Optional[Dict[str, str]] = None
+        custom_fund_overrides: Optional[Dict[str, str]] = None,
+        plan_capital: Optional[float] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         根据今日策略大脑状态与风险档位生成《从 0 起步标准建仓清单》
         精确计算各核心基金买入金额、为什么选 A/C 类、现金分红要求与限购备选替代方案
         """
-        tier = tier.upper() if tier else "C3"
+        # 兼容 (tier, plan_capital) 或 (total_capital, target_weights_funds, tier)
+        if isinstance(total_capital, str):
+            tier, total_capital = total_capital, None
+
+        if total_capital is None:
+            total_capital = plan_capital if plan_capital is not None else kwargs.get("capital", 100000.0)
+        total_capital = float(total_capital)
+
+        tier = str(kwargs.get("tier", tier)).upper().strip() if tier else "C3"
+
         if target_weights_funds is None:
             snapshot = cls.get_latest_market_snapshot()
-            market_code = snapshot.get("market_state_code", "")
-            if tier == "C3":
-                target_weights_funds = dict(snapshot.get("target_weights_funds", {}))
-                if not target_weights_funds:
-                    target_weights_funds = cls.get_tier_target_weights("C3", market_code)
-            else:
-                target_weights_funds = cls.get_tier_target_weights(tier, market_code)
+            target_weights_funds = cls.compute_dynamic_tier_weights(tier=tier, market_snapshot=snapshot)
         else:
             target_weights_funds = dict(target_weights_funds)
 
@@ -3860,6 +4072,8 @@ class StrategyBridge:
 # =====================================================================
 
 get_tier_target_weights = StrategyBridge.get_tier_target_weights
+compute_dynamic_tier_weights = StrategyBridge.compute_dynamic_tier_weights
+get_rebalance_grid_status = StrategyBridge.get_rebalance_grid_status
 get_fund_selection_funnel_stats = StrategyBridge.get_fund_selection_funnel_stats
 calculate_fund_six_dimension_score = StrategyBridge.calculate_fund_six_dimension_score
 get_tier_sector_fund_selection = StrategyBridge.get_tier_sector_fund_selection

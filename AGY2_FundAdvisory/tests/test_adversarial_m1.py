@@ -264,9 +264,28 @@ def test_scenario_multi_fund_balanced():
     assert weights == [50.0, 50.0]
 
 
-def test_scenario_100pct_high_risk_configuration():
+def test_scenario_100pct_high_risk_configuration(monkeypatch):
     """场景 4: 100% 高危风险组合 (Danger Stock Count >= 2, 强制触发 🔴 预警)"""
     pm = PortfolioManager(db_path=":memory:")
+
+    # 模拟中芯国际在恶化造血/资本开支承压下的高危场景
+    if pm.toolkit and hasattr(pm.toolkit, "earnings_forecast"):
+        orig_screen = pm.toolkit.earnings_forecast.screen_financial_risks
+        def mock_screen_fin(sym):
+            name = pm.resolve_stock_symbol(sym) or sym
+            if "中芯国际" in name or "688981" in str(sym):
+                return {
+                    "symbol": "688981.SH",
+                    "stock_name": "中芯国际",
+                    "double_high_risk": True,
+                    "monetary_funds_billion": 300.0,
+                    "total_debt_billion": 600.0,
+                    "goodwill_ratio_pct": 2.0,
+                    "fcf_billion": -50.0,
+                    "cfo_billion": -50.0,
+                }
+            return orig_screen(sym)
+        monkeypatch.setattr(pm.toolkit.earnings_forecast, "screen_financial_risks", mock_screen_fin)
 
     # 构造两个高危基金
     FUND_LOOK_THROUGH_DATA["999901"] = {

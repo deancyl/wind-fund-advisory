@@ -2,12 +2,12 @@
   "version": "AGY2_PORTFOLIO_V2",
   "takeover_mode": "A",
   "baseline_date": "2026-10-30",
-  "baseline_equity": 31790.0,
+  "baseline_equity": 100000.0,
   "available_cash": 0.0,
   "in_transit_cash": 0.0,
-  "total_market_value": 31790.0,
-  "total_equity": 31790.0,
-  "peak_equity": 31790.0,
+  "total_market_value": 100000.0,
+  "total_equity": 100000.0,
+  "peak_equity": 100000.0,
   "max_drawdown_pct": 0.0,
   "benchmark_code": "000300.SH",
   "benchmark_baseline_nav": 1.0,
@@ -17,64 +17,180 @@
   "alpha_return_pct": 0.0,
   "holdings": [
     {
-      "fund_code": "011612",
-      "fund_name": "华夏上证科创板50成份ETF联接A",
+      "fund_code": "100032",
+      "fund_name": "富国中证红利指数增强A",
       "share_class": "A",
-      "shares": 10000.0,
-      "cost_price": 1.0419,
-      "current_nav": 1.0419,
-      "market_value": 10419.0,
-      "cost_basis": 10419.0,
+      "shares": 39832.2851,
+      "cost_price": 0.954,
+      "current_nav": 0.954,
+      "market_value": 38000.0,
+      "cost_basis": 38000.0,
       "floating_pnl": 0.0,
       "floating_pnl_pct": 0.0,
       "first_buy_date": "2026-10-30",
       "dividend_method": "cash",
       "batches": [
         {
-          "batch_id": "B_A_011612_001",
+          "batch_id": "B_MANUAL_100032_001",
           "buy_date": "2026-10-30",
-          "shares": 10000.0,
-          "cost_nav": 1.0419,
+          "shares": 39832.2851,
+          "cost_nav": 0.954,
           "fee": 0.0,
           "holding_days": 0,
           "safety_lock": true,
-          "notes": "模式A冷启动基准重置"
+          "notes": "从0开始建仓(高股息周期价值底仓)"
         }
       ],
-      "company": "华夏基金",
+      "company": "富国基金",
       "is_core_strategy": true,
       "transition_tag": "核心策略底仓"
     },
     {
-      "fund_code": "013841",
-      "fund_name": "银华集成电路混合C",
-      "share_class": "C",
-      "shares": 10000.0,
-      "cost_price": 2.1371,
-      "current_nav": 2.1371,
-      "market_value": 21371.0,
-      "cost_basis": 21371.0,
+      "fund_code": "005561",
+      "fund_name": "创金合信中证红利低波动指数A",
+      "share_class": "A",
+      "shares": 13597.4256,
+      "cost_price": 2.2063,
+      "current_nav": 2.2063,
+      "market_value": 30000.0,
+      "cost_basis": 30000.0,
       "floating_pnl": 0.0,
       "floating_pnl_pct": 0.0,
       "first_buy_date": "2026-10-30",
       "dividend_method": "cash",
       "batches": [
         {
-          "batch_id": "B_A_013841_001",
+          "batch_id": "B_MANUAL_005561_001",
           "buy_date": "2026-10-30",
-          "shares": 10000.0,
-          "cost_nav": 2.1371,
+          "shares": 13597.4256,
+          "cost_nav": 2.2063,
           "fee": 0.0,
           "holding_days": 0,
           "safety_lock": true,
-          "notes": "模式A冷启动基准重置"
+          "notes": "从0开始建仓(低估值低波动防御中枢)"
         }
       ],
-      "company": "银华基金",
+      "company": "创金合信基金",
+      "is_core_strategy": true,
+      "transition_tag": "核心策略底仓"
+    },
+    {
+      "fund_code": "000216",
+      "fund_name": "华安黄金ETF联接A",
+      "share_class": "A",
+      "shares": 4662.4704,
+      "cost_price": 3.0027,
+      "current_nav": 3.0027,
+      "market_value": 14000.0,
+      "cost_basis": 14000.0,
+      "floating_pnl": 0.0,
+      "floating_pnl_pct": 0.0,
+      "first_buy_date": "2026-10-30",
+      "dividend_method": "reinvest",
+      "batches": [
+        {
+          "batch_id": "B_MANUAL_000216_001",
+          "buy_date": "2026-10-30",
+          "shares": 4662.4704,
+          "cost_nav": 3.0027,
+          "fee": 0.0,
+          "holding_days": 0,
+          "safety_lock": true,
+          "notes": "从0开始建仓(全天候抗通胀黄金对冲底仓)"
+        }
+      ],
+      "company": "华安基金",
+      "is_core_strategy": true,
+      "transition_tag": "核心策略底仓"
+    },
+    {
+      "fund_code": "002351",
+      "fund_name": "易方达裕祥回报债券A",
+      "share_class": "A",
+      "shares": 7498.1255,
+      "cost_price": 1.6004,
+      "current_nav": 1.6004,
+      "market_value": 12000.0,
+      "cost_basis": 12000.0,
+      "floating_pnl": 0.0,
+      "floating_pnl_pct": 0.0,
+      "first_buy_date": "2026-10-30",
+      "dividend_method": "reinvest",
+      "batches": [
+        {
+          "batch_id": "B_MANUAL_002351_001",
+          "buy_date": "2026-10-30",
+          "shares": 7498.1255,
+          "cost_nav": 1.6004,
+          "fee": 0.0,
+          "holding_days": 0,
+          "safety_lock": true,
+          "notes": "从0开始建仓(纯债稳健避风港压舱石)"
+        }
+      ],
+      "company": "易方达基金",
+      "is_core_strategy": true,
+      "transition_tag": "核心策略底仓"
+    },
+    {
+      "fund_code": "001071",
+      "fund_name": "摩根标普500指数(QDII)人民币A",
+      "share_class": "A",
+      "shares": 1481.282,
+      "cost_price": 3.713,
+      "current_nav": 3.713,
+      "market_value": 5500.0,
+      "cost_basis": 5500.0,
+      "floating_pnl": 0.0,
+      "floating_pnl_pct": 0.0,
+      "first_buy_date": "2026-10-30",
+      "dividend_method": "reinvest",
+      "batches": [
+        {
+          "batch_id": "B_MANUAL_001071_002",
+          "buy_date": "2026-10-30",
+          "shares": 1481.282,
+          "cost_nav": 3.713,
+          "fee": 0.0,
+          "holding_days": 0,
+          "safety_lock": true,
+          "notes": "从0开始建仓(海外跨市场多元对冲-拆单备选买入)"
+        }
+      ],
+      "company": "摩根基金",
+      "is_core_strategy": true,
+      "transition_tag": "核心策略底仓"
+    },
+    {
+      "fund_code": "050025",
+      "fund_name": "博时标普500ETF联接A",
+      "share_class": "A",
+      "shares": 89.3607,
+      "cost_price": 5.5953,
+      "current_nav": 5.5953,
+      "market_value": 500.0,
+      "cost_basis": 500.0,
+      "floating_pnl": 0.0,
+      "floating_pnl_pct": 0.0,
+      "first_buy_date": "2026-10-30",
+      "dividend_method": "reinvest",
+      "batches": [
+        {
+          "batch_id": "B_MANUAL_050025_001",
+          "buy_date": "2026-10-30",
+          "shares": 89.3607,
+          "cost_nav": 5.5953,
+          "fee": 0.0,
+          "holding_days": 0,
+          "safety_lock": true,
+          "notes": "从0开始建仓(海外跨市场多元对冲-今日限额内)"
+        }
+      ],
+      "company": "博时基金",
       "is_core_strategy": true,
       "transition_tag": "核心策略底仓"
     }
   ],
   "pending_orders": [],
-  "updated_at": "2026-10-30 00:43:48"
+  "updated_at": "2026-10-30 03:37:27"
 }
