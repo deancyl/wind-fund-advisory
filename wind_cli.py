@@ -1488,6 +1488,545 @@ def cmd_etf_flow(args):
         console.print(c_table)
 
 
+def cmd_forecast(args):
+    import json
+    console = Console()
+    wk = WindToolkit()
+    code = getattr(args, "code", None)
+    is_json = getattr(args, "json", False)
+    do_screen = getattr(args, "screen", False)
+    limit = getattr(args, "limit", 15) or 15
+
+    if do_screen:
+        target_code = code or "600519"
+        res = wk.earnings_forecast.screen_financial_risks(target_code)
+        if is_json:
+            print(json.dumps(res, ensure_ascii=False, indent=2))
+            return
+        level_style = "[bold green]" if res["risk_level"] == "Safe" else "[bold yellow]" if res["risk_level"] == "Watch" else "[bold red]"
+        console.print(Panel(
+            f"[bold white]标的代码[/bold white]: [bold cyan]{res['symbol']}[/bold cyan] ({res['stock_name']})  |  "
+            f"[bold white]财务排雷评级[/bold white]: {level_style}{res['risk_level']}[/]\n\n"
+            f"• [bold magenta]自由现金流 (FCF)[/bold magenta]: {res['fcf_billion']:.2f} 亿元\n"
+            f"• [bold white]商誉占净资产比重[/bold white]: {res['goodwill_ratio_pct']:.2f}% (警戒线 30%)\n"
+            f"• [bold white]应收账款周转天数[/bold white]: {res['ar_turnover_days']:.1f} 天\n"
+            f"• [bold white]存贷双高风险特征[/bold white]: {'[red]触发⚠️ (货币资金 ' + str(res['monetary_funds_billion']) + '亿, 有息负债 ' + str(res['total_debt_billion']) + '亿)[/red]' if res['double_high_risk'] else '[green]未触发 (安全)[/green]'}\n"
+            f"• [bold yellow]诊断综合说明[/bold yellow]: {res['risk_reasons']}\n"
+            f"• [dim]报告期: {res['report_date']} | 更新时间: {res['updated_at']}[/dim]",
+            title="🔍 [bold yellow]上市公司财务高危排雷与自由现金流诊断[/bold yellow]"
+        ))
+        return
+
+    df = wk.earnings_forecast.fetch_earnings_forecast(symbol=code, limit=limit)
+    if is_json:
+        print(df.to_json(orient="records", force_ascii=False, indent=2))
+        return
+
+    if df.empty:
+        console.print("[yellow]! 未获取到业绩预告数据[/yellow]")
+        return
+
+    table = Table(title="📈 上市公司业绩预告与业绩快报全景", show_lines=True)
+    table.add_column("代码", style="cyan", width=10)
+    table.add_column("股票名称", style="bold green", width=12)
+    table.add_column("报告期", style="dim", width=11)
+    table.add_column("预告类型", style="magenta", width=10)
+    table.add_column("净利润预测(百万)", style="white", justify="right", width=18)
+    table.add_column("净利润变动幅度(%)", style="yellow", justify="right", width=18)
+    table.add_column("业绩变动主要原因", style="dim", width=35)
+
+    for _, r in df.iterrows():
+        t_style = "[bold green]" if "增" in str(r["forecast_type"]) or "扭亏" in str(r["forecast_type"]) else "[bold red]"
+        p_str = f"{r['profit_min_million']:.1f} ~ {r['profit_max_million']:.1f}"
+        c_str = f"{r['profit_change_min_pct']:+.1f}% ~ {r['profit_change_max_pct']:+.1f}%"
+        table.add_row(
+            str(r["symbol"]),
+            str(r["stock_name"]),
+            str(r["report_date"]),
+            f"{t_style}{r['forecast_type']}[/]",
+            p_str,
+            c_str,
+            str(r["reason"])
+        )
+    console.print(table)
+
+
+def cmd_chips(args):
+    import json
+    console = Console()
+    wk = WindToolkit()
+    action = getattr(args, "action", "dragon-tiger")
+    code = getattr(args, "code", None)
+    t_date = getattr(args, "date", None)
+    top_n = getattr(args, "top", 15) or 15
+    is_json = getattr(args, "json", False)
+
+    if action == "dragon-tiger":
+        df = wk.chips_market.fetch_dragon_tiger_daily(trade_date=t_date, limit=top_n)
+        if is_json:
+            print(df.to_json(orient="records", force_ascii=False, indent=2))
+            return
+        if df.empty:
+            console.print("[yellow]! 未获取到龙虎榜席位数据[/yellow]")
+            return
+        table = Table(title="🐉 龙虎榜每日席位追踪与机构博弈", show_lines=True)
+        table.add_column("代码", style="cyan", width=10)
+        table.add_column("名称", style="bold green", width=12)
+        table.add_column("收盘价", style="white", justify="right", width=9)
+        table.add_column("涨跌幅", style="yellow", justify="right", width=9)
+        table.add_column("龙虎榜净买(百万)", style="bold magenta", justify="right", width=16)
+        table.add_column("机构净买(百万)", style="bold cyan", justify="right", width=15)
+        table.add_column("知名买入席位", style="dim", width=25)
+        table.add_column("上榜原因", style="dim", width=22)
+
+        for _, r in df.iterrows():
+            chg_style = "[green]" if r["change_pct"] >= 0 else "[red]"
+            net_style = "[bold green]" if r["net_buy_million"] >= 0 else "[bold red]"
+            inst_style = "[bold green]" if r["institution_net_million"] >= 0 else "[bold red]"
+            table.add_row(
+                str(r["symbol"]),
+                str(r["stock_name"]),
+                f"{r['close_price']:.2f}",
+                f"{chg_style}{r['change_pct']:+.2f}%[/]",
+                f"{net_style}{r['net_buy_million']:+.1f}[/]",
+                f"{inst_style}{r['institution_net_million']:+.1f}[/]",
+                str(r["top_buy_seats"]),
+                str(r["reason"])
+            )
+        console.print(table)
+
+    elif action == "block-trade":
+        df = wk.chips_market.fetch_block_trading(trade_date=t_date, limit=top_n)
+        if is_json:
+            print(df.to_json(orient="records", force_ascii=False, indent=2))
+            return
+        if df.empty:
+            console.print("[yellow]! 未获取到大宗交易数据[/yellow]")
+            return
+        table = Table(title="📦 大宗交易每日流水与溢折价博弈", show_lines=True)
+        table.add_column("日期", style="dim", width=11)
+        table.add_column("代码", style="cyan", width=10)
+        table.add_column("名称", style="bold green", width=12)
+        table.add_column("收盘价", style="white", justify="right", width=9)
+        table.add_column("成交价", style="yellow", justify="right", width=9)
+        table.add_column("溢折价率(%)", style="bold magenta", justify="right", width=12)
+        table.add_column("成交额(万元)", style="bold cyan", justify="right", width=12)
+        table.add_column("买方营业部", style="dim", width=22)
+        table.add_column("卖方营业部", style="dim", width=22)
+
+        for _, r in df.iterrows():
+            disc_style = "[green]" if r["discount_rate_pct"] >= 0 else "[red]"
+            table.add_row(
+                str(r["trade_date"]),
+                str(r["symbol"]),
+                str(r["stock_name"]),
+                f"{r['close_price']:.2f}",
+                f"{r['deal_price']:.2f}",
+                f"{disc_style}{r['discount_rate_pct']:+.2f}%[/]",
+                f"{r['deal_amount_ten_thousand']:.1f}",
+                str(r["buyer_branch"]),
+                str(r["seller_branch"])
+            )
+        console.print(table)
+
+    elif action == "concentration":
+        target_code = code or "600519"
+        df = wk.chips_market.fetch_shareholder_concentration(symbol=target_code, limit=top_n)
+        if is_json:
+            print(df.to_json(orient="records", force_ascii=False, indent=2))
+            return
+        if df.empty:
+            console.print(f"[yellow]! 未获取到标的 {target_code} 的股东户数数据[/yellow]")
+            return
+        table = Table(title=f"👥 标的 {target_code} 股东户数时序与筹码集中度", show_lines=True)
+        table.add_column("截止日期", style="dim", width=11)
+        table.add_column("代码", style="cyan", width=10)
+        table.add_column("名称", style="bold green", width=12)
+        table.add_column("股东户数(户)", style="white", justify="right", width=14)
+        table.add_column("环比增减(%)", style="yellow", justify="right", width=12)
+        table.add_column("户均市值(万)", style="bold magenta", justify="right", width=13)
+        table.add_column("户均股数(股)", style="dim", justify="right", width=13)
+        table.add_column("筹码趋势", style="bold white", width=12)
+
+        for _, r in df.iterrows():
+            c_style = "[bold green]" if r["holder_change_pct"] < 0 else "[bold red]" if r["holder_change_pct"] > 0 else "[white]"
+            t_style = "[green]" if "集中" in str(r["concentration_trend"]) else "[red]" if "分散" in str(r["concentration_trend"]) else "[white]"
+            table.add_row(
+                str(r["end_date"]),
+                str(r["symbol"]),
+                str(r["stock_name"]),
+                f"{r['holder_count']:,}",
+                f"{c_style}{r['holder_change_pct']:+.2f}%[/]",
+                f"{r['avg_market_value_ten_thousand']:.2f}",
+                f"{r['avg_shares']:.1f}",
+                f"{t_style}{r['concentration_trend']}[/]"
+            )
+        console.print(table)
+
+
+def cmd_holder_risk(args):
+    import json
+    console = Console()
+    wk = WindToolkit()
+    action = getattr(args, "action", "lockup")
+    code = getattr(args, "code", None)
+    days = getattr(args, "days", 30) or 30
+    top_n = getattr(args, "top", 15) or 15
+    is_json = getattr(args, "json", False)
+
+    if action == "lockup":
+        df = wk.holder_risk.fetch_lockup_calendar(days_ahead=days, limit=top_n)
+        if is_json:
+            print(df.to_json(orient="records", force_ascii=False, indent=2))
+            return
+        if df.empty:
+            console.print("[yellow]! 未来暂无解禁记录[/yellow]")
+            return
+        table = Table(title=f"🗓️ 未来 {days} 天限售股解禁日历与流通抛压测算", show_lines=True)
+        table.add_column("解禁日", style="bold yellow", width=11)
+        table.add_column("距今天数", style="cyan", justify="right", width=9)
+        table.add_column("代码", style="cyan", width=10)
+        table.add_column("名称", style="bold green", width=12)
+        table.add_column("解禁股数(百万)", style="white", justify="right", width=14)
+        table.add_column("占总股本(%)", style="magenta", justify="right", width=11)
+        table.add_column("解禁市值(亿)", style="bold red", justify="right", width=12)
+        table.add_column("股份类型", style="dim", width=18)
+        table.add_column("风险评级", style="bold white", width=10)
+
+        for _, r in df.iterrows():
+            r_style = "[bold red]" if r["risk_level"] == "High" else "[bold yellow]" if r["risk_level"] == "Medium" else "[green]"
+            table.add_row(
+                str(r["unlock_date"]),
+                f"{r['days_to_unlock']} 天",
+                str(r["symbol"]),
+                str(r["stock_name"]),
+                f"{r['unlock_shares_million']:.2f}",
+                f"{r['unlock_ratio_total_pct']:.2f}%",
+                f"{r['unlock_market_value_billion']:.2f}",
+                str(r["share_type"]),
+                f"{r_style}{r['risk_level']}[/]"
+            )
+        console.print(table)
+
+    elif action == "pledge":
+        df = wk.holder_risk.fetch_pledge_risk(symbol=code, limit=top_n)
+        if is_json:
+            print(df.to_json(orient="records", force_ascii=False, indent=2))
+            return
+        if df.empty:
+            console.print("[yellow]! 未获取到股权质押数据[/yellow]")
+            return
+        table = Table(title="🔒 大股东股权质押比例与平仓线预警监测", show_lines=True)
+        table.add_column("代码", style="cyan", width=10)
+        table.add_column("名称", style="bold green", width=12)
+        table.add_column("质押股数(百万)", style="white", justify="right", width=14)
+        table.add_column("总股本质押率(%)", style="yellow", justify="right", width=15)
+        table.add_column("控股股东质押率(%)", style="bold magenta", justify="right", width=16)
+        table.add_column("平仓线状态", style="bold red", width=12)
+        table.add_column("风险评级", style="bold white", width=10)
+        table.add_column("研判说明", style="dim", width=30)
+
+        for _, r in df.iterrows():
+            stat_style = "[red]" if "击穿" in str(r["warning_close_line_status"]) else "[yellow]" if "预警" in str(r["warning_close_line_status"]) else "[green]"
+            table.add_row(
+                str(r["symbol"]),
+                str(r["stock_name"]),
+                f"{r['pledged_shares_million']:.2f}",
+                f"{r['pledge_ratio_total_pct']:.2f}%",
+                f"{r['pledge_ratio_controlling_pct']:.2f}%",
+                f"{stat_style}{r['warning_close_line_status']}[/]",
+                str(r["risk_level"]),
+                str(r["risk_reasons"])
+            )
+        console.print(table)
+
+    elif action in ["trading", "summary"]:
+        df = wk.holder_risk.fetch_holder_trading(symbol=code, limit=top_n)
+        if is_json:
+            print(df.to_json(orient="records", force_ascii=False, indent=2))
+            return
+        if df.empty:
+            console.print("[yellow]! 未获取到增减持/回购流水[/yellow]")
+            return
+        table = Table(title="💼 董监高/大股东增减持与公司股份回购流水", show_lines=True)
+        table.add_column("交易日", style="dim", width=11)
+        table.add_column("代码", style="cyan", width=10)
+        table.add_column("名称", style="bold green", width=12)
+        table.add_column("变动主体", style="white", width=16)
+        table.add_column("职务/身份", style="dim", width=14)
+        table.add_column("交易类型", style="bold magenta", width=12)
+        table.add_column("变动股数(万)", style="yellow", justify="right", width=12)
+        table.add_column("成交均价", style="white", justify="right", width=10)
+        table.add_column("变动金额(万)", style="bold cyan", justify="right", width=13)
+
+        for _, r in df.iterrows():
+            t_style = "[bold green]" if "增持" in str(r["trade_type"]) or "回购" in str(r["trade_type"]) else "[bold red]"
+            table.add_row(
+                str(r["trade_date"]),
+                str(r["symbol"]),
+                str(r["stock_name"]),
+                str(r["holder_name"]),
+                str(r["position"]),
+                f"{t_style}{r['trade_type']}[/]",
+                f"{r['change_shares_ten_thousand']:+.2f}",
+                f"{r['avg_price']:.2f}",
+                f"{r['change_amount_ten_thousand']:.1f}"
+            )
+        console.print(table)
+
+
+def cmd_smart_money(args):
+    import json
+    console = Console()
+    wk = WindToolkit()
+    action = getattr(args, "action", "northbound")
+    code = getattr(args, "code", None)
+    period = getattr(args, "period", "2024Q4") or "2024Q4"
+    top_n = getattr(args, "top", 15) or 15
+    is_json = getattr(args, "json", False)
+
+    if action == "northbound":
+        df = wk.institutional_holdings.fetch_northbound_holdings(symbol=code, limit=top_n)
+        if is_json:
+            print(df.to_json(orient="records", force_ascii=False, indent=2))
+            return
+        if df.empty:
+            console.print("[yellow]! 未获取到北向资金持股数据[/yellow]")
+            return
+        table = Table(title="🧭 北向资金 (陆股通/聪明钱) 个股持仓与调仓时序", show_lines=True)
+        table.add_column("代码", style="cyan", width=10)
+        table.add_column("股票名称", style="bold green", width=12)
+        table.add_column("持股市值(亿)", style="bold magenta", justify="right", width=13)
+        table.add_column("占流通盘(%)", style="yellow", justify="right", width=12)
+        table.add_column("近1日变动(百万)", style="white", justify="right", width=15)
+        table.add_column("近5日变动(百万)", style="bold cyan", justify="right", width=15)
+        table.add_column("日期", style="dim", width=11)
+
+        for _, r in df.iterrows():
+            c1_style = "[green]" if r["change_1d_value_million"] >= 0 else "[red]"
+            c5_style = "[bold green]" if r["change_5d_value_million"] >= 0 else "[bold red]"
+            table.add_row(
+                str(r["symbol"]),
+                str(r["stock_name"]),
+                f"{r['holding_market_value_billion']:.2f}",
+                f"{r['float_ratio_pct']:.2f}%",
+                f"{c1_style}{r['change_1d_value_million']:+.1f}[/]",
+                f"{c5_style}{r['change_5d_value_million']:+.1f}[/]",
+                str(r["trade_date"])
+            )
+        console.print(table)
+
+    elif action in ["fund-heavy", "crowding"]:
+        df = wk.institutional_holdings.fetch_fund_heavyweight_stocks(report_period=period, limit=top_n)
+        if is_json:
+            print(df.to_json(orient="records", force_ascii=False, indent=2))
+            return
+        if df.empty:
+            console.print(f"[yellow]! 未获取到公募基金 {period} 季报重仓数据[/yellow]")
+            return
+        table = Table(title=f"🏛️ 公募基金季报 ({period}) 重仓股穿透与抱团拥挤度", show_lines=True)
+        table.add_column("代码", style="cyan", width=10)
+        table.add_column("名称", style="bold green", width=12)
+        table.add_column("重仓基金数(只)", style="bold yellow", justify="right", width=14)
+        table.add_column("合计持股(百万)", style="white", justify="right", width=14)
+        table.add_column("持股市值(亿)", style="bold magenta", justify="right", width=13)
+        table.add_column("占流通股(%)", style="dim", justify="right", width=12)
+        table.add_column("抱团拥挤度", style="bold white", width=12)
+
+        for _, r in df.iterrows():
+            crowd_style = "[bold red]" if "极度" in str(r["crowding_degree"]) else "[bold yellow]" if "中度" in str(r["crowding_degree"]) else "[green]"
+            table.add_row(
+                str(r["symbol"]),
+                str(r["stock_name"]),
+                f"{r['fund_count']:,}",
+                f"{r['total_shares_million']:.2f}",
+                f"{r['holding_value_billion']:.2f}",
+                f"{r['float_shares_ratio_pct']:.2f}%",
+                f"{crowd_style}{r['crowding_degree']}[/]"
+            )
+        console.print(table)
+
+
+def cmd_derivatives(args):
+    import json
+    console = Console()
+    wk = WindToolkit()
+    action = getattr(args, "action", "basis")
+    is_json = getattr(args, "json", False)
+
+    if action == "basis":
+        df = wk.derivatives.fetch_futures_basis()
+        if is_json:
+            print(df.to_json(orient="records", force_ascii=False, indent=2))
+            return
+        if df.empty:
+            console.print("[yellow]! 未获取到股指期货基差数据[/yellow]")
+            return
+        table = Table(title="⚡ 股指期货基差与年化贴水率全景监控", show_lines=True)
+        table.add_column("合约代码", style="bold cyan", width=10)
+        table.add_column("标的指数", style="bold green", width=10)
+        table.add_column("现货点位", style="white", justify="right", width=10)
+        table.add_column("期货点位", style="yellow", justify="right", width=10)
+        table.add_column("绝对基差", style="bold magenta", justify="right", width=10)
+        table.add_column("基差率(%)", style="magenta", justify="right", width=11)
+        table.add_column("年化贴水率(%)", style="bold red", justify="right", width=14)
+        table.add_column("交割到期", style="dim", width=11)
+        table.add_column("对冲/套利成本研判", style="dim", width=30)
+
+        for _, r in df.iterrows():
+            b_style = "[green]" if r["basis"] <= 0 else "[red]"
+            table.add_row(
+                str(r["contract_code"]),
+                str(r["index_name"]),
+                f"{r['spot_price']:.2f}",
+                f"{r['futures_price']:.2f}",
+                f"{b_style}{r['basis']:+.2f}[/]",
+                f"{b_style}{r['basis_rate_pct']:+.2f}%[/]",
+                f"{b_style}{r['annualized_basis_rate_pct']:+.2f}%[/]",
+                str(r["expire_date"]),
+                str(r["hedge_cost_assessment"])
+            )
+        console.print(table)
+
+    elif action == "volatility":
+        df = wk.derivatives.fetch_option_volatility()
+        if is_json:
+            print(df.to_json(orient="records", force_ascii=False, indent=2))
+            return
+        if df.empty:
+            console.print("[yellow]! 未获取到期权波动率数据[/yellow]")
+            return
+        table = Table(title="🌊 主流 ETF 期权隐含波动率 (IV) 与中国波指 (iVIX)", show_lines=True)
+        table.add_column("标的代码", style="cyan", width=11)
+        table.add_column("标的期权名称", style="bold green", width=20)
+        table.add_column("平值 IV(%)", style="bold magenta", justify="right", width=12)
+        table.add_column("20日 HV(%)", style="white", justify="right", width=12)
+        table.add_column("波动率偏度", style="yellow", justify="right", width=12)
+        table.add_column("1年历史分位", style="dim", justify="right", width=13)
+        table.add_column("中国波指 (iVIX)", style="bold cyan", justify="right", width=15)
+        table.add_column("市场情绪定性", style="bold white", width=12)
+
+        for _, r in df.iterrows():
+            table.add_row(
+                str(r["underlying_symbol"]),
+                str(r["underlying_name"]),
+                f"{r['iv_pct']:.2f}%",
+                f"{r['hv_20d_pct']:.2f}%",
+                f"{r['iv_skew']:+.2f}",
+                f"{r['iv_percentile_1y']:.1f}%",
+                f"{r['ivix_index']:.2f}",
+                str(r["market_sentiment"])
+            )
+        console.print(table)
+
+    elif action == "arbitrage":
+        opps = wk.derivatives.get_arbitrage_opportunities()
+        if is_json:
+            print(json.dumps(opps, ensure_ascii=False, indent=2))
+            return
+        if not opps:
+            console.print("[green]✓ 当前基差处于平水健康区间，无极端贴水或升水套利摩擦。[/green]")
+            return
+        for op in opps:
+            console.print(Panel(
+                f"[bold white]标的合约[/bold white]: [bold cyan]{op['contract']}[/bold cyan] ({op['index']})  |  "
+                f"[bold white]策略方向[/bold white]: [bold yellow]{op['strategy']}[/bold yellow]\n\n"
+                f"• [bold magenta]年化折价/贴水幅度[/bold magenta]: {op['annualized_discount_pct']:.2f}%\n"
+                f"• [bold green]投顾实战建议[/bold green]: {op['recommendation']}",
+                title="🎯 [bold yellow]股指期货基差套利与多头增强策略评估[/bold yellow]"
+            ))
+
+
+def cmd_liquidity(args):
+    import json
+    console = Console()
+    wk = WindToolkit()
+    action = getattr(args, "action", "thermometer")
+    days = getattr(args, "days", 15) or 15
+    is_json = getattr(args, "json", False)
+
+    if action == "thermometer":
+        res = wk.macro_liquidity.get_liquidity_thermometer()
+        if is_json:
+            print(json.dumps(res, ensure_ascii=False, indent=2))
+            return
+        stat_style = "[bold green]" if "充裕" in res["liquidity_status"] else "[bold yellow]" if "紧平衡" in res["liquidity_status"] else "[bold red]"
+        console.print(Panel(
+            f"[bold white]定价基准日[/bold white]: [bold cyan]{res['date']}[/bold cyan]  |  "
+            f"[bold white]资金面状态[/bold white]: {stat_style}{res['liquidity_status']}[/]\n\n"
+            f"• [bold magenta]DR007 (银行间7天回购加权)[/bold magenta]: {res['dr007']:.4f}%\n"
+            f"• [bold white]央行 7D OMO 政策基准利率[/bold white]: {res['policy_rate_7d']:.2f}%\n"
+            f"• [bold yellow]政策利差偏离度 (DR007 - OMO)[/bold yellow]: {res['dr007_spread_bp']:+.2f} bp\n"
+            f"• [bold white]近 7 日央行全口径净投放[/bold white]: {res['recent_7d_net_injection_billion']:+.1f} 亿元 ({res['omo_latest_stance']})\n\n"
+            f"• [bold green]宏观流动性投顾结论[/bold green]:\n{res['advisory_takeaway']}",
+            title="🌡️ [bold yellow]宏观高频资金面温度计与央行政策利差研判[/bold yellow]"
+        ))
+
+    elif action == "omo":
+        df = wk.macro_liquidity.fetch_open_market_operations(days=days)
+        if is_json:
+            print(df.to_json(orient="records", force_ascii=False, indent=2))
+            return
+        if df.empty:
+            console.print("[yellow]! 未获取到央行公开市场操作数据[/yellow]")
+            return
+        table = Table(title=f"🏛️ 央行公开市场操作 (OMO) 近 {days} 日流水", show_lines=True)
+        table.add_column("日期", style="bold yellow", width=11)
+        table.add_column("7D逆回购投放(亿)", style="green", justify="right", width=16)
+        table.add_column("7D逆回购到期(亿)", style="dim", justify="right", width=16)
+        table.add_column("7D净投放(亿)", style="bold magenta", justify="right", width=14)
+        table.add_column("操作利率", style="white", justify="right", width=10)
+        table.add_column("MLF净投放(亿)", style="dim", justify="right", width=14)
+        table.add_column("全口径净投放(亿)", style="bold cyan", justify="right", width=16)
+        table.add_column("央行态度定性", style="dim", width=16)
+
+        for _, r in df.iterrows():
+            net_style = "[bold green]" if r["total_net_injection_billion"] >= 0 else "[bold red]"
+            table.add_row(
+                str(r["date"]),
+                f"{r['repo_7d_injection_billion']:.1f}",
+                f"{r['repo_7d_expiry_billion']:.1f}",
+                f"{r['repo_7d_net_billion']:+.1f}",
+                f"{r['repo_7d_rate_pct']:.2f}%",
+                f"{r['mlf_net_billion']:+.1f}",
+                f"{net_style}{r['total_net_injection_billion']:+.1f}[/]",
+                str(r["liquidity_stance"])
+            )
+        console.print(table)
+
+    elif action == "interbank":
+        df = wk.macro_liquidity.fetch_interbank_rates(days=days)
+        if is_json:
+            print(df.to_json(orient="records", force_ascii=False, indent=2))
+            return
+        if df.empty:
+            console.print("[yellow]! 未获取到银行间与交易所利率时序[/yellow]")
+            return
+        table = Table(title=f"💸 银行间质押式回购与 SHIBOR 利率近 {days} 日时序", show_lines=True)
+        table.add_column("日期", style="bold yellow", width=11)
+        table.add_column("DR001(%)", style="white", justify="right", width=10)
+        table.add_column("DR007(%)", style="bold green", justify="right", width=10)
+        table.add_column("SHIBOR-1W(%)", style="dim", justify="right", width=13)
+        table.add_column("GC001(%)", style="dim", justify="right", width=10)
+        table.add_column("GC007(%)", style="dim", justify="right", width=10)
+        table.add_column("DR007利差(bp)", style="bold magenta", justify="right", width=14)
+        table.add_column("资金面状态", style="bold white", width=12)
+
+        for _, r in df.iterrows():
+            stat_style = "[green]" if "充裕" in str(r["liquidity_status"]) else "[yellow]" if "紧平衡" in str(r["liquidity_status"]) else "[red]"
+            table.add_row(
+                str(r["date"]),
+                f"{r['dr001']:.4f}",
+                f"{r['dr007']:.4f}",
+                f"{r['shibor_1w']:.4f}",
+                f"{r['gc001']:.4f}",
+                f"{r['gc007']:.4f}",
+                f"{r['dr007_spread_bp']:+.2f}",
+                f"{stat_style}{r['liquidity_status']}[/]"
+            )
+        console.print(table)
+
+
 def cmd_sync_toolkit(args):
     console = Console()
     wk = WindToolkit()
@@ -1495,9 +2034,9 @@ def cmd_sync_toolkit(args):
     console.print("[bold cyan]🔄 开始一键执行 WindToolkit 全量投顾数据集同步入湖...[/bold cyan]")
     res = wk.sync_all(force=force)
     table = Table(title="🎉 WindToolkit 数据集同步落盘报告", show_lines=True)
-    table.add_column("数据集", style="cyan", width=22)
+    table.add_column("数据集", style="cyan", width=24)
     table.add_column("对应湖仓 Parquet 文件", style="dim", width=36)
-    table.add_column("对应 DuckDB 视图", style="magenta", width=22)
+    table.add_column("对应 DuckDB 视图", style="magenta", width=26)
     table.add_column("本次沉淀记录数", style="bold green", justify="right", width=16)
 
     mapping = [
@@ -1506,6 +2045,20 @@ def cmd_sync_toolkit(args):
         ("sector_money_flow", "mart/sector_money_flow.parquet", "v_sector_money_flow"),
         ("chinabond_yield_curve", "macro/chinabond_yield_curve.parquet", "v_chinabond_yield_curve"),
         ("etf_flows", "mart/etf_flows.parquet", "v_etf_flows"),
+        ("earnings_forecast", "mart/earnings_forecast.parquet", "v_earnings_forecast"),
+        ("financial_risk_screen", "mart/financial_risk_screen.parquet", "v_financial_risk_screen"),
+        ("dragon_tiger", "mart/dragon_tiger.parquet", "v_dragon_tiger"),
+        ("block_trading", "mart/block_trading.parquet", "v_block_trading"),
+        ("shareholder_count", "mart/shareholder_count.parquet", "v_shareholder_count"),
+        ("lockup_calendar", "mart/lockup_calendar.parquet", "v_lockup_calendar"),
+        ("pledge_risk", "mart/pledge_risk.parquet", "v_pledge_risk"),
+        ("holder_trading", "mart/holder_trading.parquet", "v_holder_trading"),
+        ("northbound_holdings", "mart/northbound_holdings.parquet", "v_northbound_holdings"),
+        ("fund_heavyweight_stocks", "mart/fund_heavyweight_stocks.parquet", "v_fund_heavyweight_stocks"),
+        ("futures_basis", "derivatives/futures_basis.parquet", "v_futures_basis"),
+        ("option_volatility", "derivatives/option_volatility.parquet", "v_option_volatility"),
+        ("open_market_operations", "macro/open_market_operations.parquet", "v_open_market_operations"),
+        ("interbank_rates", "macro/interbank_rates.parquet", "v_interbank_rates"),
     ]
     for key, p, v in mapping:
         table.add_row(key, p, v, str(res.get(key, 0)))
@@ -1664,6 +2217,48 @@ def main():
     p_etf.add_argument("--category", choices=["宽基ETF", "行业主题", "策略红利", "跨境QDII", "固收商品"], default=None, help="筛选指定大类资产")
     p_etf.add_argument("--outflow", action="store_true", help="按资金净流出排行 (赎回警示)")
 
+    # forecast (earnings-forecast)
+    p_fore = subparsers.add_parser("forecast", help="上市公司业绩预告与业绩快报、FCF 自由现金流与财务高危排雷")
+    p_fore.add_argument("code", nargs="?", default=None, help="股票代码 (例如 600519)")
+    p_fore.add_argument("--limit", type=int, default=15, help="返回记录数限制")
+    p_fore.add_argument("--screen", action="store_true", help="执行商誉/应收/存贷双高财务排雷扫描")
+    p_fore.add_argument("--json", action="store_true", help="输出 JSON 格式")
+
+    # chips
+    p_chip = subparsers.add_parser("chips", help="微观筹码面：龙虎榜席位、大宗交易与股东户数集中度")
+    p_chip.add_argument("action", nargs="?", default="dragon-tiger", choices=["dragon-tiger", "block-trade", "concentration"], help="查询动作: dragon-tiger (龙虎榜) | block-trade (大宗交易) | concentration (股东户数)")
+    p_chip.add_argument("--code", default=None, help="股票代码 (查看股东户数时必填或默认茅台)")
+    p_chip.add_argument("--date", default=None, help="交易日期 (YYYY-MM-DD)")
+    p_chip.add_argument("--top", type=int, default=15, help="排行榜记录数限制")
+    p_chip.add_argument("--json", action="store_true", help="输出 JSON 格式")
+
+    # holder-risk
+    p_hrisk = subparsers.add_parser("holder-risk", help="股东信用与风险日历：限售解禁、大股东质押预警与增减持回购")
+    p_hrisk.add_argument("action", nargs="?", default="lockup", choices=["lockup", "pledge", "trading", "summary"], help="动作: lockup (解禁日历) | pledge (质押风险) | trading (增减持与回购)")
+    p_hrisk.add_argument("--code", default=None, help="股票代码 (可选)")
+    p_hrisk.add_argument("--days", type=int, default=30, help="未来解禁观察天数")
+    p_hrisk.add_argument("--top", type=int, default=15, help="记录数限制")
+    p_hrisk.add_argument("--json", action="store_true", help="输出 JSON 格式")
+
+    # smart-money
+    p_sm = subparsers.add_parser("smart-money", help="机构持仓与聪明钱穿透：北向资金个股持股与公募基金季报重仓抱团")
+    p_sm.add_argument("action", nargs="?", default="northbound", choices=["northbound", "fund-heavy", "crowding"], help="动作: northbound (北向资金) | fund-heavy (公募重仓) | crowding (抱团拥挤度)")
+    p_sm.add_argument("--code", default=None, help="股票代码 (可选)")
+    p_sm.add_argument("--period", default="2024Q4", help="基金季报周期 (默认 2024Q4)")
+    p_sm.add_argument("--top", type=int, default=15, help="记录数限制")
+    p_sm.add_argument("--json", action="store_true", help="输出 JSON 格式")
+
+    # derivatives
+    p_der = subparsers.add_parser("derivatives", help="衍生品基差与期权波动率：股指期货基差/年化贴水、ETF期权IV与中国波指")
+    p_der.add_argument("action", nargs="?", default="basis", choices=["basis", "volatility", "arbitrage"], help="动作: basis (股指期货基差) | volatility (期权波动率) | arbitrage (套利评估)")
+    p_der.add_argument("--json", action="store_true", help="输出 JSON 格式")
+
+    # liquidity
+    p_liq = subparsers.add_parser("liquidity", help="宏观高频流动性：央行公开市场操作 (OMO) 与银行间回购利率 (DR007)")
+    p_liq.add_argument("action", nargs="?", default="thermometer", choices=["thermometer", "omo", "interbank"], help="动作: thermometer (资金面温度计) | omo (央行操作流水) | interbank (银行间利率时序)")
+    p_liq.add_argument("--days", type=int, default=15, help="历史观察天数")
+    p_liq.add_argument("--json", action="store_true", help="输出 JSON 格式")
+
     # sync-toolkit
     p_stk = subparsers.add_parser("sync-toolkit", help="一键批量增量同步 WindToolkit 全量投顾数据集入湖")
     p_stk.add_argument("--force", action="store_true", help="强制覆盖已存在数据并刷新")
@@ -1703,6 +2298,13 @@ def main():
         "money-flow": cmd_money_flow,
         "yield-curve": cmd_yield_curve,
         "etf-flow": cmd_etf_flow,
+        "forecast": cmd_forecast,
+        "earnings-forecast": cmd_forecast,
+        "chips": cmd_chips,
+        "holder-risk": cmd_holder_risk,
+        "smart-money": cmd_smart_money,
+        "derivatives": cmd_derivatives,
+        "liquidity": cmd_liquidity,
         "sync-toolkit": cmd_sync_toolkit
     }
 
@@ -1714,3 +2316,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -31,10 +31,11 @@ class LakehouseManager:
         self.macro_dir = self.data_dir / "macro"
         self.global_dir = self.data_dir / "global"
         self.research_dir = self.data_dir / "research"
+        self.derivatives_dir = self.data_dir / "derivatives"
         self.db_path = self.data_dir / "storage.duckdb"
 
         # 确保基础目录存在
-        for p in [self.funds_dir, self.indices_dir, self.mart_dir, self.raw_dir, self.master_dir, self.macro_dir, self.global_dir, self.research_dir]:
+        for p in [self.funds_dir, self.indices_dir, self.mart_dir, self.raw_dir, self.master_dir, self.macro_dir, self.global_dir, self.research_dir, self.derivatives_dir]:
             p.mkdir(parents=True, exist_ok=True)
 
     # -------------------------------------------------------------
@@ -332,6 +333,404 @@ class LakehouseManager:
         return pd.read_parquet(target_path)
 
     # -------------------------------------------------------------
+    # 6 大核心金融数据模块湖仓存储扩展
+    # -------------------------------------------------------------
+
+    def upsert_earnings_forecast(self, df: pd.DataFrame) -> Path:
+        """保存业绩预告与业绩快报数据至 mart/earnings_forecast.parquet"""
+        target_path = self.mart_dir / "earnings_forecast.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["symbol", "report_date"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged = merged.sort_values(["report_date", "symbol"], ascending=[False, True]).reset_index(drop=True)
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_earnings_forecast(self, symbol: Optional[str] = None) -> Optional[pd.DataFrame]:
+        target_path = self.mart_dir / "earnings_forecast.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if symbol:
+            import re
+            clean = re.sub(r"[^\d]", "", symbol).zfill(6)
+            return df[df["symbol"].str.contains(clean, na=False)].reset_index(drop=True)
+        return df
+
+    def upsert_financial_risk_screen(self, df: pd.DataFrame) -> Path:
+        """保存财务排雷与自由现金流指标至 mart/financial_risk_screen.parquet"""
+        target_path = self.mart_dir / "financial_risk_screen.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["symbol", "report_date"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_financial_risk_screen(self, symbol: Optional[str] = None) -> Optional[pd.DataFrame]:
+        target_path = self.mart_dir / "financial_risk_screen.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if symbol:
+            import re
+            clean = re.sub(r"[^\d]", "", symbol).zfill(6)
+            return df[df["symbol"].str.contains(clean, na=False)].reset_index(drop=True)
+        return df
+
+    def upsert_dragon_tiger(self, df: pd.DataFrame) -> Path:
+        """保存龙虎榜每日席位追踪至 mart/dragon_tiger.parquet"""
+        target_path = self.mart_dir / "dragon_tiger.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["trade_date", "symbol", "reason"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged = merged.sort_values(["trade_date", "net_buy_million"], ascending=[False, False]).reset_index(drop=True)
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_dragon_tiger(self, trade_date: Optional[str] = None, symbol: Optional[str] = None) -> Optional[pd.DataFrame]:
+        target_path = self.mart_dir / "dragon_tiger.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if trade_date:
+            df = df[df["trade_date"] == str(trade_date)]
+        if symbol:
+            import re
+            clean = re.sub(r"[^\d]", "", symbol).zfill(6)
+            df = df[df["symbol"].str.contains(clean, na=False)]
+        return df.reset_index(drop=True)
+
+    def upsert_block_trading(self, df: pd.DataFrame) -> Path:
+        """保存大宗交易每日流水至 mart/block_trading.parquet"""
+        target_path = self.mart_dir / "block_trading.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["trade_date", "symbol", "deal_volume_shares", "deal_price"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged = merged.sort_values(["trade_date", "deal_amount_ten_thousand"], ascending=[False, False]).reset_index(drop=True)
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_block_trading(self, trade_date: Optional[str] = None, symbol: Optional[str] = None) -> Optional[pd.DataFrame]:
+        target_path = self.mart_dir / "block_trading.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if trade_date:
+            df = df[df["trade_date"] == str(trade_date)]
+        if symbol:
+            import re
+            clean = re.sub(r"[^\d]", "", symbol).zfill(6)
+            df = df[df["symbol"].str.contains(clean, na=False)]
+        return df.reset_index(drop=True)
+
+    def upsert_shareholder_count(self, df: pd.DataFrame) -> Path:
+        """保存股东户数与筹码集中度至 mart/shareholder_count.parquet"""
+        target_path = self.mart_dir / "shareholder_count.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["symbol", "end_date"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged = merged.sort_values(["symbol", "end_date"], ascending=[True, False]).reset_index(drop=True)
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_shareholder_count(self, symbol: Optional[str] = None) -> Optional[pd.DataFrame]:
+        target_path = self.mart_dir / "shareholder_count.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if symbol:
+            import re
+            clean = re.sub(r"[^\d]", "", symbol).zfill(6)
+            df = df[df["symbol"].str.contains(clean, na=False)]
+        return df.reset_index(drop=True)
+
+    def upsert_lockup_calendar(self, df: pd.DataFrame) -> Path:
+        """保存限售股解禁日历至 mart/lockup_calendar.parquet"""
+        target_path = self.mart_dir / "lockup_calendar.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["symbol", "unlock_date", "share_type"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged = merged.sort_values(["unlock_date", "unlock_market_value_billion"], ascending=[True, False]).reset_index(drop=True)
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_lockup_calendar(self, symbol: Optional[str] = None) -> Optional[pd.DataFrame]:
+        target_path = self.mart_dir / "lockup_calendar.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if symbol:
+            import re
+            clean = re.sub(r"[^\d]", "", symbol).zfill(6)
+            df = df[df["symbol"].str.contains(clean, na=False)]
+        return df.reset_index(drop=True)
+
+    def upsert_pledge_risk(self, df: pd.DataFrame) -> Path:
+        """保存大股东股权质押比例与风险监控至 mart/pledge_risk.parquet"""
+        target_path = self.mart_dir / "pledge_risk.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["symbol", "report_date"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_pledge_risk(self, symbol: Optional[str] = None) -> Optional[pd.DataFrame]:
+        target_path = self.mart_dir / "pledge_risk.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if symbol:
+            import re
+            clean = re.sub(r"[^\d]", "", symbol).zfill(6)
+            df = df[df["symbol"].str.contains(clean, na=False)]
+        return df.reset_index(drop=True)
+
+    def upsert_holder_trading(self, df: pd.DataFrame) -> Path:
+        """保存大股东与董监高增减持、股份回购流水至 mart/holder_trading.parquet"""
+        target_path = self.mart_dir / "holder_trading.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["symbol", "trade_date", "holder_name", "trade_type"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged = merged.sort_values("trade_date", ascending=False).reset_index(drop=True)
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_holder_trading(self, symbol: Optional[str] = None) -> Optional[pd.DataFrame]:
+        target_path = self.mart_dir / "holder_trading.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if symbol:
+            import re
+            clean = re.sub(r"[^\d]", "", symbol).zfill(6)
+            df = df[df["symbol"].str.contains(clean, na=False)]
+        return df.reset_index(drop=True)
+
+    def upsert_northbound_holdings(self, df: pd.DataFrame) -> Path:
+        """保存北向资金个股持股与变动至 mart/northbound_holdings.parquet"""
+        target_path = self.mart_dir / "northbound_holdings.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["trade_date", "symbol"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged = merged.sort_values(["trade_date", "holding_market_value_billion"], ascending=[False, False]).reset_index(drop=True)
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_northbound_holdings(self, symbol: Optional[str] = None) -> Optional[pd.DataFrame]:
+        target_path = self.mart_dir / "northbound_holdings.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if symbol:
+            import re
+            clean = re.sub(r"[^\d]", "", symbol).zfill(6)
+            df = df[df["symbol"].str.contains(clean, na=False)]
+        return df.reset_index(drop=True)
+
+    def upsert_fund_heavyweight_stocks(self, df: pd.DataFrame) -> Path:
+        """保存公募基金重仓股穿透与抱团度至 mart/fund_heavyweight_stocks.parquet"""
+        target_path = self.mart_dir / "fund_heavyweight_stocks.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["symbol", "report_period"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged = merged.sort_values(["report_period", "holding_value_billion"], ascending=[False, False]).reset_index(drop=True)
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_fund_heavyweight_stocks(self, report_period: Optional[str] = None, symbol: Optional[str] = None) -> Optional[pd.DataFrame]:
+        target_path = self.mart_dir / "fund_heavyweight_stocks.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if report_period:
+            df = df[df["report_period"] == str(report_period)]
+        if symbol:
+            import re
+            clean = re.sub(r"[^\d]", "", symbol).zfill(6)
+            df = df[df["symbol"].str.contains(clean, na=False)]
+        return df.reset_index(drop=True)
+
+    def upsert_futures_basis(self, df: pd.DataFrame) -> Path:
+        """保存股指期货基差与年化贴水率至 derivatives/futures_basis.parquet"""
+        target_path = self.derivatives_dir / "futures_basis.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["contract_code"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_futures_basis(self, contract_code: Optional[str] = None) -> Optional[pd.DataFrame]:
+        target_path = self.derivatives_dir / "futures_basis.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if contract_code:
+            df = df[df["contract_code"].str.upper() == contract_code.strip().upper()]
+        return df.reset_index(drop=True)
+
+    def upsert_option_volatility(self, df: pd.DataFrame) -> Path:
+        """保存期权隐含波动率与中国波指至 derivatives/option_volatility.parquet"""
+        target_path = self.derivatives_dir / "option_volatility.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["underlying_symbol", "trade_date"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_option_volatility(self, underlying: Optional[str] = None) -> Optional[pd.DataFrame]:
+        target_path = self.derivatives_dir / "option_volatility.parquet"
+        if not target_path.exists():
+            return None
+        df = pd.read_parquet(target_path)
+        if underlying:
+            df = df[df["underlying_symbol"].str.contains(str(underlying), na=False)]
+        return df.reset_index(drop=True)
+
+    def upsert_open_market_operations(self, df: pd.DataFrame) -> Path:
+        """保存央行公开市场操作 (OMO) 至 macro/open_market_operations.parquet"""
+        target_path = self.macro_dir / "open_market_operations.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["date"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged = merged.sort_values("date").reset_index(drop=True)
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_open_market_operations(self) -> Optional[pd.DataFrame]:
+        target_path = self.macro_dir / "open_market_operations.parquet"
+        if not target_path.exists():
+            return None
+        return pd.read_parquet(target_path)
+
+    def upsert_interbank_rates(self, df: pd.DataFrame) -> Path:
+        """保存银行间质押式回购与 SHIBOR 利率至 macro/interbank_rates.parquet"""
+        target_path = self.macro_dir / "interbank_rates.parquet"
+        if df.empty:
+            return target_path
+        if target_path.exists():
+            try:
+                exist_df = pd.read_parquet(target_path)
+                merged = pd.concat([exist_df, df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["date"], keep="last")
+            except Exception:
+                merged = df
+        else:
+            merged = df
+        merged = merged.sort_values("date").reset_index(drop=True)
+        merged.to_parquet(target_path, index=False, engine="pyarrow")
+        return target_path
+
+    def get_interbank_rates(self) -> Optional[pd.DataFrame]:
+        target_path = self.macro_dir / "interbank_rates.parquet"
+        if not target_path.exists():
+            return None
+        return pd.read_parquet(target_path)
+
+    # -------------------------------------------------------------
     # DuckDB 视图与统一 SQL 查询引擎
     # -------------------------------------------------------------
 
@@ -390,6 +789,20 @@ class LakehouseManager:
             ("v_sector_money_flow", self.mart_dir / "sector_money_flow.parquet"),
             ("v_chinabond_yield_curve", self.macro_dir / "chinabond_yield_curve.parquet"),
             ("v_etf_flows", self.mart_dir / "etf_flows.parquet"),
+            ("v_earnings_forecast", self.mart_dir / "earnings_forecast.parquet"),
+            ("v_financial_risk_screen", self.mart_dir / "financial_risk_screen.parquet"),
+            ("v_dragon_tiger", self.mart_dir / "dragon_tiger.parquet"),
+            ("v_block_trading", self.mart_dir / "block_trading.parquet"),
+            ("v_shareholder_count", self.mart_dir / "shareholder_count.parquet"),
+            ("v_lockup_calendar", self.mart_dir / "lockup_calendar.parquet"),
+            ("v_pledge_risk", self.mart_dir / "pledge_risk.parquet"),
+            ("v_holder_trading", self.mart_dir / "holder_trading.parquet"),
+            ("v_northbound_holdings", self.mart_dir / "northbound_holdings.parquet"),
+            ("v_fund_heavyweight_stocks", self.mart_dir / "fund_heavyweight_stocks.parquet"),
+            ("v_futures_basis", self.derivatives_dir / "futures_basis.parquet"),
+            ("v_option_volatility", self.derivatives_dir / "option_volatility.parquet"),
+            ("v_open_market_operations", self.macro_dir / "open_market_operations.parquet"),
+            ("v_interbank_rates", self.macro_dir / "interbank_rates.parquet"),
         ]
 
         for view_name, p in view_mappings:

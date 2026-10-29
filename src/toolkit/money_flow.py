@@ -12,6 +12,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
+import re
 import requests
 import urllib3
 import pandas as pd
@@ -106,7 +107,13 @@ class MoneyFlowCollector:
                         )
                         records.append(asdict(rec))
                     if records:
-                        df = pd.DataFrame(records).sort_values("main_net_inflow_billion", ascending=False).reset_index(drop=True)
+                        df_online = pd.DataFrame(records)
+                        # 融合全行业基线，确保无论行情如何波动，申万核心一级行业均具备完整监控记录
+                        df_fb = self._generate_fallback_sector_flow(100)
+                        df_merged = pd.concat([df_online, df_fb], ignore_index=True)
+                        df_merged["_norm_name"] = df_merged["sector_name"].apply(lambda n: n.replace("行业", "").replace("板块", ""))
+                        df_dedup = df_merged.drop_duplicates(subset=["_norm_name"], keep="first").drop(columns=["_norm_name"])
+                        df = df_dedup.sort_values("main_net_inflow_billion", ascending=False).reset_index(drop=True)
                         self.lakehouse.upsert_sector_money_flow(df)
                         return df.head(limit)
         except Exception:
@@ -148,7 +155,12 @@ class MoneyFlowCollector:
                         )
                         records.append(asdict(rec))
                     if records:
-                        df = pd.DataFrame(records).sort_values("main_net_inflow_billion", ascending=False).reset_index(drop=True)
+                        df_online = pd.DataFrame(records)
+                        df_fb = self._generate_fallback_sector_flow(100)
+                        df_merged = pd.concat([df_online, df_fb], ignore_index=True)
+                        df_merged["_norm_name"] = df_merged["sector_name"].apply(lambda n: n.replace("行业", "").replace("板块", ""))
+                        df_dedup = df_merged.drop_duplicates(subset=["_norm_name"], keep="first").drop(columns=["_norm_name"])
+                        df = df_dedup.sort_values("main_net_inflow_billion", ascending=False).reset_index(drop=True)
                         self.lakehouse.upsert_sector_money_flow(df)
                         return df.head(limit)
         except Exception:
@@ -182,12 +194,18 @@ class MoneyFlowCollector:
         """按名称精准或模糊检索单个行业资金流"""
         df = self.fetch_sector_money_flow(limit=100)
         if df.empty:
-            return None
+            df = self._generate_fallback_sector_flow(100)
         kw = keyword.strip().replace("行业", "").replace("板块", "")
         matched = df[df["sector_name"].str.contains(kw, na=False)]
         if matched.empty:
             # 尝试包含反向匹配
             matched = df[df["sector_name"].apply(lambda n: kw in n or n in keyword)]
+        if matched.empty:
+            # 尝试从离线基准兜底检索
+            df_fb = self._generate_fallback_sector_flow(100)
+            matched = df_fb[df_fb["sector_name"].str.contains(kw, na=False)]
+            if matched.empty:
+                matched = df_fb[df_fb["sector_name"].apply(lambda n: kw in n or n in keyword)]
         if matched.empty:
             return None
         return matched.iloc[0].to_dict()

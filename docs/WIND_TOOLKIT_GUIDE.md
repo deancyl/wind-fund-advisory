@@ -8,9 +8,9 @@
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        Wind 投顾终端 (运行中)                          │
-│  - 客户端主进程: wmain.exe (PID 34508)                                 │
-│  - 外壳与工具箱: WBox.exe (PID 15692)                                  │
+│                        Wind 投顾终端 (活跃运行中)                      │
+│  - 客户端主进程: wmain.exe (PID 50956)                                 │
+│  - 外壳与工具箱: WBox.exe (PID 1156)                                   │
 │  - 本地用户配置: users/W36989091984/ (latestvisit, BBQ, tabs, userline)│
 │  - 离线主字典:   FreqUsedCodeFile.codecache (41MB), SysGrp.xml         │
 └───────────────────────────────────┬────────────────────────────────────┘
@@ -23,8 +23,14 @@
 │ 💼 watchlist      │ 📊 financials     │ 🟢 money_flow                  │
 │ 自选与工作台资产  │ F10财务/杜邦分析  │ 行业板块主力资金流             │
 ├───────────────────┼───────────────────┼────────────────────────────────┤
-│ 🏛️ bonds          │ 📦 etf            │ 🔍 lakehouse & query           │
-│ 中债收益率曲线    │ ETF份额与资金流向 │ DuckDB + Parquet 湖仓          │
+│ 🏛️ bonds          │ 📦 etf            │ 📈 earnings_forecast           │
+│ 中债收益率曲线    │ ETF份额与资金流向 │ 业绩预告与财务高危排雷 (FCF)   │
+├───────────────────┼───────────────────┼────────────────────────────────┤
+│ 🐉 chips_market   │ 🔒 holder_risk    │ 🧭 institutional_holdings      │
+│ 龙虎榜/大宗/筹码  │ 解禁日历/质押预警 │ 北向资金/公募季报重仓抱团      │
+├───────────────────┼───────────────────┼────────────────────────────────┤
+│ ⚡ derivatives    │ 🌡️ macro_liquidity│ 🔍 lakehouse & query           │
+│ 股指期货基差/期权 │ 央行 OMO/DR007利率│ DuckDB + Parquet 统一湖仓      │
 └───────────────────┴───────────────────┴────────────────────────────────┘
                                     │
                                     ▼
@@ -36,6 +42,20 @@
 │  - mart/sector_money_flow.parquet        -> v_sector_money_flow        │
 │  - macro/chinabond_yield_curve.parquet   -> v_chinabond_yield_curve    │
 │  - mart/etf_flows.parquet                -> v_etf_flows                │
+│  - mart/earnings_forecast.parquet        -> v_earnings_forecast        │
+│  - mart/financial_risk_screen.parquet    -> v_financial_risk_screen    │
+│  - mart/dragon_tiger.parquet             -> v_dragon_tiger             │
+│  - mart/block_trading.parquet            -> v_block_trading            │
+│  - mart/shareholder_count.parquet        -> v_shareholder_count        │
+│  - mart/lockup_calendar.parquet          -> v_lockup_calendar          │
+│  - mart/pledge_risk.parquet              -> v_pledge_risk              │
+│  - mart/holder_trading.parquet           -> v_holder_trading           │
+│  - mart/northbound_holdings.parquet      -> v_northbound_holdings      │
+│  - mart/fund_heavyweight_stocks.parquet  -> v_fund_heavyweight_stocks  │
+│  - derivatives/futures_basis.parquet     -> v_futures_basis            │
+│  - derivatives/option_volatility.parquet -> v_option_volatility        │
+│  - macro/open_market_operations.parquet  -> v_open_market_operations   │
+│  - macro/interbank_rates.parquet         -> v_interbank_rates          │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -61,6 +81,12 @@
 | **行业主力资金流向** (`money_flow`) | 申万/万得一级行业与概念板块 | 今日主力净流入额(亿元)、净占比、超大单/大单/中单/小单订单拆解、行业领涨龙头股 | `mart/sector_money_flow.parquet`<br>`v_sector_money_flow` |
 | **中债收益率曲线** (`bonds`) | 中债国债与高等级信用债官方定价 | 3M, 1Y, 3Y, 5Y, 7Y, 10Y, 30Y 收益率、10Y-1Y 期限利差、30Y-10Y 超长端利差、3Y AAA 信用利差 | `macro/chinabond_yield_curve.parquet`<br>`v_chinabond_yield_curve` |
 | **ETF 份额与资金流动** (`etf`) | 上交所 (SSE) + 深交所 (SZSE) 全量穿透 | 最新份额(亿份)、单位净值、最新规模(亿元)、单日份额变动(万份)、估算单日净流入额(亿元) | `mart/etf_flows.parquet`<br>`v_etf_flows` |
+| **业绩预告与财务排雷** (`earnings_forecast`) | 上市公司业绩预告与快报大表 | 预告类型 (预增/略增/扭亏/预减)、净利润区间、变动幅度、变动原因、自由现金流 (FCF)、商誉占比、应收天数、存贷双高探测 | `mart/earnings_forecast.parquet`<br>`v_earnings_forecast`<br>`v_financial_risk_screen` |
+| **微观筹码面与资金分布** (`chips_market`) | 交易所龙虎榜、大宗交易与中登结算 | 龙虎榜游资与机构买卖净额、买卖席位、大宗交易溢折价率、股东户数环比变动率、户均持股市值与筹码集中趋势 | `mart/dragon_tiger.parquet`<br>`mart/block_trading.parquet`<br>`mart/shareholder_count.parquet` |
+| **股东信用与风险日历** (`holder_risk`) | 上市公司限售解禁与中登质押数据 | 未来解禁日历、解禁股份类型、估算解禁市值、大股东股权质押比例、平仓线预警状态、董监高增减持与公司股份回购 | `mart/lockup_calendar.parquet`<br>`mart/pledge_risk.parquet`<br>`mart/holder_trading.parquet` |
+| **机构持仓与聪明钱穿透** (`institutional_holdings`) | 香港交易所陆股通与公募基金季报 | 北向资金个股持股量与持股市值、近1日/5日增减持变动、公募基金重仓持股数量、持股市值、机构抱团拥挤度分级 | `mart/northbound_holdings.parquet`<br>`mart/fund_heavyweight_stocks.parquet` |
+| **衍生品基差与期权波动率** (`derivatives`) | 中金所股指期货与上交所/深交所期权 | IF/IC/IM/IH 股指期货主力基差、年化贴水率、50ETF/300ETF 期权隐含波动率 (IV)、历史波动率 (HV)、中国波指 (iVIX)、波动率偏度 | `derivatives/futures_basis.parquet`<br>`derivatives/option_volatility.parquet` |
+| **宏观高频流动性** (`macro_liquidity`) | 央行公开市场业务与全国银行间拆借中心 | 每日 7 天逆回购投放/到期/净投放、MLF 净投放、操作利率、DR001、DR007、SHIBOR-1W、GC001、政策利率利差 (bp)、资金面温度 | `macro/open_market_operations.parquet`<br>`macro/interbank_rates.parquet` |
 
 ---
 
@@ -94,14 +120,10 @@ tabs = wk.watchlist.get_workbench_tabs()
 for t in tabs:
     print(f"标签: {t['caption']}, 指令: {t['command_code']}, 时间: {t['close_time']}")
 
-# 提取用户技术画线与价格盯盘预警线 (全量扫描 Config 目录下 .Mark 与 .NewMark)
+# 提取用户技术画线与价格盯盘预警线
 marks = wk.watchlist.get_marked_userlines()
 for m in marks:
     print(f"标的: {m['symbol']}, 类型: {m['mark_type']}, 参数: {m['params']}")
-
-# 提取 BBQ 债券报价与自选方案
-schemes = wk.watchlist.get_bbq_schemes()
-print(schemes)
 ```
 
 ### 3.3 股票/基金 F10 财务指标与杜邦拆解
@@ -130,7 +152,7 @@ print(df_inflow[["sector_name", "main_net_inflow_billion", "change_pct", "top_st
 df_outflow = wk.money_flow.get_top_outflow_sectors(top_n=5)
 print(df_outflow[["sector_name", "main_net_inflow_billion", "change_pct"]])
 
-# 单向精准下潜查询指定行业资金流向 (双轨在线容灾 + 31 申万一级行业全覆盖)
+# 单向精准下潜查询指定行业资金流向
 coal_flow = wk.money_flow.get_sector_flow("煤炭")
 print(f"煤炭主力净流入: {coal_flow['main_net_inflow_billion']} 亿元, 领涨龙头: {coal_flow['top_stock_name']}")
 ```
@@ -139,12 +161,11 @@ print(f"煤炭主力净流入: {coal_flow['main_net_inflow_billion']} 亿元, �
 ```python
 # 获取最新中债收益率曲线快照 (覆盖 3M, 6M, 1Y, 3Y, 5Y, 7Y, 10Y, 30Y)
 curve = wk.bonds.get_latest_yield_curve()
-print(f"定价日: {curve['date']}, 6M: {curve['y_6m']}%, 1Y: {curve['y_1y']}%, 10Y: {curve['y_10y']}%, 30Y: {curve['y_30y']}%")
+print(f"定价日: {curve['date']}, 1Y: {curve['y_1y']}%, 10Y: {curve['y_10y']}%, 30Y: {curve['y_30y']}%")
 
 # 获取宏观期限利差与投顾配置建议
 analysis = wk.bonds.get_term_spreads_analysis()
-print(f"10Y-1Y 利差: {analysis['term_spread_10y_1y_bp']} bp, 10Y-3Y 利差: {analysis.get('term_spread_10y_3y_bp')} bp")
-print(f"形态: {analysis['curve_regime']} | 投顾建议: {analysis['advisory_recommendation']}")
+print(f"10Y-1Y 利差: {analysis['term_spread_10y_1y_bp']} bp, 形态: {analysis['curve_regime']}")
 ```
 
 ### 3.6 场内 ETF 份额规模与资金流动
@@ -153,21 +174,123 @@ print(f"形态: {analysis['curve_regime']} | 投顾建议: {analysis['advisory_r
 df_etf_in = wk.etf.get_top_inflow_etfs(top_n=5)
 print(df_etf_in[["etf_code", "etf_name", "category", "shares_billion", "est_net_inflow_billion"]])
 
-# 大类资产 (宽基 vs 行业主题 vs 策略红利 vs 固收商品) 流向聚类统计
+# 大类资产 (宽基 vs 行业主题 vs 策略红利 vs 跨境QDII vs 固收商品) 流向聚类统计
 df_cat = wk.etf.get_category_flow_summary()
 print(df_cat)
 ```
 
-### 3.7 一键全景增量入湖与 DuckDB SQL 即席查询
+### 3.7 业绩预告与财务高危排雷 (FCF)
 ```python
-# 一键同步全量扩展数据集
+# 1. 查询全市场或指定个股最新业绩预告
+df_fore = wk.earnings_forecast.fetch_earnings_forecast("600519", limit=5)
+print(df_fore[["symbol", "stock_name", "forecast_type", "profit_min_million", "profit_change_min_pct"]])
+
+# 2. 深度财务排雷扫描 (FCF, 商誉, 应收账款天数, 存贷双高探测)
+risk = wk.earnings_forecast.screen_financial_risks("600519")
+print(f"排雷评级: {risk['risk_level']}, 自由现金流: {risk['fcf_billion']} 亿, 存贷双高: {risk['double_high_risk']}")
+
+# 3. 自由现金流 (FCF) 历史成色推演
+fcf_eval = wk.earnings_forecast.get_fcf_analysis("600519", periods=4)
+print(f"平均自由现金流: {fcf_eval['average_fcf_billion']} 亿, 成色: {fcf_eval['fcf_quality']}")
+```
+
+### 3.8 微观筹码面与市场资金分布
+```python
+# 1. 每日龙虎榜席位与机构专用净买卖额
+df_dt = wk.chips_market.fetch_dragon_tiger_daily(limit=10)
+print(df_dt[["symbol", "stock_name", "change_pct", "net_buy_million", "institution_net_million"]])
+
+# 2. 机构博弈综合情绪
+inst_summary = wk.chips_market.get_institutional_dragon_tiger_summary()
+print(f"机构席位总体情绪: {inst_summary['institution_sentiment']}, 净买入合计: {inst_summary['institution_net_total_million']} 百万")
+
+# 3. 每日大宗交易流水与折溢价率
+df_bt = wk.chips_market.fetch_block_trading(limit=5)
+print(df_bt[["symbol", "stock_name", "deal_price", "discount_rate_pct", "deal_amount_ten_thousand"]])
+
+# 4. 股东户数环比变动与筹码集中趋势
+df_sh = wk.chips_market.fetch_shareholder_concentration("600519", limit=4)
+print(df_sh[["end_date", "holder_count", "holder_change_pct", "avg_market_value_ten_thousand", "concentration_trend"]])
+```
+
+### 3.9 股东信用与风险日历
+```python
+# 1. 未来限售股解禁日历与抛压测算
+df_lock = wk.holder_risk.fetch_lockup_calendar(days_ahead=30, limit=10)
+print(df_lock[["unlock_date", "symbol", "stock_name", "unlock_market_value_billion", "risk_level"]])
+
+# 2. 大股东股权质押比例与平仓线预警
+df_pledge = wk.holder_risk.fetch_pledge_risk("600519")
+print(df_pledge[["symbol", "pledge_ratio_total_pct", "warning_close_line_status", "risk_level"]])
+
+# 3. 董监高增减持与公司股份回购流水
+df_trade = wk.holder_risk.fetch_holder_trading(limit=10)
+print(df_trade[["trade_date", "symbol", "holder_name", "trade_type", "change_amount_ten_thousand"]])
+```
+
+### 3.10 机构持仓与聪明钱穿透
+```python
+# 1. 北向资金 (陆股通) 持股市值与近期调仓时序
+df_nb = wk.institutional_holdings.fetch_northbound_holdings("600519", limit=5)
+print(df_nb[["symbol", "holding_market_value_billion", "float_ratio_pct", "change_5d_value_million"]])
+
+# 2. 筛选聪明钱近 5 日加速加仓龙头
+df_smart_top = wk.institutional_holdings.get_smart_money_inflow_top(top_n=5)
+print(df_smart_top[["symbol", "stock_name", "change_5d_value_million"]])
+
+# 3. 公募基金季报重仓股穿透与抱团度
+df_heavy = wk.institutional_holdings.fetch_fund_heavyweight_stocks(report_period="2024Q4", limit=10)
+print(df_heavy[["symbol", "stock_name", "fund_count", "holding_value_billion", "crowding_degree"]])
+```
+
+### 3.11 衍生品基差与期权波动率
+```python
+# 1. 股指期货主力基差与年化贴水率
+df_basis = wk.derivatives.fetch_futures_basis()
+print(df_basis[["contract_code", "index_name", "spot_price", "futures_price", "annualized_basis_rate_pct", "hedge_cost_assessment"]])
+
+# 2. 贴水套利与多头增强策略机会测算
+opps = wk.derivatives.get_arbitrage_opportunities()
+for op in opps:
+    print(f"合约: {op['contract']}, 年化贴水: {op['annualized_discount_pct']}%, 建议: {op['recommendation']}")
+
+# 3. ETF 期权隐含波动率 (IV) 与中国波指 (iVIX)
+df_iv = wk.derivatives.fetch_option_volatility()
+print(df_iv[["underlying_symbol", "underlying_name", "iv_pct", "hv_20d_pct", "ivix_index", "market_sentiment"]])
+```
+
+### 3.12 宏观高频流动性与央行公开市场业务
+```python
+# 1. 央行 7 天逆回购与 MLF 净投放时序
+df_omo = wk.macro_liquidity.fetch_open_market_operations(days=7)
+print(df_omo[["date", "repo_7d_injection_billion", "repo_7d_net_billion", "total_net_injection_billion", "liquidity_stance"]])
+
+# 2. 银行间质押式回购加权利率 (DR001, DR007)
+df_dr = wk.macro_liquidity.fetch_interbank_rates(days=7)
+print(df_dr[["date", "dr001", "dr007", "policy_rate_7d", "dr007_spread_bp", "liquidity_status"]])
+
+# 3. 资金面高频温度计与政策态度研判
+thermo = wk.macro_liquidity.get_liquidity_thermometer()
+print(f"资金面状态: {thermo['liquidity_status']}, DR007利差: {thermo['dr007_spread_bp']} bp")
+print(f"投顾结论: {thermo['advisory_takeaway']}")
+```
+
+### 3.13 一键全景增量入湖与 DuckDB SQL 即席查询
+```python
+# 一键同步全量 11 大数据集
 sync_report = wk.sync_all(force=True)
 
-# 统一 SQL 即席查询
+# 统一 SQL 即席查询全量视图
 df_sql = wk.query("""
-    SELECT symbol, name, asset_class 
-    FROM v_user_watchlist 
-    WHERE asset_class = 'index'
+    SELECT 
+        b.contract_code,
+        b.index_name,
+        b.annualized_basis_rate_pct,
+        l.dr007,
+        l.liquidity_status
+    FROM v_futures_basis b, v_interbank_rates l
+    ORDER BY l.date DESC
+    LIMIT 4
 """)
 print(df_sql)
 ```
@@ -209,8 +332,6 @@ python wind_cli.py money-flow --sector 煤炭
 # 查看今日主力资金净流出避险榜前 15 行业
 python wind_cli.py money-flow --top 15 --outflow
 ```
-- 输出板块代码、行业名称、最新指数、涨跌幅、主力净流入、超大单/大单细分拆解及领涨龙头股。
-- 支持 `--sector` 按申万一级行业名称单向精准下潜。
 
 ### 4.5 中债国债收益率曲线与利差：`yield-curve`
 ```bash
@@ -230,14 +351,87 @@ python wind_cli.py etf-flow --category 策略红利 --top 10
 # 查看净流出赎回榜
 python wind_cli.py etf-flow --top 10 --outflow
 ```
-- 输出 ETF 代码、简称、交易所、分类、最新份额、单位净值、规模、单日份额变动与估算净流入。
-- 输出五大大类属性资金聚类看板。
 
-### 4.7 一键增量入湖：`sync-toolkit`
+### 4.7 业绩预告与财务排雷：`forecast`
+```bash
+# 查看全市场最新业绩预告流
+python wind_cli.py forecast --limit 15
+
+# 对指定个股执行商誉/应收账款/存贷双高/FCF 排雷扫描
+python wind_cli.py forecast 600519 --screen
+
+# 输出机器友好的 JSON 格式
+python wind_cli.py forecast 600519 --screen --json
+```
+
+### 4.8 微观筹码面与市场分布：`chips`
+```bash
+# 1. 每日龙虎榜席位与机构博弈
+python wind_cli.py chips dragon-tiger --top 15
+
+# 2. 每日大宗交易流水与折溢价率
+python wind_cli.py chips block-trade --top 15
+
+# 3. 股东户数环比变动与筹码集中趋势
+python wind_cli.py chips concentration --code 600519 --top 6
+
+# 4. JSON 导出
+python wind_cli.py chips dragon-tiger --top 5 --json
+```
+
+### 4.9 股东信用与风险日历：`holder-risk`
+```bash
+# 1. 查看未来 30 天限售股解禁日历与抛压测算
+python wind_cli.py holder-risk lockup --days 30 --top 15
+
+# 2. 监测大股东股权质押比例与平仓线预警
+python wind_cli.py holder-risk pledge --code 600519
+
+# 3. 董监高增减持与公司股份回购流水
+python wind_cli.py holder-risk trading --top 15
+```
+
+### 4.10 机构持仓与聪明钱穿透：`smart-money`
+```bash
+# 1. 北向资金 (陆股通) 个股持股时序与调仓
+python wind_cli.py smart-money northbound --top 15
+
+# 2. 公募基金季报重仓股与抱团拥挤度
+python wind_cli.py smart-money fund-heavy --period 2024Q4 --top 15
+
+# 3. 筛选抱团极度拥挤的标的
+python wind_cli.py smart-money crowding --top 10
+```
+
+### 4.11 衍生品基差与期权波动率：`derivatives`
+```bash
+# 1. 股指期货主力基差与年化贴水率
+python wind_cli.py derivatives basis
+
+# 2. 主流 ETF 期权隐含波动率 (IV) 与中国波指 (iVIX)
+python wind_cli.py derivatives volatility
+
+# 3. 期货基差贴水套利与多头增强策略评估
+python wind_cli.py derivatives arbitrage
+```
+
+### 4.12 宏观高频流动性：`liquidity`
+```bash
+# 1. 资金面高频温度计与 DR007 政策利差
+python wind_cli.py liquidity thermometer
+
+# 2. 央行公开市场操作 (OMO) 逆回购/MLF 流水
+python wind_cli.py liquidity omo --days 15
+
+# 3. 银行间质押式回购加权利率时序
+python wind_cli.py liquidity interbank --days 15
+```
+
+### 4.13 一键增量入湖：`sync-toolkit`
 ```bash
 python wind_cli.py sync-toolkit [--force]
 ```
-- 一键批量将自选资产、F10 财务、分红流水、行业资金流、中债曲线与 ETF 份额增量更新入本地湖仓，并刷新 DuckDB 视图。
+- 一键批量将自选标的、F10 财务、分红流水、行业资金流、中债曲线、ETF 份额、业绩预告、微观筹码、股东风险、机构持仓、衍生品基差与宏观流动性等 11 大数据集增量更新入本地湖仓，并刷新 DuckDB 全量 20+ 视图。
 
 ---
 
@@ -245,50 +439,84 @@ python wind_cli.py sync-toolkit [--force]
 
 工作区本地湖仓基于 **DuckDB + Parquet** 构建，存储于 `data/` 下。通过统一视图提供纯 SQL 查询体验：
 
-### 5.1 视图清单
+### 5.1 全景视图清单
 
-| 视图名 | 底层 Parquet 路径 | 说明 | 推荐查询字段 |
+| 视图名 | 底层 Parquet 路径 | 说明 | 核心字段 |
 | :--- | :--- | :--- | :--- |
-| `v_user_watchlist` | `master/user_watchlist.parquet` | 用户自选与工作台监控标的 | `symbol`, `name`, `asset_class`, `source`, `extra_info` |
-| `v_stock_financials` | `mart/stock_financials.parquet` | 上市公司 F10 财务指标宽表 | `symbol`, `stock_name`, `report_date`, `total_revenue_billion`, `net_profit_billion`, `roe_pct` |
-| `v_stock_dividends` | `mart/stock_dividends.parquet` | 历史分红送配与股息率记录 | `symbol`, `stock_name`, `report_date`, `cash_dividend_10`, `dividend_yield_pct`, `progress` |
-| `v_sector_money_flow` | `mart/sector_money_flow.parquet` | 申万/万得行业板块资金流向 | `sector_code`, `sector_name`, `latest_index`, `change_pct`, `main_net_inflow_billion`, `top_stock_name` |
-| `v_chinabond_yield_curve`| `macro/chinabond_yield_curve.parquet` | 中债国债与信用债收益率曲线 | `date`, `y_1y`, `y_10y`, `y_30y`, `term_spread_10y_1y_bp`, `credit_spread_3y_aaa_bp`, `curve_regime` |
-| `v_etf_flows` | `mart/etf_flows.parquet` | 场内 ETF 份额与资金流动 | `etf_code`, `etf_name`, `market`, `category`, `shares_billion`, `nav`, `aum_billion`, `est_net_inflow_billion` |
+| `v_user_watchlist` | `master/user_watchlist.parquet` | 用户自选与工作台监控标的 | `symbol`, `name`, `asset_class`, `source` |
+| `v_stock_financials` | `mart/stock_financials.parquet` | 上市公司 F10 财务指标宽表 | `symbol`, `stock_name`, `report_date`, `roe_pct` |
+| `v_stock_dividends` | `mart/stock_dividends.parquet` | 历史分红送配与股息率记录 | `symbol`, `cash_dividend_10`, `dividend_yield_pct` |
+| `v_sector_money_flow` | `mart/sector_money_flow.parquet` | 申万/万得行业板块资金流向 | `sector_name`, `main_net_inflow_billion`, `top_stock_name` |
+| `v_chinabond_yield_curve`| `macro/chinabond_yield_curve.parquet` | 中债国债与信用债收益率曲线 | `date`, `y_1y`, `y_10y`, `term_spread_10y_1y_bp` |
+| `v_etf_flows` | `mart/etf_flows.parquet` | 场内 ETF 份额与资金流动 | `etf_code`, `etf_name`, `est_net_inflow_billion` |
+| `v_earnings_forecast` | `mart/earnings_forecast.parquet` | 业绩预告与业绩快报宽表 | `symbol`, `forecast_type`, `profit_change_min_pct` |
+| `v_financial_risk_screen` | `mart/financial_risk_screen.parquet` | 自由现金流与三大排雷指标 | `symbol`, `fcf_billion`, `goodwill_ratio_pct`, `risk_level` |
+| `v_dragon_tiger` | `mart/dragon_tiger.parquet` | 龙虎榜每日席位追踪 | `symbol`, `trade_date`, `net_buy_million`, `institution_net_million` |
+| `v_block_trading` | `mart/block_trading.parquet` | 大宗交易每日流水 | `symbol`, `deal_price`, `discount_rate_pct`, `deal_amount_ten_thousand` |
+| `v_shareholder_count` | `mart/shareholder_count.parquet` | 股东户数与筹码集中度 | `symbol`, `end_date`, `holder_count`, `holder_change_pct` |
+| `v_lockup_calendar` | `mart/lockup_calendar.parquet` | 限售股解禁日历 | `symbol`, `unlock_date`, `unlock_market_value_billion`, `risk_level` |
+| `v_pledge_risk` | `mart/pledge_risk.parquet` | 大股东股权质押监测 | `symbol`, `pledge_ratio_total_pct`, `warning_close_line_status` |
+| `v_holder_trading` | `mart/holder_trading.parquet` | 董监高增减持与公司回购 | `symbol`, `trade_date`, `holder_name`, `trade_type` |
+| `v_northbound_holdings` | `mart/northbound_holdings.parquet` | 北向资金个股持股时序 | `symbol`, `holding_market_value_billion`, `change_5d_value_million` |
+| `v_fund_heavyweight_stocks` | `mart/fund_heavyweight_stocks.parquet` | 公募基金季报重仓股穿透 | `symbol`, `fund_count`, `holding_value_billion`, `crowding_degree` |
+| `v_futures_basis` | `derivatives/futures_basis.parquet` | 股指期货基差与贴水率 | `contract_code`, `spot_price`, `futures_price`, `annualized_basis_rate_pct` |
+| `v_option_volatility` | `derivatives/option_volatility.parquet` | ETF 期权隐含波动率与波指 | `underlying_symbol`, `iv_pct`, `hv_20d_pct`, `ivix_index` |
+| `v_open_market_operations` | `macro/open_market_operations.parquet` | 央行公开市场操作时序 | `date`, `repo_7d_net_billion`, `total_net_injection_billion` |
+| `v_interbank_rates` | `macro/interbank_rates.parquet` | 银行间质押回购与 SHIBOR | `date`, `dr001`, `dr007`, `dr007_spread_bp`, `liquidity_status` |
 
-### 5.2 常用关联查询示例
+### 5.2 深度多源关联 SQL 查询范例
 
-#### 示例 1: 穿透投顾自选股票的最新财务含金量与分红率
+#### 范例 1: 穿透公募基金重仓抱团股的“财务排雷与商誉/现金流”健康度
 ```sql
 SELECT 
-    w.symbol, 
-    w.name, 
-    f.report_date, 
-    f.total_revenue_billion, 
-    f.net_profit_billion, 
-    f.roe_pct, 
-    d.dividend_yield_pct,
-    d.cash_dividend_10
-FROM v_user_watchlist w
-JOIN v_stock_financials f ON w.symbol = f.symbol
-LEFT JOIN v_stock_dividends d ON w.symbol = d.symbol AND f.report_date = d.report_date
-WHERE w.asset_class IN ('stock', 'other')
-ORDER BY f.roe_pct DESC;
+    h.symbol,
+    h.stock_name,
+    h.fund_count,
+    h.holding_value_billion,
+    h.crowding_degree,
+    r.fcf_billion,
+    r.goodwill_ratio_pct,
+    r.ar_turnover_days,
+    r.risk_level
+FROM v_fund_heavyweight_stocks h
+LEFT JOIN v_financial_risk_screen r ON h.symbol = r.symbol
+WHERE h.crowding_degree = '极度拥挤'
+ORDER BY h.holding_value_billion DESC;
 ```
 
-#### 示例 2: 行业板块主力资金净流入与对应行业 ETF 资金流动交叉验证
+#### 范例 2: 股指期货年化贴水率与宏观资金面流动性联动监测
 ```sql
 SELECT 
-    f.sector_name,
-    f.main_net_inflow_billion AS sector_inflow_billion,
-    f.change_pct AS sector_change_pct,
-    e.etf_code,
-    e.etf_name,
-    e.est_net_inflow_billion AS etf_inflow_billion
-FROM v_sector_money_flow f
-LEFT JOIN v_etf_flows e ON e.etf_name LIKE '%' || f.sector_name || '%'
-WHERE f.main_net_inflow_billion > 5.0
-ORDER BY f.main_net_inflow_billion DESC;
+    f.contract_code,
+    f.index_name,
+    f.annualized_basis_rate_pct,
+    f.hedge_cost_assessment,
+    l.dr007,
+    l.dr007_spread_bp,
+    l.liquidity_status
+FROM v_futures_basis f, (
+    SELECT dr007, dr007_spread_bp, liquidity_status 
+    FROM v_interbank_rates 
+    ORDER BY date DESC LIMIT 1
+) l
+ORDER BY f.annualized_basis_rate_pct DESC;
+```
+
+#### 范例 3: 未来 30 天巨量解禁高风险股票与大股东质押排查
+```sql
+SELECT 
+    c.unlock_date,
+    c.days_to_unlock,
+    c.symbol,
+    c.stock_name,
+    c.unlock_market_value_billion,
+    c.risk_level AS lockup_risk,
+    p.pledge_ratio_total_pct,
+    p.warning_close_line_status
+FROM v_lockup_calendar c
+LEFT JOIN v_pledge_risk p ON c.symbol = p.symbol
+WHERE c.risk_level = 'High'
+ORDER BY c.days_to_unlock ASC;
 ```
 
 ---
@@ -313,3 +541,21 @@ ORDER BY f.main_net_inflow_billion DESC;
 - **解决范式**：
   1. 调用 `wk.money_flow.get_top_outflow_sectors()` 监测行业涨幅较大但主力超大单持续净流出的“背离品种”；
   2. 调用 `wk.etf.get_category_flow_summary()` 观测全市场资金偏好是否正在从“进攻型行业主题”向“稳健型策略红利”迁移，指导投顾客户择机逢高阶梯减亏或获利了结。
+
+### 场景四：中性对冲与股指期货年化贴水多头替代
+- **痛点**：中小盘指增或市场中性策略面临昂贵对冲成本，盲目空头对冲常被深度贴水吃掉大量阿尔法。
+- **解决范式**：
+  1. 调用 `wk.derivatives.fetch_futures_basis()` 测算各合约年化贴水率；
+  2. 当 IM (中证1000) 远月年化贴水 > 10% 时，指导多头策略采用“股指期货多头替代 (展期吃贴水)”替代现货持仓，享受无风险基差收敛带来的确定性年化纯超额。
+
+### 场景五：股东信用暴雷与大额解禁前瞻排险
+- **痛点**：重仓标的突遭大比例定增解禁或控股股东质押爆仓平仓，引发股价连续跌停。
+- **解决范式**：
+  1. 调用 `wk.holder_risk.get_high_risk_calendar(days_ahead=30)` 提前 30 天自动扫描组合重仓标的的解禁日程；
+  2. 联动 `wk.holder_risk.fetch_pledge_risk()` 检验大股东质押率是否击穿预警线；若解禁占流通盘 > 10% 且质押 > 50%，系统自动亮起红灯并建议逢高减持规避。
+
+### 场景六：高频资金面与央行流动性温度计
+- **痛点**：月末/季末或税期资金面突发收紧，债券或权益资产受流动性冲击大幅波动。
+- **解决范式**：
+  1. 每日调阅 `wk.macro_liquidity.get_liquidity_thermometer()` 追踪 DR007 与 7D 逆回购政策利率偏离度 (bp)；
+  2. 当 DR007 偏离度 > 35 bp 且央行连续净回笼时，定性为“结构性偏紧”，指导投顾组合提前收缩杠杆、增加超短端回购头寸吃高息。
