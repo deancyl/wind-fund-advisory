@@ -1,31 +1,62 @@
-# Sentinel Handoff Report — AGY2_FundAdvisory 多智能体协同重构任务
+# Handoff Report — Project Sentinel (Architectural Evolution & Victory Delivery)
 
 ## 1. Observation
-- **任务目标达成情况**：经过 Teamwork 多智能体协同作战与独立终局胜利核验，原定 5 大核心逻辑缺陷修复、WindToolkit 进阶衍生品数据模块打通、C1 至 C5 全市场量化选基漏斗构建、Web GUI 极简高密度瘦身以及 8 项终验指标全部高标准达成。
-- **核心修复落盘点**：
-  1. `portfolio_manager.py`：建仓及接管函数彻底清除旧组合峰值与回撤污染，重置基准回撤为 0.0%；赛道冠军与拆单伴生标的纳入核心策略底仓；金融股存贷双高自动豁免（扣分 0）；限额超限自动分拆两行；伴生组与同源 A/C 份额豁免伪分散警报；底层重仓股按唯一股票代码聚合合并与占比降序排列。
-  2. `strategy_bridge.py`：打通 `WindToolkit.derivatives` 模块提取 IC/IM 年化贴水与期权 IV，并融入顶部雷达；基于 28,177 -> 6,850 四级漏斗实现六维量化实时评分；C1 至 C5 金牌组合真实对齐。
-  3. `app_gui.py`：模式 A（滑块直选即拉即变）与模式 B（问卷测评）彻底解耦，杜绝锁死 C3；控制台压缩至 160px（首屏通览前三步）；执行单精简至 9 列消除横向滚动条；二级抽屉与批次折叠框默认全量收起（expanded=False）。
-  4. `tests/`：编写端到端验收与红队测试套件 `test_acceptance_r1_r7.py`（8/8 pass）；项目全量 14 个测试文件共 222 项测试 100% 通过；本地 8501 服务平滑重启并返回 HTTP 200 OK。
-  5. 物理安全红线：4 个裁判基建文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）严格保持原始只读状态，SHA-256 逐字节一致，零侵入零修改。
+1. **用户原始需求与批准提示词 (ORIGINAL_REQUEST.md)**:
+   - 用户与调用方要求启动架构级进化任务：彻底摒弃针对特定股票代码或固定百分比的硬编码补丁，从通用量化模型、透明推演仪式感、市场攻防白话翻译、分层极简交互四个维度对 `portfolio_manager.py`、`strategy_bridge.py` 和 `app_gui.py` 进行重构；
+   - 调度 4 个专业智能体协同作业（Agent-1: strategy_bridge.py, Agent-2: portfolio_manager.py, Agent-3: app_gui.py, Agent-4: tests/）；
+   - 物理安全红线：严禁触碰、修改或解锁已设为只读的 4 个裁判基建文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）；
+   - 全部验收标准：AST 反硬编码无个股白名单、动态风险预算单调性、双向变盘点位无倒挂、四阶白盒推演（1.2~1.8s）、三栏作战卡片、9 列表格零截断、全量回归 100% 通过、8501 服务在线。
+
+2. **多智能体编排与执行轨迹**:
+   - 哨兵完成 Task Interview 并接收正式核准的 Approved Task Prompt；
+   - 哨兵启动项目编排器 `teamwork_orchestrator` (`orchestrator_3`, Conv ID `6e8d54f5-05f1-4da4-a35e-9c3d019df46f`)；
+   - 编排器历经 Phase 0 全景勘测（3 位只读勘测员），确立 `PROJECT.md` 接口契约，向 4 大实施智能体派发独占文件重构；
+   - 实施阶段（Agent-1 至 Agent-4）全量交付，既有 222 项 + 新增 4 项红队测试 = 226 项全部通过；
+   - Gate Verification Round 1：法医审计员（Auditor-1）捕获 `strategy_bridge.py` 中遗留静态伪造打分表 `FUND_SIX_DIMENSION_PROFILE`，行使一票否决权（INTEGRITY VIOLATION），挑战员 2 提出中芯国际现金流判定与 501029 分类优化；
+   - Remediation Iteration 2：整改勘测员出具方案，整改 Worker（`worker_remediation_1`）物理拔除静态打分字典、100% 委托 DuckDB 真实动态多因子打分、修复排雷与分类边界；
+   - Gate Verification Round 2：独立审查员给出 APPROVE，法医审计员复审给出 🟢 CLEAN。
+
+3. **第三方独立终审裁决 (Victory Audit)**:
+   - 哨兵根据铁律，在编排器竣工交付后派发第三方独立 Victory Auditor (`76e39155-49a3-4f12-abc4-6101c6fc218d`)；
+   - 审计结论：`VERDICT: VICTORY CONFIRMED`；
+   - 物理安全红线：4 个裁判基建文件保持 0 字节变动，SHA256 哈希比对 100% 一致；
+   - 反作弊与 AST 审计：源码中无任何硬编码股票代码、无静态 `cat_map` 字典、无 `FUND_SIX_DIMENSION_PROFILE` 打分表；真实 DuckDB 湖仓 Min-Max 评分两端 100% 字节级对齐；
+   - 独立全量回归实测：246 项测试全部通过（`246 passed in 287.72s`），通过率 100%；
+   - 服务在线探针：8501 端口 Streamlit 服务监听正常，响应 HTTP 200 OK。
+
+4. **资源清理与生命周期终结**:
+   - 哨兵已依规注销全部常驻定时监控任务（Cron 1 `task-254`, Cron 2 `task-255`）；
+   - 哨兵已依规执行 `manage_subagents(action="kill_all")`，安全回收全部子智能体进程。
 
 ## 2. Logic Chain
-1. **任务访谈与定稿**：哨兵启动任务访谈智能体 `teamwork_interviewer`，与用户/调用方敲定包含 7 大需求与 5 项 Acceptance Criteria 的权威任务提示词，并落盘至 `.agents/teamwork/ORIGINAL_REQUEST.md`。
-2. **路由与调度**：哨兵根据路由决策表将工程级通用重构任务分派至 General 路径（`teamwork_orchestrator`），建立双 Cron 监控机制（8分钟进度汇报 + 10分钟存活心跳守护）。
-3. **分阶段单写隔离作业**：编排器调度 Agent-1（账本风控）-> Agent-2（策略桥接与衍生品）-> Agent-3（UI极简瘦身）-> Agent-4（红队测试与服务重启）-> 法医审计员（Forensic Auditor）顺次推进，保证代码零冲突，阶段自测全绿后交接。
-4. **终局独立胜利验收（Victory Audit）**：收到编排团队胜利主张后，哨兵秉承零盲信原则，调度隔离上下文的 `teamwork_victory_auditor` 展开三阶段独立验收（时间线溯源、代码与防作弊取证、独立复跑测试与端口探活）。
-5. **结项裁决**：Victory Auditor 出具结构化判定报告，裁决为 **VICTORY CONFIRMED**。
-6. **资源清理与交付**：哨兵取消双 Cron 任务，销毁全部子智能体进程树，输出最终结项报告。
+1. 基于 Observation 1 与 2：任务从立项、面试、编排到自愈重构，全程严格遵循多智能体协同协议与反作弊铁律，不接受表面静态修补，门禁防御体系成功捕获并纠正了隐藏静态字典的违规行为，完成了真实纯算法量化驱动的架构重构。
+2. 基于 Observation 3：根据哨兵第 (4) 项核心职责，编排器的竣工声称绝不能未经复核直接采纳。哨兵派发的独立 Victory Auditor 具备完整的取证能力，并在独立隔离环境中复现了全套 246 项自动化测试与 AST 静态扫描，给出了具备决定性的 `VICTORY CONFIRMED` 独立司法裁决。
+3. 基于 Observation 4：在获得 `VICTORY CONFIRMED` 终审裁决后，哨兵按照强制清理协议销毁了定时器与子智能体，系统状态达到完备闭环标准。
 
 ## 3. Caveats
-- **本地服务常驻**：本地 8501 端口 Streamlit 服务已成功重启并在线（PID 18212），系统重启或脱钩维护请遵循桌面无窗口常驻引导器。
-- **DuckDB 湖仓离线与高可用兜底**：`derivatives.py` 与选基漏斗在本地 DuckDB 视图与 Parquet 文件均具备毫秒级离线安全兜底逻辑，生产环境在缺少实时外盘推送时依然能安全平稳运行。
+1. 8501 Streamlit GUI 运行于后台无黑框桌面守护模式，用户随时可通过浏览器直接访问 `http://127.0.0.1:8501` 体验。
+2. DuckDB 本地湖仓视图位于 `data/storage.duckdb`，选基评分依赖本地 Parquet 数据集，在断网或公共接口限流时系统自动具备 100% 离线自愈与降级平滑能力。
 
 ## 4. Conclusion
-- 本次多智能体协同重构任务已全面圆满完成，通过全部 222 项测试及 Streamlit AppTest 深度渲染，4 个裁判基建文件 100% 物理完好，获得 Victory Auditor 权威 **VICTORY CONFIRMED** 认证。
+AGY2_FundAdvisory 基金投顾系统架构级进化与反硬编码重构任务圆满成功。所有交付物均经由代码实现、门禁交叉复审与第三方独立审计员验证，全工程 246 项测试 100% 绿灯，系统只读裁判文件零破坏，裁决结果：**VICTORY CONFIRMED**。
 
 ## 5. Verification Method
-- 独立端到端验收套件: `pytest AGY2_FundAdvisory/tests/test_acceptance_r1_r7.py -v` (8 passed in 60.53s)
-- 项目全量测试回归: `pytest AGY2_FundAdvisory/tests/ -q` (222 passed in 207.18s)
-- 独立红队对抗脚本: `python .agents/teamwork/victory_auditor_1/independent_audit_test.py` (6/6 passed)
-- Web 端口健康探针: `curl http://localhost:8501/_stcore/health` (HTTP 200 OK)
+独立复现验证命令如下：
+1. **裁判文件物理安全核验**:
+   ```powershell
+   git status -s AGY2_FundAdvisory/judge_engine.py AGY2_FundAdvisory/holdout_vault.py AGY2_FundAdvisory/AGENT_SPEC.md AGY2_FundAdvisory/tests/test_infra.py
+   python -m pytest AGY2_FundAdvisory/tests/test_infra.py -o pythonpath=AGY2_FundAdvisory
+   ```
+2. **反硬编码与架构级红队测试**:
+   ```powershell
+   python -m pytest AGY2_FundAdvisory/tests/test_architecture_m3.py -o pythonpath=AGY2_FundAdvisory -v
+   python -m pytest AGY2_FundAdvisory/tests/test_adversarial_orch3_challenger2.py -o pythonpath=AGY2_FundAdvisory -v
+   ```
+3. **全工程全量回归测试**:
+   ```powershell
+   python -m pytest AGY2_FundAdvisory/tests/ -o pythonpath=AGY2_FundAdvisory -q
+   ```
+4. **8501 端口服务健康探针**:
+   ```powershell
+   Invoke-RestMethod -Uri 'http://127.0.0.1:8501/_stcore/health'
+   ```
