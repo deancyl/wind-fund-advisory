@@ -1,0 +1,80 @@
+{
+  "version": "AGY2_PORTFOLIO_V2",
+  "takeover_mode": "A",
+  "baseline_date": "2026-10-30",
+  "baseline_equity": 31790.0,
+  "available_cash": 0.0,
+  "in_transit_cash": 0.0,
+  "total_market_value": 31790.0,
+  "total_equity": 31790.0,
+  "peak_equity": 31790.0,
+  "max_drawdown_pct": 0.0,
+  "benchmark_code": "000300.SH",
+  "benchmark_baseline_nav": 1.0,
+  "benchmark_current_nav": 1.0,
+  "portfolio_return_pct": 0.0,
+  "benchmark_return_pct": 0.0,
+  "alpha_return_pct": 0.0,
+  "holdings": [
+    {
+      "fund_code": "011612",
+      "fund_name": "华夏上证科创板50成份ETF联接A",
+      "share_class": "A",
+      "shares": 10000.0,
+      "cost_price": 1.0419,
+      "current_nav": 1.0419,
+      "market_value": 10419.0,
+      "cost_basis": 10419.0,
+      "floating_pnl": 0.0,
+      "floating_pnl_pct": 0.0,
+      "first_buy_date": "2026-10-30",
+      "dividend_method": "cash",
+      "batches": [
+        {
+          "batch_id": "B_A_011612_001",
+          "buy_date": "2026-10-30",
+          "shares": 10000.0,
+          "cost_nav": 1.0419,
+          "fee": 0.0,
+          "holding_days": 0,
+          "safety_lock": true,
+          "notes": "模式A冷启动基准重置"
+        }
+      ],
+      "company": "华夏基金",
+      "is_core_strategy": true,
+      "transition_tag": "核心策略底仓"
+    },
+    {
+      "fund_code": "013841",
+      "fund_name": "银华集成电路混合C",
+      "share_class": "C",
+      "shares": 10000.0,
+      "cost_price": 2.1371,
+      "current_nav": 2.1371,
+      "market_value": 21371.0,
+      "cost_basis": 21371.0,
+      "floating_pnl": 0.0,
+      "floating_pnl_pct": 0.0,
+      "first_buy_date": "2026-10-30",
+      "dividend_method": "cash",
+      "batches": [
+        {
+          "batch_id": "B_A_013841_001",
+          "buy_date": "2026-10-30",
+          "shares": 10000.0,
+          "cost_nav": 2.1371,
+          "fee": 0.0,
+          "holding_days": 0,
+          "safety_lock": true,
+          "notes": "模式A冷启动基准重置"
+        }
+      ],
+      "company": "银华基金",
+      "is_core_strategy": true,
+      "transition_tag": "核心策略底仓"
+    }
+  ],
+  "pending_orders": [],
+  "updated_at": "2026-10-30 00:41:19"
+}

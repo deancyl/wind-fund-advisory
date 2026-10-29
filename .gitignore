@@ -42,6 +42,7 @@ data/mart/*
 data/macro/*
 data/global/*
 data/research/*
+data/derivatives/*
 data/*.duckdb
 scratch/
 !data/cache/.gitkeep
@@ -52,6 +53,20 @@ scratch/
 !data/mart/.gitkeep
 !data/macro/.gitkeep
 !data/global/.gitkeep
+!data/derivatives/.gitkeep
+
+# SQLite databases & transient runtime state
+*.db
+*.sqlite
+*.sqlite3
+
+# User private assets & screenshots
+投资组合/
+
+# Third-party copyrighted large documents & submodules
+李大霄/*.pdf
+李大霄/repo_alyosha/
+李大霄/repo_sherjy/
 
 # Logs & temp files
 *.log

@@ -52,7 +52,16 @@ class CalendarParser:
     def is_trade_day(self, target: Union[str, date, datetime]) -> bool:
         """判定目标日期是否为交易日"""
         norm = self._normalize_date(target)
-        return norm in self._trade_days_set
+        if norm in self._trade_days_set:
+            return True
+        # 边界兜底：若目标日期超出日历文件已知最新日期，按周中工作日判定 (周一至周五)
+        if self._trade_days_str and norm > self._trade_days_str[-1]:
+            if isinstance(target, (date, datetime)):
+                dt = target if isinstance(target, date) else target.date()
+            else:
+                dt = datetime.strptime(norm[:8], "%Y%m%d").date()
+            return dt.weekday() < 5
+        return False
 
     def get_trade_days(
         self,

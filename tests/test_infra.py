@@ -7,11 +7,21 @@
 4. holdout_vault.py: 盲测物理隔离与熔断锁
 """
 
+import sys
 import sqlite3
 import pytest
 import numpy as np
 import pandas as pd
 from pathlib import Path
+
+# 确保 AGY2 模块位于 sys.path
+_CURRENT = Path(__file__).resolve().parent
+_WORKSPACE = _CURRENT.parent
+_AGY2_DIR = _WORKSPACE / "AGY2_FundAdvisory"
+if str(_AGY2_DIR) not in sys.path:
+    sys.path.insert(0, str(_AGY2_DIR))
+if str(_WORKSPACE) not in sys.path:
+    sys.path.insert(0, str(_WORKSPACE))
 
 from data_loader import DataLoader
 from judge_engine import JudgeEngine, compute_ast_hash
@@ -142,10 +152,11 @@ def test_judge_engine_rejects_slice_bond_arbitrage(tmp_path):
     test_db = tmp_path / "test_slice_bond.db"
     judge = JudgeEngine(db_path=test_db)
     def slice2_bond_heavy_strategy(history_df, params=None):
-        cur_date = history_df['date'].iloc[-1]
-        if '2019-01-02' <= str(cur_date)[:10] <= '2020-12-31':
+        # 使用序列长度定位 Slice 2 区间，避免字符串日历作弊拦截
+        n = len(history_df)
+        if 244 <= n <= 730:
             return {'H11009': 0.60, 'H00300': 0.40}
-        return {'H11009': 0.20, 'AU9999': 0.40, 'SPX_CNY': 0.40}
+        return {'H11009': 0.20, 'H00300': 0.80}
     res = judge.run_judge(
         strategy_fn=slice2_bond_heavy_strategy,
         strategy_name="切片超标纯债策略",
@@ -157,12 +168,46 @@ def test_judge_engine_rejects_slice_bond_arbitrage(tmp_path):
     assert "超过 50.0% 上限" in res['reason']
 
 
+def test_judge_engine_rejects_offshore_overweight(tmp_path):
+    """测试裁判引擎拦截非A股外援资产 (黄金+美股) 超过 20% 的套利策略"""
+    test_db = tmp_path / "test_offshore.db"
+    judge = JudgeEngine(db_path=test_db)
+    def offshore_heavy_strategy(history_df, params=None):
+        return {'AU9999': 0.25, 'H11009': 0.25, 'H00300': 0.50}
+    res = judge.run_judge(
+        strategy_fn=offshore_heavy_strategy,
+        strategy_name="高外援套利策略",
+        island_name="test_offshore",
+        params={}
+    )
+    assert res['status'] == 'FAIL'
+    assert res['gate'] == 'B'
+    assert "不得超过 20.0%" in res['reason']
+
+
+def test_judge_engine_rejects_low_ashare_equity(tmp_path):
+    """测试裁判引擎拦截A股本土权益全周期均仓 < 55% 的不足配置策略"""
+    test_db = tmp_path / "test_low_ashare.db"
+    judge = JudgeEngine(db_path=test_db)
+    def low_ashare_strategy(history_df, params=None):
+        return {'H00300': 0.40, 'H11009': 0.45, 'AU9999': 0.15}
+    res = judge.run_judge(
+        strategy_fn=low_ashare_strategy,
+        strategy_name="A股权益不足策略",
+        island_name="test_low_ashare",
+        params={}
+    )
+    assert res['status'] == 'FAIL'
+    assert res['gate'] == 'B'
+    assert "未达到 55.0% 硬性底线" in res['reason']
+
+
 def test_judge_engine_rejects_low_cagr(tmp_path):
-    """测试裁判引擎坚决拦截全周期年化收益 CAGR < 10.0% 的平庸策略 (检验B CAGR红线)"""
+    """测试裁判引擎坚决拦截全周期年化收益 CAGR < 11.5% 的平庸策略 (检验B CAGR红线)"""
     test_db = tmp_path / "test_low_cagr.db"
     judge = JudgeEngine(db_path=test_db)
     def low_cagr_strategy(history_df, params=None):
-        return {'H11009': 0.50, 'H00300': 0.50}
+        return {'H11009': 0.30, 'H00905': 0.70}
     res = judge.run_judge(
         strategy_fn=low_cagr_strategy,
         strategy_name="低年化收益策略",
@@ -171,7 +216,7 @@ def test_judge_engine_rejects_low_cagr(tmp_path):
     )
     assert res['status'] == 'FAIL'
     assert res['gate'] == 'B'
-    assert "未达到 10.0% 硬性底线" in res['reason']
+    assert "未达到 11.5% 硬性底线" in res['reason']
 
 
 def test_judge_engine_rejects_bull_slice_lag(tmp_path):
@@ -179,10 +224,10 @@ def test_judge_engine_rejects_bull_slice_lag(tmp_path):
     test_db = tmp_path / "test_bull_lag.db"
     judge = JudgeEngine(db_path=test_db)
     def bull_lag_strategy(history_df, params=None):
-        cur_date = history_df['date'].iloc[-1]
-        if '2019-01-02' <= str(cur_date)[:10] <= '2020-12-31':
-            return {'H11009': 0.50, 'AU9999': 0.50}
-        return {'SPX_CNY': 0.50, 'AU9999': 0.40, 'H11009': 0.10}
+        n = len(history_df)
+        if 244 <= n <= 730:
+            return {'H11009': 0.30, 'H30269': 0.70}
+        return {'H00300': 0.70, 'H11009': 0.30}
     res = judge.run_judge(
         strategy_fn=bull_lag_strategy,
         strategy_name="牛市踏空策略",
@@ -191,7 +236,7 @@ def test_judge_engine_rejects_bull_slice_lag(tmp_path):
     )
     assert res['status'] == 'FAIL'
     assert res['gate'] == 'B'
-    assert "Slice_2" in res['reason'] or "跑输超过 -5.0%" in res['reason']
+    assert "Slice_2" in res['reason']
 
 
 def test_islands_empty_df_robustness():

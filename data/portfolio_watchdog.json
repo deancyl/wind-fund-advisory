@@ -1,0 +1,76 @@
+{
+  "portfolio_name": "多专户全景投资组合",
+  "baseline_date": "2026-10-27",
+  "total_capital_rmb": 268368.10,
+  "horizon_months": "6-12",
+  "strategy_objective": "短期战术减亏、解套、波段做T降波、优化现金流",
+  "funding_mode": "纯存量资金闭环腾挪 (无外部新增资金)",
+  "monitored_assets": [
+    {
+      "code": "005561",
+      "name": "创金合信中证红利低波动指数A",
+      "amount_rmb": 48101.30,
+      "status": "绿灯 (核心防守)",
+      "trigger_action": "继续持有，分红方式设为现金分红",
+      "key_tech_level": "半年线 3215 点支撑"
+    },
+    {
+      "code": "011613",
+      "name": "华夏科创50ETF联接C",
+      "amount_rmb": 20388.87,
+      "status": "黄灯 (战术反抽减亏)",
+      "trigger_action": "当科创50指数反抽至 1435~1480 点 (MA20~MA60重压区) 时分批减仓 1/3 ~ 1/2",
+      "current_bias_pct": -11.76,
+      "key_tech_level": "反弹第一目标位 1435 点 (MA20)"
+    },
+    {
+      "code": "013841",
+      "name": "银华集成电路混合C",
+      "amount_rmb": 10531.75,
+      "status": "红灯 (高成本单押重点清理)",
+      "trigger_action": "持有满 30 天免赎回费后，借反弹高点择机全额清仓置换",
+      "annual_operating_fee_pct": 1.60
+    },
+    {
+      "code": "016440",
+      "name": "华夏中证红利质量ETF发起式联接A",
+      "amount_rmb": 29875.30,
+      "status": "黄灯 (消费复苏观察)",
+      "trigger_action": "暂不赎回以避开 0.5% 赎回费，设为现金分红",
+      "underlying_exposure": "食品白酒消费 40%"
+    },
+    {
+      "code": "018757",
+      "name": "睿远稳益增强30天持有债券C",
+      "amount_rmb": 21564.77,
+      "status": "绿灯 (稀缺限购底仓)",
+      "trigger_action": "已暂停申购，严禁随意赎回，作为核心稳健底仓"
+    },
+    {
+      "code": "001071",
+      "name": "摩根标普500指数(QDII)人民币A",
+      "amount_rmb": 12308.45,
+      "status": "绿灯 (海外跨市场对冲)",
+      "trigger_action": "继续持有作为全球对冲底仓"
+    },
+    {
+      "code": "017436",
+      "name": "华宝纳斯达克精选股票(QDII)A",
+      "amount_rmb": 16151.61,
+      "status": "绿灯 (海外科技成长)",
+      "trigger_action": "继续持有，监控美股财报季与美联储降息指引"
+    },
+    {
+      "code": "000217",
+      "name": "华安黄金ETF联接C",
+      "amount_rmb": 1271.15,
+      "status": "绿灯 (待逢高置换扩容)",
+      "trigger_action": "仓位偏小 (0.47%)，后续利用腾挪资金扩容至 3%~5%"
+    }
+  ],
+  "system_triggers": {
+    "科创50均线反抽预警": "指数重回 1435 点触发减持信号",
+    "红利指数破位预警": "指数跌破 3215 点触发防守警报",
+    "两融杠杆警戒线": "维持担保比例低于 230% 触发系统性风险防范"
+  }
+}
