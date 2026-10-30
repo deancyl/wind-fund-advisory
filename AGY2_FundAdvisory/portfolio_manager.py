@@ -805,6 +805,315 @@ SECTOR_FUND_SELECTION: Dict[str, Dict[str, Any]] = {
 }
 
 
+# =====================================================================
+# R6: 基于 Page's CUSUM 变点检测的赛道冠军基金自动优胜劣汰引擎
+# =====================================================================
+
+class CUSUMFundChangePointDetector:
+    """
+    基于 Page's CUSUM 变点检测的赛道冠军基金自动优胜劣汰引擎 (R6)
+    
+    数学机制与公式:
+    1. 候选基金竞争力多因子打分 (0~100):
+       S_{f,t} = 0.35 * ER_{f,t} + 0.25 * (100 - Fee_f) + 0.15 * Risk_{f,t} + 0.15 * SM_{f,t} + 0.10 * (100 - TE_{f,t})
+       - ER_{f,t}: 滚动超额 Alpha 得分 (0~100)
+       - 100 - Fee_f: 低费率得分 (0~100，运营与申赎费率折算)
+       - Risk_{f,t}: R1 底层排雷健康分 (0~100，穿透排雷得分)
+       - SM_{f,t}: R3 聪明钱净流入与反拥挤安全分 (0~100)
+       - 100 - TE_{f,t}: 跟踪误差与宏观契合度得分 (0~100)
+       - 若与当前持仓同属一家基金公司，赋予 T+1 SWITCH 转换便利度加分 (+5.0分，上限 100)
+       
+    2. 默认赛道冠军标的累积衰减指标 (Page's CUSUM):
+       C_{c, 0} = 0
+       C_{c, t} = max(0, C_{c, t-1} + (max_{f} S_{f,t} - S_{c,t}) - k)
+       - k: 容忍松弛参数 (默认 slack_k = 2.0 分)
+       
+    3. 结构性衰减变点触发条件 (任一满足即判定变点触发):
+       - C_{c, t} >= h (默认 threshold_h = 8.0 分，累积跑输超标)
+       - 或 Risk_{c, t} < 60.0 (底层重仓股发生严重暴雷，触发排雷熔断)
+       - 或 极度拥挤度预警 (is_extreme_crowding / SM_{c, t} < 60.0 / crowding_warning)
+       
+    4. 赛道冠军自动优胜劣汰晋升:
+       当变点触发且综合得分第 1 名的备选基金领先于原默认标的时，自动将第 1 名备选基金晋升为推荐冠军标的，
+       生成自进化优选标签: "🔄 自进化优选：因综合评分领先，已自动为您优选 {champion_name}"
+    """
+
+    def __init__(self, slack_k: float = 2.0, threshold_h: float = 8.0):
+        self.slack_k = float(slack_k)
+        self.threshold_h = float(threshold_h)
+        self._cusum_scores: Dict[str, float] = {}
+
+    def get_cusum(self, sector_id: str) -> float:
+        return self._cusum_scores.get(sector_id, 0.0)
+
+    def set_cusum(self, sector_id: str, value: float) -> None:
+        self._cusum_scores[sector_id] = float(max(0.0, value))
+
+    def reset(self, sector_id: Optional[str] = None) -> None:
+        if sector_id is not None:
+            self._cusum_scores.pop(sector_id, None)
+        else:
+            self._cusum_scores.clear()
+
+    def compute_candidate_score(
+        self,
+        cand: Dict[str, Any],
+        track_role: str = "",
+        snapshot: Optional[Dict[str, Any]] = None,
+        pm: Optional[Any] = None
+    ) -> Dict[str, Any]:
+        """
+        根据 R6 多因子竞争力公式计算单只候选基金得分:
+        S_{f,t} = 0.35 * ER_{f,t} + 0.25 * (100 - Fee_f) + 0.15 * Risk_{f,t} + 0.15 * SM_{f,t} + 0.10 * (100 - TE_{f,t})
+        """
+        code = str(cand.get("code", cand.get("fund_code", ""))).strip().zfill(6)
+        name = str(cand.get("name", cand.get("fund_name", code)))
+
+        # 1. ER (超额 Alpha 得分 0~100)
+        if "er_score" in cand:
+            er_val = float(cand["er_score"])
+        elif "alpha_score" in cand:
+            er_val = float(cand["alpha_score"])
+        elif "er" in cand:
+            er_val = float(cand["er"])
+        elif "ER" in cand:
+            er_val = float(cand["ER"])
+        else:
+            er_val = None
+
+        # 2. 100 - Fee_f (低费率得分 0~100)
+        if "fee_score" in cand:
+            fee_score_val = float(cand["fee_score"])
+        elif "fee" in cand or "Fee" in cand or "fee_penalty" in cand:
+            f_raw = float(cand.get("fee", cand.get("Fee", cand.get("fee_penalty", 10.0))))
+            fee_score_val = f_raw if f_raw > 30.0 else max(0.0, min(100.0, 100.0 - f_raw))
+        else:
+            fee_score_val = None
+
+        # 3. Risk (底层排雷健康得分 0~100, 100=健康, <60=暴雷踩雷)
+        if "risk_score" in cand:
+            risk_val = float(cand["risk_score"])
+        elif "risk" in cand or "Risk" in cand:
+            risk_val = float(cand.get("risk", cand.get("Risk", 95.0)))
+        elif "health_score" in cand:
+            risk_val = float(cand["health_score"])
+        else:
+            risk_val = None
+
+        # 4. SM (聪明钱与反拥挤安全分 0~100)
+        if "smart_money_score" in cand:
+            sm_val = float(cand["smart_money_score"])
+        elif "sm_score" in cand or "sm" in cand or "SM" in cand:
+            sm_val = float(cand.get("sm_score", cand.get("sm", cand.get("SM", 88.0))))
+        elif "crowding_score" in cand:
+            sm_val = float(cand["crowding_score"])
+        else:
+            sm_val = None
+
+        # 5. 100 - TE (跟踪误差/宏观契合度得分 0~100)
+        if "te_score" in cand:
+            te_score_val = float(cand["te_score"])
+        elif "tracking_error_score" in cand:
+            te_score_val = float(cand["tracking_error_score"])
+        elif "te" in cand or "TE" in cand:
+            t_raw = float(cand.get("te", cand.get("TE", 5.0)))
+            te_score_val = t_raw if t_raw > 30.0 else max(0.0, min(100.0, 100.0 - t_raw))
+        else:
+            te_score_val = None
+
+        # 如果存在未给出的因子，通过 pm.compute_fund_six_dimension_score 补充
+        if any(v is None for v in [er_val, fee_score_val, risk_val, sm_val, te_score_val]):
+            try:
+                p_inst = pm if pm is not None else PortfolioManager()
+                six_dim = p_inst.compute_fund_six_dimension_score(code, track_role=track_role, snapshot=snapshot)
+            except Exception:
+                six_dim = {}
+
+            if er_val is None:
+                er_val = float(six_dim.get("alpha_score", 85.0))
+            if fee_score_val is None:
+                fee_score_val = float(six_dim.get("fee_score", 90.0))
+            if risk_val is None:
+                risk_val = float(six_dim.get("risk_score", 95.0))
+            if sm_val is None:
+                sm_val = float(six_dim.get("smart_money_score", six_dim.get("crowding_score", 88.0)))
+            if te_score_val is None:
+                te_score_val = float(six_dim.get("macro_align_score", 90.0))
+
+        # 归一化限制在 0~100 范围
+        er_val = max(0.0, min(100.0, er_val))
+        fee_score_val = max(0.0, min(100.0, fee_score_val))
+        risk_val = max(0.0, min(100.0, risk_val))
+        sm_val = max(0.0, min(100.0, sm_val))
+        te_score_val = max(0.0, min(100.0, te_score_val))
+
+        # 加权综合得分计算:
+        # S_{f,t} = 0.35*ER + 0.25*(100-Fee) + 0.15*Risk + 0.15*SM + 0.10*(100-TE)
+        composite_score = round(
+            0.35 * er_val +
+            0.25 * fee_score_val +
+            0.15 * risk_val +
+            0.15 * sm_val +
+            0.10 * te_score_val,
+            2
+        )
+
+        # 同基金公司转换便利度加分 (R5)
+        convenience_bonus = float(cand.get("switch_convenience_bonus", 5.0 if cand.get("is_same_company_bonus") else 0.0))
+        final_score = min(100.0, round(composite_score + convenience_bonus, 2))
+
+        # 拥挤度与排雷特征标记
+        is_extreme_crowding = bool(cand.get("is_extreme_crowding") or cand.get("crowding_warning") or sm_val < 60.0)
+
+        return {
+            "code": code,
+            "fund_code": code,
+            "name": name,
+            "fund_name": name,
+            "share_class": cand.get("share_class", "A"),
+            "tag": cand.get("tag", ""),
+            "er_score": round(er_val, 1),
+            "fee_score": round(fee_score_val, 1),
+            "risk_score": round(risk_val, 1),
+            "smart_money_score": round(sm_val, 1),
+            "te_score": round(te_score_val, 1),
+            "composite_score": composite_score,
+            "convenience_bonus": convenience_bonus,
+            "final_score": final_score,
+            "total_score": final_score,
+            "is_extreme_crowding": is_extreme_crowding
+        }
+
+    def evaluate_track_candidates(
+        self,
+        sector_id: str,
+        default_champion_code: str,
+        candidates: List[Dict[str, Any]],
+        snapshot: Optional[Dict[str, Any]] = None,
+        pm: Optional[Any] = None,
+        c_prev: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        计算各候选基金实时竞争力得分 S_{f, t} 与当前冠军的 CUSUM 衰减指标，
+        若触发变点，自动将综合得分第 1 的候选标的晋升为推荐冠军标的。
+        """
+        def_code = str(default_champion_code).strip().zfill(6)
+
+        cand_map = {}
+        for c in candidates:
+            code_c = str(c.get("code", c.get("fund_code", ""))).strip().zfill(6)
+            if code_c:
+                cand_map[code_c] = c
+
+        if def_code not in cand_map:
+            def_meta = pm.resolve_fund_meta(def_code) if (pm and hasattr(pm, "resolve_fund_meta")) else {}
+            cand_map[def_code] = {
+                "code": def_code,
+                "name": def_meta.get("fund_name", f"默认冠军_{def_code}"),
+                "share_class": def_meta.get("share_class", "A"),
+                "tag": "默认赛道冠军标的"
+            }
+
+        scored_candidates = []
+        for c in cand_map.values():
+            s_cand = self.compute_candidate_score(c, track_role=sector_id, snapshot=snapshot, pm=pm)
+            scored_candidates.append(s_cand)
+
+        # 排序：按 final_score 降序
+        scored_candidates.sort(key=lambda x: x["final_score"], reverse=True)
+
+        best_cand = scored_candidates[0]
+        max_score = best_cand["final_score"]
+
+        champ_cand = next((c for c in scored_candidates if c["code"] == def_code), None)
+        if champ_cand is not None:
+            champ_score = champ_cand["final_score"]
+            champ_risk = champ_cand["risk_score"]
+            champ_extreme_crowding = champ_cand.get("is_extreme_crowding", False)
+            champ_name = champ_cand["name"]
+        else:
+            champ_score = max_score
+            champ_risk = 95.0
+            champ_extreme_crowding = False
+            champ_name = f"默认冠军_{def_code}"
+
+        # CUSUM 衰减度量计算:
+        # C_{c,t} = max(0, C_{c,t-1} + (max S_{f,t} - S_{c,t}) - k)
+        prior_c = c_prev if c_prev is not None else self._cusum_scores.get(sector_id, 0.0)
+        decay_increment = (max_score - champ_score) - self.slack_k
+        c_curr = max(0.0, prior_c + decay_increment)
+        self._cusum_scores[sector_id] = round(c_curr, 4)
+
+        # 结构性变点触发判定:
+        trigger_reasons = []
+        if c_curr >= self.threshold_h:
+            trigger_reasons.append(f"CUSUM 衰减指标 ({c_curr:.2f}) 突破阈值 {self.threshold_h:.1f}，超额持续落后")
+        if champ_risk < 60.0:
+            trigger_reasons.append(f"R1 底层排雷健康分 ({champ_risk:.1f}) 跌破 60 分安全警戒线，触发排雷熔断")
+        if champ_extreme_crowding:
+            trigger_reasons.append("R3 机构极度抱团松动预警，触发反拥挤避险换仓")
+
+        is_triggered = len(trigger_reasons) > 0
+        is_champ_meltdown = bool(champ_risk < 60.0 or champ_extreme_crowding)
+
+        # 备选基金合格性筛选 (排除默认冠军自身，且必须未发生暴雷与极度拥挤)
+        # scored_candidates 已经按 final_score 降序排列
+        eligible_alternatives = [
+            c for c in scored_candidates
+            if c["code"] != def_code
+            and c.get("risk_score", 0.0) >= 60.0
+            and not c.get("is_extreme_crowding", False)
+        ]
+
+        is_promoted = False
+        active_champ_code = def_code
+        active_champ_name = champ_name
+        promotion_label = ""
+        best_cand_out = best_cand
+
+        if is_triggered:
+            if is_champ_meltdown:
+                # 默认冠军触发硬性排雷熔断或极度拥挤，立即剥夺推荐资格
+                # 从剩余合格备选基金中挑选最高分者晋升
+                if eligible_alternatives:
+                    promoted = eligible_alternatives[0]
+                    is_promoted = True
+                    active_champ_code = promoted["code"]
+                    active_champ_name = promoted["name"]
+                    best_cand_out = promoted
+                    promotion_label = f"🔄 自进化优选：因综合评分领先，已自动为您优选 {active_champ_name}"
+            else:
+                # 默认冠军未暴雷，仅因 CUSUM 累积衰减超标
+                # 要求备选标的合格且得分领先于原冠军 (严禁向自身晋升或向更低分标的晋升)
+                if eligible_alternatives and eligible_alternatives[0]["final_score"] > champ_score:
+                    promoted = eligible_alternatives[0]
+                    is_promoted = True
+                    active_champ_code = promoted["code"]
+                    active_champ_name = promoted["name"]
+                    best_cand_out = promoted
+                    promotion_label = f"🔄 自进化优选：因综合评分领先，已自动为您优选 {active_champ_name}"
+
+        return {
+            "sector_id": sector_id,
+            "default_champion_code": def_code,
+            "default_champion_name": champ_name,
+            "active_champion_code": active_champ_code,
+            "active_champion_name": active_champ_name,
+            "is_promoted": is_promoted,
+            "promotion_label": promotion_label,
+            "trigger_reasons": trigger_reasons,
+            "is_triggered": is_triggered,
+            "cusum_value": round(c_curr, 4),
+            "prior_cusum": round(prior_c, 4),
+            "threshold_h": self.threshold_h,
+            "slack_k": self.slack_k,
+            "max_score": max_score,
+            "champion_score": champ_score,
+            "best_candidate": best_cand_out,
+            "scored_candidates": scored_candidates
+        }
+
+
 def get_fund_selection_funnel_stats() -> Dict[str, Any]:
     """
     全市场 2.8 万只基金量化选基透明漏斗数据
@@ -1576,6 +1885,9 @@ class PortfolioManager:
         self._toolkit: Optional[Any] = None
         self._stock_screen_cache: Dict[str, Dict[str, Any]] = {}
         self._crowding_cache: Dict[str, Dict[str, Any]] = {}
+
+        # R6: CUSUM 变点检测与冠军优胜劣汰引擎
+        self.cusum_detector: CUSUMFundChangePointDetector = CUSUMFundChangePointDetector()
 
         self._init_sqlite()
         loaded = self.load_state()
@@ -3765,6 +4077,25 @@ class PortfolioManager:
             2
         )
 
+        # 7. 同基金公司转换便利度加分 (+5.0 分) (R5)
+        # 若备选基金所属基金公司与当前组合持仓公司相同，赋予转换便利度加分，引导优先撮合 T+1 SWITCH 零在途转换
+        switch_convenience_bonus = 0.0
+        held_companies = set()
+        if hasattr(self, "holdings") and isinstance(self.holdings, dict):
+            for h_code, h in self.holdings.items():
+                if getattr(h, "shares", 0.0) > 0 and str(h_code).strip().zfill(6) != code:
+                    comp = getattr(h, "company", "")
+                    if not comp and hasattr(self, "resolve_fund_meta"):
+                        comp = self.resolve_fund_meta(h_code).get("company", "")
+                    if comp:
+                        held_companies.add(comp)
+
+        cand_meta = self.resolve_fund_meta(code) if hasattr(self, "resolve_fund_meta") else {}
+        cand_comp = cand_meta.get("company", "")
+        if cand_comp and cand_comp in held_companies:
+            switch_convenience_bonus = 5.0
+            total_score = min(100.0, round(total_score + switch_convenience_bonus, 2))
+
         return {
             "fund_code": code,
             "track_role": track_role,
@@ -3777,6 +4108,8 @@ class PortfolioManager:
             "anti_crowding_score": crowding_score,
             "macro_align_score": macro_score,
             "macro_derivative_score": macro_score,
+            "switch_convenience_bonus": switch_convenience_bonus,
+            "is_same_company_bonus": (switch_convenience_bonus > 0),
             "weights": weights,
             "total_score": total_score,
             "overall_score": total_score
@@ -4621,6 +4954,131 @@ class PortfolioManager:
         }
 
     # =====================================================================
+    # 调仓净效用拦截器与真实 A/C 阶梯费率及 T+2 在途踏空折价 (R5 核心引擎)
+    # =====================================================================
+
+    def calculate_rebalance_net_utility(
+        self,
+        from_fund_code: str,
+        to_fund_code: str,
+        amount: float,
+        expected_alpha_20d: Optional[float] = None,
+        market_snapshot: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        [R5 核心拦截器] 精算单笔拟调仓净效用 Delta U:
+        Delta U = ExpectedAlphaGain_20d - ExactRedemptionFee(FIFO) - SubscriptionFee - InTransitOpportunityCost(Delta t, sigma_index)
+        
+        【在途与费率精算规则】：
+        1. 同公司 T+1 SWITCH：在途时差 Delta t_arrive = 0 => InTransitOpportunityCost = 0.0；
+        2. 跨公司赎回再申购：国内基金 T+2 到账 (Delta t = 2)，QDII/海外基金 T+4 到账 (Delta t = 4)，
+           按市场指数年化波动率折算在途踏空风险折价: InTransitOpportunityCost = Amount * sigma * sqrt(Delta t / 250)；
+        3. 真实 FIFO 赎回费：穿透持仓批次持有天数精确核算，支持 A/C 份额阶梯费率；
+        4. 当 Delta U <= 0 时，触发拦截并标记 '🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动'，不生成可执行换仓单。
+        """
+        if not isinstance(self, PortfolioManager):
+            return PortfolioManager().calculate_rebalance_net_utility(
+                from_fund_code, to_fund_code, amount, expected_alpha_20d, market_snapshot
+            )
+
+        amt = float(max(0.0, amount))
+        from_code = str(from_fund_code).strip().zfill(6)
+        to_code = str(to_fund_code).strip().zfill(6)
+
+        from_meta = self.resolve_fund_meta(from_code)
+        to_meta = self.resolve_fund_meta(to_code)
+
+        # 1. 同公司检测
+        from_company = from_meta.get("company", "")
+        to_company = to_meta.get("company", "")
+        is_same_company = bool(from_company and to_company and from_company == to_company)
+
+        # 2. 真实 FIFO 阶梯赎回费精算
+        exact_redemption_fee = 0.0
+        h_from = self.holdings.get(from_code)
+        if h_from and amt > 0:
+            calc_shares = min(h_from.shares, amt / max(h_from.current_nav, 0.001))
+            rem_s = calc_shares
+            for b in h_from.batches:
+                if rem_s <= 1e-4:
+                    break
+                t_s = min(b.shares, rem_s)
+                rate, is_pen, _ = FeeMatrixCalculator.get_redemption_fee_rate(h_from.share_class, b.holding_days)
+                exact_redemption_fee += (t_s * h_from.current_nav * rate)
+                rem_s -= t_s
+            if rem_s > 1e-4:
+                rate, _, _ = FeeMatrixCalculator.get_redemption_fee_rate(h_from.share_class, 30)
+                exact_redemption_fee += (rem_s * h_from.current_nav * rate)
+        elif amt > 0:
+            s_class = from_meta.get("share_class", "A")
+            rate, _, _ = FeeMatrixCalculator.get_redemption_fee_rate(s_class, 30)
+            exact_redemption_fee = amt * rate
+
+        exact_redemption_fee = round(exact_redemption_fee, 2)
+
+        # 3. 前端申购费与在途踏空时差
+        if is_same_company:
+            subscription_fee = 0.0 if to_meta.get("share_class") == "C" else round(amt * 0.0015, 2)
+            delta_t_arrive = 0
+            in_transit_cost = 0.0
+        else:
+            to_s_class = to_meta.get("share_class", "A")
+            sub_calc = FeeMatrixCalculator.calculate_subscription_fee(amt, share_class=to_s_class)
+            subscription_fee = float(sub_calc.get("fee_amount", round(amt * 0.0015 if to_s_class != "C" else 0.0, 2)))
+            subscription_fee = round(subscription_fee, 2)
+
+            is_qdii = any(k in to_meta.get("fund_name", "") for k in ["QDII", "标普", "纳斯达克", "海外", "美股"]) or to_code in ["050025", "001071"]
+            delta_t_arrive = 4 if is_qdii else 2
+
+            snap = market_snapshot or {}
+            sigma_index = float(snap.get("c300_annualized_vol", snap.get("option_iv_pct", 18.0) / 100.0 if "option_iv_pct" in snap else 0.18))
+            if sigma_index <= 0.0 or sigma_index > 2.0:
+                sigma_index = 0.18
+
+            in_transit_cost = round(amt * sigma_index * np.sqrt(delta_t_arrive / 250.0), 2)
+
+        # 4. 20 个交易日预期超额收益 Alpha 增益
+        if expected_alpha_20d is not None:
+            exp_alpha = float(expected_alpha_20d)
+        else:
+            score_to = self.compute_fund_six_dimension_score(to_code).get("total_score", 85.0)
+            score_from = self.compute_fund_six_dimension_score(from_code).get("total_score", 80.0)
+            score_diff = score_to - score_from
+            if score_diff > 0:
+                alpha_annual = max(0.02, score_diff * 0.008)
+                exp_alpha = round(amt * alpha_annual * (20.0 / 250.0), 2)
+            else:
+                exp_alpha = 0.0
+
+        # 5. 调仓净效用 Delta U 与拦截判定
+        total_friction = round(float(exact_redemption_fee + subscription_fee + in_transit_cost), 2)
+        delta_u = round(float(exp_alpha - total_friction), 2)
+
+        min_threshold = 0.0
+        should_intercept = bool(delta_u <= min_threshold)
+        interception_badge = (
+            "🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动"
+            if should_intercept else
+            "✅ 预期收益覆盖摩擦，建议调仓"
+        )
+
+        return {
+            "from_fund_code": from_code,
+            "to_fund_code": to_code,
+            "amount": amt,
+            "is_same_company": is_same_company,
+            "delta_t_arrive": delta_t_arrive,
+            "expected_alpha_gain_20d": exp_alpha,
+            "exact_redemption_fee": exact_redemption_fee,
+            "subscription_fee": subscription_fee,
+            "in_transit_opportunity_cost": in_transit_cost,
+            "total_friction_and_risk_cost": total_friction,
+            "delta_u": delta_u,
+            "should_intercept": should_intercept,
+            "interception_badge": interception_badge
+        }
+
+    # =====================================================================
     # 需求 4：交收时差、基金转换与三级路由调仓推演沙盒
     # =====================================================================
 
@@ -4774,18 +5232,31 @@ class PortfolioManager:
                     switch_amount = min(s["amount"], b["amount"])
                     switch_shares = round(switch_amount / s["current_nav"], 2)
 
+                    # 净效用精算拦截器 (R5)
+                    util = self.calculate_rebalance_net_utility(
+                        from_fund_code=s_code,
+                        to_fund_code=b_code,
+                        amount=switch_amount
+                    )
+                    should_intercept = util["should_intercept"]
+                    interception_badge = util["interception_badge"]
+
                     executable_routes.append({
                         "route_priority": "PRIORITY_1_SWITCH",
-                        "title": f"【优先级 1：同公司基金转换】{s['fund_name']} ➡️ {b['fund_name']}",
+                        "title": f"【优先级 1：同公司基金转换】{s['fund_name']} ➡️ {b['fund_name']}" if not should_intercept else f"【优先级 1：同公司基金转换】{s['fund_name']} ➡️ {b['fund_name']} [{interception_badge}]",
                         "from_code": s_code,
                         "from_name": s["fund_name"],
                         "to_code": b_code,
                         "to_name": b["fund_name"],
                         "switch_shares": switch_shares,
                         "switch_amount": switch_amount,
-                        "advantage": "享受 T+1 同步转换确认，申购费补差减免，资金 0 在途时滞！",
+                        "advantage": "享受 T+1 同步转换确认，申购费补差减免，资金 0 在途时滞！" if not should_intercept else interception_badge,
                         "est_fee": round(switch_amount * 0.0015, 2),
-                        "confirm_cycle": "T+1"
+                        "confirm_cycle": "T+1",
+                        "net_utility": util,
+                        "delta_u": util["delta_u"],
+                        "should_intercept": should_intercept,
+                        "interception_badge": interception_badge
                     })
                     s["amount"] = max(0.0, round(s["amount"] - switch_amount, 2))
                     s["shares"] = max(0.0, round(s["shares"] - switch_shares, 2))
@@ -4798,6 +5269,7 @@ class PortfolioManager:
 
         # 2. 匹配买入项：优先级 2 (闲置现金垫付) vs 优先级 3 (两阶段换仓)
         active_buys = [b for idx, b in enumerate(buy_actions) if idx not in matched_buys and b["amount"] >= 10.0]
+        active_sells = [s for idx, s in enumerate(sell_actions) if idx not in matched_sells and s["amount"] >= 10.0]
 
         for b in active_buys:
             req_amount = b["amount"]
@@ -4833,18 +5305,36 @@ class PortfolioManager:
                 })
                 rem_cash_available -= primary_amount
             else:
+                # 针对两阶段跨公司换仓精算在途踏空与净效用 (R5)
+                from_c = active_sells[0]["fund_code"] if active_sells else (sell_actions[0]["fund_code"] if sell_actions else "")
+                util = None
+                should_intercept = False
+                interception_badge = "✅ 预期收益覆盖摩擦，建议调仓"
+                if from_c:
+                    util = self.calculate_rebalance_net_utility(
+                        from_fund_code=from_c,
+                        to_fund_code=b["fund_code"],
+                        amount=primary_amount
+                    )
+                    should_intercept = util["should_intercept"]
+                    interception_badge = util["interception_badge"]
+
                 executable_routes.append({
                     "route_priority": "PRIORITY_3_TWO_STEP",
-                    "title": f"【优先级 3：两阶段分步换仓】等待赎回款到账后申购 {b['fund_name']}",
+                    "title": f"【优先级 3：两阶段分步换仓】等待赎回款到账后申购 {b['fund_name']}" if not should_intercept else f"【优先级 3：两阶段分步换仓】等待赎回款到账后申购 {b['fund_name']} [{interception_badge}]",
                     "fund_code": b["fund_code"],
                     "fund_name": b["fund_name"],
                     "buy_amount": primary_amount,
                     "overflow_amount": overflow_amount,
                     "fallback_code": f_code,
                     "quota_warning": quota_warning,
-                    "advantage": "现金不足且无法直接转换：Step 1 今日提交赎回 ➡️ 在途资金日历追踪 ➡️ Step 2 到账日 (T+2/T+3) 提醒申购。",
+                    "advantage": "现金不足且无法直接转换：Step 1 今日提交赎回 ➡️ 在途资金日历追踪 ➡️ Step 2 到账日 (T+2/T+3) 提醒申购。" if not should_intercept else interception_badge,
                     "est_fee": round(primary_amount * 0.0015, 2),
-                    "confirm_cycle": "T+2/T+3"
+                    "confirm_cycle": "T+2/T+3",
+                    "net_utility": util,
+                    "delta_u": util["delta_u"] if util else 0.0,
+                    "should_intercept": should_intercept,
+                    "interception_badge": interception_badge
                 })
 
         # 3. 匹配卖出项：跨公司赎回配合 或 纯减仓卖出变现
@@ -4883,6 +5373,8 @@ class PortfolioManager:
             "sell_actions": sell_actions,
             "buy_actions": buy_actions,
             "routes": executable_routes,
+            "executable_routes": [r for r in executable_routes if not r.get("should_intercept", False)],
+            "intercepted_routes": [r for r in executable_routes if r.get("should_intercept", False)],
             "available_cash": self.available_cash,
             "in_transit_cash": self.in_transit_cash
         }
@@ -5067,6 +5559,10 @@ class PortfolioManager:
         settlement = self.clock.calculate_settlement_dates(now_dt)
 
         for r in routes_to_execute:
+            if r.get("should_intercept", False):
+                # 🛡️ 摩擦/在途损耗大于预期收益，拦截不生成可执行换仓单
+                continue
+
             p_type = r.get("route_priority", "")
 
             if p_type == "PRIORITY_1_SWITCH":
@@ -5696,10 +6192,30 @@ class PortfolioManager:
         res["parsed_items"] = parsed_items
         return res
 
+    def evaluate_track_candidates(
+        self,
+        sector_id: str,
+        default_champion_code: str,
+        candidates: List[Dict[str, Any]],
+        snapshot: Optional[Dict[str, Any]] = None,
+        c_prev: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """代理调用 CUSUMFundChangePointDetector 评估赛道候选基金与变点轮换 (R6)"""
+        return self.cusum_detector.evaluate_track_candidates(
+            sector_id=sector_id,
+            default_champion_code=default_champion_code,
+            candidates=candidates,
+            snapshot=snapshot,
+            pm=self,
+            c_prev=c_prev
+        )
+
 
 # 模块级便捷访问别名
 generate_zero_start_blueprint = PortfolioManager.generate_zero_start_blueprint
 classify_fund_asset_class = PortfolioManager.classify_fund_asset_class
 compute_fund_six_dimension_score = PortfolioManager.compute_fund_six_dimension_score
 calculate_fund_six_dimension_score = PortfolioManager.compute_fund_six_dimension_score
+calculate_rebalance_net_utility = PortfolioManager.calculate_rebalance_net_utility
+CUSUMFundChangePointDetector = CUSUMFundChangePointDetector
 

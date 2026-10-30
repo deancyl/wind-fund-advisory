@@ -891,9 +891,20 @@ with tab_brain:
             with cols_sectors[idx]:
                 champ_code = sec_data["champion_code"]
                 champ_name = sec_data["champion_name"]
+                is_promoted = sec_data.get("is_promoted", False)
+
                 st.markdown(f"**{sec_data['sector_name']}**")
-                st.markdown(f"🏆 **金牌标的**：`{champ_code}` {champ_name}")
-                st.caption(f"理由：{sec_data['champion_reason'][:32]}...")
+
+                # R6: 真实渲染自进化优选晋升标签
+                if is_promoted and sec_data.get("promotion_label"):
+                    st.success(sec_data["promotion_label"])
+                    st.markdown(f"🏆 **金牌标的**：`{champ_code}` {champ_name} ✨")
+                else:
+                    st.markdown(f"🏆 **金牌标的**：`{champ_code}` {champ_name}")
+
+                if sec_data.get("trigger_reasons"):
+                    st.caption(f"⚡ 变点触发：{'; '.join(sec_data['trigger_reasons'])}")
+                st.caption(f"理由：{sec_data['champion_reason'][:36]}...")
 
                 alt_options = [f"🏆 金牌: {champ_code} {champ_name}"] + [
                     f"备选 {alt['code']} {alt['name']} ({alt.get('tag', '')})"
@@ -908,9 +919,13 @@ with tab_brain:
                 if not current_choice.startswith("🏆"):
                     chosen_code = current_choice.split()[1]
                     st.session_state.custom_fund_overrides[champ_code] = chosen_code
+                    if sec_data.get("default_champion_code"):
+                        st.session_state.custom_fund_overrides[sec_data["default_champion_code"]] = chosen_code
                 else:
                     if champ_code in st.session_state.custom_fund_overrides:
                         del st.session_state.custom_fund_overrides[champ_code]
+                    if sec_data.get("default_champion_code") in st.session_state.custom_fund_overrides:
+                        del st.session_state.custom_fund_overrides[sec_data["default_champion_code"]]
 
     # Step 2: 宏观与衍生品四维状态机实时定调
     with st.expander("🧭 【Step 2 白盒：宏观与衍生品四维状态机实时定调】（点击展开查看四维决策信号卡片与攻防定调白话解析）", expanded=False):
@@ -974,6 +989,28 @@ with tab_brain:
                 </div>
             </div>
             """, unsafe_allow_html=True)
+
+        exp_weights = snapshot.get("expert_weights")
+        if exp_weights and isinstance(exp_weights, dict):
+            st.markdown("##### 🤖 《Hedge 在线多专家自适应乘性权重占比 (R2 在线学习)》")
+            st.caption("四大正交分析流派每日根据风险调整后净效用 $u_{i,t}$ 在线乘性更新，胜率高、回撤小者自动获配更高权重：")
+            w_c1, w_c2, w_c3, w_c4 = st.columns(4)
+            expert_meta = [
+                ("① 趋势动量专家", "trend_momentum", "#ef4444", "捕捉中长期均线突破与主升浪动量"),
+                ("② ERP宏观估值专家", "erp_macro", "#38bdf8", "锚定股债性价比与历史估值安全边际"),
+                ("③ 均线逆向专家", "ma_contrarian", "#34d399", "利用短周期负乖离与超卖反抽逆向布局"),
+                ("④ 流动性与基差专家", "liquidity_basis", "#f59e0b", "跟踪资金面松紧度与期指年化贴水率")
+            ]
+            for col, (title, key, color, desc) in zip([w_c1, w_c2, w_c3, w_c4], expert_meta):
+                with col:
+                    weight_val = float(exp_weights.get(key, 0.25)) * 100.0
+                    st.markdown(f"""
+                    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px; text-align: center;">
+                        <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">{title}</div>
+                        <div style="font-size: 20px; font-weight: bold; color: {color}; margin-bottom: 4px;">{weight_val:.1f}%</div>
+                        <div style="font-size: 11px; color: #64748b;">{desc}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
         st.info(f"💡 **AI 今日攻防定调结论**：{snapshot.get('ai_summary_text', '市场处于震荡磨底阶段，高股息稳健收息，耐心等待均线向上发散')}")
 
@@ -1335,6 +1372,16 @@ with tab_brain:
                 df_mat = StrategyBridge.load_matrix()
                 w_idx = strategy_fn_for_tier(df_mat, tier=active_tier)
                 tier_target_w = StrategyBridge.map_index_weights_to_funds(w_idx)
+
+            # CUSUM 赛道自进化优选标的对齐 (R6)
+            sec_selection = StrategyBridge.get_tier_sector_fund_selection(active_tier)
+            for sec_data in sec_selection.values():
+                if sec_data.get("is_promoted"):
+                    def_c = sec_data.get("default_champion_code")
+                    act_c = sec_data.get("champion_code")
+                    if def_c and act_c and def_c in tier_target_w and act_c != def_c:
+                        w_auto = tier_target_w.pop(def_c)
+                        tier_target_w[act_c] = round(tier_target_w.get(act_c, 0.0) + w_auto, 4)
 
             if st.session_state.custom_fund_overrides:
                 tier_target_w = dict(tier_target_w)

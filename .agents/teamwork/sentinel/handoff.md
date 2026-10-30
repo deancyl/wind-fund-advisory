@@ -1,62 +1,41 @@
-# Handoff Report — Project Sentinel (Architectural Evolution & Victory Delivery)
+# Handoff Report — Project Sentinel
 
 ## 1. Observation
-1. **用户原始需求与批准提示词 (ORIGINAL_REQUEST.md)**:
-   - 用户与调用方要求启动架构级进化任务：彻底摒弃针对特定股票代码或固定百分比的硬编码补丁，从通用量化模型、透明推演仪式感、市场攻防白话翻译、分层极简交互四个维度对 `portfolio_manager.py`、`strategy_bridge.py` 和 `app_gui.py` 进行重构；
-   - 调度 4 个专业智能体协同作业（Agent-1: strategy_bridge.py, Agent-2: portfolio_manager.py, Agent-3: app_gui.py, Agent-4: tests/）；
-   - 物理安全红线：严禁触碰、修改或解锁已设为只读的 4 个裁判基建文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）；
-   - 全部验收标准：AST 反硬编码无个股白名单、动态风险预算单调性、双向变盘点位无倒挂、四阶白盒推演（1.2~1.8s）、三栏作战卡片、9 列表格零截断、全量回归 100% 通过、8501 服务在线。
-
-2. **多智能体编排与执行轨迹**:
-   - 哨兵完成 Task Interview 并接收正式核准的 Approved Task Prompt；
-   - 哨兵启动项目编排器 `teamwork_orchestrator` (`orchestrator_3`, Conv ID `6e8d54f5-05f1-4da4-a35e-9c3d019df46f`)；
-   - 编排器历经 Phase 0 全景勘测（3 位只读勘测员），确立 `PROJECT.md` 接口契约，向 4 大实施智能体派发独占文件重构；
-   - 实施阶段（Agent-1 至 Agent-4）全量交付，既有 222 项 + 新增 4 项红队测试 = 226 项全部通过；
-   - Gate Verification Round 1：法医审计员（Auditor-1）捕获 `strategy_bridge.py` 中遗留静态伪造打分表 `FUND_SIX_DIMENSION_PROFILE`，行使一票否决权（INTEGRITY VIOLATION），挑战员 2 提出中芯国际现金流判定与 501029 分类优化；
-   - Remediation Iteration 2：整改勘测员出具方案，整改 Worker（`worker_remediation_1`）物理拔除静态打分字典、100% 委托 DuckDB 真实动态多因子打分、修复排雷与分类边界；
-   - Gate Verification Round 2：独立审查员给出 APPROVE，法医审计员复审给出 🟢 CLEAN。
-
-3. **第三方独立终审裁决 (Victory Audit)**:
-   - 哨兵根据铁律，在编排器竣工交付后派发第三方独立 Victory Auditor (`76e39155-49a3-4f12-abc4-6101c6fc218d`)；
-   - 审计结论：`VERDICT: VICTORY CONFIRMED`；
-   - 物理安全红线：4 个裁判基建文件保持 0 字节变动，SHA256 哈希比对 100% 一致；
-   - 反作弊与 AST 审计：源码中无任何硬编码股票代码、无静态 `cat_map` 字典、无 `FUND_SIX_DIMENSION_PROFILE` 打分表；真实 DuckDB 湖仓 Min-Max 评分两端 100% 字节级对齐；
-   - 独立全量回归实测：246 项测试全部通过（`246 passed in 287.72s`），通过率 100%；
-   - 服务在线探针：8501 端口 Streamlit 服务监听正常，响应 HTTP 200 OK。
-
-4. **资源清理与生命周期终结**:
-   - 哨兵已依规注销全部常驻定时监控任务（Cron 1 `task-254`, Cron 2 `task-255`）；
-   - 哨兵已依规执行 `manage_subagents(action="kill_all")`，安全回收全部子智能体进程。
+- **Mission**: AGY2_FundAdvisory 纯金融量化启发式自进化引擎升级任务。
+- **Scope**:
+  - R1: 物理安全红线与反作弊防御（4 个裁判基石文件物理只读不变性 SHA256 100% 匹配，0 字节 diff；零外部大模型 API；零日历硬编码；零未来函数数据泄漏）。
+  - R2: Hedge 在线多专家乘性权重自更新 (`OnlineExpertWeightUpdater`)。
+  - R3: 施密特非对称迟滞缓冲环与 Sigmoid 连续门控 (`SchmidtHysteresisBuffer`)。
+  - R4: 滚动 60 日 EWMA 波动率倒数配权与纯债防御底仓 (`DataLoader.compute_ewma_volatility_and_correlation`)。
+  - R5: 调仓净效用 $\Delta U$ 拦截器与在途摩擦机会成本折算 (`calculate_rebalance_net_utility`)。
+  - R6: CUSUM 变点检测赛道冠军基金优胜劣汰 (`CUSUMFundChangePointDetector`)。
+  - R7: 四阶白盒展开层与 Windows 桌面级原生无窗口静默常驻 (Streamlit 8501 端口探针 HTTP 200，PID 35536，`MainWindowHandle == 0`)。
+- **Execution Evidence**:
+  - 全量回归测试：`pytest tests/ -q` 523/523 passed in 856.55s (14m16s)。
+  - 裁判基建测试：`pytest tests/test_infra.py -v` 15/15 passed in 6.94s。
+  - 端到端验收测试：`pytest tests/test_acceptance_r1_r7.py -v` 8/8 passed in 222.97s。
+  - 独立双轨审查：Reviewer M4 Final (`d5feea4d`) 裁决 `APPROVE`，Forensic Auditor M4 Final (`1be3d417`) 裁决 `CLEAN`。
+  - 独立胜利审计：`teamwork_victory_auditor` (`70c83365`) 独立三阶段后验全面通过，裁决 **`VICTORY CONFIRMED`**。
 
 ## 2. Logic Chain
-1. 基于 Observation 1 与 2：任务从立项、面试、编排到自愈重构，全程严格遵循多智能体协同协议与反作弊铁律，不接受表面静态修补，门禁防御体系成功捕获并纠正了隐藏静态字典的违规行为，完成了真实纯算法量化驱动的架构重构。
-2. 基于 Observation 3：根据哨兵第 (4) 项核心职责，编排器的竣工声称绝不能未经复核直接采纳。哨兵派发的独立 Victory Auditor 具备完整的取证能力，并在独立隔离环境中复现了全套 246 项自动化测试与 AST 静态扫描，给出了具备决定性的 `VICTORY CONFIRMED` 独立司法裁决。
-3. 基于 Observation 4：在获得 `VICTORY CONFIRMED` 终审裁决后，哨兵按照强制清理协议销毁了定时器与子智能体，系统状态达到完备闭环标准。
+1. 用户需求确认与初始拆解：经任务访谈与基准测绘，严格确立“只读裁判红线”与“纯内生因果演绎”。
+2. 里程碑门禁分段推进：
+   - M1: 引入 Hedge 在线学习与施密特迟滞防打脸环，消除了锯齿震荡市的假变盘调仓。
+   - M2: 引入 EWMA 波动率倒数动态风险预算与摩擦净效用拦截器，穿透真实赎回费与 T+2 在途损耗。
+   - M3: 引入 CUSUM 变点检测换马，重构 Streamlit 四阶白盒透明交互。
+   - M4: 全量工程跑测、压力对抗与双轨审查，确保无任何指标劣化。
+3. 哨兵监督与独立胜利审计：编排器交卷后，哨兵强制派发完全上下文隔离的 `teamwork_victory_auditor`，重跑基建与验收套件，逐行审查算法真实性，确认全量达成。
 
 ## 3. Caveats
-1. 8501 Streamlit GUI 运行于后台无黑框桌面守护模式，用户随时可通过浏览器直接访问 `http://127.0.0.1:8501` 体验。
-2. DuckDB 本地湖仓视图位于 `data/storage.duckdb`，选基评分依赖本地 Parquet 数据集，在断网或公共接口限流时系统自动具备 100% 离线自愈与降级平滑能力。
+- 4 个裁判基建文件受物理只读属性保护，未来升级与维护时切勿强行覆盖或解锁。
+- Streamlit 8501 端口服务当前在后台静默托管（PID 35536），通过 `launch_gui.vbs` 可在任何冷开机场景下无白屏唤起；若需重启服务，需平滑重启 `pythonw.exe` 进程。
 
 ## 4. Conclusion
-AGY2_FundAdvisory 基金投顾系统架构级进化与反硬编码重构任务圆满成功。所有交付物均经由代码实现、门禁交叉复审与第三方独立审计员验证，全工程 246 项测试 100% 绿灯，系统只读裁判文件零破坏，裁决结果：**VICTORY CONFIRMED**。
+- 全量任务里程碑及用户需求指标 100% 达标。
+- 胜利终审获评 **`VICTORY CONFIRMED`**。
+- 正式宣告项目交付完成，执行清理退出流程。
 
 ## 5. Verification Method
-独立复现验证命令如下：
-1. **裁判文件物理安全核验**:
-   ```powershell
-   git status -s AGY2_FundAdvisory/judge_engine.py AGY2_FundAdvisory/holdout_vault.py AGY2_FundAdvisory/AGENT_SPEC.md AGY2_FundAdvisory/tests/test_infra.py
-   python -m pytest AGY2_FundAdvisory/tests/test_infra.py -o pythonpath=AGY2_FundAdvisory
-   ```
-2. **反硬编码与架构级红队测试**:
-   ```powershell
-   python -m pytest AGY2_FundAdvisory/tests/test_architecture_m3.py -o pythonpath=AGY2_FundAdvisory -v
-   python -m pytest AGY2_FundAdvisory/tests/test_adversarial_orch3_challenger2.py -o pythonpath=AGY2_FundAdvisory -v
-   ```
-3. **全工程全量回归测试**:
-   ```powershell
-   python -m pytest AGY2_FundAdvisory/tests/ -o pythonpath=AGY2_FundAdvisory -q
-   ```
-4. **8501 端口服务健康探针**:
-   ```powershell
-   Invoke-RestMethod -Uri 'http://127.0.0.1:8501/_stcore/health'
-   ```
+- 裁判红线校验：`py -3.11 -m pytest tests/test_infra.py -v` (15/15 PASS)
+- 端到端验收：`py -3.11 -m pytest tests/test_acceptance_r1_r7.py -v` (8/8 PASS)
+- 服务探针：`Invoke-RestMethod -Uri http://127.0.0.1:8501/_stcore/health` (HTTP 200 "ok")

@@ -1,16 +1,18 @@
 # Progress - challenger_m1_2
 
-Last visited: 2026-10-29T09:41:00Z
-Status: Adversarial challenge completed. 5 critical uncaught exception defects identified and empirically verified. Verdict: REJECT.
+Last visited: 2026-10-30T01:54:00Z
+Status: Empirical challenge and stress testing completed. 27 adversarial tests implemented and 237 total tests verified 100% passing. Verdict: APPROVE.
 
 ## Step Checklist
-- [x] Step 1: Read prompt, ORIGINAL_REQUEST.md, PROJECT.md, worker_m1/handoff.md
-- [x] Step 2: Initialize BRIEFING.md, progress.md, local skill copy
-- [x] Step 3: Deep dive into `portfolio_manager.py` (specifically lines 2828-3180 and related helper functions)
-- [x] Step 4: Construct adversarial test generator and execution harness in `AGY2_FundAdvisory/tests/test_adversarial_m1_challenger2.py`
-- [x] Step 5: Test boundary conditions (goodwill 30.0% vs 30.1%, pledge 80.0% vs 80.1%, double-high boundaries) - Verified correct
-- [x] Step 6: Test invalid/unknown fund codes & missing top stocks / look-through data - Found 3 TypeError crash vectors
-- [x] Step 7: Test simulated network drops / offline mode - Verified robust fallback
-- [x] Step 8: Test portfolio-level aggregation edge cases & data type robustness - Found 2 ValueError crash vectors (NaN & string coercion)
-- [x] Step 9: Re-run test harness to confirm all findings
-- [x] Step 10: Produce handoff report and verdict (APPROVE / REJECT) -> REJECT
+- [x] Step 1: Read prompt, ORIGINAL_REQUEST.md, PROJECT.md, worker_agent1_m1_gen2/handoff.md
+- [x] Step 2: Initialize DISPATCH.md, BRIEFING.md, and progress.md
+- [x] Step 3: Investigate `strategy_bridge.py` implementation of OnlineExpertWeightUpdater & SchmidtHysteresisBuffer
+- [x] Step 4: Construct comprehensive empirical adversarial test harness in `AGY2_FundAdvisory/tests/test_adversarial_m1_strategy_bridge.py`
+- [x] Step 5: Test Sigmoid continuous gating with extreme inputs (+1000, -1000, NaN, inf, -inf)
+- [x] Step 6: Test OnlineExpertWeightUpdater fallback under None/empty/short history DataFrames
+- [x] Step 7: Test Schmidt hysteresis state transitions (-2.0% to +2.0% jump, noise deadzone locking [-1.5%, +1.2%], trigger lines)
+- [x] Step 8: Verify interface contracts: `StrategyBridge.get_online_expert_weights()` and `get_latest_market_snapshot()`
+- [x] Step 9: Verify 4 referee infrastructure files are untouched and pass all regression checks
+- [x] Step 10: Run full test suite (237 passed in 21.68s)
+- [x] Step 11: Write handoff report and verdict in `handoff.md`
+- [x] Step 12: Dispatch final verdict message to orchestrator

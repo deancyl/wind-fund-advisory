@@ -1,148 +1,142 @@
-# Milestone 1 (R1 前十大重仓股穿透排雷引擎) 独立评审与对抗性质询报告
+# Handoff & Review Report — Milestone 1 (Online Learning & Schmidt Hysteresis)
 
-- **Reviewer / Critic**: Reviewer M1_1 (`reviewer_m1_1`)
-- **Date**: 2026-10-29T09:41:00Z
-- **Working Directory**: `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1`
-- **Parent Conversation ID**: `5fd996d1-bc98-447a-9f35-c5aef5be2e1c` (Project Orchestrator)
-- **Target File Reviewed**: `d:\Google\Workspace\Wind\AGY2_FundAdvisory\portfolio_manager.py`
-- **Verdict**: **APPROVE** (批准通过)
-
----
-
-## 1. 观察 (Observation)
-
-### 1.1 代码实现与工程结构实测观察
-在被审阅目标文件 `AGY2_FundAdvisory/portfolio_manager.py` 中，直接观测到以下具体实现与代码行：
-
-1. **依赖与接口声明（第 55-68 行、第 1298-1321 行）**：
-   - 第 56-66 行：采用安全 `try...except` 导入 `WindToolkit` 与 `MasterDictParser`，保证无环境依赖时的降级可用性；
-   - 第 1298-1299 行：在 `PortfolioManager.__init__` 中挂载 `self._toolkit = None` 与 `self._stock_screen_cache = {}` 内存深拷贝字典；
-   - 第 1309-1317 行：实现 `@property def toolkit` 懒加载机制，避免在构造阶段引发开销；
-   - 第 1319-1321 行：类方法 `resolve_stock_symbol` 代理至模块级解析函数。
-
-2. **股票代码智能多级解析器 `resolve_stock_symbol`（第 68-230 行）**：
-   - 第 71-154 行：内置包含 72+ 只常见核心上市公司标准代码映射字典 `STOCK_NAME_TO_SYMBOL_MAP`（涵盖贵州茅台 `600519.SH`、宁德时代 `300750.SZ`、中芯国际 `688981.SH`、万科A `000002.SZ` 等）；
-   - 第 173-186 行：支持 6 位纯数字代码前缀正则智能补齐交易所后缀（`60/68/90` ➔ `.SH`，`00/30/20` ➔ `.SZ`，`8/4/920` ➔ `.BJ`）；
-   - 第 196-210 行：对接 `MasterDictParser`，并采用单例模式 `_GLOBAL_MASTER_DICT` 防止反复加载万条记录；
-   - 第 212-225 行：四轨兜底回退查询本地 DuckDB 时序湖仓 `storage.duckdb` 之 `v_financial_risk_screen` 与 `v_pledge_risk`。
-
-3. **单基金底层前十大重仓穿透排雷引擎 `screen_fund_look_through_risk`（第 2831-3116 行）**：
-   - 第 2871-2938 行：**非 A 股权益资产免疫机制**。明确识别纯债（`002351`、`018757`）、黄金现货（`000216`、`000217`）、海外 QDII 美股（`050025`、`001071`）及货币资产，判定 `is_ashare_equity = False`，穿透排雷风险分强制置为 `0.0`，评级锁定为 `Safe` / `🟢 健康`；
-   - 第 2943-2947 行：预拉取未来 90 天限售股解禁日历；
-   - 第 2955-2961 行：单股排雷缓存机制 `self._stock_screen_cache` 采用 `copy.deepcopy`，彻底消除组合内跨基金重合持仓的重复网络/湖仓 IO；
-   - 第 3018-3042 行：完整实现了商誉（>30% 扣 30 分，>40% 扣 40 分）、存贷双高（扣 40 分）、控股股东高比例质押（>80%或击穿平仓线扣 35 分，50%~80%扣 15 分）、未来 30~90 天大额解禁抛压（扣 20 分）及自由现金流 FCF 为负（扣 10 分）的打分模型。
-
-4. **组合加权穿透风险指数 `calculate_portfolio_penetration_risk`（第 3118-3207 行）**：
-   - 第 3130-3142 行：空持仓或零市值边界安全防护，平滑返回 0.0 分与 `🟢 健康`；
-   - 第 3150-3154 行：按真实市值动态加权计算组合穿透风险：$portfolio\_risk\_index = \sum w_i \times fund\_risk\_score_i$；
-   - 第 3170-3184 行：全组合高危标的去重字典 `all_danger_stocks`，杜绝多只基金重合持有相同暴雷股导致重复计数；
-   - 第 3189-3198 行：三色分级规则完全遵从：$\le 20.0$ 且无 Danger 为 🟢 健康；$20.0 \sim 45.0$ 或 1 只 Danger 为 🟡 关注；$> 45.0$ 或 $\ge 2$ 只 Danger 为 🔴 预警。
-
-### 1.2 独立实测运行与测试验证命令
-独立在终端执行以下验证，命令与真实输出 verbatim 如下：
-
-1. **测试套件全量执行**：
-   - 执行命令：`python -m pytest AGY2_FundAdvisory/tests`（在 `d:\Google\Workspace\Wind\AGY2_FundAdvisory` 下执行）
-   - 运行结果：
-     ```text
-     collected 147 items
-     tests\test_dynamic_risk_and_metrics.py .......................           [ 15%]
-     tests\test_e2e_gui_render.py ........                                    [ 21%]
-     tests\test_infra.py ...............                                      [ 31%]
-     tests\test_live_rebalance_upgrades.py ............                       [ 39%]
-     tests\test_portfolio_manager.py ...................                      [ 52%]
-     tests\test_realtime_and_upgrades.py ...........                          [ 59%]
-     tests\test_strategy_bridge.py .........                                  [ 65%]
-     tests\test_toolkit_integration.py ...................................    [ 89%]
-     tests\test_trading_clock_fee.py ..........                               [ 96%]
-     tests\test_ui_and_logic_refinements.py .....                             [100%]
-     ================= 147 passed, 56 warnings in 60.31s (0:01:00) =================
-     ```
-   - 退出代码：`0`。既有 112 项测试零回归，新增 35 项 integration 测试 100% 通过。
-
-2. **非 A 股资产免死免疫独立实测**：
-   - 执行命令：
-     ```powershell
-     python -c "import sys; sys.path.extend(['AGY2_FundAdvisory', '.']); from portfolio_manager import PortfolioManager; pm = PortfolioManager(db_path=':memory:'); [print(c, pm.screen_fund_look_through_risk(c)['is_ashare_equity'], pm.screen_fund_look_through_risk(c)['penetration_risk_score'], pm.screen_fund_look_through_risk(c)['risk_badge']) for c in ['002351', '000216', '050025']]"
-     ```
-   - 输出：
-     ```text
-     002351 False 0.0 🟢 健康
-     000216 False 0.0 🟢 健康
-     050025 False 0.0 🟢 健康
-     ```
-   - 确认纯债、黄金、QDII 穿透分均为 0.0，且评级均为 🟢 健康。
-
-3. **双高危组合 🔴 预警触发实测**：
-   - 测算组合同时持有 `011613`（重仓中芯国际：存贷双高 + 限售解禁，单股 40 分高危）与 `007339`（重仓比亚迪：存贷双高 + 限售解禁，单股 40 分高危）；
-   - 执行输出：
-     `Portfolio risk index: 15.0 Badge: 🔴 预警 Danger count: 2`
-   - 确认即使加权风险分较低，只要高危标的数 $\ge 2$，立即刚性触发 🔴 预警！
-
-4. **物理只读底座不可变量属性核验**：
-   - 执行命令：
-     `Get-Item AGY2_FundAdvisory/judge_engine.py, AGY2_FundAdvisory/holdout_vault.py, AGY2_FundAdvisory/AGENT_SPEC.md, AGY2_FundAdvisory/tests/test_infra.py | Select-Object Name, IsReadOnly, Mode`
-   - 输出：4 个关键裁判与基建文件均显示 `IsReadOnly: True`，权限位为 `-ar--`，未被篡改。
+**Reviewer**: Reviewer 1 (`reviewer_m1_1`, Archetype: reviewer_and_critic)  
+**Date**: 2026-10-30T01:55:00Z  
+**Reviewed Target**: Milestone 1 Implementation by `worker_agent1_m1_gen2`  
+**Target Code**: `AGY2_FundAdvisory/strategy_bridge.py`  
+**Verdict**: **APPROVE**  
 
 ---
 
-## 2. 逻辑推导链 (Logic Chain)
+## 1. Observation (客观观察与证据链)
 
-1. **推导 1 (由观察 1.1 & 1.2)**：
-   - 观察表明，代码在解析股票时采用了静态映射、正则补齐、MasterDictParser 以及 DuckDB 视图四层渐进式回退架构；
-   - 在独立实测中，输入 `万科A`、`万科`、`600519`、`920001` 等均可准确解析为对应标准后缀代码，证明该模块在全市场 6,155+ 股票代码空间具备完备性与鲁棒性。
-2. **推导 2 (由观察 1.1 & 1.2)**：
-   - 业务红线要求公募基金底层资产绝对穿透，但纯债、黄金及海外 QDII 标的在财务报表科目与证监会 A 股质押平仓监管口径中不存在对应暴露；
-   - 观察表明 `screen_fund_look_through_risk` 实施了非 A 股免死机制，实测 `002351`、`000216`、`050025` 均精准输出 `is_ashare_equity = False` 与 `0.0` 分，既避免了虚假误扣分，又维护了 GEMINI.md 穿透风控铁律。
-3. **推导 3 (由观察 1.1 & 1.2)**：
-   - 银行类高股息标的（如招商银行、江苏银行等）由于金融业态特殊性，货币现金与债务规模庞大，触发存贷双高扣 40 分；
-   - 评分模型将其单股评定为 60.0 分（刚好落入 🟡 关注区而非 🔴 高危区）；对于富国中证红利（`100032`），加权得分恰为 20.0 且无高危标的，精准获得 🟢 健康评级，与金牌红利底仓配置逻辑高度自洽。
-4. **推导 4 (诚实性审计推导)**：
-   - 审查源代码，未发现针对测试基金代码（如 `if fund_code == '100032': return ...`）的硬编码作弊逻辑；
-   - 数据源全部来自真实的 `WindToolkit` 接口与 DuckDB 视图，单体扣分逐项依据商誉、质押、解禁、现金流真实数值计算；
-   - 147 项测试在独立环境中全部真实跑通，未见伪造输出或虚假自认证现象，符合诚实性与独立验证要求。
+### 1.1 诚实性与基建只读红线检查 (Integrity & Read-Only Invariants)
+- 系统 4 个裁判基建文件通过 `git status -s` 确认状态：
+  ```
+  git status -s AGY2_FundAdvisory/judge_engine.py AGY2_FundAdvisory/holdout_vault.py AGY2_FundAdvisory/AGENT_SPEC.md AGY2_FundAdvisory/tests/test_infra.py
+  # 输出为空，哈希 100% 完整未改动
+  ```
+- 源码中未发现任何硬编码测试预期结果（Hardcoded test results）、虚假门面实现（Facade/Dummy implementation）或未来函数日期作弊。
+
+### 1.2 R2 算法实现 (`OnlineExpertWeightUpdater` in `strategy_bridge.py:926-1170`)
+- **四大正交流派定义** (L939)：`EXPERT_NAMES = ["trend_momentum", "erp_macro", "ma_contrarian", "liquidity_basis"]`，分别对接动量、ERP利差、宽度乖离回归与资金面衍生品基差。
+- **纯因果滚动净效用计算** (L1106)：
+  $$u_{i, t} = r_{i, t} - 0.5 \lambda \sigma_{i, t}^2 - c \cdot \text{Turnover}_{i, t}$$
+  其中 $r_{i, t}$ 基于昨日截面目标权重乘今日真实收益率，$\sigma_{i, t}^2$ 为近20日滚动样本方差，$\text{Turnover}_{i, t}$ 为权重变动曼哈顿距离。
+- **对数平滑数值抗溢出乘性更新** (L1113-1121)：
+  $$\log P_{i, t+1} \propto \gamma \log P_{i, t} + \eta u_{i, t}$$
+  采用 $\max(\log)$ 平移技巧计算指数并归一化，完全免疫浮点数溢出与下溢。
+- **严格归一化修正** (L1123-1127)：对四舍五入后产生的尾差加至最大权重项，确保 `sum(weights) == 1.0000` 绝对恒定。
+
+### 1.3 R3 算法实现 (`SchmidtHysteresisBuffer` in `strategy_bridge.py:1202-1331`)
+- **非对称双阈值迟滞转移** (L1247-1286)：
+  - 从非进攻态切入进攻态：要求 $\text{bias\_20} \ge +1.2\%$ 或 $Z_t \ge +0.60$；
+  - 从进攻态跌落退出：要求 $\text{bias\_20} \le -1.5\%$ 或 $Z_t < +0.20$；
+  - 噪音死区 $[-1.5\%, +1.2\%]$ 内牢固锁定原有状态不变。
+- **连续仓位门控函数** (L1287-1294)：$g(Z_t) = 1 / (1 + \exp(-k \cdot Z_t))$，带 $[-50.0, 50.0]$ 输入截断保护。
+- **双向变盘触发线** (L1297-1330)：`get_hysteresis_trigger_lines` 严格保证 `breakdown_line < c300_price < surge_line`。
+
+### 1.4 自动化测试与对抗性压力测试运行结果
+- **官方独立复现命令**：
+  ```powershell
+  Set-Location "d:\Google\Workspace\Wind\AGY2_FundAdvisory"; $env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"; python -m pytest tests/test_strategy_bridge.py tests/test_infra.py -v
+  ```
+  **实测输出**：`24 passed, 2 warnings in 18.05s`（既有 9 项测试 + 15 项裁判基建因果测试 100% 通过）。
+- **扩展回归套件**（含风险档位与指标）：
+  ```powershell
+  python -m pytest tests/test_dynamic_risk_and_metrics.py tests/test_strategy_bridge.py tests/test_infra.py -v
+  ```
+  **实测输出**：`47 passed, 2 warnings in 22.17s`。
+- **独立编写对抗性质询脚本 (`adversarial_test.py`)**：
+  - 测试组 1（施密特迟滞状态转移与 100 次高频震荡防打脸）：PASS
+  - 测试组 2（Sigmoid 极值抗溢出与单调性）：PASS
+  - 测试组 3（双向变盘线防反向倒挂）：PASS
+  - 测试组 4（在线专家自学习敏感性、受控牛市权重自适应扩张）：PASS
+  - 测试组 5（快照注入与契约接口访问）：PASS
 
 ---
 
-## 3. 注意事项与假设 (Caveats)
+## 2. Logic Chain (推理链条与证据推导)
 
-1. **输入类型宽容度**：`resolve_stock_symbol(name_or_code)` 目前要求入参严格为 `str` 类型。若上游直接传入整型数字 `600519`，函数因类型检查直接返回 `None`。虽然当前所有生产调用点（如 line 2951）均显式执行了 `str(stock_raw).strip()`，但从防御性编程角度，建议未来可将类型注解拓宽为 `Union[str, int]` 并执行 `str(name_or_code)` 自动转换。
-2. **外部网络降级**：`_fetch_external_fund_holdings` 优先读取本地 SQLite 缓存，缓存未命中时尝试请求 akshare。在离线或断网环境下已由 `try...except` 妥善拦截降级为安全默认结构，不会阻断主业务流。
-
----
-
-## 4. 结论 (Conclusion)
-
-- **综合评审结论**：**APPROVE** (批准通过)。
-- Worker M1 严格在专属文件 `portfolio_manager.py` 内部高质高效完成了 R1 穿透排雷引擎的所有开发任务；
-- 接口返回值键名与类型 100% 契合 `PROJECT.md` 契约规范；
-- 非 A 股资产免死机制运行精确，各类极端与边界用例表现出良好的工程鲁棒性；
-- 全量测试套件 147 项测试 100% 通过，物理只读不可变量零侵入，不存在任何诚实性违规。
+1. **依据 Observation 1.1**:
+   4 个受保护的裁判基建文件（含 AST 检查与 holdout 保险箱）哈希未受改动，且代码中无写死假数据。这排除了作弊与诚信违规风险。
+2. **依据 Observation 1.2**:
+   `OnlineExpertWeightUpdater` 真实接入 4 个正交流派，数学公式与因果时序完全对齐 R2 规格要求。采用对数平滑与残差补偿技术，解决了浮点溢出与权重和漂移的痛点。
+3. **依据 Observation 1.3**:
+   `SchmidtHysteresisBuffer` 提供了完备的迟滞状态机、Sigmoid 连续映射与非对称触发线，完美杜绝了均线微幅震荡锯齿打脸（Whipsaw）现象。
+4. **依据 Observation 1.4**:
+   独立复现官方用例（24 项）、全量回归套件（47 项）以及 5 大对抗性质询测试组全部录得 100% 通过，证明代码鲁棒性、因果演绎正确性与接口向下兼容性均达标。
 
 ---
 
-## 5. 对抗性质询与压力测试 (Adversarial Review)
+## 3. Caveats (局限性与防御性发现)
 
-### 5.1 挑战与假设压力测试
-1. **挑战 1：极端非法输入防挂死压力测试**
-   - **挑战假设**：向 `screen_fund_look_through_risk` 传入 `""`、`None`、`"ABCDEF"`、`100032` 等非标异常值时，引擎是否会抛出未捕获异常崩溃？
-   - **实测结果**：全部安全捕获，返回合规安全兜底字典（`risk_level: Safe`，`penetration_risk_score: 0.0`），未发生任何未捕获异常。
-2. **挑战 2：空组合/零市值除以零 (ZeroDivisionError) 压力测试**
-   - **挑战假设**：组合处于全部清仓态或总市值为 0 时，加权计算 `weight = h.market_value / total_mv` 是否会触发 `ZeroDivisionError`？
-   - **实测结果**：第 3133 行前置判定 `if total_mv <= 0 or not active_holdings:` 拦截，直接安全返回标准空持仓安全数据结构。
-3. **挑战 3：缓存污染与在位修改 (In-Place Mutation) 攻击**
-   - **挑战假设**：某基金若修改了单股排雷字典中的字段，是否会污染全局 `self._stock_screen_cache`？
-   - **实测结果**：写入（第 3074 行）与读取（第 2957 行）均严格使用 `copy.deepcopy`，彻底隔绝内存共享指针污染。
+1. **变盘线在极小尺度输入下的保留位精度 (Minor Finding)**:
+   - 现象：`get_hysteresis_trigger_lines` 内部使用 `round(..., 1)` 保留 1 位小数。对于沪深300指数点位（3000~5000），1位小数（0.1点）对应 ~0.0025%，足以保证 1.2% 上轨严格高于现价。然而，若未来有模块将归一化净值（如 NAV=1.0000）误传入该函数，`1.0 * 1.012 = 1.012` 会被四舍五入为 `1.0` 导致倒挂。
+   - 评估：当前生产代码仅传入沪深300点位指数 `c300_price`，不存在实际风险。
+   - 建议：未来可按数值量级自适应小数位（若 price < 100 则保留 4 位）。
+2. **快照中点位指数与全收益指数的口径区分 (Consistency Note)**:
+   - 现象：在 `snapshot` 中，`c300` 对应 Parquet 历史时序的 Total Return 全收益点位（~5999.6），而 `c300_price` 对应即时行情点位指数（~3993.8）。
+   - 评估：`surge_line` 与 `breakdown_line` 均严格锚定 `c300_price`，满足 `breakdown_line < c300_price < surge_line`。下游 UI 步骤面板在展示双向触发线时，必须读取 `c300_price` 而非 `c300`。
 
-### 5.2 独立验证方法 (Verification Method)
-任何后续审阅人或流水线可执行以下单行命令独立重现本报告全部结论：
+---
+
+## 4. Conclusion & Quality Review (结论与质量审查裁决)
+
+### 4.1 质量审查报告 (Quality Review Summary)
+- **Verdict**: **APPROVE (批准通过)**
+- **Findings**:
+  - `[Minor]` `get_hysteresis_trigger_lines` 精度四舍五入建议增加对低价区间的自适应保护。
+  - `[Minor]` `snapshot` 中区分全收益指数 `c300` 与实时点位 `c300_price` 的使用文档注解。
+- **Verified Claims**:
+  - R2 在线乘性权重自更新公式正确性与数值稳定性 $\rightarrow$ 验证通过
+  - K=4 正交流派真实动态权重输出与历史各阶段自适应定调 $\rightarrow$ 验证通过
+  - 权重和归一化 `sum(weights) == 1.0000` $\rightarrow$ 验证通过
+  - R3 施密特非对称迟滞环进入/退出阈值与噪音死区防横跳 $\rightarrow$ 验证通过
+  - Sigmoid 连续仓位门控单调性与防溢出截断 $\rightarrow$ 验证通过
+  - 双向变盘线 `breakdown_line < c300_price < surge_line` $\rightarrow$ 验证通过
+  - 4 个裁判基建文件只读红线完整性 $\rightarrow$ 验证通过
+- **Coverage Gaps**: 无。核心算法全部覆盖并对抗验证。
+- **Unverified Items**: 0 项。
+
+---
+
+## 5. Adversarial Challenge Report (对抗性质询报告)
+
+- **Overall Risk Assessment**: **LOW (低风险)**
+
+### 5.1 挑战 1: 极端噪音震荡环境下的状态机横跳攻防 (Schmidt Anti-Whipsaw)
+- **挑战场景**: 构造沪深300在 MA20 附近 $[-1.4\%, +1.1\%]$ 连续交替震荡 100 个周期的噪音序列。
+- **预期行为**: 无论系统初始处于防守态还是进攻态，均不得触发频繁换手。
+- **实测结果**: 状态保持率 100%，触发次数为 0，彻底根除追涨杀跌。
+
+### 5.2 挑战 2: 在线专家权重更新的数值上溢与极端学习率压测 (Numerical Stability)
+- **挑战场景**: 设定极端高学习率 $\eta=30.0$ 与极高收益输入，检验指数求和是否抛出 `OverflowError`。
+- **实测结果**: 依托 `max_log` 平移对数技巧，算法在任意数值下均保持平稳输出，权重严格非负且和为 1.0000。
+
+### 5.3 挑战 3: 空时序与异常截面鲁棒性 (Boundary Robustness)
+- **挑战场景**: 传入空 DataFrame 或仅有 3 行时序的异常数据。
+- **实测结果**: 平滑触发安全保底机制，返回等权 0.25 且 `sum_weights=1.0`，无未捕获异常抛出。
+
+---
+
+## 6. Verification Method (独立验证命令清单)
+
+第三方可执行以下命令独立复现本报告全部结论：
 ```powershell
-# 1. 验证测试套件 100% 通过
-cd d:\Google\Workspace\Wind\AGY2_FundAdvisory; python -m pytest tests
+# 1. 语法检查
+python -m py_compile AGY2_FundAdvisory/strategy_bridge.py
 
-# 2. 验证非A股免疫
-python -c "import sys; sys.path.extend(['AGY2_FundAdvisory', '.']); from portfolio_manager import PortfolioManager; pm = PortfolioManager(db_path=':memory:'); assert pm.screen_fund_look_through_risk('002351')['penetration_risk_score'] == 0.0 and pm.screen_fund_look_through_risk('000216')['penetration_risk_score'] == 0.0; print('Immunity Verified!')"
+# 2. 官方指定测试套件独立复现 (24 passed)
+Set-Location "d:\Google\Workspace\Wind\AGY2_FundAdvisory"
+$env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"
+python -m pytest tests/test_strategy_bridge.py tests/test_infra.py -v
 
-# 3. 验证只读文件保持 IsReadOnly
-Get-Item AGY2_FundAdvisory/judge_engine.py, AGY2_FundAdvisory/holdout_vault.py, AGY2_FundAdvisory/AGENT_SPEC.md, AGY2_FundAdvisory/tests/test_infra.py | Select-Object Name, IsReadOnly
+# 3. 运行 Reviewer 独立对抗性压力测试套件
+python "d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\adversarial_test.py"
 ```
+
+**失效判定条件 (Invalidation Conditions)**:
+- `tests/test_strategy_bridge.py` 或 `tests/test_infra.py` 任一测试挂起或报错；
+- 4 专家权重和不等于 1.0000；
+- 施密特双向变盘线出现倒挂 (`breakdown_line >= c300_price` 或 `surge_line <= c300_price`)。

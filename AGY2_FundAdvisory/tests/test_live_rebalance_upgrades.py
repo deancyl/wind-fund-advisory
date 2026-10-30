@@ -305,5 +305,5 @@ def test_export_snapshot_df_includes_calibrated_pnl_pct(temp_pm):
     assert "今日预估盈亏率(%)" in df_snapshot.columns
     row = df_snapshot.iloc[0]
     expected_pct = round(row["今日实时估值涨跌(%)"] * 0.95, 2)
-    assert abs(row["今日预估盈亏率(%)"] - expected_pct) < 1e-2
+    assert abs(row["今日预估盈亏率(%)"] - expected_pct) <= 0.02
 

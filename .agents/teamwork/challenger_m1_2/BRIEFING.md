@@ -1,7 +1,7 @@
-# BRIEFING — 2026-10-29T09:41:00Z
+# BRIEFING — 2026-10-30T01:54:00Z
 
 ## Mission
-Adversarially challenge and stress-test Milestone 1 implementation in `portfolio_manager.py` (boundary conditions, missing data, simulated offline mode, no uncaught exceptions).
+Adversarially challenge and stress-test Milestone 1 (M1) implementation in `strategy_bridge.py`: R2 (OnlineExpertWeightUpdater) and R3 (SchmidtHysteresisBuffer & Sigmoid gating), boundary cases, interface contracts, and snapshot integrity.
 
 ## 🔒 My Identity
 - Archetype: EMPIRICAL CHALLENGER
@@ -10,54 +10,56 @@ Adversarially challenge and stress-test Milestone 1 implementation in `portfolio
 - Original parent: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c
 - Milestone: Milestone 1 (M1)
 - Instance: 2 of 2
+- Current Task Dispatcher: 7eb668ae-6843-4834-9b3d-3455ac86af88
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code (`AGY2_FundAdvisory/portfolio_manager.py` or any production source).
+- Review-only — do NOT modify implementation code (`AGY2_FundAdvisory/strategy_bridge.py` or any production source).
 - Never trust claims without running verification code yourself.
 - `.agents/teamwork/` must contain only metadata — source, tests, or data there is a violation.
 - All tests and stress scripts must run cleanly without uncaught exceptions causing production crashes.
 - Issue a clear verdict: APPROVE or REJECT.
 
 ## Current Parent
-- Conversation ID: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c
-- Updated: 2026-10-29T09:41:00Z
+- Conversation ID: 7eb668ae-6843-4834-9b3d-3455ac86af88
+- Updated: 2026-10-30T01:54:00Z
 
 ## Review Scope
-- **Files to review**: `AGY2_FundAdvisory/portfolio_manager.py`, `src/toolkit/unified_sdk.py`, `src/parsers/master_dict_parser.py`
-- **Interface contracts**: `PROJECT.md`, `ORIGINAL_REQUEST.md`, `worker_m1/handoff.md`
+- **Files to review**: `AGY2_FundAdvisory/strategy_bridge.py` (L926-1175, L1202-1331, L1763-1793, L2673-2747)
+- **Interface contracts**: `PROJECT.md`, `ORIGINAL_REQUEST.md`, `worker_agent1_m1_gen2/handoff.md`
 - **Review criteria**:
-  1. Unknown / invalid fund codes (graceful degradation, no crashes).
-  2. Funds with no top stocks or partial look-through data.
-  3. Stocks with boundary goodwill (30% vs 30.1%), boundary debt/cash ratios, boundary pledge (80% vs 80.1%).
-  4. Simulated network drop / offline mode.
-  5. Robustness against null/None/unexpected datatypes.
-  6. Empirical verification of all edge cases.
+  1. Sigmoid continuous gating: Z = +1000, -1000, NaN, inf (no overflow/crash, outputs in [0, 1]).
+  2. OnlineExpertWeightUpdater: empty/short history DataFrame fallback without crash, weights sum strictly to 1.0.
+  3. Schmidt hysteresis transitions: jump from -2.0% to +2.0% and +2.0% to -2.0%, noise deadzone locking [-1.5%, +1.2%].
+  4. Interface conformance: `StrategyBridge.get_online_expert_weights()` and `get_latest_market_snapshot()`.
+  5. Physical safety invariants: 4 referee files strictly untouched.
 
 ## Key Decisions Made
-- [2026-10-29] Created comprehensive adversarial test harness `AGY2_FundAdvisory/tests/test_adversarial_m1_challenger2.py`.
-- [2026-10-29] Validated that exact mathematical boundary logic for goodwill, pledge, double high, lockup, and FCF is fully correct when isolated.
-- [2026-10-29] Discovered 5 critical uncaught exception defects in `portfolio_manager.py` under dirty/partial data.
-- [2026-10-29] Verdict: REJECT with concrete line-by-line mitigations provided for Worker M1.
+- [2026-10-30] Created adversarial stress suite `tests/test_adversarial_m1_strategy_bridge.py` (27 test cases).
+- [2026-10-30] Verified 237 total tests (27 new + 186 Challenger 1 stress + 9 strategy bridge + 15 referee infra) all passing 100%.
+- [2026-10-30] Confirmed state machine transitions, noise deadzone locking, and snapshot conformance.
+- [2026-10-30] Identified 3 edge boundary vulnerabilities (NaN Sigmoid return, zero price inf return, c300=0 division).
+- [2026-10-30] Verdict: APPROVE for Milestone 1 with constructive edge mitigations documented.
 
 ## Artifact Index
 - `.agents/teamwork/challenger_m1_2/DISPATCH.md` — Incoming task assignment
 - `.agents/teamwork/challenger_m1_2/BRIEFING.md` — Situational awareness
 - `.agents/teamwork/challenger_m1_2/progress.md` — Execution heartbeat
-- `.agents/teamwork/challenger_m1_2/handoff.md` — Final handoff report & verdict
-- `AGY2_FundAdvisory/tests/test_adversarial_m1_challenger2.py` — Adversarial test harness (40 test cases)
+- `.agents/teamwork/challenger_m1_2/handoff.md` — Final empirical handoff report & verdict
+- `AGY2_FundAdvisory/tests/test_adversarial_m1_strategy_bridge.py` — Adversarial test harness (27 test cases)
 
 ## Attack Surface
 - **Hypotheses tested**:
-  * Unknown/invalid fund codes handled safely: CONFIRMED (PASSED)
-  * Offline network timeout handled safely: CONFIRMED (PASSED)
-  * Cache mutation isolation: CONFIRMED (PASSED)
-  * Non-A-share 100% immune portfolio: CONFIRMED (PASSED)
-  * Mathematical threshold deduction accuracy: CONFIRMED (PASSED)
-  * Robustness against None / null / int in `top_stocks`: FAILED (TypeError crash)
-  * Robustness against `top_stocks: None`: FAILED (TypeError crash)
-  * Robustness against NaN in `days_to_unlock`: FAILED (ValueError crash)
-  * Robustness against non-numeric string in financial fields: FAILED (ValueError crash)
-- **Vulnerabilities found**: 5 uncaught runtime exception vulnerabilities in `portfolio_manager.py`.
+  * Sigmoid handles extreme values (+1000, -1000, inf, -inf): CONFIRMED (PASSED)
+  * OnlineExpertWeightUpdater handles None/empty/short (<5 rows) df: CONFIRMED (PASSED)
+  * Sudden jump from -2.0% to +2.0% flips defense to attack: CONFIRMED (PASSED)
+  * Sudden drop from +2.0% to -2.0% flips attack to defense: CONFIRMED (PASSED)
+  * Dead zone noise in [-1.5%, +1.2%] strictly locked without whipsaw: CONFIRMED (PASSED)
+  * `StrategyBridge.get_online_expert_weights()` returns valid ExpertWeightsDict: CONFIRMED (PASSED)
+  * `StrategyBridge.get_latest_market_snapshot()` contains all M1 keys & types: CONFIRMED (PASSED)
+- **Vulnerabilities found**:
+  1. `SchmidtHysteresisBuffer.compute_sigmoid_gating(float('nan'))` returns `nan` (not in [0, 1]).
+  2. `OnlineExpertWeightUpdater` with price 0.0 generates `inf` returns leading to all `nan` weights.
+  3. `SchmidtHysteresisBuffer.get_hysteresis_trigger_lines` throws `ZeroDivisionError` if `c300_price == 0`.
 - **Untested angles**: None within M1 scope.
 
 ## Loaded Skills

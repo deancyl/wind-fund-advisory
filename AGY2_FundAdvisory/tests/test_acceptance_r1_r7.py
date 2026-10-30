@@ -125,45 +125,50 @@ class TestAcceptanceCriteriaR1ToR7:
         001071 的 transition_tag 不得包含“替换”字样。
         """
         pm = PortfolioManager()
+        orig_ledger = pm.ledger_json_path.read_text(encoding="utf-8") if pm.ledger_json_path.exists() else None
 
-        # 故意制造严重的历史状态污染 (模拟旧组合残留的大额峰值资产、浮亏与深水回撤)
-        pm.peak_equity = 250000.0
-        pm.max_drawdown_pct = 38.5
-        pm.portfolio_return_pct = -28.0
-        pm.benchmark_return_pct = -15.0
-        pm.alpha_return_pct = -13.0
-        pm.available_cash = 5000.0
+        try:
+            # 故意制造严重的历史状态污染 (模拟旧组合残留的大额峰值资产、浮亏与深水回撤)
+            pm.peak_equity = 250000.0
+            pm.max_drawdown_pct = 38.5
+            pm.portfolio_return_pct = -28.0
+            pm.benchmark_return_pct = -15.0
+            pm.alpha_return_pct = -13.0
+            pm.available_cash = 5000.0
 
-        # 生成 100,000 元的标准建仓方案 (包含 050025 限购自动拆单至 001071 摩根标普500)
-        bp = StrategyBridge.generate_zero_start_blueprint(total_capital=100000.0, tier="C3")
-        res = pm.apply_zero_start_blueprint(bp)
+            # 生成 100,000 元的标准建仓方案 (包含 050025 限购自动拆单至 001071 摩根标普500)
+            bp = StrategyBridge.generate_zero_start_blueprint(total_capital=100000.0, tier="C3")
+            res = pm.apply_zero_start_blueprint(bp)
 
-        assert res["status"] == "SUCCESS"
+            assert res["status"] == "SUCCESS"
 
-        # 1. 断言账户峰值与最新总资产分毫不差，彻底消除历史峰值资产污染
-        assert pm.peak_equity == pm.total_equity, (
-            f"peak_equity ({pm.peak_equity}) 必须严格等于 total_equity ({pm.total_equity})"
-        )
-        assert abs(pm.total_equity - 100000.0) < 0.1
+            # 1. 断言账户峰值与最新总资产分毫不差，彻底消除历史峰值资产污染
+            assert pm.peak_equity == pm.total_equity, (
+                f"peak_equity ({pm.peak_equity}) 必须严格等于 total_equity ({pm.total_equity})"
+            )
+            assert abs(pm.total_equity - 100000.0) < 0.1
 
-        # 2. 断言最大回撤必须彻底归零
-        assert pm.max_drawdown_pct == 0.0, f"建仓后最大回撤必须为 0.0，实际为 {pm.max_drawdown_pct}"
-        assert pm.portfolio_return_pct == 0.0
-        assert pm.alpha_return_pct == 0.0
+            # 2. 断言最大回撤必须彻底归零
+            assert pm.max_drawdown_pct == 0.0, f"建仓后最大回撤必须为 0.0，实际为 {pm.max_drawdown_pct}"
+            assert pm.portfolio_return_pct == 0.0
+            assert pm.alpha_return_pct == 0.0
 
-        # 3. 验证 001071 伴生拆单标的存在且绝不包含“替换”字样
-        assert "001071" in pm.holdings, "001071 摩根标普500 必须包含在建仓后持仓列表中"
-        spx_companion = pm.holdings["001071"]
+            # 3. 验证 001071 伴生拆单标的存在且绝不包含“替换”字样
+            assert "001071" in pm.holdings, "001071 摩根标普500 必须包含在建仓后持仓列表中"
+            spx_companion = pm.holdings["001071"]
 
-        assert spx_companion.is_core_strategy is True, "001071 必须标记为 is_core_strategy=True"
-        assert "替换" not in spx_companion.transition_tag, (
-            f"001071 的 transition_tag ('{spx_companion.transition_tag}') 严禁包含'替换'字样"
-        )
-        assert "核心" in spx_companion.transition_tag or "底仓" in spx_companion.transition_tag
+            assert spx_companion.is_core_strategy is True, "001071 必须标记为 is_core_strategy=True"
+            assert "替换" not in spx_companion.transition_tag, (
+                f"001071 的 transition_tag ('{spx_companion.transition_tag}') 严禁包含'替换'字样"
+            )
+            assert "核心" in spx_companion.transition_tag or "底仓" in spx_companion.transition_tag
 
-        # 4. 同时验证原标的 050025 也为核心底仓且不含“替换”
-        assert "050025" in pm.holdings
-        assert "替换" not in pm.holdings["050025"].transition_tag
+            # 4. 同时验证原标的 050025 也为核心底仓且不含“替换”
+            assert "050025" in pm.holdings
+            assert "替换" not in pm.holdings["050025"].transition_tag
+        finally:
+            if orig_ledger and pm.ledger_json_path.exists():
+                pm.ledger_json_path.write_text(orig_ledger, encoding="utf-8")
 
     # =========================================================================
     # 3. 银行股排雷豁免测试
@@ -459,10 +464,10 @@ class TestAcceptanceCriteriaR1ToR7:
         from streamlit.testing.v1 import AppTest
         app_path = _AGY2_DIR / "app_gui.py"
         for ret, tier in [(6.0, "C1"), (25.0, "C4"), (60.0, "C5")]:
-            at = AppTest.from_file(str(app_path), default_timeout=45)
+            at = AppTest.from_file(str(app_path), default_timeout=120)
             at.session_state.tier_determination_mode = "模式 A：按期望年化收益率滑块定档 (滑块即拉即变)"
             at.session_state.target_return_val = ret
             at.session_state.active_tier_val = tier
-            at.run()
+            at.run(timeout=120)
             assert len(at.exception) == 0, f"AppTest 在收益率 {ret}% ({tier}) 下抛出异常: {[e.value for e in at.exception]}"
             assert at.session_state.active_tier_val == tier

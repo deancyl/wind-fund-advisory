@@ -1,19 +1,12 @@
-# Progress Tracker - Strategy & Risk Budget Architect (Agent-1)
+# Progress Tracking
 
-Last visited: 2026-10-30T01:45:00Z
-
-## Status
-- [x] Initialized workspace (DISPATCH.md, BRIEFING.md, progress.md)
-- [x] Read ORIGINAL_REQUEST.md, PROJECT.md, analysis.md
-- [x] Inspect existing `strategy_bridge.py` and test suites
-- [x] Design dynamic risk budget model & market state machine
-- [x] Implement changes in `strategy_bridge.py`
-  - [x] `compute_dynamic_tier_weights(history_df, tier, market_snapshot)` implemented with genuine state machine & risk budgets
-  - [x] Mathematical monotonicity guaranteed across all regimes: Equity(C1) < Equity(C2) < Equity(C3) < Equity(C4) < Equity(C5)
-  - [x] Fixed `get_rebalance_grid_status()` double threshold inversion (`breakdown < current < surge`)
-  - [x] Re-architected `get_tier_target_weights` to dynamically invoke `compute_dynamic_tier_weights`
-  - [x] Updated `generate_zero_start_blueprint` with flexible argument polymorphism and dynamic weighting
-- [x] Run pytest validation (full test suite in progress -> completed 29/29)
-- [x] Document in `changes.md` and `handoff.md`
-- [x] Prepare completion report for orchestrator
-
+- Last visited: 2026-10-30T01:24:30Z
+- Status: Verification in progress
+- Completed steps:
+  1. Read ORIGINAL_REQUEST.md, explorer_survey_1/handoff.md, and PROJECT.md.
+  2. Implemented OnlineExpertWeightUpdater in strategy_bridge.py with K=4 orthogonal streams, half-life gamma=0.985, utility u_{i,t}, log-sum-exp stabilized multiplicative weights update, and strict normalization (sum=1.0 within 1e-5).
+  3. Implemented SchmidtHysteresisBuffer & Sigmoid continuous gating with asymmetric entry (+1.2% / Z>=0.60), exit (-1.5% / Z<0.20), noise zone lock in [-1.5%, +1.2%], and bidirectional breakout trigger lines (surge_line > c300_price and breakdown_line < c300_price).
+  4. Exposed classmethod StrategyBridge.get_online_expert_weights() and injected snapshot["expert_weights"], snapshot["expert_details"], snapshot["trigger_lines"], etc.
+  5. Tested standalone verification script covering all functional assertions (100% passed).
+- Current step:
+  Running pytest tests/test_strategy_bridge.py tests/test_infra.py tests/test_acceptance_r1_r7.py (background task-260).

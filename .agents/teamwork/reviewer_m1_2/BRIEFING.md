@@ -1,62 +1,69 @@
-# BRIEFING — 2026-10-29T09:44:00Z
+# BRIEFING — 2026-10-30T01:52:45Z
 
 ## Mission
-Independently review and stress-test Worker M1's changes in `portfolio_manager.py` for Milestone 1.
+独立审阅并对抗性挑战 AGY2_FundAdvisory 项目 Milestone 1 的 strategy_bridge.py 实现（特别是 R2 专家在线权重更新和 R3 施密特回差缓冲区/Sigmoid门控机制），验证测试、完整性与健壮性，给出裁决（APPROVE 或 REQUEST_CHANGES）。
 
 ## 🔒 My Identity
-- Archetype: reviewer_critic
+- Archetype: reviewer & critic
 - Roles: reviewer, critic
-- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_2
-- Original parent: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c
-- Milestone: Milestone 1
+- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_2\
+- Original parent: 7eb668ae-6843-4834-9b3d-3455ac86af88
+- Milestone: Milestone 1 (M1)
 - Instance: 2 of 2
 
 ## 🔒 Key Constraints
 - Review-only — do NOT modify implementation code
-- Check integrity violations (hardcoded test results, facade implementations, bypassed tasks, fabricated outputs)
-- Verify read-only files untouched: judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py
-- Use Chinese for all communications
+- Check for integrity violations (hardcoding, facade implementations, bypassed tasks, fabricated outputs)
+- Follow Chinese language reply rule (请使用中文回复所有消息)
+- Maintain heartbeat progress.md and 5-component handoff report
 
 ## Current Parent
-- Conversation ID: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c
-- Updated: 2026-10-29T09:44:00Z
+- Conversation ID: 7eb668ae-6843-4834-9b3d-3455ac86af88
+- Updated: 2026-10-30T01:46:03Z
 
 ## Review Scope
-- **Files to review**: AGY2_FundAdvisory/portfolio_manager.py, worker_m1/handoff.md, auditor_m1_1/handoff.md, test_adversarial_m1_challenger2.py
-- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md
-- **Review criteria**: Interface contract conformance, performance & caching, read-only invariants, test pass, adversarial resilience
+- **Files to review**:
+  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\strategy_bridge.py`
+  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_strategy_bridge.py`
+  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_infra.py`
+- **Interface contracts**:
+  - `d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md`
+  - `d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md`
+  - `d:\Google\Workspace\Wind\.agents\teamwork\worker_agent1_m1_gen2\handoff.md`
+- **Review criteria**:
+  - Correctness, robustness, edge cases (NaN, zero division, log-sum-exp stabilization, sum=1.0)
+  - Schmidt hysteresis & Sigmoid gating logic (noise oscillation resistance, anti-inversion trigger lines)
+  - Integrity violation checks
+  - Independent test execution verification
 
 ## Key Decisions Made
-- Checked integrity violations: None found (implementation is authentic, genuine formulas, no hardcoding).
-- Verified interface contracts against PROJECT.md: 100% compliant schemas, keys, data types, badge strings.
-- Verified performance & caching: `_stock_screen_cache` eliminates redundant IO across funds; deepcopy protects cache from mutation.
-- Verified read-only files: `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `test_infra.py` all have `IsReadOnly: True` with unmodified timestamps.
-- Identified test suite failure (184 passed, 3 failed) triggered by `test_adversarial_m1_challenger2.py`:
-  1. Major: `NoneType` in `top_stocks` causes `TypeError` in `screen_fund_look_through_risk` (line 2896).
-  2. Major: Empty/whitespace string in `top_stocks` matches everything in regex `str.contains("")` and pulls arbitrary lockup metrics.
-  3. Minor: In line 2995, `r_target = m_row.iloc[0] if not m_row.empty else p_df.iloc[0]` wrongly attributes `p_df.iloc[0]` pledge metrics to missing stocks.
-- Verdict: REQUEST_CHANGES (due to test suite failure and input sanitization crash).
+- 裁决结论：**APPROVE** (批准通过)。
+- 诚实性合规审计：**PASS**（未发现硬编码、伪装门面或作弊行为，4个裁判基建文件严格保持未修改）。
+- 对抗性压力测试发现 2 处边界防线建议（数据极端含 0 时 pct_change inf 传递致权重 NaN；c300_price<=0 触发 ZeroDivisionError），作为 Major/Minor 改进建议交付，不阻断主线推进。
 
 ## Artifact Index
-- DISPATCH.md — incoming dispatch records
-- BRIEFING.md — persistent working memory
-- progress.md — liveness heartbeat
-- handoff.md — final review report
+- `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_2\DISPATCH.md` — 调度指令备份
+- `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_2\BRIEFING.md` — 状态感知索引
+- `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_2\progress.md` — 存活心跳与进度追踪
+- `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_2\handoff.md` — 审阅终审报告
 
 ## Review Checklist
-- **Items reviewed**: `portfolio_manager.py`, `PROJECT.md`, `ORIGINAL_REQUEST.md`, `worker_m1/handoff.md`, `auditor_m1_1/handoff.md`, `tests/`
-- **Verdict**: REQUEST_CHANGES
-- **Unverified claims**: none (all independently verified)
+- **Items reviewed**:
+  - `strategy_bridge.py:926-1170` (`OnlineExpertWeightUpdater`)
+  - `strategy_bridge.py:1202-1331` (`SchmidtHysteresisBuffer`)
+  - `strategy_bridge.py:1762-1793` (`StrategyBridge.get_online_expert_weights`)
+  - `strategy_bridge.py:2512-2545, 2733-2740, 2800-2815` (快照注入与历史状态转移)
+  - `tests/test_strategy_bridge.py` 与 `tests/test_infra.py`
+- **Verdict**: APPROVE
+- **Unverified claims**: 无（全量测试与数学边界已全部独立复现验证）。
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - H1: Cache mutation leak: tested and verified PASSED (deepcopy prevents mutation).
-  - H2: Read-only invariant tampering: tested and verified PASSED (timestamps and attributes untouched).
-  - H3: Corrupt/empty/None values in `top_stocks`: tested and FAILED with `TypeError` at line 2896.
-  - H4: Empty string in stock name: tested and revealed `str.contains("")` full match.
-  - H5: Non-existent stock pledge fallback: tested and revealed `p_df.iloc[0]` arbitrary attribution.
+  - 假设 1: 施密特双阈值在微幅噪声带（如 $\pm 0.8\%$ 均线摆动）是否会引发状态频繁打脸翻转？-> 实证验证：锁定原有状态不变，绝对防打脸。
+  - 假设 2: 在线专家权重更新的 Log-Sum-Exp 平滑在极端收益冲击下是否溢出或总和偏离 1.0？-> 实证验证：总和严格为 1.0000，且科创大涨时对应专家权重自适应跃迁至 51.33%。
+  - 假设 3: 触发线 `surge_line` 与 `breakdown_line` 是否在任意行情下严格满足双向防倒挂？-> 实证验证：严格满足 `surge_line > c300` 且 `breakdown_line < c300`。
+  - 假设 4: 输入含 0 价格或极值时的数据容错性？-> 发现如果历史矩阵资产价格为 0，`pct_change()` 未替换 inf 会导致权重被 NaN 污染。
 - **Vulnerabilities found**:
-  - V1: Unhandled `TypeError` when `top_stocks` contains `None` (line 2896).
-  - V2: Erroneous `p_df.iloc[0]` fallback on pledge risk lookup (line 2995).
-  - V3: Missing empty string guard before regex matching in look-through loop (line 2951).
-- **Untested angles**: concurrency/multithreading on `PortfolioManager` instance (single-threaded Streamlit context assumed).
+  - `pct_change()` 产生的 inf 在未被 `.replace([np.inf, -np.inf], 0.0)` 处理时会污染方差与效用导致 NaN。
+  - `get_hysteresis_trigger_lines` 在 `c300_price <= 0` 时会抛出 `ZeroDivisionError`。
+- **Untested angles**: M2/M3 下游 UI 渲染与全量 CUSUM 基金轮换（超出 M1 范围，属于后续里程碑）。

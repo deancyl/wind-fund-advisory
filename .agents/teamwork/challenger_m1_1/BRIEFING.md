@@ -1,57 +1,54 @@
-# BRIEFING — 2026-10-29T09:43:00Z
+# BRIEFING — 2026-10-30T01:52:30Z
 
 ## Mission
-Empirically challenge, verify, and stress-test Milestone 1 (Look-Through Risk Screen Engine in portfolio_manager.py), ensuring strict contract adherence, extreme edge case robustness, and zero regression.
+Empirically verify the correctness and stress resilience of M1 (strategy_bridge.py)
 
 ## 🔒 My Identity
-- Archetype: EMPIRICAL CHALLENGER
+- Archetype: empirical challenger
 - Roles: critic, specialist
-- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1
-- Original parent: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c
-- Milestone: M1
+- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\
+- Original parent: 7eb668ae-6843-4834-9b3d-3455ac86af88
+- Milestone: Milestone 1
 - Instance: 1 of 1
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code
-- Run verification code directly (generators, oracles, stress harnesses)
-- Layout Compliance: .agents/teamwork/ holds ONLY metadata.
-- Must verify read-only invariants: judge_engine.py, holdout_vault.py, AGENT_SPEC.md, test_infra.py
-- Deliver clear verdict: APPROVE or REJECT
+- Review-only — do NOT modify implementation code (report findings/bugs, do not fix them yourself)
+- Verification must be empirical: write and execute tests
+- No source/test files in .agents/teamwork/
 
 ## Current Parent
-- Conversation ID: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c
-- Updated: not yet
+- Conversation ID: 7eb668ae-6843-4834-9b3d-3455ac86af88
+- Updated: 2026-10-30T01:46:09Z
 
 ## Review Scope
-- **Files to review**: `AGY2_FundAdvisory/portfolio_manager.py`
-- **Interface contracts**: `PROJECT.md` M1 sections
-- **Review criteria**: Interface compliance, financial risk screening logic, edge cases (empty portfolio, 100% danger, unmapped stocks, non-equity assets, cash-only), performance, test coverage
-
-## Key Decisions Made
-- Conducted empirical Python stress harness execution covering 17 adversarial scenarios (`test_adversarial_m1.py`).
-- Investigated peer challenger (`challenger_m1_2`) suite (`test_adversarial_m1_challenger2.py`).
-- Empirically reproduced 5 critical crash defects in `portfolio_manager.py` involving None, int, np.nan, and 'N/A' string inputs.
-- Identified unmemoized lockup calendar HTTP calls bottleneck.
-- Formulated clear verdict: **REJECT** pending Worker M1 remediation of the 5 reproducible crash defects.
+- **Files to review**: d:\Google\Workspace\Wind\AGY2_FundAdvisory\strategy_bridge.py, and associated files
+- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md
+- **Review criteria**: Correctness, stress resilience, weight normalization (sum=1), monotonic weight updates, Schmidt hysteresis state lock under noise (+-0.5%), breakout line assertions
 
 ## Attack Surface
-- **Hypotheses tested**: Contract compliance, non-equity immunity, 4 portfolio configurations, deduplication, cache immutability, dirty upstream data tolerance, offline resilience.
+- **Hypotheses tested**:
+  - H1: In historical slices (len 10 to 1000, window 10 to 120), OnlineExpertWeightUpdater weights sum strictly to 1.0000 within 1e-5 -> CONFIRMED (100% pass across all 28 slice combinations).
+  - H2: An expert with higher risk-adjusted net utility receives monotonically increasing weight across iterative steps -> CONFIRMED (strict mathematical and simulated monotonicity verified).
+  - H3: SchmidtHysteresisBuffer in defensive/attack mode under noisy price oscillation within MA20 +- 0.5% maintains state lock with 0 flips -> CONFIRMED (0 flips in both defensive and attack regimes).
+  - H4: Across realistic price ranges (800 to 12000) and m20 ratios (0.70 to 1.30), trigger lines satisfy surge_line > c300_price and breakdown_line < c300_price -> CONFIRMED (121 grid points tested, all satisfied).
+  - H5: Extreme parameter stress (gamma in [0.5, 0.999], eta in [0.1, 50.0]) produces non-NaN, non-Inf, strictly normalized weights -> CONFIRMED.
+  - H6: Missing core benchmark asset columns in input DataFrame raises KeyError as expected by underlying island dependencies -> CONFIRMED.
 - **Vulnerabilities found**:
-  1. `TypeError: argument of type 'NoneType' is not iterable` at line 2896 when `top_stocks` contains `None`.
-  2. `TypeError: 'NoneType' object is not iterable` at line 2950 when `look_data['top_stocks']` is `None`.
-  3. `TypeError: argument of type 'int' is not iterable` at line 2896 when `top_stocks` contains numeric codes like `[600519]`.
-  4. `ValueError: cannot convert float NaN to integer` at line 3012 when `days_to_unlock` is `np.nan`.
-  5. `ValueError: could not convert string to float: 'N/A'` at line 2983 when financial data contains `'N/A'` or `'--'`.
-  6. Performance: `fetch_lockup_calendar` invoked repetitively without memoization on `PortfolioManager`.
-- **Untested angles**: Extreme concurrent thread access to `PortfolioManager._stock_screen_cache`.
+  - Input dependency boundary: Underlying orthogonal island strategies assume existence of core benchmark columns ('STAR50_STITCH', 'H00300', 'H00922'). If an incomplete DataFrame lacking these core columns is passed, KeyError is raised. This is an expected invariant of the standard asset lakehouse matrix.
+- **Untested angles**:
+  - Downstream Streamlit UI integration (deferred to Milestone 3).
+  - Dynamic risk parity and portfolio rebalance net utility interceptor (deferred to Milestone 2).
 
 ## Loaded Skills
-- Source: d:\Google\Workspace\Wind\.agents\skills\lidaxiao-advisory\SKILL.md
-- Local copy: N/A
-- Core methodology: A股宏观大势研判、黑五类风险规避（质押/商誉/造假）、资产配置穿透
+- None requested in dispatch
+
+## Key Decisions Made
+- Created dedicated test suite `tests/test_adversarial_m1_stress.py` containing 186 empirical stress tests covering mathematical monotonicity, deadzone stability, trigger line inequalities, and parameter robustness.
+- Verified 210/210 tests passed across `test_strategy_bridge.py`, `test_infra.py`, and `test_adversarial_m1_stress.py`.
+- Formulated final verdict: APPROVE.
 
 ## Artifact Index
-- `DISPATCH.md` — Received orchestrator task instruction
-- `progress.md` — Heartbeat and status
-- `BRIEFING.md` — Working context & memory
-- `handoff.md` — Final challenge report & verdict
+- d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\BRIEFING.md — Situational awareness
+- d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\progress.md — Liveness and progress tracking
+- d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\handoff.md — Final challenge report with verdict APPROVE
+- d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_adversarial_m1_stress.py — 186 empirical adversarial stress tests

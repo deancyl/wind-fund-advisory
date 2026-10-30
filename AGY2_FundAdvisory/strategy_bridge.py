@@ -31,6 +31,7 @@ if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
 from islands.island_ensemble import strategy_fn, PARAMS
+from islands import island_momentum, island_erp, island_breadth
 from data_loader import DataLoader
 
 # WindToolkit 投顾统一工具包与衍生品模块接入
@@ -129,6 +130,23 @@ INDEX_TO_FUND_MAP: Dict[str, Dict[str, Any]] = {
         "role_desc": "大盘蓝筹顺势脉冲进攻仓 (0申购费+满30天0赎回费)"
     }
 }
+
+# 基金代码至全收益代理指数代码映射表 (R4)
+FUND_TO_PROXY_INDEX: Dict[str, str] = {
+    "002351": "H11009", "000086": "H11009", "018757": "H11009",
+    "005561": "H30269", "005562": "H30269",
+    "100032": "H00922", "008682": "H00922",
+    "000216": "AU9999", "000217": "AU9999",
+    "050025": "SPX_CNY", "001071": "SPX_CNY",
+    "011613": "STAR50_STITCH", "011612": "STAR50_STITCH",
+    "001053": "H00905", "161017": "H00905",
+    "016634": "H00852", "016633": "H00852",
+    "013841": "STAR50_STITCH", "013840": "STAR50_STITCH",
+    "007339": "H00300", "110020": "H00300"
+}
+
+_CACHED_EWMA_VOLS: Optional[pd.Series] = None
+_CACHED_CORR_MAT: Optional[pd.DataFrame] = None
 
 # =====================================================================
 # 五档动态风险引擎配置 (C1 保守稳健 ~ C5 极限进取/翻倍畅想)
@@ -922,6 +940,413 @@ class TierWeightsDict(dict):
         return super().__contains__(key)
 
 
+class OnlineExpertWeightUpdater:
+    """
+    Hedge 在线多专家乘性权重自更新算法 (Exponentially Weighted Average Forecaster)
+    管理 K=4 个独立正交流派：
+    1. 'trend_momentum': 趋势动量专家 (islands.island_momentum)
+    2. 'erp_macro': ERP宏观估值专家 (islands.island_erp)
+    3. 'ma_contrarian': 均线乖离逆向专家 (islands.island_breadth)
+    4. 'liquidity_basis': 流动性与期指基差专家 (基于 DR007 息差与期指基差)
+    
+    滚动截面 t <= T (半衰期 gamma = 0.985):
+        u_{i, t} = r_{i, t} - 0.5 * lambda * sigma_{i, t}^2 - c * Turnover_{i, t}
+        P_{i, t+1} = (P_{i, t}^gamma * exp(eta * u_{i, t})) / sum_j(P_{j, t}^gamma * exp(eta * u_{j, t}))
+    """
+    EXPERT_NAMES = ["trend_momentum", "erp_macro", "ma_contrarian", "liquidity_basis"]
+    EXPERT_DISPLAY_NAMES = {
+        "trend_momentum": "趋势动量专家 (风格截面动量)",
+        "erp_macro": "ERP宏观估值专家 (股债利差配置)",
+        "ma_contrarian": "均线乖离逆向专家 (宽度均值回归)",
+        "liquidity_basis": "流动性与基差专家 (资金与衍生品)"
+    }
+
+    def __init__(
+        self,
+        gamma: float = 0.985,
+        eta: float = 10.0,
+        risk_lambda: float = 1.0,
+        cost_c: float = 0.0015,
+        **kwargs
+    ):
+        self.gamma = float(gamma)
+        self.eta = float(eta)
+        self.risk_lambda = float(kwargs.get("risk_aversion", risk_lambda))
+        self.cost_c = float(kwargs.get("turnover_cost", cost_c))
+
+    @classmethod
+    def get_liquidity_basis_portfolio(
+        cls,
+        history_df: pd.DataFrame,
+        dr007_spread_bp: Optional[float] = None,
+        ic_basis: Optional[float] = None
+    ) -> Dict[str, float]:
+        """
+        流动性与期指基差专家目标权重生成:
+        结合资金面 DR007 息差与股指期货贴水率动态定调
+        """
+        spread_bp = dr007_spread_bp
+        if spread_bp is None and history_df is not None and len(history_df) > 0:
+            if 'date' in history_df.columns:
+                try:
+                    last_date = pd.to_datetime(history_df['date'].iloc[-1])
+                    ib_file = WORKSPACE_ROOT / "data/macro/interbank_rates.parquet"
+                    if ib_file.exists():
+                        df_ib = pd.read_parquet(ib_file)
+                        df_ib['date'] = pd.to_datetime(df_ib['date'])
+                        matched = df_ib[df_ib['date'] <= last_date]
+                        if not matched.empty and 'dr007_spread_bp' in matched.columns:
+                            spread_bp = float(matched['dr007_spread_bp'].dropna().iloc[-1])
+                except Exception:
+                    spread_bp = None
+
+        if spread_bp is None:
+            if history_df is not None and 'H11009' in history_df.columns and len(history_df) >= 20:
+                b_ret20 = float((history_df['H11009'].iloc[-1] / history_df['H11009'].iloc[-20] - 1.0) * 100.0)
+                spread_bp = -15.0 if b_ret20 > 0.4 else (10.0 if b_ret20 > 0.0 else 40.0)
+            else:
+                spread_bp = -11.1
+
+        if spread_bp <= 15.0:
+            # 资金宽松充裕，重配高弹性成长与小盘宽基
+            weights = {
+                'STAR50_STITCH': 0.35,
+                'H00852': 0.15,
+                'H00300': 0.12,
+                'H00922': 0.10,
+                'AU9999': 0.14,
+                'SPX_CNY': 0.06,
+                'H11009': 0.08
+            }
+        elif spread_bp <= 35.0:
+            # 资金中性平衡，重配稳健央国企红利与红利低波
+            weights = {
+                'H00922': 0.30,
+                'H30269': 0.25,
+                'H00300': 0.15,
+                'AU9999': 0.14,
+                'SPX_CNY': 0.06,
+                'H11009': 0.10
+            }
+        else:
+            # 资金收紧摩擦，防御配置纯债与黄金
+            weights = {
+                'H11009': 0.45,
+                'AU9999': 0.20,
+                'H30269': 0.20,
+                'H00922': 0.15
+            }
+
+        tot = sum(weights.values())
+        return {k: round(v / tot, 4) for k, v in weights.items()}
+
+    def get_orthogonal_expert_streams(
+        self,
+        history_df: pd.DataFrame
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        获取当前截面四大正交分析流派独立输出的目标资产权重字典
+        """
+        w_mom = island_momentum.strategy_fn(history_df, island_momentum.PARAMS)
+        w_erp = island_erp.strategy_fn(history_df, island_erp.PARAMS)
+        w_breadth = island_breadth.strategy_fn(history_df, island_breadth.PARAMS)
+        w_liq = self.get_liquidity_basis_portfolio(history_df)
+        return {
+            "trend_momentum": w_mom,
+            "erp_macro": w_erp,
+            "ma_contrarian": w_breadth,
+            "liquidity_basis": w_liq
+        }
+
+    def compute_expert_weights(
+        self,
+        history_df: pd.DataFrame,
+        window_days: int = 60
+    ) -> Dict[str, Any]:
+        """
+        执行 Hedge 在线乘性权重更新，逐期计算四大专家的净效用 u_{i, t} 与权重更新 P_{i, t}
+        """
+        if history_df is None or len(history_df) < 5:
+            eq_w = {k: 0.25 for k in self.EXPERT_NAMES}
+            return {
+                "weights": eq_w,
+                "sum_weights": 1.0,
+                "blended_target_weights": {},
+                "details": {"expert_weights": eq_w}
+            }
+
+        n = len(history_df)
+        w_days = min(int(window_days), n - 1)
+        if w_days < 5:
+            w_days = max(1, n - 1)
+        start_idx = n - w_days
+
+        asset_cols = ['H00300', 'H00905', 'H00852', 'H00922', 'H30269', 'H11009', 'STAR50_STITCH', 'AU9999', 'SPX_CNY']
+        valid_cols = [c for c in asset_cols if c in history_df.columns]
+        returns_df = history_df[valid_cols].pct_change().fillna(0.0)
+
+        k_experts = len(self.EXPERT_NAMES)
+        P = {name: 1.0 / k_experts for name in self.EXPERT_NAMES}
+
+        prev_portfolios = self.get_orthogonal_expert_streams(history_df.iloc[:start_idx])
+        returns_history: Dict[str, List[float]] = {name: [] for name in self.EXPERT_NAMES}
+        utility_history: Dict[str, List[float]] = {name: [] for name in self.EXPERT_NAMES}
+
+        # 逐日推演并在线乘性更新
+        for idx in range(start_idx, n):
+            ret_series = returns_df.iloc[idx]
+
+            daily_r = {}
+            for exp_name in self.EXPERT_NAMES:
+                exp_port = prev_portfolios[exp_name]
+                r_val = sum(exp_port.get(col, 0.0) * float(ret_series.get(col, 0.0)) for col in valid_cols)
+                daily_r[exp_name] = r_val
+                returns_history[exp_name].append(r_val)
+
+            if idx == n - 1 or (idx - start_idx) % 5 == 0:
+                cur_portfolios = self.get_orthogonal_expert_streams(history_df.iloc[:idx + 1])
+            else:
+                cur_portfolios = prev_portfolios
+
+            daily_turnover = {}
+            daily_u = {}
+            for exp_name in self.EXPERT_NAMES:
+                cur_p = cur_portfolios[exp_name]
+                prev_p = prev_portfolios[exp_name]
+                all_keys = set(cur_p.keys()) | set(prev_p.keys())
+                to_val = sum(abs(cur_p.get(k, 0.0) - prev_p.get(k, 0.0)) for k in all_keys)
+                daily_turnover[exp_name] = to_val
+
+                rec_rets = returns_history[exp_name][-20:]
+                var_val = float(np.var(rec_rets, ddof=1)) if len(rec_rets) >= 2 else 0.0
+
+                u_val = daily_r[exp_name] - 0.5 * self.risk_lambda * var_val - self.cost_c * to_val
+                daily_u[exp_name] = u_val
+                utility_history[exp_name].append(u_val)
+
+            prev_portfolios = cur_portfolios
+
+            # P_{i, t+1} = (P_{i, t}^gamma * exp(eta * u_{i, t})) / sum_j(P_{j, t}^gamma * exp(eta * u_{j, t}))
+            log_terms = {}
+            for exp_name in self.EXPERT_NAMES:
+                p_prev = max(P[exp_name], 1e-12)
+                log_terms[exp_name] = self.gamma * math.log(p_prev) + self.eta * daily_u[exp_name]
+
+            max_log = max(log_terms.values())
+            unnorm_weights = {exp_name: math.exp(log_terms[exp_name] - max_log) for exp_name in self.EXPERT_NAMES}
+            sum_unnorm = sum(unnorm_weights.values())
+            P = {exp_name: unnorm_weights[exp_name] / sum_unnorm for exp_name in self.EXPERT_NAMES}
+
+        # 保证严格归一化至 1.0 (误差绝对值严格 < 1e-5)
+        rounded_weights = {k: round(v, 4) for k, v in P.items()}
+        diff = 1.0 - sum(rounded_weights.values())
+        max_k = max(rounded_weights, key=rounded_weights.get)
+        rounded_weights[max_k] = round(rounded_weights[max_k] + diff, 4)
+
+        final_portfolios = self.get_orthogonal_expert_streams(history_df)
+        blended_weights: Dict[str, float] = {}
+        for exp_name in self.EXPERT_NAMES:
+            p_w = rounded_weights[exp_name]
+            for asset_k, asset_w in final_portfolios[exp_name].items():
+                blended_weights[asset_k] = blended_weights.get(asset_k, 0.0) + p_w * asset_w
+
+        tot_b = sum(blended_weights.values())
+        blended_target_weights = {k: round(v / tot_b, 4) for k, v in blended_weights.items() if v > 1e-4} if tot_b > 0 else {}
+        top_exp = max(rounded_weights, key=rounded_weights.get)
+
+        return {
+            "weights": rounded_weights,
+            "sum_weights": round(sum(rounded_weights.values()), 5),
+            "blended_target_weights": blended_target_weights,
+            "details": {
+                "expert_weights": rounded_weights,
+                "expert_portfolios": final_portfolios,
+                "expert_display_names": self.EXPERT_DISPLAY_NAMES,
+                "recent_utilities": {k: round(float(np.mean(v[-10:])), 6) if v else 0.0 for k, v in utility_history.items()},
+                "gamma": self.gamma,
+                "eta": self.eta,
+                "window_days": w_days,
+                "top_expert": top_exp,
+                "top_expert_name": self.EXPERT_DISPLAY_NAMES.get(top_exp, top_exp)
+            }
+        }
+
+    def update(
+        self,
+        history_df: Optional[pd.DataFrame] = None,
+        window_days: int = 60
+    ) -> Tuple[Dict[str, float], Dict[str, Any]]:
+        """
+        便捷更新方法：返回 (weights, details)
+        """
+        if history_df is None:
+            history_df = StrategyBridge.load_matrix()
+        res = self.compute_expert_weights(history_df, window_days=window_days)
+        return res["weights"], res["details"]
+
+
+class ExpertWeightsDict(dict):
+    """专家权重字典，同时挂载 details 与 blended_target_weights 属性以兼顾多形态调用"""
+    def __init__(self, weights: Dict[str, float], details: Dict[str, Any], blended_weights: Dict[str, float]):
+        super().__init__(weights)
+        self.weights = weights
+        self.details = details
+        self.blended_target_weights = blended_weights
+        self.sum_weights = round(sum(weights.values()), 5)
+
+    def __getitem__(self, key):
+        if key == "weights":
+            return self.weights
+        if key == "details":
+            return self.details
+        if key == "blended_target_weights":
+            return self.blended_target_weights
+        return super().__getitem__(key)
+
+    def get(self, key, default=None):
+        if key == "weights":
+            return self.weights
+        if key == "details":
+            return self.details
+        if key == "blended_target_weights":
+            return self.blended_target_weights
+        return super().get(key, default)
+
+    def get_details(self) -> Dict[str, Any]:
+        return self.details
+
+
+class SchmidtHysteresisBuffer:
+    """
+    施密特迟滞缓冲环与 Sigmoid 连续仓位门控
+    解决均线锯齿打脸与状态机频繁反复横跳 (Whipsaw):
+    1. 非对称迟滞带:
+       - 向上突破进攻: bias_20 >= +1.2% 或 composite_z >= +0.60
+       - 向下跌破防守: bias_20 <= -1.5% 或 composite_z < +0.20
+       - 噪音死区 [-1.5%, +1.2%]: 锁定原有状态不变
+    2. Sigmoid 连续门控:
+       g(Z_t) = 1 / (1 + exp(-k * Z_t))
+    3. 双向变盘触发线:
+       breakdown_line < c300_price < surge_line
+    """
+    def __init__(
+        self,
+        upper_threshold: float = 1.2,
+        lower_threshold: float = -1.5,
+        z_upper: float = 0.60,
+        z_lower: float = 0.20
+    ):
+        self.upper_threshold = float(upper_threshold)
+        self.lower_threshold = float(lower_threshold)
+        self.z_upper = float(z_upper)
+        self.z_lower = float(z_lower)
+
+    @staticmethod
+    def compute_composite_z(
+        trend_slope: float = 0.0,
+        diff_star_div: float = 0.0,
+        erp_percentile: float = 50.0,
+        option_iv: float = 20.0,
+        bias_20: Optional[float] = None
+    ) -> float:
+        """
+        综合趋势斜率、动量差、ERP分位与期权IV构造连续得分 Z_t
+        """
+        b20 = bias_20 if bias_20 is not None else (trend_slope * 2.0)
+        z_trend = float(np.clip(b20 / 2.0, -2.0, 2.0))
+        z_mom = float(np.clip(diff_star_div / 8.0, -2.0, 2.0))
+        z_erp = float(np.clip((erp_percentile - 50.0) / 25.0, -2.0, 2.0))
+        z_iv = float(np.clip((22.0 - option_iv) / 8.0, -2.0, 2.0))
+
+        composite_z = 0.40 * z_trend + 0.35 * z_mom + 0.15 * z_erp + 0.10 * z_iv
+        return float(np.clip(composite_z, -3.0, 3.0))
+
+    def evaluate_state_transition(
+        self,
+        bias_20: float,
+        composite_z: float,
+        is_currently_attack: bool
+    ) -> Tuple[bool, str]:
+        """
+        双阈值施密特迟滞状态转移判断
+        返回: (new_is_attack, transition_reason)
+        """
+        if not is_currently_attack:
+            if bias_20 >= self.upper_threshold or composite_z >= self.z_upper:
+                reason = (
+                    f"📈 有效突破施密特迟滞上轨 (bias_20={bias_20:+.2f}% >= +{self.upper_threshold:.1f}% "
+                    f"或 Z={composite_z:.2f} >= +{self.z_upper:.2f})，平滑切换进入多头进攻态"
+                )
+                return True, reason
+            else:
+                if bias_20 > 0:
+                    reason = f"🟡 处于施密特缓冲防假突破区 (bias_20={bias_20:+.2f}% < +{self.upper_threshold:.1f}%)，锁定非进攻态"
+                else:
+                    reason = f"🛡️ 承压于 MA20 之下 (bias_20={bias_20:+.2f}%)，维持防守/震荡态"
+                return False, reason
+        else:
+            if bias_20 <= self.lower_threshold or composite_z < self.z_lower:
+                reason = (
+                    f"🛡️ 有效跌破施密特迟滞下轨 (bias_20={bias_20:+.2f}% <= {self.lower_threshold:.1f}% "
+                    f"或 Z={composite_z:.2f} < +{self.z_lower:.2f})，退出进攻态转为防御"
+                )
+                return False, reason
+            else:
+                if bias_20 < 0:
+                    reason = (
+                        f"🔒 处于施密特迟滞容差死区 (bias_20={bias_20:+.2f}% > {self.lower_threshold:.1f}%)，"
+                        f"锁定进攻态防打脸，拒绝微幅噪音横跳"
+                    )
+                else:
+                    reason = f"🔥 持续站稳 MA20 生命线之上 (bias_20={bias_20:+.2f}%)，维持多头进攻态"
+                return True, reason
+
+    @staticmethod
+    def compute_sigmoid_gating(z_score: float, k: float = 3.0) -> float:
+        """
+        Sigmoid 连续仓位门控函数:
+        g(Z_t) = 1 / (1 + exp(-k * Z_t))
+        """
+        val = np.clip(k * z_score, -50.0, 50.0)
+        return float(1.0 / (1.0 + np.exp(-val)))
+
+    @classmethod
+    def get_hysteresis_trigger_lines(
+        cls,
+        m20_price: float,
+        c300_price: float,
+        upper_threshold: float = 1.2,
+        lower_threshold: float = -1.5
+    ) -> Dict[str, float]:
+        """
+        计算准确的双向变盘触发线：
+        向上突破进攻线严格高于现价: surge_line > c300_price
+        向下跌破防守线严格低于现价: breakdown_line < c300_price
+        """
+        m20_up = m20_price * (1.0 + upper_threshold / 100.0)
+        m20_down = m20_price * (1.0 + lower_threshold / 100.0)
+
+        surge_line = round(max(m20_up, c300_price * 1.012), 1)
+        if surge_line <= c300_price:
+            surge_line = round(c300_price * 1.012, 1)
+
+        breakdown_line = round(min(m20_down, c300_price * 0.985), 1)
+        if breakdown_line >= c300_price:
+            breakdown_line = round(c300_price * 0.985, 1)
+
+        dist_to_surge_pct = round((surge_line / c300_price - 1.0) * 100.0, 2)
+        dist_to_breakdown_pct = round((breakdown_line / c300_price - 1.0) * 100.0, 2)
+
+        return {
+            "surge_line": surge_line,
+            "breakdown_line": breakdown_line,
+            "dist_to_surge_pct": dist_to_surge_pct,
+            "dist_to_breakdown_pct": dist_to_breakdown_pct,
+            "m20_price": round(m20_price, 1),
+            "c300_price": round(c300_price, 1)
+        }
+
+
 def strategy_fn_for_tier(
     history_df: pd.DataFrame,
     tier: str = "C3",
@@ -1334,6 +1759,7 @@ def get_aggressive_dream_reality_check(
 # 模块级延迟单例与多因子打分防抖缓存
 _PORTFOLIO_MANAGER_SINGLETON: Optional[Any] = None
 _SIX_DIM_SCORE_CACHE: Dict[Tuple[str, str, str], Tuple[float, Dict[str, Any]]] = {}
+_CACHED_TIER_SECTOR_SELECTIONS: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 
 class StrategyBridge:
@@ -1343,20 +1769,61 @@ class StrategyBridge:
     _cached_backtest_df: Optional[pd.DataFrame] = None
     _cached_snapshot: Optional[Dict[str, Any]] = None
     _cached_tier_backtests: Dict[str, pd.DataFrame] = {}
+    _cached_tier_sector_selections: Dict[str, Tuple[float, Dict[str, Any]]] = _CACHED_TIER_SECTOR_SELECTIONS
+    _expert_updater: Optional[OnlineExpertWeightUpdater] = None
+    _schmidt_buffer: Optional[SchmidtHysteresisBuffer] = None
+    _cached_expert_weights: Optional[Dict[str, Any]] = None
 
     calculate_human_readable_metrics = staticmethod(calculate_human_readable_metrics)
     get_aggressive_dream_reality_check = staticmethod(get_aggressive_dream_reality_check)
     strategy_fn_for_tier = staticmethod(strategy_fn_for_tier)
 
     @classmethod
-    def _get_portfolio_manager(cls):
+    def get_online_expert_weights(
+        cls,
+        history_df: Optional[pd.DataFrame] = None,
+        force_reload: bool = False,
+        return_details: bool = False
+    ) -> Any:
+        """
+        暴露类方法：获取今日四大正交策略专家的自适应权重占比与推演明细
+        """
+        if not force_reload and cls._cached_expert_weights is not None:
+            res = cls._cached_expert_weights
+        else:
+            if history_df is None:
+                history_df = cls.load_matrix()
+
+            if force_reload or cls._expert_updater is None:
+                cls._expert_updater = OnlineExpertWeightUpdater(gamma=0.985, eta=10.0)
+
+            res = cls._expert_updater.compute_expert_weights(history_df)
+            cls._cached_expert_weights = res
+
+        if return_details:
+            return res
+
+        exp_dict = ExpertWeightsDict(
+            weights=res["weights"],
+            details=res["details"],
+            blended_weights=res["blended_target_weights"]
+        )
+        return exp_dict
+
+    @classmethod
+    def _get_portfolio_manager(cls, force_reload: bool = False):
         """
         延迟单例模式获取 PortfolioManager 实例，彻底避免顶层循环导入并复用底层穿透排雷缓存。
         """
         global _PORTFOLIO_MANAGER_SINGLETON
-        if _PORTFOLIO_MANAGER_SINGLETON is None:
+        if _PORTFOLIO_MANAGER_SINGLETON is None or force_reload:
             from portfolio_manager import PortfolioManager
             _PORTFOLIO_MANAGER_SINGLETON = PortfolioManager()
+        else:
+            try:
+                _PORTFOLIO_MANAGER_SINGLETON.load_state()
+            except Exception:
+                pass
         return _PORTFOLIO_MANAGER_SINGLETON
 
     @classmethod
@@ -1945,10 +2412,11 @@ class StrategyBridge:
             bias_60 = float((c300 / m60 - 1.0) * 100.0)
             bias_120 = float((c300 / m120 - 1.0) * 100.0)
 
-        # 变盘临界点距离百分比
+        # 变盘临界点距离百分比与施密特双向变盘触发线
+        trigger_lines = SchmidtHysteresisBuffer.get_hysteresis_trigger_lines(m20_price, c300_price)
         if c300 < m20:
             dist_to_m20_breakout = float((m20 / c300 - 1.0) * 100.0)
-            m20_status_desc = f"承压于 MA20 之下 ({bias_20:.2f}%)，距突破触发进攻还差 +{dist_to_m20_breakout:.2f}%"
+            m20_status_desc = f"承压于 MA20 之下 ({bias_20:.2f}%)，距施密特突破线 ({trigger_lines['surge_line']:,.1f}) 还差 +{dist_to_m20_breakout:.2f}%"
             m20_color = "#10b981" # 绿 (空头/承压)
         else:
             dist_to_m20_breakout = float((c300 / m20 - 1.0) * 100.0)
@@ -2064,10 +2532,24 @@ class StrategyBridge:
         mom60_500_e = float((c500_e / hist_eval['H00905'].iloc[-60] - 1.0) * 100.0)
         mom20_300_e = float((c300_e / hist_eval['H00300'].iloc[-20] - 1.0) * 100.0) if len(hist_eval) >= 20 else 0.0
 
+        # 施密特综合得分 Z_t 与连续仓位门控
+        composite_z = SchmidtHysteresisBuffer.compute_composite_z(
+            trend_slope=m120_slope_e,
+            diff_star_div=diff_star_div,
+            erp_percentile=erp_percentile,
+            option_iv=20.0,
+            bias_20=bias_20
+        )
+        sigmoid_gate = SchmidtHysteresisBuffer.compute_sigmoid_gating(composite_z)
+
+        # 结合施密特非对称迟滞与超常脉冲信号
         cond_trend = (c300_e > m20_e) and (c300_e > m60_e) and (m120_slope_e >= 0.0) and (mom60_star_e > mom60_div_e) and (m20_e > m60_e) and (mom60_300_e > mom60_div_e - 2.0)
         cond_breakout = (c300_e > m20_e) and (c300_e > m60_e) and (mom20_300_e > 6.0)
         cond_super = (last_super is not None and (rebal_idx == last_super))
-        is_growth_lead = cond_trend or cond_breakout or cond_super
+        
+        # 施密特非对称进入要求：突破 MA20 >= +1.2% (或 Z>=0.60)；退出要求跌破 -1.5% (或 Z<0.20)
+        cond_schmidt_attack = (bias_20 >= 1.2 or composite_z >= 0.60)
+        is_growth_lead = cond_super or (cond_schmidt_attack and (cond_trend or cond_breakout))
 
         both_broken = (c300_price < m60_price) and (c300_price < m120_price)
         is_above_m60 = (c300_price >= m60_price)
@@ -2212,6 +2694,8 @@ class StrategyBridge:
             f"核心操作策略：**{core_action_advice}**"
         )
 
+        online_expert_res = cls.get_online_expert_weights(df, force_reload=force_reload, return_details=True)
+
         snapshot = {
             "latest_date": latest_date_str,
             "is_live_tail_stitched": is_live_stitched,
@@ -2269,7 +2753,15 @@ class StrategyBridge:
             "recent_7d_net_injection_billion": recent_7d_net_injection_billion,
             "omo_latest_stance": omo_latest_stance,
             "advisory_takeaway": advisory_takeaway,
-            "dual_track_radar": dual_track_radar
+            "dual_track_radar": dual_track_radar,
+            "expert_weights": online_expert_res["weights"],
+            "expert_details": online_expert_res["details"],
+            "blended_expert_weights": online_expert_res["blended_target_weights"],
+            "composite_z": composite_z,
+            "sigmoid_gate": sigmoid_gate,
+            "trigger_lines": trigger_lines,
+            "surge_line": trigger_lines["surge_line"],
+            "breakdown_line": trigger_lines["breakdown_line"]
         }
 
         cls._refresh_derivatives_data(snapshot)
@@ -2293,6 +2785,8 @@ class StrategyBridge:
         # 仅回溯最近 120 个交易日以提升响应性能
         lookback = min(120, n - 60)
         recent_states = []
+        schmidt_buf = SchmidtHysteresisBuffer()
+        is_attack_tracked = False
 
         rebal_period = int(PARAMS.get('rebal_period', 10))
         ma_fast = int(PARAMS.get('ma_fast', 20))
@@ -2330,10 +2824,17 @@ class StrategyBridge:
             mom60_500 = float((c500 / hist_eval['H00905'].iloc[-60] - 1.0) * 100.0)
             mom20_300 = float((c300 / hist_eval['H00300'].iloc[-20] - 1.0) * 100.0) if len(hist_eval) >= 20 else 0.0
 
+            bias_20_i = float((c300 / m20 - 1.0) * 100.0) if m20 > 0 else 0.0
+            comp_z_i = SchmidtHysteresisBuffer.compute_composite_z(
+                trend_slope=m120_slope,
+                diff_star_div=(mom60_star - mom60_div),
+                bias_20=bias_20_i
+            )
+            is_attack_tracked, _ = schmidt_buf.evaluate_state_transition(bias_20_i, comp_z_i, is_attack_tracked)
             cond_trend = (c300 > m20) and (c300 > m60) and (m120_slope >= 0.0) and (mom60_star > mom60_div) and (m20 > m60) and (mom60_300 > mom60_div - 2.0)
             cond_breakout = (c300 > m20) and (c300 > m60) and (mom20_300 > 6.0)
             cond_super = (last_super is not None and (rebal_idx == last_super))
-            is_growth = cond_trend or cond_breakout or cond_super
+            is_growth = cond_super or (is_attack_tracked and (cond_trend or cond_breakout))
 
             is_500 = (mom60_500 > mom60_300 + 4.0) and (mom60_div > mom60_300) and not is_growth
 
@@ -2815,6 +3316,48 @@ class StrategyBridge:
             "dual_track_radar": radar
         }
 
+    @classmethod
+    def rebalance_portfolio(
+        cls,
+        tier: str = "C3",
+        current_holdings: Optional[Dict[str, Any]] = None,
+        available_cash: Optional[float] = None,
+        custom_fund_overrides: Optional[Dict[str, str]] = None,
+        pm: Optional[Any] = None
+    ) -> Dict[str, Any]:
+        """存量调仓统一调度入口：对齐 CUSUM 自进化优选冠军标的后生成调仓执行单 (R5/R6)"""
+        if pm is None:
+            pm = cls._get_portfolio_manager()
+        holdings = current_holdings if current_holdings is not None else pm.holdings
+        cash = available_cash if available_cash is not None else pm.available_cash
+
+        snapshot = cls.get_latest_market_snapshot()
+        tier_target_w = cls.compute_dynamic_tier_weights(tier=tier, market_snapshot=snapshot)
+
+        # CUSUM 自进化标的对齐
+        sec_selection = cls.get_tier_sector_fund_selection(tier=tier)
+        for sec_data in sec_selection.values():
+            if sec_data.get("is_promoted"):
+                def_c = sec_data.get("default_champion_code")
+                act_c = sec_data.get("champion_code")
+                if def_c and act_c and def_c in tier_target_w and act_c != def_c:
+                    w_auto = tier_target_w.pop(def_c)
+                    tier_target_w[act_c] = round(tier_target_w.get(act_c, 0.0) + w_auto, 4)
+
+        if custom_fund_overrides:
+            tier_target_w = dict(tier_target_w)
+            for old_code, new_code in custom_fund_overrides.items():
+                if old_code in tier_target_w:
+                    w_val = tier_target_w.pop(old_code)
+                    tier_target_w[new_code] = round(tier_target_w.get(new_code, 0.0) + w_val, 4)
+
+        return cls.generate_ai_rebalance_orders(
+            current_holdings=holdings,
+            available_cash=cash,
+            target_weights_funds=tier_target_w,
+            pm=pm
+        )
+
     # =====================================================================
     # 实战升级 0：五档动态权重与六维量化选基评分引擎 (Quant Selection & Six-Dimension Scoring Engine)
     # =====================================================================
@@ -3047,12 +3590,109 @@ class StrategyBridge:
             }
             target_dict = oscillating_weights[t]
 
-        # 3. 结果规范化与精度校准
-        res = {k: round(v, 4) for k, v in target_dict.items() if v > 1e-4}
+        # 3. 滚动 60 日 EWMA 波动率与相关性矩阵计算 (R4 核心算子接入)
+        mat_df = history_df if (history_df is not None and hasattr(history_df, "__len__") and len(history_df) >= 30) else None
+        if mat_df is not None:
+            from data_loader import DataLoader
+            ewma_vols, corr_mat = DataLoader.compute_ewma_volatility_and_correlation(mat_df, window=60, span=60)
+        else:
+            global _CACHED_EWMA_VOLS, _CACHED_CORR_MAT
+            if _CACHED_EWMA_VOLS is None:
+                try:
+                    from data_loader import DataLoader, MATRIX_CACHE_FILE
+                    loaded_mat = DataLoader(cache_file=MATRIX_CACHE_FILE).load_total_return_matrix()
+                    _CACHED_EWMA_VOLS, _CACHED_CORR_MAT = DataLoader.compute_ewma_volatility_and_correlation(loaded_mat, window=60, span=60)
+                except Exception:
+                    from data_loader import DataLoader
+                    _CACHED_EWMA_VOLS, _CACHED_CORR_MAT = DataLoader.compute_ewma_volatility_and_correlation(None, window=60, span=60)
+            ewma_vols = _CACHED_EWMA_VOLS
+            corr_mat = _CACHED_CORR_MAT
+
+        # 4. 波动率倒数加权与风险敞口动态调整 (Inverse Volatility Weighting)
+        # 各资产权重与滚动波动率成反比调整: scaling = base_vol / max(vol, 0.08)
+        # 当某资产短期波动率异常脉冲放大时，算法自动收缩其风险敞口并释放预算
+        adjusted_weights: Dict[str, float] = {}
+        trimmed_budget = 0.0
+        defensive_codes = {"002351", "000086", "018757", "000216", "000217"}
+        equity_codes = [c for c in target_dict if c not in defensive_codes]
+
+        for code, base_w in target_dict.items():
+            if code in equity_codes:
+                proxy = FUND_TO_PROXY_INDEX.get(code, "H00300")
+                vol = float(ewma_vols.get(proxy, 0.18))
+                # 基础波动率设为 0.18，根据波动率倒数缩放
+                scaling = min(1.0, 0.18 / max(vol, 0.08))
+                new_w = base_w * scaling
+                if new_w < base_w:
+                    trimmed_budget += (base_w - new_w)
+                    adjusted_weights[code] = new_w
+                else:
+                    adjusted_weights[code] = base_w
+            else:
+                adjusted_weights[code] = base_w
+
+        # 5. 将溢出的风险预算 100% 转移至低波纯债压舱石 (002351 / 000086)
+        bond_code = "002351" if "002351" in adjusted_weights else ("000086" if "000086" in adjusted_weights else "002351")
+        if trimmed_budget > 0:
+            adjusted_weights[bond_code] = adjusted_weights.get(bond_code, 0.0) + trimmed_budget
+
+        # 6. C1-C5 风险单调性与边界投影 (Monotonicity Theorem & Deleveraging Safety)
+        # 严格守护数学定理: Equity(C1) < Equity(C2) < Equity(C3) < Equity(C4) < Equity(C5)
+        # 且深度熊市破位态算法止损硬红线: Equity(C4) <= 55%, Equity(C5) <= 70%
+        equity_bounds = {
+            "BULL": {
+                "C1": (0.18, 0.22),
+                "C2": (0.45, 0.55),
+                "C3": (0.68, 0.76),
+                "C4": (0.80, 0.84),
+                "C5": (0.88, 0.94),
+            },
+            "OSCILLATING": {
+                "C1": (0.18, 0.22),
+                "C2": (0.45, 0.53),
+                "C3": (0.65, 0.75),
+                "C4": (0.77, 0.82),
+                "C5": (0.86, 0.92),
+            },
+            "BEAR": {
+                "C1": (0.08, 0.12),
+                "C2": (0.20, 0.28),
+                "C3": (0.30, 0.38),
+                "C4": (0.45, 0.53),  # 严格 <= 55%
+                "C5": (0.60, 0.68),  # 严格 <= 70%
+            }
+        }
+        bounds = equity_bounds.get(regime, equity_bounds["OSCILLATING"]).get(t, (0.50, 0.70))
+        min_eq, max_eq = bounds
+
+        cur_equity_sum = sum(adjusted_weights.get(c, 0.0) for c in equity_codes)
+        if cur_equity_sum > max_eq:
+            diff = cur_equity_sum - max_eq
+            if cur_equity_sum > 1e-4:
+                scale = max_eq / cur_equity_sum
+                for c in equity_codes:
+                    if c in adjusted_weights:
+                        adjusted_weights[c] *= scale
+            adjusted_weights[bond_code] = adjusted_weights.get(bond_code, 0.0) + diff
+        elif cur_equity_sum < min_eq:
+            diff = min_eq - cur_equity_sum
+            if cur_equity_sum > 1e-4:
+                scale = min_eq / cur_equity_sum
+                for c in equity_codes:
+                    if c in adjusted_weights:
+                        adjusted_weights[c] *= scale
+            if bond_code in adjusted_weights and adjusted_weights[bond_code] >= diff:
+                adjusted_weights[bond_code] -= diff
+
+        # 7. 结果规范化与精度校准
+        res = {k: round(v, 4) for k, v in adjusted_weights.items() if v > 1e-4}
         tot = sum(res.values())
         if abs(tot - 1.0) > 1e-5:
-            max_k = max(res, key=res.get)
-            res[max_k] = round(res[max_k] + (1.0 - tot), 4)
+            if bond_code in res:
+                res[bond_code] = round(res[bond_code] + (1.0 - tot), 4)
+            else:
+                max_k = max(res, key=res.get)
+                res[max_k] = round(res[max_k] + (1.0 - tot), 4)
 
         return res
 
@@ -3135,7 +3775,8 @@ class StrategyBridge:
         track_role: str = "",
         snapshot: Optional[Dict[str, Any]] = None,
         tier: str = "",
-        use_cache: bool = True
+        use_cache: bool = True,
+        pm: Optional[Any] = None
     ) -> Dict[str, Any]:
         """
         六维量化选基多因子动态评分引擎 (R2/R5):
@@ -3147,15 +3788,16 @@ class StrategyBridge:
         if snapshot is None:
             snapshot = cls.get_latest_market_snapshot()
 
-        cache_key = (code, str(track_role), str(tier))
+        p_inst = pm if pm is not None else cls._get_portfolio_manager()
+        h_sig = tuple(sorted((k, getattr(v, "shares", 0.0)) for k, v in getattr(p_inst, "holdings", {}).items()))
+        cache_key = (code, str(track_role), str(tier), h_sig)
         now_ts = time.time()
         if use_cache and cache_key in _SIX_DIM_SCORE_CACHE:
             cached_ts, cached_res = _SIX_DIM_SCORE_CACHE[cache_key]
             if now_ts - cached_ts < 30.0:
                 return copy.deepcopy(cached_res)
 
-        pm = cls._get_portfolio_manager()
-        raw_score = pm.compute_fund_six_dimension_score(
+        raw_score = p_inst.compute_fund_six_dimension_score(
             fund_code=code,
             track_role=track_role,
             snapshot=snapshot,
@@ -3185,10 +3827,83 @@ class StrategyBridge:
         return score_res
 
     @classmethod
-    def get_tier_sector_fund_selection(cls, tier: str = "C3") -> Dict[str, Dict[str, Any]]:
-        """获取当前档位对应的赛道、冠军标的与备选基金池 (R2/R5)"""
+    def clear_score_cache(cls):
+        """清空六维评分防抖缓存"""
+        global _SIX_DIM_SCORE_CACHE
+        _SIX_DIM_SCORE_CACHE.clear()
+
+    @classmethod
+    def get_tier_sector_fund_selection(
+        cls,
+        tier: str = "C3",
+        enable_cusum_auto_promote: bool = True,
+        force_reload: bool = False
+    ) -> Dict[str, Dict[str, Any]]:
+        """获取当前档位对应的赛道、冠军标的与备选基金池，全面接入 CUSUM 变点检测与冠军自动优胜劣汰 (R6)"""
         t = str(tier).upper().strip() if tier else "C3"
-        return dict(SECTOR_FUND_SELECTION_BY_TIER.get(t, SECTOR_FUND_SELECTION_BY_TIER["C3"]))
+        cache_key = f"{t}_{enable_cusum_auto_promote}"
+        now_ts = time.time()
+
+        if not force_reload and cache_key in cls._cached_tier_sector_selections:
+            cached_ts, cached_data = cls._cached_tier_sector_selections[cache_key]
+            if now_ts - cached_ts < 30.0:
+                return copy.deepcopy(cached_data)
+
+        raw_dict = SECTOR_FUND_SELECTION_BY_TIER.get(t, SECTOR_FUND_SELECTION_BY_TIER["C3"])
+        res_dict = copy.deepcopy(raw_dict)
+
+        if enable_cusum_auto_promote:
+            pm = cls._get_portfolio_manager()
+            snapshot = cls.get_latest_market_snapshot()
+            for sec_key, sec_data in res_dict.items():
+                def_champ_code = str(sec_data["champion_code"]).strip().zfill(6)
+                def_champ_name = str(sec_data["champion_name"])
+                candidates = sec_data.get("alternatives", [])
+
+                eval_res = pm.evaluate_track_candidates(
+                    sector_id=f"{t}_{sec_key}",
+                    default_champion_code=def_champ_code,
+                    candidates=candidates,
+                    snapshot=snapshot
+                )
+                sec_data["cusum_eval"] = eval_res
+                sec_data["default_champion_code"] = def_champ_code
+                sec_data["default_champion_name"] = def_champ_name
+                sec_data["is_promoted"] = bool(eval_res.get("is_promoted", False))
+                sec_data["promotion_label"] = str(eval_res.get("promotion_label", ""))
+                sec_data["trigger_reasons"] = eval_res.get("trigger_reasons", [])
+                sec_data["cusum_value"] = eval_res.get("cusum_value", 0.0)
+
+                if sec_data["is_promoted"]:
+                    new_code = str(eval_res["active_champion_code"]).strip().zfill(6)
+                    new_name = str(eval_res["active_champion_name"])
+                    sec_data["champion_code"] = new_code
+                    sec_data["champion_name"] = new_name
+                    sec_data["champion_reason"] = (
+                        f"【自进化优选晋升】综合评分领先（得分 {eval_res.get('max_score', 0):.1f}），"
+                        f"触发 CUSUM 变点轮换，已自动晋升为当前赛道推荐冠军标的。"
+                    )
+
+                    # 自动重排备选池：将原默认冠军置入备选头部并标记为 (原默认)，剔除已晋升的冠军
+                    orig_entry = next((c for c in candidates if str(c.get("code")).strip().zfill(6) == def_champ_code), None)
+                    if orig_entry is None:
+                        orig_entry = {"code": def_champ_code, "name": f"{def_champ_name} (原默认)", "share_class": "A", "tag": "原默认金牌标的"}
+                    else:
+                        orig_entry = copy.deepcopy(orig_entry)
+                        orig_entry["name"] = f"{def_champ_name} (原默认)"
+                        orig_entry["tag"] = "原默认标的 (被反超)"
+
+                    filtered_alts = [
+                        a for a in sec_data.get("top_alternatives", [])
+                        if str(a.get("code")).strip().zfill(6) not in [new_code, def_champ_code]
+                    ]
+                    sec_data["top_alternatives"] = [orig_entry] + filtered_alts
+                else:
+                    sec_data["default_champion_code"] = def_champ_code
+                    sec_data["default_champion_name"] = def_champ_name
+
+        cls._cached_tier_sector_selections[cache_key] = (now_ts, copy.deepcopy(res_dict))
+        return res_dict
 
     @classmethod
     def get_tier_quant_selection_table(
@@ -3218,11 +3933,12 @@ class StrategyBridge:
             # 1. 冠军标的记录
             champ_scores = cls.calculate_fund_six_dimension_score(champ_code, track_role=sec_key, snapshot=snapshot)
             champ_is_active = (active_code_in_sec == champ_code)
+            champ_identity = "🏆 冠军标的 (自进化优选)" if sec_data.get("is_promoted") else "🏆 冠军标的"
             rows.append({
                 "赛道": sec_name,
                 "基金代码": champ_code,
                 "基金名称": champ_name,
-                "标的身份": "🏆 冠军标的",
+                "标的身份": champ_identity,
                 "超额Alpha得分(35%)": champ_scores["alpha_score"],
                 "低费率得分(25%)": champ_scores["fee_score"],
                 "底层排雷健康分(15%)": champ_scores["risk_score"],
@@ -3304,6 +4020,29 @@ class StrategyBridge:
                     target_weights_funds["002351"] = round(target_weights_funds["002351"] - spx_w, 4)
                 target_weights_funds["050025"] = spx_w
 
+        # 从 0 起步标准建仓清单：确保 C4 成长进攻型与 C5 极限追击型维持硬核科技进攻底仓 (011613 华夏科创50C >= 25.0%)
+        # 消除在常态建仓时因 EWMA 历史波动率缩放与权益下限投影，导致进攻仓位被等比放大的中证红利畸形挤占的问题
+        if tier in ["C4", "C5"] and "011613" in target_weights_funds:
+            if target_weights_funds["011613"] < 0.25:
+                diff = round(0.25 - target_weights_funds["011613"], 4)
+                # 优先从因等比放大而虚高的 100032 (富国中证红利) 调回预算，若不足则从 002351 纯债调回
+                if "100032" in target_weights_funds and target_weights_funds["100032"] >= (0.20 + diff):
+                    target_weights_funds["100032"] = round(target_weights_funds["100032"] - diff, 4)
+                    target_weights_funds["011613"] = 0.25
+                elif "002351" in target_weights_funds and target_weights_funds["002351"] >= diff:
+                    target_weights_funds["002351"] = round(target_weights_funds["002351"] - diff, 4)
+                    target_weights_funds["011613"] = 0.25
+
+        # 接入 CUSUM 自进化赛道冠军权重对齐 (R6)
+        sec_selection = cls.get_tier_sector_fund_selection(tier=tier)
+        for sec_data in sec_selection.values():
+            if sec_data.get("is_promoted"):
+                def_c = sec_data.get("default_champion_code")
+                act_c = sec_data.get("champion_code")
+                if def_c and act_c and def_c in target_weights_funds and act_c != def_c:
+                    w_auto = target_weights_funds.pop(def_c)
+                    target_weights_funds[act_c] = round(target_weights_funds.get(act_c, 0.0) + w_auto, 4)
+
         # 应用用户自定义备选基金替换 (custom_fund_overrides)
         if custom_fund_overrides:
             for old_code, new_code in custom_fund_overrides.items():
@@ -3312,6 +4051,15 @@ class StrategyBridge:
                     target_weights_funds[new_code] = round(target_weights_funds.get(new_code, 0.0) + w, 4)
 
         fund_rules = {
+            "090010": {
+                "name": "大成中证红利指数A",
+                "share_class": "A",
+                "role_desc": "高股息周期价值底仓 (自进化优选)",
+                "reason": "【自进化优选 A 类】：长期持有免赎回费，跟踪中证红利指数，低估值高股息防御特性显著。",
+                "require_cash_dividend": True,
+                "dividend_advice": "🔴【必须设为现金分红】：买入确认后，建议在基金 App 中将分红方式手动变更为【现金分红】以沉淀安全现金流。",
+                "quota_note": "流动性充沛，正常申购。"
+            },
             "100032": {
                 "name": "富国中证红利指数增强A",
                 "share_class": "A",
@@ -4080,4 +4828,5 @@ get_tier_sector_fund_selection = StrategyBridge.get_tier_sector_fund_selection
 get_tier_quant_selection_table = StrategyBridge.get_tier_quant_selection_table
 generate_zero_start_blueprint = StrategyBridge.generate_zero_start_blueprint
 get_latest_market_snapshot = StrategyBridge.get_latest_market_snapshot
+rebalance_portfolio = StrategyBridge.rebalance_portfolio
 

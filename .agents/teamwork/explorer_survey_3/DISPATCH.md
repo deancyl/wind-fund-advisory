@@ -1,31 +1,28 @@
-## 2026-10-29T09:04:08Z
-You are Explorer 3 (Integration & Gap Explorer).
-Your working directory is: d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_3
-Your original parent conversation ID is: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c (Project Orchestrator).
+## 2026-10-30T00:59:03Z
+sender: 7eb668ae-6843-4834-9b3d-3455ac86af88
+priority: MESSAGE_PRIORITY_HIGH
+content:
+You are Explorer 3 for the AGY2_FundAdvisory self-evolving quant engine project.
+Your working directory is d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_3\
+You MUST read d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md first before starting work.
+Working directory for code is d:\Google\Workspace\Wind\AGY2_FundAdvisory.
 
-MANDATORY FIRST STEP:
-Read the user request at: d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+Mission:
+Investigate portfolio_manager.py (fund selection), app_gui.py (Streamlit UI layout & 4-step white-box), and tests/ (existing test suite & test infra).
+Focus on:
+1. Fund selection funnel, candidate pools, 6-dimensional scoring in portfolio_manager.py.
+   - Requirements and exact insertion points for R6: CUSUM change-point detection for core track champion fund auto-promotion (rolling momentum excess, tracking error, expense drag, R1 heavy stock demining, R3 smart money flow -> S_{f,t}, CUSUM decay metric; auto-promote rank 1 candidate with label "🔄 自进化优选：因综合评分领先，已自动为您优选 XXXXX").
+2. Streamlit UI architecture in app_gui.py:
+   - Current 4-step execution flow and expandable panels.
+   - Top summary cards, breakout trigger lines (upward breakout line vs downward defense line).
+   - Table rendering and 1080p fit, hover tooltips ⓘ.
+   - Requirements and exact insertion points for R7: 4-step white-box transparency panels (Step 1 CUSUM, Step 2 Hedge & Schmidt, Step 3 2018-2026 stress test & 5 human-readable metrics, Step 4 A/C fee & in-transit interceptor & split orders); 3-sentence summary card ("怎么赚钱、为什么能赢、风险与铁律"); fixed breakout lines (upward > current price, downward < current price); plain language + ⓘ hover tooltip; 1080p zero-wrap/zero-scrollbar fit.
+3. Test suite structure in tests/:
+   - How pytest is run, existing 222 tests, test infra in tests/test_infra.py.
+   - Read-only files (judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py) - confirm their exact locations and ensure team knows never to modify them.
+4. Record all relevant classes, functions, variable names, interfaces, and dependencies.
 
-OBJECTIVE:
-Investigate the integration design and gap analysis for requirements R1, R2, R3, R4:
-1. R1 Look-Through Financial & Credit Risk Screen:
-   - Where and how to integrate `WindToolkit.earnings_forecast` and `WindToolkit.holder_risk` into `portfolio_manager.py` and `strategy_bridge.py`.
-   - How to compute portfolio overall penetration risk index (组合穿透风险指数) and assign 3-color risk tags (🟢健康 / 🟡关注 / 🔴预警).
-   - How Tab 1 and Tab 2 UI components in `app_gui.py` will render these tags and metrics.
-2. R2 High-Frequency Macro Liquidity Thermometer:
-   - How `WindToolkit.macro_liquidity` integrates into `strategy_bridge.py` and `app_gui.py` top status bar.
-   - Calculation of DR007 vs 7D OMO spread (bp), determination of status (宽松 / 中性 / 收紧), and combination with HS300 MA system + ERP into a dual-track macro radar (双轨宏观雷达).
-   - What happens when macro liquidity is extremely tight (defensive asset allocation trigger).
-3. R3 Smart Money & Crowding Monitor:
-   - How `WindToolkit.institutional_holdings` and `WindToolkit.chips_market` integrate into fund selection and rebalancing decision flow.
-   - Calculation of Northbound 1D/5D net flow, shareholder count changes, dragon & tiger list institutional seats, chip concentration, and crowding loosening risk warning.
-4. R4 Production Quality, Zero Regression, Read-Only Protection:
-   - What tests need to be written in `AGY2_FundAdvisory/tests/` (e.g. `test_toolkit_integration.py`, unit & e2e)?
-   - How to ensure offline DuckDB fallback works cleanly when offline or external services are unavailable.
-   - Identify potential failure modes or edge cases.
-5. Write your comprehensive findings to `d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_3\handoff.md`.
-6. Send a message to parent (Recipient: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c) stating you have completed your report.
-
-SCOPE BOUNDARIES:
-- Read-only! DO NOT modify any code or test files.
-- Write files ONLY to your working directory: `d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_3`.
+Deliverables:
+- Keep updating d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_3\progress.md with timestamps.
+- Write your detailed investigation report to d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_3\handoff.md following standard handoff structure (Observation, Logic Chain, Caveats, Conclusion, Verification Method).
+- Send a message to orchestrator when completed.

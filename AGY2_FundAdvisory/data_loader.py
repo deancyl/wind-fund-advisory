@@ -433,6 +433,58 @@ class DataLoader:
         return cls.STYLE_SLICES.copy()
 
     @staticmethod
+    def compute_ewma_volatility_and_correlation(
+        df: Optional[pd.DataFrame] = None,
+        window: int = 60,
+        span: int = 60,
+        asset_cols: Optional[List[str]] = None
+    ) -> Tuple[pd.Series, pd.DataFrame]:
+        """
+        [R4 核心算子] 实时计算各资产过去 window (60) 日 EWMA 年化波动率与相关性矩阵
+        """
+        default_cols = [
+            'H00300', 'H00905', 'H00852', 'H00922', 'H30269',
+            'STAR50_STITCH', 'AU9999', 'SPX_CNY', '930609', 'H11009'
+        ]
+        target_cols = asset_cols or default_cols
+        if df is None or not hasattr(df, "columns") or len(df) < 10:
+            default_vol = pd.Series({c: 0.18 for c in target_cols})
+            if 'H11009' in default_vol: default_vol['H11009'] = 0.035
+            if '930609' in default_vol: default_vol['930609'] = 0.030
+            if 'H30269' in default_vol: default_vol['H30269'] = 0.140
+            if 'AU9999' in default_vol: default_vol['AU9999'] = 0.130
+            used_cols = list(default_vol.index)
+            return default_vol, pd.DataFrame(np.eye(len(used_cols)), index=used_cols, columns=used_cols)
+
+        cols = [c for c in target_cols if c in df.columns]
+        if not cols or len(df) < 10:
+            default_vol = pd.Series({c: 0.18 for c in target_cols})
+            if 'H11009' in default_vol: default_vol['H11009'] = 0.035
+            if '930609' in default_vol: default_vol['930609'] = 0.030
+            if 'H30269' in default_vol: default_vol['H30269'] = 0.140
+            if 'AU9999' in default_vol: default_vol['AU9999'] = 0.130
+            used_cols = list(default_vol.index)
+            return default_vol, pd.DataFrame(np.eye(len(used_cols)), index=used_cols, columns=used_cols)
+
+        sub_df = df[cols].tail(window)
+        ret_df = sub_df.pct_change().dropna()
+        if len(ret_df) < 5:
+            default_vol = pd.Series({c: 0.18 for c in cols})
+            if 'H11009' in default_vol: default_vol['H11009'] = 0.035
+            if '930609' in default_vol: default_vol['930609'] = 0.030
+            if 'H30269' in default_vol: default_vol['H30269'] = 0.140
+            if 'AU9999' in default_vol: default_vol['AU9999'] = 0.130
+            return default_vol, pd.DataFrame(np.eye(len(cols)), index=cols, columns=cols)
+
+        ewma_var = ret_df.ewm(span=span, adjust=True).var().iloc[-1]
+        ewma_var = ewma_var.clip(lower=1e-8)
+        ewma_vol_ann = np.sqrt(ewma_var * 252.0)
+        corr_matrix = ret_df.corr().fillna(0.0)
+
+        return ewma_vol_ann, corr_matrix
+
+
+    @staticmethod
     def simulate_execution(
         weights_df: pd.DataFrame,
         prices_df: pd.DataFrame,

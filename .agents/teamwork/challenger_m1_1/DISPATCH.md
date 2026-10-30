@@ -1,19 +1,17 @@
-## 2026-10-29T09:31:59Z
-You are Challenger 1 for Milestone 1 (challenger_m1_1).
-Your working directory is: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1
-Your parent conversation ID is: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c (Project Orchestrator).
+## 2026-10-30T01:46:09Z
+You are Challenger 1 for Milestone 1 of the AGY2_FundAdvisory project.
+Your working directory is d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\
+You MUST read d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md first before starting work.
+Also read d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md and d:\Google\Workspace\Wind\.agents\teamwork\worker_agent1_m1_gen2\handoff.md.
+Working directory for code is d:\Google\Workspace\Wind\AGY2_FundAdvisory.
 
-MANDATORY FIRST STEP:
-Read:
-1. d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
-2. d:\Google\Workspace\Wind\PROJECT.md
-3. d:\Google\Workspace\Wind\.agents\teamwork\worker_m1\handoff.md
-
-OBJECTIVE:
-Empirically verify the correctness and robustness of M1 implementation in `portfolio_manager.py`:
-1. Write and run stress/verification scripts (or execute Python one-liners) testing:
-   - `screen_fund_look_through_risk` on equity funds (e.g. 100032, 011613) and non-equity funds (002351, 000216, 050025).
-   - `calculate_portfolio_penetration_risk` under empty portfolio, single fund, multi-fund balanced, and 100% high-risk configurations.
-2. Confirm that return data strictly matches interface contracts.
-3. Issue a clear verdict: APPROVE or REJECT.
-Write your handoff report to `d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\handoff.md` and send a message to parent.
+Mission:
+Empirically verify the correctness and stress resilience of M1 (strategy_bridge.py):
+1. Test OnlineExpertWeightUpdater:
+   - Feed synthetic and historical market slices; assert weights sum to 1.0000 within 1e-5.
+   - Assert that an expert with higher risk-adjusted net utility receives monotonically increasing weight.
+2. Test SchmidtHysteresisBuffer:
+   - Construct a noisy test price series oscillating within MA20 +- 0.5% (e.g. +0.3%, -0.4%, +0.5%, -0.3%); assert the hysteresis buffer maintains state lock with 0 flips.
+   - Assert breakout trigger lines: surge_line > c300_price and breakdown_line < c300_price across all realistic price ranges.
+3. Write your empirical challenge report and verdict (APPROVE or REJECT) in d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\handoff.md.
+4. Send message to orchestrator with your verdict.

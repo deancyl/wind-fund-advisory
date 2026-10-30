@@ -1,38 +1,20 @@
-## 2026-10-29T09:04:08Z
+## 2026-10-30T00:58:48Z
+You are Explorer 1 for the AGY2_FundAdvisory self-evolving quant engine project.
+Your working directory is d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\
+You MUST read d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md first before starting work.
+Working directory for code is d:\Google\Workspace\Wind\AGY2_FundAdvisory.
 
-[Message] timestamp=2026-10-29T09:04:08Z sender=5fd996d1-bc98-447a-9f35-c5aef5be2e1c priority=MESSAGE_PRIORITY_HIGH content=You are Explorer 1 (WindToolkit Spec Miner).
-Your working directory is: d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1
-Your original parent conversation ID is: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c (Project Orchestrator).
+Mission:
+Investigate strategy_bridge.py and all related strategy/regime modules in d:\Google\Workspace\Wind\AGY2_FundAdvisory.
+Focus on:
+1. Existing expert models, market regime detection, status transition logic, MA20 calculation, and position mapping.
+2. Requirements and exact code insertion points for:
+   - R2: OnlineExpertWeightUpdater (Hedge online multiplicative weight updates, K=4 orthogonal expert streams: trend momentum, ERP macro valuation, MA divergence contrarian, liquidity & futures basis; rolling window half-life gamma=0.985, utility u_{i,t} = r_{i,t} - 0.5*lambda*sigma_{i,t}^2 - c*Turnover_{i,t}, learning rate eta, weights normalization sum=1.0, real-time weights P_{i,T} display).
+   - R3: Schmidt hysteresis buffer ring (asymmetric entry >= +1.2% / Z_t>=0.60 vs exit <= -1.5% / Z_t<0.20, noise oscillation lock in [-1.5%, +1.2%]) and Sigmoid continuous position gating g(Z_t) = 1/(1+exp(-k*Z_t)).
+3. Record all relevant classes, functions, variable names, interfaces, and dependencies.
+4. Check which files are read-only and must NOT be touched (judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py).
 
-MANDATORY FIRST STEP:
-Read the user request at: d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
-
-OBJECTIVE:
-Investigate and document the authoritative specification and API surface of WindToolkit and underlying timeseries lakehouse:
-1. Search and locate where `WindToolkit` is defined in `d:\Google\Workspace\Wind` and `d:\Google\Workspace\Wind\AGY2_FundAdvisory`.
-2. Inspect the 6 advanced financial research capabilities mentioned in ORIGINAL_REQUEST.md:
-   - `WindToolkit.earnings_forecast`
-   - `WindToolkit.holder_risk`
-   - `WindToolkit.macro_liquidity`
-   - `WindToolkit.institutional_holdings`
-   - `WindToolkit.chips_market`
-   (and any other relevant WindToolkit modules/classes/methods/data models).
-3. Document each capability:
-   - Module path, class/function signatures, parameter specifications, return schemas/DataFrames/dicts.
-   - Exact field names for:
-     * Goodwill ratio (>30%)
-     * Deposit-loan double high ("存贷双高")
-     * Share pledge ratio of controlling shareholders
-     * Lockup shares expiration in 30~90 days
-     * Open market operations (OMO reverse repo net injection/drainage), DR007, 7D OMO policy benchmark rate, spread (bp), liquidity state determination
-     * Northbound capital (陆股通) 1D/5D net flow on heavy holdings
-     * Shareholder count changes (股东户数变动)
-     * Dragon & tiger list (龙虎榜) institutional seats
-     * Chip concentration & institutional crowding risks
-4. Check offline/fallback capabilities: how does WindToolkit interact with DuckDB, local lakehouse files, parquet/duckdb files, or mocks when offline/unconnected?
-5. Write your comprehensive findings to `d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\handoff.md`.
-6. Send a message to parent (Recipient: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c) stating you have completed your report.
-
-SCOPE BOUNDARIES:
-- Read-only! DO NOT modify any code or test files.
-- Write files ONLY to your working directory: `d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1`.
+Deliverables:
+- Keep updating d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\progress.md with timestamps.
+- Write your detailed investigation report to d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\handoff.md following standard handoff structure (Observation, Logic Chain, Caveats, Conclusion, Verification Method).
+- Send a message to orchestrator when completed.

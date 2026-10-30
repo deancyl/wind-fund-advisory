@@ -1,21 +1,22 @@
-## 2026-10-29T09:31:59Z
-You are Reviewer 1 for Milestone 1 (reviewer_m1_1).
-Your working directory is: d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1
-Your parent conversation ID is: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c (Project Orchestrator).
+# Dispatch for Reviewer 1 (M1)
 
-MANDATORY FIRST STEP:
-Read:
-1. d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
-2. d:\Google\Workspace\Wind\PROJECT.md
-3. d:\Google\Workspace\Wind\.agents\teamwork\worker_m1\handoff.md
+Scope: Review strategy_bridge.py implementation of R2 (OnlineExpertWeightUpdater) and R3 (SchmidtHysteresisBuffer & Sigmoid).
+See orchestrator prompt for details.
 
-OBJECTIVE:
-Independently review Worker M1's changes in `d:\Google\Workspace\Wind\AGY2_FundAdvisory\portfolio_manager.py`:
-1. Examine code correctness, design quality, and edge case handling in:
-   - `resolve_stock_symbol`
-   - `screen_fund_look_through_risk`
-   - `calculate_portfolio_penetration_risk`
-2. Verify non-A-share asset immunity (pure bonds like 002351, gold 000216, QDII 050025 must have 0 fraud penalty and 🟢 tag).
-3. Verify test execution: run `python -m pytest AGY2_FundAdvisory/tests` to confirm all tests pass and zero regressions.
-4. Issue a clear verdict: APPROVE or REQUEST_CHANGES.
-Write your handoff report to `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\handoff.md` and send a message to parent.
+## 2026-10-30T01:45:56Z
+Sender: 7eb668ae-6843-4834-9b3d-3455ac86af88
+Content:
+You are Reviewer 1 for Milestone 1 of the AGY2_FundAdvisory project.
+Your working directory is d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\
+You MUST read d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md first before starting work.
+Also read d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md and d:\Google\Workspace\Wind\.agents\teamwork\worker_agent1_m1_gen2\handoff.md.
+Working directory for code is d:\Google\Workspace\Wind\AGY2_FundAdvisory.
+
+Mission:
+Examine strategy_bridge.py for correctness, completeness, robustness, and interface conformance for M1:
+1. R2: OnlineExpertWeightUpdater implementation (K=4 orthogonal streams, half-life gamma=0.985, utility u_{i,t}, learning rate eta, weights normalization sum=1.0000).
+2. R3: SchmidtHysteresisBuffer & Sigmoid continuous gating (asymmetric entry +1.2% / Z>=0.60, exit -1.5% / Z<0.20, noise zone lock in [-1.5%, +1.2%], bidirectional trigger lines surge > c300 > breakdown).
+3. Run tests to independently verify:
+   $env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"; python -m pytest tests/test_strategy_bridge.py tests/test_infra.py -v
+4. Write your review verdict (APPROVE or REQUEST_CHANGES) with clear evidence in d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\handoff.md.
+5. Send message to orchestrator with your verdict.
