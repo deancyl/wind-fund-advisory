@@ -37,10 +37,10 @@ class WindConfig:
         self.windpy_dll_path: Path = self.bin_dir / "WindPy.dll"
         self.windpy_py_path: Path = self.bin_dir / "WindPy.py"
 
-        # 终端网络与服务器配置
-        self.default_web_server: str = "114.80.154.45"
-        self.default_sky_server: str = "114.80.154.36"
-        self.default_sky_port: int = 443
+        # 终端网络与服务器配置（支持通过环境变量 WIND_WEB_SERVER / WIND_SKY_SERVER 注入配置）
+        self.default_web_server: str = os.getenv("WIND_WEB_SERVER", "127.0.0.1")
+        self.default_sky_server: str = os.getenv("WIND_SKY_SERVER", "127.0.0.1")
+        self.default_sky_port: int = int(os.getenv("WIND_SKY_PORT", "443"))
         
         # 读取配置
         self.user_config_path: Path = self.etc_dir / "user.config"

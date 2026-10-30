@@ -9,7 +9,7 @@
 1. **终端机制与架构透明化**：
    - 逆向解析了 `WMain.exe` (主进程) + `WBox.exe` (托管外壳) + `wbrowser.exe` (Chromium 109 CEF 浏览器集群) 的多进程协作模式。
    - 完整还原了内嵌 Web 视图与原生宿主之间的 `window.external.ClientFunc(JSON)` 桥接协议规范。
-   - 梳理了云端 `114.80.154.45` 投顾网关与 `114.80.154.36` Sky 行情服务的鉴权机制 (`wind.sessionid`)。
+   - 梳理了云端投顾服务网关与实时行情流的会话认证与高可用保活机制。
 
 2. **多源数据获取双轨制**：
    - **离线主数据直读**：毫秒级解析终端内置的 `FreqUsedCodeFile.codecache` (40MB 全市场 6000+ 标的代码字典)、`sysgrp.dat` (12MB 行业与板块树)、`CNTradeDates.dat` (1990年至今 8750 天法定交易日历)。

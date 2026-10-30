@@ -6,15 +6,15 @@
 
 ## 一、 通用鉴权与请求头规范
 
-所有对投顾服务端（`114.80.154.45`）的请求必须携带以下请求头：
+所有对投顾服务端（统一网关）的请求必须携带以下请求头：
 
 ```http
 GET /pac-web/api/product/getHomePageFundInfo?a=1 HTTP/1.1
-Host: 114.80.154.45
-wind.sessionid: 5968749005599664772546955605204797648490597525996248189607764921647676602644823334620
+Host: ${ADVISORY_GATEWAY_HOST}
+wind.sessionid: ${WIND_SESSION_ID_TOKEN}
 User-Agent: Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.5414.120 Safari/537.36
 Accept: application/json, text/plain, */*
-Referer: https://114.80.154.45/WFC-WEB/WFCPC/home/index.html
+Referer: https://${ADVISORY_GATEWAY_HOST}/WFC-WEB/WFCPC/home/index.html
 ```
 
 * **`wind.sessionid`**：核心令牌（85 位数字字符串）。若已过期或未登录，接口统一返回：
