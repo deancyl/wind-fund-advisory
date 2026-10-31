@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import pytest
 import sqlite3
+from unittest.mock import patch
 
 from portfolio_manager import PortfolioManager, FundHolding, HoldingBatch, PendingOrder
 
@@ -219,7 +220,7 @@ def test_pending_order_reconciliation(temp_pm):
 # =====================================================================
 
 def test_quota_limit_and_fallback_routing(temp_pm):
-    # 博时标普500 (050025) 单日限购 500 元，备选 001071 (摩根标普500)
+    # 博时标普500 (050025) 模拟单日限购 500 元，备选 001071 (摩根标普500)
     temp_pm.available_cash = 20000.0
     temp_pm.takeover_mode_a(fund_items=[], available_cash=20000.0)
 
@@ -228,20 +229,29 @@ def test_quota_limit_and_fallback_routing(temp_pm):
         "050025": 0.25 # 25% * 20000 = 5000 元
     }
 
-    plan = temp_pm.generate_rebalance_plan(target_weights=target_weights, min_buffer_pct=3.0)
-    routes = plan["routes"]
+    def mock_quota(fund_code, *args, **kwargs):
+        code = str(fund_code).zfill(6)
+        if code == "050025":
+            return {"fund_code": "050025", "daily_limit": 500.0, "status": "限制大额", "is_limited": True}
+        elif code == "001071":
+            return {"fund_code": "001071", "daily_limit": 1e11, "status": "开放申购", "is_limited": False}
+        return {"fund_code": code, "daily_limit": 1e11, "status": "开放申购", "is_limited": False}
 
-    assert len(routes) == 1
-    r_spx = routes[0]
-    assert r_spx["buy_amount"] == 500.0 # 主基金锁定在单日限额 500 元
-    assert r_spx["overflow_amount"] == 4500.0 # 超出部分 4500 元
-    assert r_spx["fallback_code"] == "001071" # 路由至备选标的
+    with patch("portfolio_manager.fetch_realtime_fund_quota", side_effect=mock_quota):
+        plan = temp_pm.generate_rebalance_plan(target_weights=target_weights, min_buffer_pct=3.0)
+        routes = plan["routes"]
 
-    # 提交执行，应分裂生成两笔买入订单
-    oids = temp_pm.submit_rebalance_orders(routes)
-    assert len(oids) == 2
-    assert any(o.fund_code == "050025" and o.amount == 500.0 for o in temp_pm.pending_orders)
-    assert any(o.fund_code == "001071" and o.amount == 4500.0 for o in temp_pm.pending_orders)
+        assert len(routes) == 1
+        r_spx = routes[0]
+        assert r_spx["buy_amount"] == 500.0 # 主基金锁定在单日限额 500 元
+        assert r_spx["overflow_amount"] == 4500.0 # 超出部分 4500 元
+        assert r_spx["fallback_code"] == "001071" # 路由至备选标的
+
+        # 提交执行，应分裂生成两笔买入订单
+        oids = temp_pm.submit_rebalance_orders(routes)
+        assert len(oids) == 2
+        assert any(o.fund_code == "050025" and o.amount == 500.0 for o in temp_pm.pending_orders)
+        assert any(o.fund_code == "001071" and o.amount == 4500.0 for o in temp_pm.pending_orders)
 
 
 # =====================================================================
@@ -613,18 +623,27 @@ def test_r3_financial_stock_double_high_exemption_and_look_through_df(temp_pm):
 
 def test_r4_quota_split_blueprint_consistency_and_overlap_exemption(temp_pm):
     # 验证 generate_zero_start_blueprint 超限额自动拆单为两行独立记录
-    bp = PortfolioManager.generate_zero_start_blueprint(total_capital=100000.0, tier="C3")
-    items = bp["items"]
+    def mock_quota(fund_code, *args, **kwargs):
+        code = str(fund_code).zfill(6)
+        if code == "050025":
+            return {"fund_code": "050025", "daily_limit": 500.0, "status": "限制大额", "is_limited": True}
+        elif code == "001071":
+            return {"fund_code": "001071", "daily_limit": 1e11, "status": "开放申购", "is_limited": False}
+        return {"fund_code": code, "daily_limit": 1e11, "status": "开放申购", "is_limited": False}
 
-    # 050025 分配金额 6,000 元 > daily_limit 500 元
-    spx_050025 = [it for it in items if it["fund_code"] == "050025"]
-    spx_001071 = [it for it in items if it["fund_code"] == "001071"]
-    assert len(spx_050025) == 1
-    assert len(spx_001071) == 1
-    assert spx_050025[0]["allocated_amount"] == 500.0
-    assert spx_001071[0]["allocated_amount"] == 5500.0
-    assert spx_050025[0]["target_weight_pct"] == 0.5
-    assert spx_001071[0]["target_weight_pct"] == 5.5
+    with patch("portfolio_manager.fetch_realtime_fund_quota", side_effect=mock_quota):
+        bp = PortfolioManager.generate_zero_start_blueprint(total_capital=100000.0, tier="C3")
+        items = bp["items"]
+
+        # 050025 分配金额 6,000 元 > daily_limit 500 元
+        spx_050025 = [it for it in items if it["fund_code"] == "050025"]
+        spx_001071 = [it for it in items if it["fund_code"] == "001071"]
+        assert len(spx_050025) == 1
+        assert len(spx_001071) == 1
+        assert spx_050025[0]["allocated_amount"] == 500.0
+        assert spx_001071[0]["allocated_amount"] == 5500.0
+        assert spx_050025[0]["target_weight_pct"] == 0.5
+        assert spx_001071[0]["target_weight_pct"] == 5.5
 
     # 验证官方限购拆单伴生组在 calculate_stock_overlap_matrix 中豁免伪分散报警
     temp_pm.takeover_mode_a([
@@ -658,5 +677,52 @@ def test_r4_quota_split_blueprint_consistency_and_overlap_exemption(temp_pm):
     exempt_pair_keys = [frozenset({p["fund1"], p["fund2"]}) for p in exempt_pairs]
     assert frozenset({"050025", "001071"}) in exempt_pair_keys
     assert frozenset({"011612", "011613"}) in exempt_pair_keys
+
+
+def test_dual_dividend_exemption_and_max_non_diag_unexcused(temp_pm):
+    """
+    R4 核心测试：策略推荐双红利底仓对 (100032 + 005561) 协同豁免与 max_non_diag_unexcused 精算
+    1. 标准推荐组合 (100032 + 005561 + 002351 + 000216 + 050025) 绝不触发任何伪分散告警；
+    2. exempt_pairs 明确收录 100032 与 005561 且说明包含 '双红利'；
+    3. max_non_diag_unexcused 严格为 0.0；
+    4. 对抗测试：引入非豁免且高重合组合 (011612 与 013841) 必须真实触发警报且 max_non_diag_unexcused >= 0.40。
+    """
+    temp_pm.holdings.clear()
+    temp_pm.takeover_mode_a([
+        {"fund_code": "100032", "amount": 38000.0, "nav": 1.0, "share_class": "A"},
+        {"fund_code": "005561", "amount": 30000.0, "nav": 1.0, "share_class": "A"},
+        {"fund_code": "002351", "amount": 14000.0, "nav": 1.0, "share_class": "A"},
+        {"fund_code": "000216", "amount": 12000.0, "nav": 1.0, "share_class": "A"},
+        {"fund_code": "050025", "amount": 6000.0, "nav": 1.0, "share_class": "A"}
+    ], available_cash=0.0)
+
+    res = temp_pm.calculate_stock_overlap_matrix()
+    alerts = res.get("alerts", [])
+    exempt_pairs = res.get("exempt_pairs", [])
+    max_unexcused = res.get("max_non_diag_unexcused", 0.0)
+
+    # 1. 绝不触发任何告警
+    assert len(alerts) == 0, f"标准推荐组合严禁触发伪分散告警，实际告警: {alerts}"
+    assert max_unexcused < 0.40, f"非豁免最大重合度必须小于 0.40，实际为 {max_unexcused}"
+    assert max_unexcused == 0.0, f"标准组合中非豁免对重叠度应为 0.0，实际为 {max_unexcused}"
+
+    # 2. 检查双红利底仓对进入 exempt_pairs
+    exempt_sets = [frozenset({p["fund1"], p["fund2"]}) for p in exempt_pairs]
+    assert frozenset({"100032", "005561"}) in exempt_sets, "100032 与 005561 必须被纳入豁免池"
+    pair_item = next(p for p in exempt_pairs if frozenset({p["fund1"], p["fund2"]}) == frozenset({"100032", "005561"}))
+    assert "双红利" in pair_item.get("note", "") or "协同" in pair_item.get("note", "")
+
+    # 3. 对抗测试：加入非豁免高重合基金 (011612 与 013841)
+    temp_pm.takeover_mode_a([
+        {"fund_code": "011612", "amount": 50000.0, "nav": 1.0, "share_class": "A"},
+        {"fund_code": "013841", "amount": 50000.0, "nav": 1.0, "share_class": "C"}
+    ], available_cash=0.0)
+    adv_res = temp_pm.calculate_stock_overlap_matrix()
+    adv_alerts = adv_res.get("alerts", [])
+    adv_max_unexcused = adv_res.get("max_non_diag_unexcused", 0.0)
+
+    assert len(adv_alerts) >= 1, "非豁免高重合基金必须触发伪分散告警"
+    assert adv_max_unexcused >= 0.40, f"非豁免最大重合度应 >= 0.40，实际为 {adv_max_unexcused}"
+
 
 

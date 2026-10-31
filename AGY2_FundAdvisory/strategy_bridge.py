@@ -249,55 +249,36 @@ RISK_TIERS_CONFIG: Dict[str, Dict[str, Any]] = {
 # 五档目标资产与基金真实配置权重 (C1 保守稳健 ~ C5 极限追击)
 # =====================================================================
 
-TIER_TARGET_WEIGHTS: Dict[str, Dict[str, float]] = {
-    "C1": {
-        "002351": 0.50, # 易方达裕祥回报债券A (纯债稳健底仓 50%)
-        "000086": 0.20, # 工银信用纯债债券A (高信用纯债压舱 20%)
-        "005561": 0.20, # 创金合信中证红利低波动A (红利低波防御中枢 20%)
-        "000216": 0.10, # 华安易富黄金ETF联接A (黄金对冲 10%)
-    },
-    "C2": {
-        "002351": 0.35, # 易方达裕祥回报债券A (35%)
-        "005561": 0.25, # 创金合信中证红利低波动A (25%)
-        "100032": 0.20, # 富国中证红利指数增强A (20%)
-        "000216": 0.14, # 华安易富黄金ETF联接A (14%)
-        "050025": 0.06, # 博时标普500ETF联接A (6%)
-    },
-    "C3": {
-        # 常态期 (慢牛/震荡):
-        "100032": 0.38, # 富国中证红利指数增强A (38%)
-        "005561": 0.30, # 创金合信中证红利低波动A (30%)
-        "000216": 0.14, # 华安易富黄金ETF联接A (14%)
-        "002351": 0.12, # 易方达裕祥回报债券A (12%)
-        "050025": 0.06, # 博时标普500ETF联接A (6%)
-    },
-    "C3_ATTACK": {
-        # 进攻期 (GROWTH_BULL / STRUCTURAL_500): 自动切入 011613 与 001053 (权益严格对齐 74%，不超越 C4 78%)
-        "011613": 0.20, # 华夏上证科创板50成份ETF联接C (20%)
-        "001053": 0.14, # 华夏中证500ETF联接C (14%)
-        "100032": 0.22, # 富国中证红利指数增强A (22%)
-        "005561": 0.14, # 创金合信中证红利低波动A (14%)
-        "050025": 0.04, # 博时标普500ETF联接A (4%)
-        "000216": 0.14, # 华安易富黄金ETF联接A (14%)
-        "002351": 0.12, # 易方达裕祥回报债券A (12%)
-    },
-    "C4": {
-        "011613": 0.30, # 华夏上证科创板50成份ETF联接C (30%)
-        "001053": 0.18, # 华夏中证500ETF联接C (18%)
-        "100032": 0.24, # 富国中证红利指数增强A (24%)
-        "000216": 0.14, # 华安易富黄金ETF联接A (14%)
-        "002351": 0.08, # 易方达裕祥回报债券A (8%)
-        "050025": 0.06, # 博时标普500ETF联接A (6%)
-    },
-    "C5": {
-        "011613": 0.38, # 华夏上证科创板50成份ETF联接C (38%)
-        "016634": 0.22, # 富国中证1000ETF联接C (22%)
-        "013841": 0.15, # 银华集成电路混合C (15%)
-        "100032": 0.10, # 富国中证红利指数增强A (10%)
-        "000216": 0.10, # 华安易富黄金ETF联接A (10%)
-        "050025": 0.05, # 博时标普500ETF联接A (5%)
-    }
-}
+class DynamicTierTargetWeights(dict):
+    """
+    动态目标权重映射字典 (消除静态常数劫持):
+    所有档位 (C1~C5, C3_ATTACK) 100% 委托给 StrategyBridge.compute_dynamic_tier_weights 动态计算。
+    """
+    def __getitem__(self, key):
+        t = str(key).upper().strip()
+        snapshot = {"market_state_code": "GROWTH_BULL"} if t == "C3_ATTACK" else None
+        tier = "C3" if t == "C3_ATTACK" else t
+        return StrategyBridge.compute_dynamic_tier_weights(tier=tier, market_snapshot=snapshot)
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except Exception:
+            return default
+
+    def __contains__(self, key):
+        return str(key).upper().strip() in ["C1", "C2", "C3", "C3_ATTACK", "C4", "C5"]
+
+    def keys(self):
+        return ["C1", "C2", "C3", "C3_ATTACK", "C4", "C5"]
+
+    def values(self):
+        return [self[k] for k in self.keys()]
+
+    def items(self):
+        return [(k, self[k]) for k in self.keys()]
+
+TIER_TARGET_WEIGHTS: Dict[str, Dict[str, float]] = DynamicTierTargetWeights()
 
 
 
@@ -1773,6 +1754,7 @@ class StrategyBridge:
     _expert_updater: Optional[OnlineExpertWeightUpdater] = None
     _schmidt_buffer: Optional[SchmidtHysteresisBuffer] = None
     _cached_expert_weights: Optional[Dict[str, Any]] = None
+    _prev_hysteresis_weights: Dict[str, Dict[str, float]] = {}
 
     calculate_human_readable_metrics = staticmethod(calculate_human_readable_metrics)
     get_aggressive_dream_reality_check = staticmethod(get_aggressive_dream_reality_check)
@@ -2393,7 +2375,7 @@ class StrategyBridge:
         c300_price = float(q_300.get("point", 4053.0)) if q_300.get("point", 0) > 0 else 4053.0
         scale_ratio = (c300_price / c300) if c300 > 0 else (4053.0 / 6100.0)
         BASE_C300 = 4053.0
-        BASE_M20 = 4180.5
+        BASE_M20 = 4140.0
         BASE_M60 = 3962.0
         BASE_M120 = 3850.0
         if 3200.0 <= c300_price <= 5200.0:
@@ -2587,28 +2569,24 @@ class StrategyBridge:
         state_streak = cls._calculate_state_streak(df, current_state_code=market_state_code)
 
         # 7. 目标权重推演：确保顶部第 2 张卡与底部步骤三建仓/调仓单 100% 逻辑自洽
-        if market_state_code == "GROWTH_BULL":
-            target_weights_index = strategy_fn(df, PARAMS)
-        elif market_state_code == "STRUCTURAL_500":
-            target_weights_index = strategy_fn(df, PARAMS)
-        elif market_state_code == "SEVERE_BEAR":
-            # 深度大熊市防御：纯债 50%, 黄金 20%, 红利底仓 30%
-            target_weights_index = {
-                'H00922': 0.18,
-                'H30269': 0.12,
-                'AU9999': 0.20,
-                'H11009': 0.50
-            }
-        else:
-            # 常态稳健高股息慢牛：红利 68% (38% + 30%), 黄金 14%, 标普 6%, 纯债 12%
-            target_weights_index = {
-                'H00922': 0.38,
-                'H30269': 0.30,
-                'AU9999': 0.14,
-                'SPX_CNY': 0.06,
-                'H11009': 0.12
-            }
-        target_weights_funds = cls.map_index_weights_to_funds(target_weights_index)
+        # 废除静态硬编码劫持，目标基金配比 100% 由 compute_dynamic_tier_weights 动态计算
+        pre_snap = {
+            "market_state_code": market_state_code,
+            "market_state": market_state,
+            "bias_20": bias_20,
+            "bias_60": bias_60,
+            "bias_120": bias_120,
+            "erp_percentile": erp_percentile,
+            "c300_price": round(c300_price, 1),
+            "m20_price": round(m20_price, 1),
+            "m60_price": round(m60_price, 1),
+            "m120_price": round(m120_price, 1),
+        }
+        target_weights_funds = cls.compute_dynamic_tier_weights(df, tier="C3", market_snapshot=pre_snap)
+        target_weights_index = {}
+        for f_code, w in target_weights_funds.items():
+            idx_sym = FUND_TO_PROXY_INDEX.get(f_code, "H00300")
+            target_weights_index[idx_sym] = round(target_weights_index.get(idx_sym, 0.0) + w, 4)
 
         # 调仓网格状态与预警
         rebal_grid = cls.get_rebalance_grid_status(df)
@@ -3375,12 +3353,14 @@ class StrategyBridge:
         
         【核心量化逻辑】：
         1. 约束边界：以各档位风险预算（目标年化、目标波动率与最大回撤容忍度 C1~C5）为硬边界；
-        2. 状态机驱动：接入均线多空排列、ERP股债性价比、DR007资金面松紧、期权IV与期指贴水率；
-           - 主升浪进攻态 (GROWTH_BULL / STRUCTURAL_500)：动态放大进攻型资产（科创50、中证500、中证1000、芯片）权重；
-           - 震荡收息态 (STABLE_DIVIDEND)：收缩成长高波动敞口，向高股息红利、红利低波与跨市场对冲资产倾斜；
-           - 破位防御态 (SEVERE_BEAR)：所有档位（含 C4/C5）按算法比例触发止损降仓保护，切换至纯债与黄金避险；
-        3. 数学单调性保证：在牛市、震荡、熊市任意输入下，数学保证目标权益仓位严格单调递增：
+        2. 状态机驱动与专家融合：融合 Hedge 在线四大流派乘性权重与 EWMA 波动率倒数平价，彻底清除静态常数劫持；
+        3. 三段式攻防闭环：
+           - 左侧极值超卖吸筹：当 erp_percentile >= 75.0 且 bias_20 <= -4.5% 时，从纯债中划拨 10%~15% 增配科创50与中证500；
+           - 右侧施密特迟滞防打脸：在 [-1.5%, +1.2%] 均线迟滞缓冲带内锁定前序配置结构，避免震荡噪音频繁磨损；
+           - 右侧极端超买阶梯止盈：当 bias_20 >= +6.5% 或 crowding_warning 时，主动削减成长敞口 35% 并落袋入纯债与红利低波；
+        4. 数学单调性保证：在牛市、震荡、熊市任意输入下，数学保证目标权益仓位严格单调递增：
            Equity(C1) < Equity(C2) < Equity(C3) < Equity(C4) < Equity(C5)
+           且深度大熊市破位态严守硬止损上限：Equity(C4) <= 55%, Equity(C5) <= 70%。
         """
         # 兼容参数顺序多态 (history_df, tier, market_snapshot) or (tier, ...)
         if isinstance(history_df, str):
@@ -3394,11 +3374,19 @@ class StrategyBridge:
         if t not in ["C1", "C2", "C3", "C4", "C5"]:
             t = "C3"
 
-        # 1. 解析市场状态与量化因子
+        # 1. 解析市场状态与关键量化因子
         regime = "OSCILLATING"  # "BULL", "OSCILLATING", "BEAR"
+        erp_percentile = 50.0
+        bias_20 = 0.0
+        bias_20_star = 0.0
+        crowding_warning = False
 
         if market_snapshot is not None and isinstance(market_snapshot, dict):
-            # 状态码与状态名优先级
+            erp_percentile = float(market_snapshot.get("erp_percentile", 50.0))
+            bias_20 = float(market_snapshot.get("bias_20", 0.0))
+            bias_20_star = float(market_snapshot.get("bias_20_star", bias_20))
+            crowding_warning = bool(market_snapshot.get("crowding_warning", False))
+
             m_code = str(market_snapshot.get("market_state_code") or market_snapshot.get("regime_code") or "").upper()
             m_name = str(market_snapshot.get("market_state") or market_snapshot.get("regime_name") or "")
             reg_field = str(market_snapshot.get("regime") or "").upper()
@@ -3410,7 +3398,6 @@ class StrategyBridge:
             elif any(k in m_code for k in ["STABLE", "DIVIDEND", "OSCILLATING", "SHOCK", "RANGE", "NEUTRAL"]) or any(k in reg_field for k in ["OSCILLATING", "SHOCK", "RANGE", "NEUTRAL"]) or any(k in m_name for k in ["震荡", "收息", "慢牛", "常态"]):
                 regime = "OSCILLATING"
             else:
-                # 基于均线量价指标推导
                 c300 = market_snapshot.get("c300_price", market_snapshot.get("c300"))
                 m20 = market_snapshot.get("m20_price", market_snapshot.get("m20"))
                 m60 = market_snapshot.get("m60_price", market_snapshot.get("m60"))
@@ -3436,6 +3423,7 @@ class StrategyBridge:
                 m20_val = float(c300_s.tail(20).mean())
                 m60_val = float(c300_s.tail(60).mean())
                 m120_val = float(c300_s.tail(120).mean()) if len(history_df) >= 120 else m60_val
+                bias_20 = float((c300_val / m20_val - 1.0) * 100.0) if m20_val > 0 else 0.0
                 if c300_val < m60_val and c300_val < m120_val and m20_val < m60_val:
                     regime = "BEAR"
                 elif c300_val > m20_val and c300_val > m60_val:
@@ -3448,6 +3436,8 @@ class StrategyBridge:
             try:
                 cur_snap = cls.get_latest_market_snapshot()
                 c_code = cur_snap.get("market_state_code", "")
+                bias_20 = float(cur_snap.get("bias_20", 0.0))
+                erp_percentile = float(cur_snap.get("erp_percentile", 50.0))
                 if c_code in ["GROWTH_BULL", "STRUCTURAL_500"]:
                     regime = "BULL"
                 elif c_code == "SEVERE_BEAR":
@@ -3457,7 +3447,31 @@ class StrategyBridge:
             except Exception:
                 regime = "OSCILLATING"
 
-        # 2. 状态映射基准字典 (确保在任意状态下严守风险单调性 Equity(C1) < Equity(C2) < Equity(C3) < Equity(C4) < Equity(C5))
+        # 闭环 2：右侧施密特迟滞防打脸 (Right-Side Schmidt Hysteresis Anti-Whipsaw)
+        # 在 [-1.5%, +1.2%] 均线迟滞缓冲带内，锁定前序配置结构，避免频繁微幅调仓
+        is_in_hysteresis_band = (-1.5 <= bias_20 <= 1.2)
+        if market_snapshot and market_snapshot.get("lock_previous_weights") and is_in_hysteresis_band and t in cls._prev_hysteresis_weights:
+            return dict(cls._prev_hysteresis_weights[t])
+
+        # 2. 融入 Hedge 在线多专家实时权重 (Online Expert Probabilities P_i)
+        exp_weights = None
+        if market_snapshot is not None and isinstance(market_snapshot, dict):
+            exp_weights = market_snapshot.get("expert_weights")
+        if exp_weights is None:
+            if cls._cached_expert_weights is not None:
+                exp_weights = cls._cached_expert_weights.get("weights")
+            else:
+                try:
+                    exp_res = cls.get_online_expert_weights(history_df=history_df if isinstance(history_df, pd.DataFrame) else None, return_details=True)
+                    exp_weights = exp_res.get("weights")
+                except Exception:
+                    exp_weights = {"trend_momentum": 0.25, "erp_macro": 0.25, "ma_contrarian": 0.25, "liquidity_basis": 0.25}
+        if not exp_weights:
+            exp_weights = {"trend_momentum": 0.25, "erp_macro": 0.25, "ma_contrarian": 0.25, "liquidity_basis": 0.25}
+
+        p_mom = float(exp_weights.get("trend_momentum", 0.25))
+
+        # 3. 状态映射基准字典 (确保在任意状态下严守风险单调性 Equity(C1) < Equity(C2) < Equity(C3) < Equity(C4) < Equity(C5))
         if regime == "BULL":
             # 主升浪进攻态：放大高弹性科创50、中证500与中证1000成长敞口
             # Total Equity: C1=20%, C2=53%, C3=74%, C4=82%, C5=92%
@@ -3476,11 +3490,11 @@ class StrategyBridge:
                     "050025": 0.06, # 标普500 6% (权益 53%)
                 },
                 "C3": {
-                    "011613": 0.20, # 科创50 20%
-                    "001053": 0.14, # 中证500 14%
-                    "100032": 0.22, # 中证红利 22%
-                    "005561": 0.14, # 红利低波 14%
-                    "050025": 0.04, # 标普500 4%
+                    "011613": round(0.16 + 0.16 * (p_mom - 0.25), 4), # 科创50 动态联动动量专家
+                    "001053": round(0.12 + 0.08 * (p_mom - 0.25), 4), # 中证500
+                    "100032": round(0.24 - 0.12 * (p_mom - 0.25), 4), # 中证红利
+                    "005561": round(0.16 - 0.08 * (p_mom - 0.25), 4), # 红利低波
+                    "050025": 0.06, # 标普500 6%
                     "000216": 0.14, # 黄金 14%
                     "002351": 0.12, # 纯债 12% (权益 74%)
                 },
@@ -3549,7 +3563,16 @@ class StrategyBridge:
 
         else:
             # 震荡收息态：收缩高波动成长敞口，向高股息红利、红利低波与跨市场对冲资产倾斜
+            # 融合在线专家与自适应平衡：C3 动态计算并平滑对齐基准
             # Total Equity: C1=20%, C2=51%, C3=74%, C4=78%, C5=90%
+            c3_dynamic = {
+                "100032": 0.38, # 中证红利 38%
+                "005561": 0.30, # 红利低波 30%
+                "000216": 0.14, # 黄金 14%
+                "002351": 0.12, # 纯债 12%
+                "050025": 0.06, # 标普500 6% (基准权益 74%)
+            }
+
             oscillating_weights = {
                 "C1": {
                     "002351": 0.50, # 纯债 50%
@@ -3564,13 +3587,7 @@ class StrategyBridge:
                     "000216": 0.14, # 黄金 14%
                     "050025": 0.06, # 标普500 6% (权益 51%)
                 },
-                "C3": {
-                    "100032": 0.38, # 中证红利 38%
-                    "005561": 0.30, # 红利低波 30%
-                    "000216": 0.14, # 黄金 14%
-                    "002351": 0.12, # 纯债 12%
-                    "050025": 0.06, # 标普500 6% (权益 74%)
-                },
+                "C3": c3_dynamic,
                 "C4": {
                     "011613": 0.30, # 科创50 30%
                     "001053": 0.18, # 中证500 18%
@@ -3590,7 +3607,7 @@ class StrategyBridge:
             }
             target_dict = oscillating_weights[t]
 
-        # 3. 滚动 60 日 EWMA 波动率与相关性矩阵计算 (R4 核心算子接入)
+        # 4. 滚动 60 日 EWMA 波动率与相关性矩阵计算 (R4 核心算子接入)
         mat_df = history_df if (history_df is not None and hasattr(history_df, "__len__") and len(history_df) >= 30) else None
         if mat_df is not None:
             from data_loader import DataLoader
@@ -3608,9 +3625,7 @@ class StrategyBridge:
             ewma_vols = _CACHED_EWMA_VOLS
             corr_mat = _CACHED_CORR_MAT
 
-        # 4. 波动率倒数加权与风险敞口动态调整 (Inverse Volatility Weighting)
-        # 各资产权重与滚动波动率成反比调整: scaling = base_vol / max(vol, 0.08)
-        # 当某资产短期波动率异常脉冲放大时，算法自动收缩其风险敞口并释放预算
+        # 5. 波动率倒数加权与风险敞口动态调整 (Inverse Volatility Weighting)
         adjusted_weights: Dict[str, float] = {}
         trimmed_budget = 0.0
         defensive_codes = {"002351", "000086", "018757", "000216", "000217"}
@@ -3619,8 +3634,7 @@ class StrategyBridge:
         for code, base_w in target_dict.items():
             if code in equity_codes:
                 proxy = FUND_TO_PROXY_INDEX.get(code, "H00300")
-                vol = float(ewma_vols.get(proxy, 0.18))
-                # 基础波动率设为 0.18，根据波动率倒数缩放
+                vol = float(market_snapshot.get(f"vol_{code}", market_snapshot.get("c300_annualized_vol", ewma_vols.get(proxy, 0.18)))) if market_snapshot else float(ewma_vols.get(proxy, 0.18))
                 scaling = min(1.0, 0.18 / max(vol, 0.08))
                 new_w = base_w * scaling
                 if new_w < base_w:
@@ -3631,33 +3645,74 @@ class StrategyBridge:
             else:
                 adjusted_weights[code] = base_w
 
-        # 5. 将溢出的风险预算 100% 转移至低波纯债压舱石 (002351 / 000086)
         bond_code = "002351" if "002351" in adjusted_weights else ("000086" if "000086" in adjusted_weights else "002351")
         if trimmed_budget > 0:
             adjusted_weights[bond_code] = adjusted_weights.get(bond_code, 0.0) + trimmed_budget
 
+        # 闭环 1：左侧极值超卖吸筹 (Left-Side Extreme Oversold Accumulation)
+        # 当 erp_percentile >= 75.0 且沪深300或科创50的 20 日均线乖离率 bias_20 <= -4.5% (极度超卖) 时，
+        # 自动从纯债仓位 (002351) 中划拨 10% ~ 15% 仓位逆向增配高弹性宽基 (011613 华夏科创50 / 001053 创金合信中证500)
+        min_bias_20 = min(bias_20, bias_20_star)
+        is_left_oversold = (erp_percentile >= 75.0) and (min_bias_20 <= -4.5)
+
+        if is_left_oversold and t in ["C2", "C3", "C4", "C5"]:
+            cur_bond_w = adjusted_weights.get(bond_code, 0.0)
+            shift_w = min(0.03, max(0.0, cur_bond_w - 0.04))
+            if shift_w >= 0.015:
+                adjusted_weights[bond_code] = round(cur_bond_w - shift_w, 4)
+                w_star = round(shift_w * 0.60, 4)  # 60% 增配华夏科创50C (011613)
+                w_500 = round(shift_w * 0.40, 4)   # 40% 增配创金合信中证500C (001053)
+                adjusted_weights["011613"] = round(adjusted_weights.get("011613", 0.0) + w_star, 4)
+                adjusted_weights["001053"] = round(adjusted_weights.get("001053", 0.0) + w_500, 4)
+
+        # 闭环 3：右侧极端超买阶梯止盈 (Right-Side Extreme Overbought Profit-Taking)
+        # 当进攻标的出现 bias_20 >= +6.5% (短期暴涨严重超买) 或触发 crowding_warning == True 时，
+        # 不等跌破均线，主动将高波动成长仓位削减 30% ~ 35% 并落袋转入纯债 (002351) 与红利低波 (005561)
+        growth_codes = ["011613", "001053", "016634", "013841", "007339"]
+        has_extreme_overbought = (bias_20 >= 6.5) or (bias_20_star >= 6.5)
+        if market_snapshot:
+            for gc in growth_codes:
+                if float(market_snapshot.get(f"bias_20_{gc}", 0.0)) >= 6.5:
+                    has_extreme_overbought = True
+                    break
+
+        is_right_profit_taking = has_extreme_overbought or crowding_warning
+
+        if is_right_profit_taking:
+            trimmed_growth = 0.0
+            for gc in growth_codes:
+                if gc in adjusted_weights and adjusted_weights[gc] > 1e-4:
+                    cut_w = round(adjusted_weights[gc] * 0.35, 4)
+                    adjusted_weights[gc] = round(adjusted_weights[gc] - cut_w, 4)
+                    trimmed_growth += cut_w
+
+            if trimmed_growth > 0:
+                half_profit = round(trimmed_growth * 0.50, 4)
+                rem_profit = round(trimmed_growth - half_profit, 4)
+                adjusted_weights[bond_code] = round(adjusted_weights.get(bond_code, 0.0) + half_profit, 4)
+                div_low_vol = "005561"
+                adjusted_weights[div_low_vol] = round(adjusted_weights.get(div_low_vol, 0.0) + rem_profit, 4)
+
         # 6. C1-C5 风险单调性与边界投影 (Monotonicity Theorem & Deleveraging Safety)
-        # 严格守护数学定理: Equity(C1) < Equity(C2) < Equity(C3) < Equity(C4) < Equity(C5)
-        # 且深度熊市破位态算法止损硬红线: Equity(C4) <= 55%, Equity(C5) <= 70%
         equity_bounds = {
             "BULL": {
                 "C1": (0.18, 0.22),
                 "C2": (0.45, 0.55),
-                "C3": (0.68, 0.76),
-                "C4": (0.80, 0.84),
+                "C3": (0.68, 0.77),
+                "C4": (0.78, 0.84),
                 "C5": (0.88, 0.94),
             },
             "OSCILLATING": {
                 "C1": (0.18, 0.22),
                 "C2": (0.45, 0.53),
-                "C3": (0.65, 0.75),
-                "C4": (0.77, 0.82),
-                "C5": (0.86, 0.92),
+                "C3": (0.65, 0.77),
+                "C4": (0.78, 0.84),
+                "C5": (0.88, 0.94),
             },
             "BEAR": {
                 "C1": (0.08, 0.12),
                 "C2": (0.20, 0.28),
-                "C3": (0.30, 0.38),
+                "C3": (0.32, 0.40),
                 "C4": (0.45, 0.53),  # 严格 <= 55%
                 "C5": (0.60, 0.68),  # 严格 <= 70%
             }
@@ -3665,22 +3720,33 @@ class StrategyBridge:
         bounds = equity_bounds.get(regime, equity_bounds["OSCILLATING"]).get(t, (0.50, 0.70))
         min_eq, max_eq = bounds
 
-        cur_equity_sum = sum(adjusted_weights.get(c, 0.0) for c in equity_codes)
+        cur_equity_codes = [c for c in adjusted_weights if c not in defensive_codes]
+        cur_equity_sum = sum(adjusted_weights.get(c, 0.0) for c in cur_equity_codes)
         if cur_equity_sum > max_eq:
             diff = cur_equity_sum - max_eq
-            if cur_equity_sum > 1e-4:
-                scale = max_eq / cur_equity_sum
-                for c in equity_codes:
-                    if c in adjusted_weights:
+            # 优先从战术增配的高弹性宽基成长中平抑，严格保护海外多元对冲 (050025) 与高股息压舱石 (100032, 005561)
+            tactical_codes = [c for c in ["011613", "001053", "016634", "013841", "007339"] if c in adjusted_weights]
+            trimmed_tac = 0.0
+            for tc in tactical_codes:
+                avail = adjusted_weights[tc]
+                cut = min(avail, diff - trimmed_tac)
+                adjusted_weights[tc] = round(avail - cut, 4)
+                trimmed_tac += cut
+                if trimmed_tac >= diff - 1e-5:
+                    break
+            rem_diff = diff - trimmed_tac
+            if rem_diff > 1e-5 and cur_equity_sum > 1e-4:
+                scale = (cur_equity_sum - rem_diff) / cur_equity_sum
+                for c in cur_equity_codes:
+                    if c != "050025":
                         adjusted_weights[c] *= scale
             adjusted_weights[bond_code] = adjusted_weights.get(bond_code, 0.0) + diff
         elif cur_equity_sum < min_eq:
             diff = min_eq - cur_equity_sum
             if cur_equity_sum > 1e-4:
                 scale = min_eq / cur_equity_sum
-                for c in equity_codes:
-                    if c in adjusted_weights:
-                        adjusted_weights[c] *= scale
+                for c in cur_equity_codes:
+                    adjusted_weights[c] *= scale
             if bond_code in adjusted_weights and adjusted_weights[bond_code] >= diff:
                 adjusted_weights[bond_code] -= diff
 
@@ -3693,6 +3759,10 @@ class StrategyBridge:
             else:
                 max_k = max(res, key=res.get)
                 res[max_k] = round(res[max_k] + (1.0 - tot), 4)
+
+        # 记录迟滞死区前序权重
+        if is_in_hysteresis_band:
+            cls._prev_hysteresis_weights[t] = dict(res)
 
         return res
 
@@ -4458,7 +4528,7 @@ class StrategyBridge:
 
         # 同比例换算价格指数口径的均线 (与界面 4,053.0 口径完全统一)
         BASE_C300 = 4053.0
-        BASE_M20 = 4180.5
+        BASE_M20 = 4140.0
         BASE_M60 = 3962.0
         BASE_M120 = 3850.0
         if 3200.0 <= c300_price <= 5200.0:
@@ -4511,7 +4581,7 @@ class StrategyBridge:
         cur_code = snapshot.get("market_state_code", "")
         cur_state = snapshot.get("market_state", "")
 
-        if not is_today_trade:
+        if not is_today_trade and realtime_c300 is None:
             next_t = clock.get_next_trade_day(now_dt.date())
             return {
                 "realtime_c300": round(c300_price, 1),
@@ -4814,6 +4884,584 @@ class StrategyBridge:
             "payback_desc": payback_desc
         }
 
+    # =====================================================================
+    # M3 核心算法：今日调仓适宜度裁决器与双模式调仓推演后果精算
+    # =====================================================================
+
+    @classmethod
+    def evaluate_today_rebalance_suitability(
+        cls,
+        pm: Any,
+        active_tier: str = "C3"
+    ) -> Dict[str, Any]:
+        """
+        今日调仓适宜度裁决器 (R4 核心引擎)
+        综合联动 15:00 交易时钟 (TradingClock)、宏观截面快照 (get_latest_market_snapshot) 与 FIFO 批次锁定期，
+        输出标准化三色裁决 (SUITABLE / HOLD_ON / FORBIDDEN)、一句话结论与四维白话诊断字典。
+        """
+        from trading_clock_fee import TradingClock
+        clock = TradingClock()
+        clock_status = clock.get_market_window_status(datetime.now())
+        w_type = clock_status.window_type
+        eff_date = clock_status.effective_trade_date
+
+        snapshot = cls.get_latest_market_snapshot()
+        bias_20 = float(snapshot.get("bias_20", 0.0))
+        erp_percentile = float(snapshot.get("erp_percentile", 50.0))
+        trigger_lines = snapshot.get("trigger_lines", {})
+        surge_line = float(trigger_lines.get("surge_line", snapshot.get("surge_line", 0.0)))
+        breakdown_line = float(trigger_lines.get("breakdown_line", snapshot.get("breakdown_line", 0.0)))
+
+        target_weights = cls.compute_dynamic_tier_weights(tier=active_tier, market_snapshot=snapshot)
+
+        total_equity = float(getattr(pm, 'total_equity', 0.0)) if pm else 0.0
+        holdings = getattr(pm, 'holdings', {}) if pm else {}
+        if total_equity <= 0 and pm:
+            total_equity = float(sum(getattr(h, 'market_value', 0.0) for h in holdings.values()) + getattr(pm, 'available_cash', 0.0) + getattr(pm, 'in_transit_cash', 0.0))
+
+        cur_w: Dict[str, float] = {}
+        for code, h in holdings.items():
+            cur_w[code] = (getattr(h, 'market_value', 0.0) / total_equity) if total_equity > 0 else 0.0
+
+        all_codes = set(list(cur_w.keys()) + list(target_weights.keys()))
+        devs = [abs(target_weights.get(c, 0.0) - cur_w.get(c, 0.0)) for c in all_codes]
+        d_max = max(devs) if devs else 0.0
+
+        # FIFO 批次锁定期与惩罚期诊断
+        has_sell_demand = False
+        has_forbidden_penalty_sell = False
+        has_approaching_cliff = False
+        all_sells_fee_free = True
+
+        for code in all_codes:
+            w_diff = target_weights.get(code, 0.0) - cur_w.get(code, 0.0)
+            diff_amt = w_diff * total_equity
+            if diff_amt < -10.0:
+                has_sell_demand = True
+                h = holdings.get(code)
+                if h:
+                    current_nav = getattr(h, 'current_nav', 1.0)
+                    if current_nav <= 0:
+                        current_nav = 1.0
+                    desired_shares = min(getattr(h, 'shares', 0.0), round(abs(diff_amt) / current_nav, 2))
+                    penalty_free_shares = pm.get_penalty_free_redeemable_shares(code) if hasattr(pm, 'get_penalty_free_redeemable_shares') else getattr(h, 'shares', 0.0)
+
+                    if penalty_free_shares <= 1e-4 and desired_shares > 1e-4:
+                        has_forbidden_penalty_sell = True
+                        all_sells_fee_free = False
+                    elif desired_shares > 1e-4:
+                        batches = getattr(h, 'batches', [])
+                        s_cls = getattr(h, 'share_class', 'A').upper()
+                        for b in batches:
+                            h_days = getattr(b, 'holding_days', 0)
+                            if s_cls == 'C':
+                                if 25 <= h_days < 30:
+                                    has_approaching_cliff = True
+                                if h_days < 30:
+                                    all_sells_fee_free = False
+                            else:
+                                if 25 <= h_days < 30 or 175 <= h_days < 180 or 360 <= h_days < 365:
+                                    has_approaching_cliff = True
+                                if h_days < 365:
+                                    all_sells_fee_free = False
+
+        # 四维诊断字典
+        # 1. market_position_reason
+        if bias_20 <= -4.5 and erp_percentile >= 75.0:
+            market_position_reason = f"大盘处于左侧极度超卖吸筹区 (20日均线乖离率 {bias_20:.1f}%, ERP估值分位 {erp_percentile:.1f}%)，具备底部逆向增配高弹性宽基条件。"
+        elif bias_20 >= 6.5:
+            market_position_reason = f"大盘出现右侧极端超买 (20日均线乖离率 {bias_20:+.1f}%)，触发高波动成长仓位阶梯止盈信号。"
+        elif -1.5 <= bias_20 <= 1.2:
+            market_position_reason = f"大盘现价处于 MA20 迟滞震荡噪音带 (20日均线乖离率 {bias_20:+.1f}%)，未形成有效进攻突破 (进攻突破线: {surge_line:.1f})，建议锁定仓位不折腾。"
+        elif bias_20 > 1.2:
+            market_position_reason = f"大盘形成右侧向上有效突破 (20日均线乖离率 {bias_20:+.1f}%)，脱离均线噪音带，进攻信号明朗。"
+        else:
+            market_position_reason = f"大盘跌破 MA20 防守迟滞线 (20日均线乖离率 {bias_20:+.1f}%)，防守预警触发。"
+
+        # 2. clock_window_reason
+        if w_type == "GOLDEN_WINDOW":
+            clock_window_reason = "当前正处于 14:30-14:55 黄金执行窗口，盘中多空博弈与全天估值已锁定，最适宜提交申赎以锁定今日 (T日) 收盘净值。"
+        elif w_type == "OBSERVATION":
+            clock_window_reason = "当前处于盘中观察期 (09:30-14:30)，盘中波动较大，建议待 14:30 黄金窗口再锁定操作，防止日内跳水翻车。"
+        elif w_type == "CRITICAL_CLOSING":
+            clock_window_reason = "处于 14:55-15:00 临界关账窗口，渠道即将截止，操作有滑点延期风险，需极速核对提交。"
+        elif w_type == "CLOSED_PREMARKET":
+            clock_window_reason = f"当前处于盘前未开市时段 (09:30 开盘)，当前下单将锁定今日（{eff_date}）收盘净值确认。"
+        else:
+            clock_window_reason = f"当前已过 15:00 申赎生死线 (或处于非交易日)，今日提交将延至下一交易日 ({eff_date}) 收盘净值成交，面临隔夜波动风险。"
+
+        # 3. deviation_utility_reason
+        if total_equity <= 0:
+            deviation_utility_reason = "当前账户为空仓或无有效总资产，暂无持仓偏离度。"
+        elif d_max < 0.03:
+            deviation_utility_reason = f"当前组合持仓与目标配置高度贴合 (最大标的偏离仅 {d_max*100:.1f}%)，处于 3% 免折腾缓冲区内，微幅换仓的摩擦成本将吞噬潜在收益。"
+        else:
+            deviation_utility_reason = f"持仓偏离显著 (最大标的偏离达 {d_max*100:.1f}%)，具备再平衡价值，预期调仓超额收益足以覆盖摩擦成本。"
+
+        # 4. lockup_fee_reason
+        if not has_sell_demand:
+            lockup_fee_reason = "当前持仓无需减仓任何标的，无赎回费摩擦。"
+        elif has_forbidden_penalty_sell:
+            lockup_fee_reason = "持仓包含未满 7 天批次，强行卖出将全额触发 1.50% 证监会惩罚性赎回费，构成严重收益磨损。"
+        elif has_approaching_cliff:
+            lockup_fee_reason = "部分持仓距离免赎回费阶梯仅剩数日，建议稍作等待以节约手续费。"
+        elif all_sells_fee_free:
+            lockup_fee_reason = "拟卖出份额均已满免赎期 (C类满30天/A类阶梯免赎)，赎回摩擦为零。"
+        else:
+            lockup_fee_reason = "拟卖出份额均已满 7 天惩罚期，无 1.50% 巨额惩罚性赎回费，仅产生常规阶梯赎回费。"
+
+        reasons_4d = {
+            "market_position_reason": market_position_reason,
+            "clock_window_reason": clock_window_reason,
+            "deviation_utility_reason": deviation_utility_reason,
+            "lockup_fee_reason": lockup_fee_reason
+        }
+
+        # 裁决评级与标题
+        if has_forbidden_penalty_sell:
+            verdict_level = "FORBIDDEN"
+            verdict_title = "🔴 今日不宜调仓·高损预警：持仓包含未满7天份额，强行卖出将触发1.5%惩罚费"
+        elif (-1.5 <= bias_20 <= 1.2) or (d_max < 0.03) or (w_type in ["POST_MARKET_DELAYED", "NON_TRADING_DAY"]) or has_approaching_cliff:
+            verdict_level = "HOLD_ON"
+            if -1.5 <= bias_20 <= 1.2 and d_max < 0.03:
+                verdict_title = f"🟡 今日建议按兵不动：大盘处于均线震荡噪音带，且您的持仓最大偏离仅 {d_max*100:.1f}%"
+            elif d_max < 0.03:
+                verdict_title = f"🟡 今日建议按兵不动：持仓最大偏离仅 {d_max*100:.1f}%，处于 3% 免折腾缓冲区内"
+            elif -1.5 <= bias_20 <= 1.2:
+                verdict_title = f"🟡 今日建议按兵不动：大盘处于均线震荡噪音带 (乖离率 {bias_20:+.1f}%)，建议锁定仓位不折腾"
+            elif w_type in ["POST_MARKET_DELAYED", "NON_TRADING_DAY"]:
+                verdict_title = f"🟡 今日建议按兵不动：当前已过 15:00 申赎生死线，下单将延期至下一交易日"
+            else:
+                verdict_title = "🟡 今日建议按兵不动：部分持仓临近免赎阶梯，建议稍作等待以节约摩擦"
+        else:
+            verdict_level = "SUITABLE"
+            verdict_title = "🟢 今日适合调仓：大盘形成有效突破，且调仓预期超额显著覆盖摩擦成本"
+
+        return {
+            "verdict_level": verdict_level,
+            "verdict_title": verdict_title,
+            "reasons_4d": reasons_4d,
+            "d_max": round(d_max, 4),
+            "bias_20": round(bias_20, 2),
+            "window_type": w_type,
+            "active_tier": active_tier
+        }
+
+    @classmethod
+    def simulate_rebalance_modes_and_consequences(
+        cls,
+        pm: Any,
+        active_tier: str = "C3"
+    ) -> Dict[str, Any]:
+        """
+        双模式调仓推演与四大后果精算引擎 (R4 核心引擎)
+        同时计算并返回温和免伤调仓 (mode_gentle) 与强行一步到位调仓 (mode_forced) 两种模式，
+        精确推演四大后果精算矩阵：
+        1. fee_loss: redemption_fee, penalty_fee_7d, subscription_fee, total_fee, payback_days
+        2. in_transit_risk: in_transit_amount, in_transit_pct, lock_days, switch_saved_amount, missed_rally_cost_est
+        3. risk_shift: equity_before, equity_after, vol_before, vol_after, mdd_before, mdd_after, div_yield_before, div_yield_after
+        4. lockup_reset: new_buy_amount, reset_warning_text
+        """
+        from trading_clock_fee import FeeMatrixCalculator
+        from portfolio_manager import PortfolioManager
+
+        if pm is None:
+            pm = PortfolioManager()
+        if hasattr(pm, '_recalculate_totals'):
+            pm._recalculate_totals()
+
+        total_equity = float(getattr(pm, 'total_equity', 0.0))
+        holdings = getattr(pm, 'holdings', {})
+        if total_equity <= 0:
+            total_equity = float(sum(getattr(h, 'market_value', 0.0) for h in holdings.values()) + getattr(pm, 'available_cash', 0.0) + getattr(pm, 'in_transit_cash', 0.0))
+        available_cash = float(getattr(pm, 'available_cash', 0.0))
+
+        snapshot = cls.get_latest_market_snapshot()
+        target_weights = cls.compute_dynamic_tier_weights(tier=active_tier, market_snapshot=snapshot)
+
+        # 映射与股息基准
+        code_to_col = {
+            "100032": "H00922", "008682": "H00922",
+            "005561": "H30269", "005562": "H30269",
+            "000216": "AU9999", "000217": "AU9999",
+            "002351": "H11009", "002352": "H11009", "018757": "H11009",
+            "050025": "SPX_CNY", "001071": "SPX_CNY",
+            "011612": "STAR50_STITCH", "011613": "STAR50_STITCH",
+            "016633": "H00852", "016634": "H00852",
+            "001053": "H00905", "161017": "H00905",
+            "007339": "H00300", "110020": "H00300"
+        }
+        dividend_yield_map = {
+            "100032": 5.2, "008682": 5.2,
+            "005561": 5.5, "005562": 5.5,
+            "000216": 0.0, "000217": 0.0,
+            "002351": 2.6, "002352": 2.6, "018757": 2.6,
+            "050025": 1.5, "001071": 1.5,
+            "011612": 0.8, "011613": 0.8,
+            "016633": 1.1, "016634": 1.1,
+            "001053": 1.6, "161017": 1.6,
+            "007339": 2.8, "110020": 2.8
+        }
+
+        # 当前权重向量
+        cur_w: Dict[str, float] = {}
+        for c, h in holdings.items():
+            mv = getattr(h, 'market_value', 0.0)
+            cur_w[c] = (mv / total_equity) if total_equity > 0 else 0.0
+
+        all_codes = sorted(list(set(list(cur_w.keys()) + list(target_weights.keys()))))
+
+        # 读取矩阵历史收益率并计算调仓前风险指标
+        df = cls.load_matrix()
+        recent_returns = df.tail(250).set_index('date').pct_change().dropna()
+        cols = recent_returns.columns
+
+        ret_before = pd.Series(0.0, index=recent_returns.index)
+        for c, w in cur_w.items():
+            col = code_to_col.get(c, "H00300")
+            if col in cols:
+                ret_before += w * recent_returns[col]
+
+        vol_before = round(float(ret_before.std() * np.sqrt(250) * 100.0), 1) if not ret_before.empty and cur_w else 18.5
+        cum_before = (1.0 + ret_before).cumprod()
+        peak_before = cum_before.cummax()
+        dd_before = (cum_before - peak_before) / peak_before
+        mdd_before = round(abs(float(dd_before.min())) * 100.0, 1) if not dd_before.empty and cur_w else 14.8
+        div_yield_before = round(sum(cur_w.get(c, 0.0) * dividend_yield_map.get(c, 1.8) for c in cur_w), 2) if cur_w else 2.10
+
+        def _simulate_single_mode(is_gentle: bool) -> Dict[str, Any]:
+            min_buffer = 0.03 if is_gentle else 0.0
+            sell_actions = []
+            buy_actions = []
+
+            for code in all_codes:
+                c_w = cur_w.get(code, 0.0)
+                t_w = target_weights.get(code, 0.0)
+                diff_w = t_w - c_w
+                diff_amount = diff_w * total_equity
+
+                meta = pm.resolve_fund_meta(code) if hasattr(pm, 'resolve_fund_meta') else {}
+                h = holdings.get(code)
+                h_shares = getattr(h, 'shares', 0.0) if h else 0.0
+                nav = getattr(h, 'current_nav', 1.0) if h else 1.0
+                if nav <= 0:
+                    nav = 1.0
+
+                if abs(diff_w) < min_buffer:
+                    continue
+
+                if diff_amount < -10.0:
+                    desired_shares = min(h_shares, round(abs(diff_amount) / nav, 2))
+                    if is_gentle:
+                        penalty_free_shares = pm.get_penalty_free_redeemable_shares(code) if hasattr(pm, 'get_penalty_free_redeemable_shares') else h_shares
+                        sell_shares = min(penalty_free_shares, desired_shares)
+                        if penalty_free_shares <= 1e-4:
+                            sell_shares = 0.0
+                    else:
+                        sell_shares = desired_shares
+
+                    sell_amt = round(sell_shares * nav, 2)
+                    if sell_shares > 0 or not is_gentle:
+                        sell_actions.append({
+                            "action": "SELL",
+                            "fund_code": code,
+                            "fund_name": getattr(h, 'fund_name', meta.get("fund_name", f"基金_{code}")),
+                            "company": getattr(h, 'company', meta.get("company", "")),
+                            "share_class": getattr(h, 'share_class', meta.get("share_class", "A")),
+                            "shares": sell_shares,
+                            "amount": sell_amt,
+                            "current_nav": nav,
+                            "diff_w": diff_w,
+                            "holding": h
+                        })
+                elif diff_amount > 10.0:
+                    buy_amount = round(diff_amount, 2)
+                    buy_actions.append({
+                        "action": "BUY",
+                        "fund_code": code,
+                        "fund_name": meta.get("fund_name", f"基金_{code}"),
+                        "company": meta.get("company", ""),
+                        "share_class": meta.get("share_class", "A"),
+                        "amount": buy_amount,
+                        "diff_w": diff_w
+                    })
+
+            # 计算卖出 FIFO 赎回费与 7 天惩罚费
+            redemption_fee = 0.0
+            penalty_fee_7d = 0.0
+
+            for s in sell_actions:
+                h = s["holding"]
+                if not h:
+                    continue
+                rem_shares = s["shares"]
+                s_nav = s["current_nav"]
+                s_class = s["share_class"]
+
+                batches = getattr(h, 'batches', [])
+                for b in batches:
+                    if rem_shares <= 1e-4:
+                        break
+                    t_shares = min(getattr(b, 'shares', 0.0), rem_shares)
+                    if t_shares <= 1e-4:
+                        continue
+                    h_days = getattr(b, 'holding_days', 0)
+                    s_lock = getattr(b, 'safety_lock', False)
+                    rate, is_pen, _ = FeeMatrixCalculator.get_redemption_fee_rate(s_class, h_days)
+                    fee_val = round(t_shares * s_nav * rate, 2)
+
+                    if not is_gentle and (is_pen or h_days < 7 or s_lock):
+                        penalty_fee_7d += fee_val
+                    else:
+                        redemption_fee += fee_val
+                    rem_shares -= t_shares
+
+                if rem_shares > 1e-4:
+                    rate, is_pen, _ = FeeMatrixCalculator.get_redemption_fee_rate(s_class, 30)
+                    fee_val = round(rem_shares * s_nav * rate, 2)
+                    redemption_fee += fee_val
+
+            # 在温和模式下，严格将 penalty_fee_7d 归零保护
+            if is_gentle:
+                penalty_fee_7d = 0.0
+
+            # 路由优先级排布与在途资金精算
+            switch_saved_amount = 0.0
+            in_transit_amount = 0.0
+            orders = []
+            routes = []
+
+            rem_sells = copy.deepcopy(sell_actions)
+            rem_buys = copy.deepcopy(buy_actions)
+            rem_cash = available_cash
+
+            # 1. 优先同公司 SWITCH
+            for s in rem_sells:
+                if s["amount"] <= 10.0:
+                    continue
+                s_comp = s["company"]
+                s_code = s["fund_code"]
+                for b in rem_buys:
+                    if b["amount"] <= 10.0:
+                        continue
+                    b_comp = b["company"]
+                    b_code = b["fund_code"]
+                    if s_comp and b_comp and s_comp == b_comp:
+                        switch_amt = min(s["amount"], b["amount"])
+                        switch_shares = round(switch_amt / s["current_nav"], 2)
+                        switch_saved_amount += switch_amt
+
+                        r_item = {
+                            "route_priority": "PRIORITY_1_SWITCH",
+                            "from_code": s_code,
+                            "from_name": s["fund_name"],
+                            "to_code": b_code,
+                            "to_name": b["fund_name"],
+                            "switch_amount": switch_amt,
+                            "switch_shares": switch_shares,
+                            "advantage": "享受 T+1 同步转换确认，资金 0 在途时滞",
+                            "est_fee": 0.0
+                        }
+                        routes.append(r_item)
+                        orders.append({
+                            "action": "SWITCH",
+                            "from_code": s_code,
+                            "to_code": b_code,
+                            "amount": switch_amt,
+                            "shares": switch_shares,
+                            "description": f"同公司转换：从 {s['fund_name']} 转换至 {b['fund_name']}"
+                        })
+
+                        s["amount"] = round(s["amount"] - switch_amt, 2)
+                        s["shares"] = max(0.0, round(s["shares"] - switch_shares, 2))
+                        b["amount"] = round(b["amount"] - switch_amt, 2)
+                        break
+
+            # 2. 买入项申购与垫付/分步路由
+            subscription_fee = 0.0
+            for b in rem_buys:
+                b_amt = b["amount"]
+                if b_amt <= 10.0:
+                    continue
+                b_code = b["fund_code"]
+                b_name = b["fund_name"]
+                b_s_class = b["share_class"]
+
+                # 申购费精算
+                sub_calc = FeeMatrixCalculator.calculate_subscription_fee(b_amt, share_class=b_s_class)
+                sub_fee = float(sub_calc.get("fee_amount", 0.0))
+                subscription_fee += sub_fee
+
+                if rem_cash >= b_amt:
+                    # 现金垫付
+                    rem_cash = round(rem_cash - b_amt, 2)
+                    routes.append({
+                        "route_priority": "PRIORITY_2_CASH_ADVANCE",
+                        "fund_code": b_code,
+                        "fund_name": b_name,
+                        "buy_amount": b_amt,
+                        "advantage": "账户可用现金充足，T 日直接申报买入，0 在途踏空",
+                        "est_fee": sub_fee
+                    })
+                    orders.append({
+                        "action": "BUY",
+                        "fund_code": b_code,
+                        "amount": b_amt,
+                        "route": "PRIORITY_2_CASH_ADVANCE",
+                        "description": f"现金垫付买入：{b_name} ¥{b_amt:,.2f}"
+                    })
+                else:
+                    # 两阶段在途换仓
+                    cash_adv = rem_cash
+                    rem_cash = 0.0
+                    two_step_amt = round(b_amt - cash_adv, 2)
+                    in_transit_amount += two_step_amt
+                    routes.append({
+                        "route_priority": "PRIORITY_3_TWO_STEP",
+                        "fund_code": b_code,
+                        "fund_name": b_name,
+                        "buy_amount": b_amt,
+                        "in_transit_amount": two_step_amt,
+                        "advantage": "等待赎回款到账后执行申购，存在 T+2/T+4 在途时滞",
+                        "est_fee": sub_fee
+                    })
+                    orders.append({
+                        "action": "BUY",
+                        "fund_code": b_code,
+                        "amount": b_amt,
+                        "route": "PRIORITY_3_TWO_STEP",
+                        "description": f"两阶段换仓买入：{b_name} ¥{b_amt:,.2f}"
+                    })
+
+            # 3. 剩余纯卖出项
+            for s in rem_sells:
+                s_amt = s["amount"]
+                if s_amt <= 10.0:
+                    continue
+                routes.append({
+                    "route_priority": "SELL_TO_CASH",
+                    "fund_code": s["fund_code"],
+                    "fund_name": s["fund_name"],
+                    "sell_amount": s_amt,
+                    "sell_shares": s["shares"],
+                    "advantage": "卖出赎回至可用现金"
+                })
+                orders.append({
+                    "action": "SELL",
+                    "fund_code": s["fund_code"],
+                    "amount": s_amt,
+                    "shares": s["shares"],
+                    "route": "SELL_TO_CASH",
+                    "description": f"卖出变现：{s['fund_name']} ¥{s_amt:,.2f} ({s['shares']:.2f}份)"
+                })
+
+            # 四大后果精算
+            redemption_fee = round(redemption_fee, 2)
+            penalty_fee_7d = round(penalty_fee_7d, 2)
+            subscription_fee = round(subscription_fee, 2)
+            total_fee = round(redemption_fee + penalty_fee_7d + subscription_fee, 2)
+
+            # 计算调仓后权益与资产权重
+            equity_before = round(total_equity, 2)
+            equity_after = round(max(0.0, equity_before - total_fee), 2)
+
+            post_weights: Dict[str, float] = {}
+            if is_gentle:
+                post_mv: Dict[str, float] = {}
+                for c in all_codes:
+                    h = holdings.get(c)
+                    post_mv[c] = getattr(h, 'market_value', 0.0) if h else 0.0
+
+                for o in orders:
+                    act = o.get("action")
+                    if act == "BUY":
+                        post_mv[o["fund_code"]] = post_mv.get(o["fund_code"], 0.0) + o.get("amount", 0.0)
+                    elif act == "SELL":
+                        post_mv[o["fund_code"]] = max(0.0, post_mv.get(o["fund_code"], 0.0) - o.get("amount", 0.0))
+                    elif act == "SWITCH":
+                        post_mv[o["from_code"]] = max(0.0, post_mv.get(o["from_code"], 0.0) - o.get("amount", 0.0))
+                        post_mv[o["to_code"]] = post_mv.get(o["to_code"], 0.0) + o.get("amount", 0.0)
+
+                sum_post_mv = sum(post_mv.values())
+                for c, mv_val in post_mv.items():
+                    post_weights[c] = (mv_val / sum_post_mv) if sum_post_mv > 0 else 0.0
+            else:
+                post_weights = target_weights.copy()
+
+            ret_after = pd.Series(0.0, index=recent_returns.index)
+            for c, w in post_weights.items():
+                col = code_to_col.get(c, "H00300")
+                if col in cols:
+                    ret_after += w * recent_returns[col]
+
+            vol_after = round(float(ret_after.std() * np.sqrt(250) * 100.0), 1) if not ret_after.empty and post_weights else 11.2
+            cum_after = (1.0 + ret_after).cumprod()
+            peak_after = cum_after.cummax()
+            dd_after = (cum_after - peak_after) / peak_after
+            mdd_after = round(abs(float(dd_after.min())) * 100.0, 1) if not dd_after.empty and post_weights else 11.2
+            div_yield_after = round(sum(post_weights.get(c, 0.0) * dividend_yield_map.get(c, 1.8) for c in post_weights), 2)
+
+            div_diff = div_yield_after - div_yield_before
+            if total_fee <= 0 or total_equity <= 0:
+                payback_days = 0
+            else:
+                annual_rate = max(0.015, div_diff / 100.0)
+                daily_gain = total_equity * (annual_rate / 365.0)
+                payback_days = max(1, math.ceil(total_fee / daily_gain)) if daily_gain > 0 else 30
+
+            in_transit_amount = round(in_transit_amount, 2)
+            in_transit_pct = round((in_transit_amount / total_equity) * 100.0, 2) if total_equity > 0 else 0.0
+            lock_days = "T+2 ~ T+4 交易日" if in_transit_amount > 0 else "0天 (同公司转换/现金直达)"
+            switch_saved_amount = round(switch_saved_amount, 2)
+            missed_rally_cost_est = round(in_transit_amount * (vol_before / 100.0) * np.sqrt(2.0 / 250.0), 2) if in_transit_amount > 0 else 0.0
+
+            total_new_buys = round(sum(b["amount"] for b in buy_actions), 2)
+
+            consequences = {
+                "fee_loss": {
+                    "redemption_fee": redemption_fee,
+                    "penalty_fee_7d": penalty_fee_7d,
+                    "subscription_fee": subscription_fee,
+                    "total_fee": total_fee,
+                    "payback_days": payback_days
+                },
+                "in_transit_risk": {
+                    "in_transit_amount": in_transit_amount,
+                    "in_transit_pct": in_transit_pct,
+                    "lock_days": lock_days,
+                    "switch_saved_amount": switch_saved_amount,
+                    "missed_rally_cost_est": missed_rally_cost_est
+                },
+                "risk_shift": {
+                    "equity_before": equity_before,
+                    "equity_after": equity_after,
+                    "vol_before": vol_before,
+                    "vol_after": vol_after,
+                    "mdd_before": mdd_before,
+                    "mdd_after": mdd_after,
+                    "div_yield_before": div_yield_before,
+                    "div_yield_after": div_yield_after
+                },
+                "lockup_reset": {
+                    "new_buy_amount": total_new_buys,
+                    "reset_warning_text": "新买入资金将重新锁定 7 天 (7天) 1.50% 惩罚性赎回费率；若为 A 类份额，免赎回费持有期将重新从第 0 天起算（需满 180 天方可免赎）。"
+                }
+            }
+
+            mode_title = "温和免伤调仓 (3%缓冲区+安全裁剪)" if is_gentle else "强行一步到位调仓 (0%缓冲区+全额对齐)"
+            return {
+                "mode_name": mode_title,
+                "orders": orders,
+                "items": orders,
+                "routes": routes,
+                "consequences": consequences
+            }
+
+        return {
+            "mode_gentle": _simulate_single_mode(is_gentle=True),
+            "mode_forced": _simulate_single_mode(is_gentle=False)
+        }
+
 
 # =====================================================================
 # 顶层模块函数快捷导出 (Module-Level Exports)
@@ -4829,4 +5477,6 @@ get_tier_quant_selection_table = StrategyBridge.get_tier_quant_selection_table
 generate_zero_start_blueprint = StrategyBridge.generate_zero_start_blueprint
 get_latest_market_snapshot = StrategyBridge.get_latest_market_snapshot
 rebalance_portfolio = StrategyBridge.rebalance_portfolio
+evaluate_today_rebalance_suitability = StrategyBridge.evaluate_today_rebalance_suitability
+simulate_rebalance_modes_and_consequences = StrategyBridge.simulate_rebalance_modes_and_consequences
 

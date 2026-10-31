@@ -484,6 +484,31 @@ class DataLoader:
         return ewma_vol_ann, corr_matrix
 
 
+    # 资产份额类别映射表 (用于 7d/30d/180d 阶梯赎回费精确核算)
+    SHARE_CLASS_MAP: Dict[str, str] = {
+        'STAR50_STITCH': 'C',
+        'H00852': 'C',
+        'H00905': 'C',
+        'H00300': 'C',
+        '011613': 'C',
+        '016634': 'C',
+        '001053': 'C',
+        '007339': 'C',
+        '013841': 'C',
+        '018757': 'C',
+        'H00922': 'C',
+        'H30269': 'C',
+        'AU9999': 'C',
+        'H11009': 'C',
+        'SPX_CNY': 'C',
+        '930609': 'C',
+        '100032': 'A',
+        '005561': 'A',
+        '000216': 'A',
+        '002351': 'A',
+        '050025': 'A'
+    }
+
     @staticmethod
     def simulate_execution(
         weights_df: pd.DataFrame,
@@ -496,7 +521,11 @@ class DataLoader:
         """
         高保真真实交易执行模拟算子：
         - T+1 确认机制：T 日收盘生成的权重，在 T+1 日以收盘价完成调仓
-        - 7 天惩罚赎回锁定期：买入未满 7 个自然日赎回，扣除 1.50% 惩罚费
+        - 真实阶梯赎回锁定期：
+          * 持有天数 < 7 天：1.50%（严厉惩罚性费率）
+          * 持有天数 7 ~ 29 天：0.50%（C类或部分指数A类） / 0.75%（A类常规）
+          * 持有天数 30 ~ 179 天：0.50%（A类常规，C类免赎 0.00%）
+          * 持有天数 >= 180 天：0.00%（A类与C类均免赎）
         - 场内 ETF 冲击成本：单边 0.10% (买卖双边 0.20%)
         """
         df = prices_df.copy().sort_values('date').reset_index(drop=True)
@@ -554,16 +583,28 @@ class DataLoader:
                         last_buy_dates[a] = cur_date
                         friction += dw * etf_impact
                     elif dw < -1e-5:
-                        # 卖出：检查是否触发 7 天惩罚性赎回费 (1.50%)
+                        # 卖出：检查持有天数，对齐实盘 7天/30天/180天 真实阶梯赎回费精算
                         sell_amount = abs(dw)
                         last_buy = last_buy_dates[a]
                         if is_otc and last_buy is not None:
                             holding_days = (cur_date - last_buy).days
+                            s_class = DataLoader.SHARE_CLASS_MAP.get(a, 'C' if str(a).endswith('C') else 'A')
                             if holding_days < penalty_days:
-                                # 触发 1.50% 惩罚赎回费
-                                friction += sell_amount * penalty_rate
+                                # 持有不满 7 天：严厉惩罚性赎回费 (1.50%)
+                                r_rate = penalty_rate
+                            elif holding_days < 30:
+                                # 持有 7~29 天：C 类 0.50% / A 类 0.75%
+                                r_rate = 0.0050 if s_class == 'C' else 0.0075
+                            elif holding_days < 180:
+                                # 持有 30~179 天：A 类常规 0.50%，C 类免赎回费 0.00%
+                                r_rate = 0.0000 if s_class == 'C' else 0.0050
+                            elif holding_days < 365:
+                                # 持有 180~364 天：A 类 0.25%，C 类免赎回费 0.00%
+                                r_rate = 0.0000 if s_class == 'C' else 0.0025
                             else:
-                                friction += sell_amount * etf_impact
+                                # 持有 >= 365 天：全部免赎回费
+                                r_rate = 0.0000
+                            friction += sell_amount * (r_rate + etf_impact)
                         else:
                             friction += sell_amount * etf_impact
 

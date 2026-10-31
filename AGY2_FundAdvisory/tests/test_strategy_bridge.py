@@ -338,3 +338,149 @@ def test_ai_rebalance_orders_safe_clipping_and_chinese_routes(temp_pm):
     assert zero_orders["total_equity"] == 0.0
     assert len(zero_orders["items"]) == 0
 
+
+def test_r4_evaluate_today_rebalance_suitability_verdicts(temp_pm):
+    """
+    R4 核心测试：StrategyBridge.evaluate_today_rebalance_suitability 适宜度裁决器
+    1. 模块与类导出验证；
+    2. 返回字典必须包含 verdict_level, verdict_title 与完整的 reasons_4d 4 个字段；
+    3. FORBIDDEN 场景：持仓全部处于 < 7 天惩罚期且需减仓时，必须坚决给出 FORBIDDEN 评级；
+    4. HOLD_ON / SUITABLE 场景：偏离度 < 3% 或均线震荡期必须给出 HOLD_ON，白话理由真实生成。
+    """
+    from strategy_bridge import evaluate_today_rebalance_suitability
+    assert evaluate_today_rebalance_suitability == StrategyBridge.evaluate_today_rebalance_suitability
+
+    today_dt = datetime.now().date()
+
+    # 场景 A: 持仓仅有未满 7 天批次，且权重需调出 => 必须判定为 FORBIDDEN
+    records_locked = [
+        {
+            "fund_code": "013841",  # 非标基，目标权重为 0
+            "buy_date": (today_dt - timedelta(days=2)).strftime("%Y-%m-%d"),
+            "shares": 10000.0,
+            "cost_nav": 1.00,
+            "current_nav": 1.00,
+            "holding_days": 2,
+            "safety_lock": True
+        }
+    ]
+    temp_pm.takeover_mode_b(historical_records=records_locked, available_cash=0.0)
+
+    res_forbidden = evaluate_today_rebalance_suitability(temp_pm, active_tier="C3")
+    assert res_forbidden["verdict_level"] == "FORBIDDEN"
+    assert "7天" in res_forbidden["verdict_title"] or "未满" in res_forbidden["verdict_title"] or "高损" in res_forbidden["verdict_title"]
+    reasons = res_forbidden["reasons_4d"]
+    assert "market_position_reason" in reasons and len(reasons["market_position_reason"]) > 0
+    assert "clock_window_reason" in reasons and len(reasons["clock_window_reason"]) > 0
+    assert "deviation_utility_reason" in reasons and len(reasons["deviation_utility_reason"]) > 0
+    assert "lockup_fee_reason" in reasons and ("7天" in reasons["lockup_fee_reason"] or "未满" in reasons["lockup_fee_reason"])
+
+    # 场景 B: 目标权重与当前持仓完全贴合 (偏离 < 3%) => HOLD_ON
+    snapshot = StrategyBridge.get_latest_market_snapshot()
+    tgt = StrategyBridge.compute_dynamic_tier_weights(tier="C3", market_snapshot=snapshot)
+    aligned_records = []
+    for code, w in tgt.items():
+        aligned_records.append({
+            "fund_code": code,
+            "buy_date": (today_dt - timedelta(days=40)).strftime("%Y-%m-%d"),
+            "shares": round(w * 100000.0, 2),
+            "cost_nav": 1.00,
+            "current_nav": 1.00,
+            "holding_days": 40,
+            "safety_lock": False
+        })
+    temp_pm.takeover_mode_b(historical_records=aligned_records, available_cash=0.0)
+
+    res_hold = evaluate_today_rebalance_suitability(temp_pm, active_tier="C3")
+    assert res_hold["verdict_level"] in ["HOLD_ON", "SUITABLE"]
+    if res_hold["d_max"] < 0.03:
+        assert res_hold["verdict_level"] == "HOLD_ON"
+        assert "缓冲区" in res_hold["verdict_title"] or "偏离仅" in res_hold["verdict_title"] or "按兵不动" in res_hold["verdict_title"]
+
+
+def test_r4_simulate_rebalance_modes_and_consequences(temp_pm):
+    """
+    R4 核心测试：StrategyBridge.simulate_rebalance_modes_and_consequences 双模式调仓与后果精算
+    1. 模块与类导出验证；
+    2. 返回包含 mode_gentle 与 mode_forced 两个完整分支；
+    3. mode_gentle: penalty_fee_7d 严格为 0.0，卖出份额被安全裁剪；
+    4. mode_forced: penalty_fee_7d 真实计提 (>0.0)，强平未满 7 天份额；
+    5. consequences 四大字典结构完备、分厘严格平账：
+       total_fee == redemption_fee + penalty_fee_7d + subscription_fee
+       equity_after == equity_before - total_fee
+    """
+    from strategy_bridge import simulate_rebalance_modes_and_consequences
+    assert simulate_rebalance_modes_and_consequences == StrategyBridge.simulate_rebalance_modes_and_consequences
+
+    today_dt = datetime.now().date()
+
+    # 构造包含两批次的混合持仓：
+    # 批次 1: 5,000 份满 30 天 (C类满30天免赎)
+    # 批次 2: 5,000 份仅持有 2 天 (未满 7 天需扣 1.5%)
+    records_mixed = [
+        {
+            "fund_code": "005562",  # 创金红利低波 C
+            "buy_date": (today_dt - timedelta(days=35)).strftime("%Y-%m-%d"),
+            "shares": 5000.0,
+            "cost_nav": 1.00,
+            "current_nav": 1.00,
+            "holding_days": 35,
+            "safety_lock": False
+        },
+        {
+            "fund_code": "005562",
+            "buy_date": (today_dt - timedelta(days=2)).strftime("%Y-%m-%d"),
+            "shares": 5000.0,
+            "cost_nav": 1.00,
+            "current_nav": 1.00,
+            "holding_days": 2,
+            "safety_lock": True
+        }
+    ]
+    # 使用 takeover_mode_b 接入
+    temp_pm.takeover_mode_b(historical_records=records_mixed, available_cash=0.0)
+
+    sim_res = simulate_rebalance_modes_and_consequences(temp_pm, active_tier="C3")
+    assert "mode_gentle" in sim_res
+    assert "mode_forced" in sim_res
+
+    gentle = sim_res["mode_gentle"]
+    forced = sim_res["mode_forced"]
+
+    # 验证四大后果字段
+    for mode_data in [gentle, forced]:
+        cq = mode_data["consequences"]
+        assert "fee_loss" in cq
+        assert "in_transit_risk" in cq
+        assert "risk_shift" in cq
+        assert "lockup_reset" in cq
+
+        fee = cq["fee_loss"]
+        # 分厘严格平账验证
+        expected_total_fee = round(fee["redemption_fee"] + fee["penalty_fee_7d"] + fee["subscription_fee"], 2)
+        assert abs(fee["total_fee"] - expected_total_fee) < 1e-4
+
+        rs = cq["risk_shift"]
+        expected_equity_after = round(max(0.0, rs["equity_before"] - fee["total_fee"]), 2)
+        assert abs(rs["equity_after"] - expected_equity_after) < 1e-4
+
+        itr = cq["in_transit_risk"]
+        assert "in_transit_amount" in itr
+        assert "in_transit_pct" in itr
+        assert "lock_days" in itr
+        assert "switch_saved_amount" in itr
+
+        lr = cq["lockup_reset"]
+        assert "new_buy_amount" in lr
+        assert "7天" in lr["reset_warning_text"]
+
+    # 差异对比验证：
+    # gentle 模式下，未满 7 天批次被安全锁死，penalty_fee_7d 恒为 0.0
+    assert gentle["consequences"]["fee_loss"]["penalty_fee_7d"] == 0.0
+
+    # forced 模式下，因 005562 目标权重通常较低需要大额减仓，未满 7 天批次被强行卖出，必须真实计提 penalty_fee_7d
+    forced_fee = forced["consequences"]["fee_loss"]
+    assert forced_fee["penalty_fee_7d"] > 0.0
+    assert forced_fee["total_fee"] >= gentle["consequences"]["fee_loss"]["total_fee"]
+
+

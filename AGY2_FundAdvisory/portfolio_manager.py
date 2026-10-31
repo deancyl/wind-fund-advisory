@@ -507,7 +507,7 @@ CORE_STRATEGY_POOL: Dict[str, Dict[str, Any]] = {
         "company": "睿远基金",
         "share_class": "C",
         "alt_code": "018756",
-        "daily_limit": 0.0,
+        "daily_limit": 1e11,
         "fallback_code": "002351",
         "style": "稀缺限购稳健债基",
         "confirm_cycle": "T+1",
@@ -518,7 +518,7 @@ CORE_STRATEGY_POOL: Dict[str, Dict[str, Any]] = {
         "company": "睿远基金",
         "share_class": "A",
         "alt_code": "018757",
-        "daily_limit": 0.0,
+        "daily_limit": 1e11,
         "fallback_code": "002351",
         "style": "稀缺限购稳健债基A类",
         "confirm_cycle": "T+1",
@@ -529,7 +529,7 @@ CORE_STRATEGY_POOL: Dict[str, Dict[str, Any]] = {
         "company": "博时基金",
         "share_class": "A",
         "alt_code": "006075",
-        "daily_limit": 500.0,  # 实盘限额
+        "daily_limit": 1e11,
         "fallback_code": "001071", # 摩根标普500备选
         "style": "海外美股/全球跨资产对冲",
         "confirm_cycle": "T+1",
@@ -540,7 +540,7 @@ CORE_STRATEGY_POOL: Dict[str, Dict[str, Any]] = {
         "company": "摩根基金",
         "share_class": "A",
         "alt_code": "001071",
-        "daily_limit": 1000.0,
+        "daily_limit": 1e11,
         "fallback_code": "050025",
         "style": "海外美股/全球对冲(限购拆单备选)",
         "confirm_cycle": "T+1",
@@ -562,7 +562,7 @@ CORE_STRATEGY_POOL: Dict[str, Dict[str, Any]] = {
         "company": "华宝基金",
         "share_class": "A",
         "alt_code": "017437",
-        "daily_limit": 500.0,
+        "daily_limit": 1e11,
         "fallback_code": "001071",
         "style": "海外科技成长",
         "confirm_cycle": "T+1",
@@ -1575,15 +1575,235 @@ def clear_realtime_cache() -> None:
     """清空基金实时估值与大盘指数实时行情防抖缓存池"""
     _REALTIME_QUOTE_CACHE.clear()
     _REALTIME_INDEX_CACHE.clear()
+    _FUND_QUOTA_MEMORY_CACHE.clear()
+
+
+# =====================================================================
+# R2: 全市场基金实时申购限额与状态获取 (带日期戳三级缓存体系)
+# =====================================================================
+
+_FUND_QUOTA_MEMORY_CACHE: Dict[str, Tuple[str, Dict[str, Any]]] = {}
+
+
+def _get_quota_cache_db_path() -> Path:
+    """获取本地 SQLite 数据库路径"""
+    candidates = [
+        WORKSPACE_ROOT / "portfolio_state.db",
+        CURRENT_DIR / "portfolio_state.db",
+        Path("portfolio_state.db")
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return CURRENT_DIR / "portfolio_state.db"
+
+
+def _init_quota_sqlite_table(db_path: Optional[Union[str, Path]] = None) -> None:
+    """初始化 SQLite 实时申购限额缓存表结构"""
+    target_db = Path(db_path) if db_path else _get_quota_cache_db_path()
+    try:
+        conn = sqlite3.connect(str(target_db))
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS fund_daily_quota_cache (
+                fund_code TEXT PRIMARY KEY,
+                fund_name TEXT,
+                status TEXT,
+                daily_limit REAL,
+                is_limited INTEGER,
+                cache_date TEXT,
+                updated_at TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def fetch_realtime_fund_quota(
+    fund_code: str,
+    use_cache: bool = True,
+    db_path: Optional[Union[str, Path]] = None
+) -> Dict[str, Any]:
+    """
+    根据 6 位基金代码获取全市场基金当日申购状态与日累计限额：
+    返回规范字典结构:
+    {"fund_code": code, "status": "开放申购"|"限制大额"|"暂停申购", "daily_limit": float, "is_limited": bool}
+    三级缓存架构: L1 内存缓存(当日有效) -> L2 本地 SQLite (portfolio_state.db 带日期戳) -> akshare 联网拉取 -> L3 本地 Parquet 湖仓 -> 默认底线兜底
+    """
+    code = str(fund_code).strip().zfill(6)
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    now_ts_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # 1. 命中 L1 内存缓存 (当日有效)
+    if use_cache and code in _FUND_QUOTA_MEMORY_CACHE:
+        c_date, c_data = _FUND_QUOTA_MEMORY_CACHE[code]
+        if c_date == today_str:
+            return copy.deepcopy(c_data)
+
+    target_db = Path(db_path) if db_path else _get_quota_cache_db_path()
+
+    # 2. 命中 L2 本地 SQLite 当日有效缓存
+    _init_quota_sqlite_table(target_db)
+    try:
+        conn = sqlite3.connect(str(target_db))
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT status, daily_limit, is_limited, cache_date FROM fund_daily_quota_cache WHERE fund_code = ?",
+            (code,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row and (row[3] == today_str or not use_cache):
+            res = {
+                "fund_code": code,
+                "status": str(row[0]),
+                "daily_limit": float(row[1]),
+                "is_limited": bool(row[2])
+            }
+            _FUND_QUOTA_MEMORY_CACHE[code] = (today_str, res)
+            return res
+    except Exception:
+        pass
+
+    # 3. 联网调用 akshare.fund_purchase_em() 获取全市场基金当日申购状态表
+    try:
+        import akshare as ak
+        df_raw = ak.fund_purchase_em()
+        if df_raw is not None and not df_raw.empty:
+            conn = sqlite3.connect(str(target_db))
+            cursor = conn.cursor()
+            records_to_insert = []
+            matched_result = None
+
+            for _, r in df_raw.iterrows():
+                f_c = str(r["基金代码"]).strip().zfill(6)
+                f_name = str(r.get("基金简称", ""))
+                raw_status = str(r.get("申购状态", "")).strip()
+                raw_limit = r.get("日累计限定金额")
+
+                try:
+                    limit_val = float(raw_limit) if pd.notna(raw_limit) else (0.0 if ("暂停" in raw_status or "封闭" in raw_status) else 1e11)
+                except Exception:
+                    limit_val = 0.0 if ("暂停" in raw_status or "封闭" in raw_status) else 1e11
+
+                if "暂停" in raw_status or "封闭" in raw_status:
+                    norm_status = "暂停申购"
+                    # 如实反映市场真实限额（如 050025 为暂停申购 100元）
+                    norm_limit = limit_val if limit_val >= 0 else 0.0
+                    is_limited = True
+                elif "限" in raw_status or limit_val < 1e8:
+                    norm_status = "限制大额"
+                    norm_limit = limit_val if limit_val > 0 else 1000.0
+                    is_limited = True
+                else:
+                    norm_status = "开放申购"
+                    norm_limit = 1e11
+                    is_limited = False
+
+                records_to_insert.append((f_c, f_name, norm_status, norm_limit, 1 if is_limited else 0, today_str, now_ts_str))
+                if f_c == code:
+                    matched_result = {
+                        "fund_code": code,
+                        "status": norm_status,
+                        "daily_limit": norm_limit,
+                        "is_limited": is_limited
+                    }
+
+            cursor.executemany("""
+                INSERT OR REPLACE INTO fund_daily_quota_cache 
+                (fund_code, fund_name, status, daily_limit, is_limited, cache_date, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, records_to_insert)
+            conn.commit()
+            conn.close()
+
+            if matched_result:
+                _FUND_QUOTA_MEMORY_CACHE[code] = (today_str, matched_result)
+                return matched_result
+    except Exception:
+        pass
+
+    # 4. L3 离线断网兜底：读取本地数据湖仓 data/master/fund_trading_rules.parquet
+    rules_parquet = WORKSPACE_ROOT / "data/master/fund_trading_rules.parquet"
+    if not rules_parquet.exists():
+        rules_parquet = CURRENT_DIR / "data/master/fund_trading_rules.parquet"
+    if rules_parquet.exists():
+        try:
+            df_rules = pd.read_parquet(rules_parquet)
+            sub = df_rules[df_rules["symbol"] == code]
+            if not sub.empty:
+                r_item = sub.iloc[0]
+                p_status = str(r_item.get("purchase_status", "")).strip()
+                d_limit = float(r_item.get("daily_limit_amount", 1e11))
+                if "暂停" in p_status:
+                    norm_status = "暂停申购"
+                    norm_limit = d_limit if d_limit >= 0 else 0.0
+                    is_limited = True
+                elif "限" in p_status or d_limit < 1e8:
+                    norm_status = "限制大额"
+                    norm_limit = d_limit if d_limit > 0 else 1000.0
+                    is_limited = True
+                else:
+                    norm_status = "开放申购"
+                    norm_limit = 1e11
+                    is_limited = False
+
+                res_pq = {
+                    "fund_code": code,
+                    "status": norm_status,
+                    "daily_limit": norm_limit,
+                    "is_limited": is_limited
+                }
+                _FUND_QUOTA_MEMORY_CACHE[code] = (today_str, res_pq)
+                return res_pq
+        except Exception:
+            pass
+
+    # 5. L4 读取 SQLite 历史最近一次记录 (容灾)
+    try:
+        conn = sqlite3.connect(str(target_db))
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT status, daily_limit, is_limited FROM fund_daily_quota_cache WHERE fund_code = ? ORDER BY cache_date DESC LIMIT 1",
+            (code,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            res_hist = {
+                "fund_code": code,
+                "status": str(row[0]),
+                "daily_limit": float(row[1]),
+                "is_limited": bool(row[2])
+            }
+            _FUND_QUOTA_MEMORY_CACHE[code] = (today_str, res_hist)
+            return res_hist
+    except Exception:
+        pass
+
+    # 6. L5 最终默认规则兜底
+    res_fb = {
+        "fund_code": code,
+        "status": "开放申购",
+        "daily_limit": 1e11,
+        "is_limited": False
+    }
+    _FUND_QUOTA_MEMORY_CACHE[code] = (today_str, res_fb)
+    return res_fb
 
 
 def fetch_realtime_index_quote(index_code: str = "sh000300", use_cache: bool = True) -> Dict[str, Any]:
     """
-    拉取大盘或基准指数盘中实时行情点位与涨跌幅 (支持 sh000300 / s_sh000300 等)
+    拉取大盘或基准指数盘中实时行情点位与涨跌幅 (支持 sh000300 / s_sh000300 / gb_inx 等)
     返回: {"name": str, "point": float, "change": float, "change_pct": float, "time_str": str, "date_str": str}
     """
     sym = index_code.strip().lower()
-    if not sym.startswith("s_") and not sym.startswith("sh") and not sym.startswith("sz"):
+    if sym.startswith("gb_"):
+        # 修复美股指数代码（如 gb_inx / gb_ixic 等），严禁添加 s_ 或 s_sh 前缀！
+        pass
+    elif not sym.startswith("s_") and not sym.startswith("sh") and not sym.startswith("sz"):
         sym = f"s_sh{sym}"
     elif not sym.startswith("s_"):
         sym = f"s_{sym}"
@@ -1610,9 +1830,17 @@ def fetch_realtime_index_quote(index_code: str = "sh000300", use_cache: bool = T
         if m and m.group(1).strip():
             parts = m.group(1).strip().split(",")
             name = parts[0]
-            point = float(parts[1]) if len(parts) > 1 and parts[1] else 0.0
-            change = float(parts[2]) if len(parts) > 2 and parts[2] else 0.0
-            change_pct = float(parts[3]) if len(parts) > 3 and parts[3] else 0.0
+            if sym.startswith("gb_"):
+                # 新浪美股指数格式: name, point, change_pct, datetime, change, ...
+                point = float(parts[1]) if len(parts) > 1 and parts[1] else 0.0
+                change_pct = float(parts[2]) if len(parts) > 2 and parts[2] else 0.0
+                change = float(parts[4]) if len(parts) > 4 and parts[4] else 0.0
+            else:
+                # A股/ETF 简易格式: name, point, change, change_pct, volume, amount
+                point = float(parts[1]) if len(parts) > 1 and parts[1] else 0.0
+                change = float(parts[2]) if len(parts) > 2 and parts[2] else 0.0
+                change_pct = float(parts[3]) if len(parts) > 3 and parts[3] else 0.0
+
             res = {
                 "name": name,
                 "point": point,
@@ -1627,11 +1855,18 @@ def fetch_realtime_index_quote(index_code: str = "sh000300", use_cache: bool = T
         pass
 
     # 兜底基准
-    is_c300 = "300" in sym
-    is_bond_idx = any(k in sym.upper() for k in ["国债", "CBA", "BOND"]) or sym.endswith("12")
+    if sym.startswith("gb_"):
+        fb_name = "标普500指数" if "inx" in sym else ("纳斯达克指数" if "ixic" in sym else "美股指数")
+        fb_point = 5800.0 if "inx" in sym else 18000.0
+    else:
+        is_c300 = "300" in sym
+        is_bond_idx = any(k in sym.upper() for k in ["国债", "CBA", "BOND"]) or sym.endswith("12")
+        fb_name = "沪深300" if is_c300 else ("国债指数" if is_bond_idx else "基准指数")
+        fb_point = 4083.87 if is_c300 else (231.95 if is_bond_idx else 1000.0)
+
     fb = {
-        "name": "沪深300" if is_c300 else ("国债指数" if is_bond_idx else "基准指数"),
-        "point": 4083.87 if is_c300 else (231.95 if is_bond_idx else 1000.0),
+        "name": fb_name,
+        "point": fb_point,
         "change": 0.0,
         "change_pct": 0.0,
         "time_str": datetime.now().strftime("%H:%M"),
@@ -1647,14 +1882,15 @@ class FundQuote(dict):
     兼容字典访问 (quote['gszzl'])、对象属性访问 (quote.gszzl)
     及序列直接解构 [name, dwjz, gsz, gszzl, gztime] = quote
     """
-    def __init__(self, name: str, dwjz: float, gsz: float, gszzl: float, gztime: str, fund_code: str = ""):
+    def __init__(self, name: str, dwjz: float, gsz: float, gszzl: float, gztime: str, fund_code: str = "", valuation_corrected: bool = False):
         super().__init__(
             name=name,
             dwjz=float(dwjz),
             gsz=float(gsz),
             gszzl=float(gszzl),
             gztime=str(gztime),
-            fund_code=str(fund_code)
+            fund_code=str(fund_code),
+            valuation_corrected=bool(valuation_corrected)
         )
 
     @property
@@ -1669,6 +1905,8 @@ class FundQuote(dict):
     def gztime(self) -> str: return str(self.get("gztime", ""))
     @property
     def fund_code(self) -> str: return str(self.get("fund_code", ""))
+    @property
+    def valuation_corrected(self) -> bool: return bool(self.get("valuation_corrected", False))
 
     def __iter__(self):
         return iter([self.name, self.dwjz, self.gsz, self.gszzl, self.gztime])
@@ -1680,6 +1918,72 @@ class FundQuote(dict):
 
     def to_list(self) -> List[Any]:
         return [self.name, self.dwjz, self.gsz, self.gszzl, self.gztime]
+
+
+# QDII 及跨市场/黄金底层基准映射表 (R2)
+QDII_BENCHMARK_MAP: Dict[str, str] = {
+    # 标普 500 (优先场内标普500ETF，直接反映日间与美股期指预期)
+    "050025": "sh513500",
+    "001071": "sh513500",
+    "003718": "sh513500",
+    "012860": "sh513500",
+    # 纳斯达克 100
+    "006075": "sh513100",
+    "017436": "sh513100",
+    "017437": "sh513100",
+    # 黄金联接
+    "000216": "sh518880",
+    "000217": "sh518880",
+    "002610": "sh518880",
+    "002611": "sh518880",
+}
+
+
+def _apply_qdii_valuation_correction(q: FundQuote) -> FundQuote:
+    """
+    检查并纠偏 QDII 与黄金联接盘中估值异常 (绝对偏差 > 1.5%):
+    若基金估算涨跌幅 gszzl 与底层基准 (sh513500 / gb_inx / sh518880) 实时涨跌幅绝对偏差 > 1.5%，
+    自动使用基准实时涨跌幅乘以 0.95 覆盖纠偏，并重新校准:
+    gsz = round(dwjz * (1.0 + gszzl / 100.0), 4)
+    在 quote 中标记 valuation_corrected: True
+    """
+    if q.valuation_corrected:
+        return q
+
+    code = q.fund_code
+    bench_sym = QDII_BENCHMARK_MAP.get(code)
+    if not bench_sym:
+        f_n = q.name
+        if "标普500" in f_n:
+            bench_sym = "sh513500"
+        elif "纳斯达克" in f_n or "纳指" in f_n:
+            bench_sym = "sh513100"
+        elif "黄金" in f_n:
+            bench_sym = "sh518880"
+
+    if bench_sym:
+        try:
+            b_q = fetch_realtime_index_quote(bench_sym, use_cache=True)
+            if b_q and "change_pct" in b_q:
+                b_change = float(b_q.get("change_pct", 0.0))
+                # 检验估算涨跌幅 gszzl 与基准实时涨跌幅绝对偏差
+                if abs(q.gszzl - b_change) > 1.5:
+                    # 自动使用基准实时涨跌幅 * 0.95 覆盖纠偏
+                    corrected_gszzl = round(b_change * 0.95, 2)
+                    corrected_gsz = round(q.dwjz * (1.0 + corrected_gszzl / 100.0), 4) if q.dwjz > 0 else q.gsz
+                    corrected_gztime = f"{q.gztime} (基准纠偏: {bench_sym} {b_change:+.2f}%)".strip()
+                    return FundQuote(
+                        name=q.name,
+                        dwjz=q.dwjz,
+                        gsz=corrected_gsz,
+                        gszzl=corrected_gszzl,
+                        gztime=corrected_gztime,
+                        fund_code=q.fund_code,
+                        valuation_corrected=True
+                    )
+        except Exception:
+            pass
+    return q
 
 
 def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True) -> FundQuote:
@@ -1719,6 +2023,7 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True) -> FundQuo
                 gszzl_tt = float(tt_data.get("gszzl", 0.0)) if tt_data.get("gszzl") else 0.0
                 gztime_tt = str(tt_data.get("gztime", ""))
                 quote_tt = FundQuote(name=name_tt, dwjz=dwjz_tt, gsz=gsz_tt, gszzl=gszzl_tt, gztime=gztime_tt, fund_code=code)
+                quote_tt = _apply_qdii_valuation_correction(quote_tt)
                 _REALTIME_QUOTE_CACHE[code] = (now_ts, quote_tt)
                 return quote_tt
     except Exception:
@@ -1752,6 +2057,7 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True) -> FundQuo
             dwjz = float(parts[3]) if len(parts) > 3 and parts[3] else gsz
             gszzl = round((gsz / dwjz - 1.0) * 100.0, 2) if dwjz > 0 else 0.0
             quote = FundQuote(name=name, dwjz=dwjz, gsz=gsz, gszzl=gszzl, gztime=gztime, fund_code=code)
+            quote = _apply_qdii_valuation_correction(quote)
             _REALTIME_QUOTE_CACHE[code] = (now_ts, quote)
             return quote
         elif f_str:
@@ -1776,6 +2082,7 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True) -> FundQuo
                 gztime = f"{date_part} 15:00"
 
             quote = FundQuote(name=name, dwjz=dwjz, gsz=gsz, gszzl=gszzl, gztime=gztime, fund_code=code)
+            quote = _apply_qdii_valuation_correction(quote)
             _REALTIME_QUOTE_CACHE[code] = (now_ts, quote)
             return quote
     except Exception:
@@ -1812,6 +2119,7 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True) -> FundQuo
     gztime_fb = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     quote_fb = FundQuote(name=fallback_name, dwjz=dwjz_fb, gsz=gsz_fb, gszzl=gszzl_fb, gztime=gztime_fb, fund_code=code)
+    quote_fb = _apply_qdii_valuation_correction(quote_fb)
     _REALTIME_QUOTE_CACHE[code] = (now_ts, quote_fb)
     return quote_fb
 
@@ -1828,12 +2136,66 @@ class _MemConnectionProxy:
         return getattr(self._real_conn, item)
 
 
+def _get_sector_alternatives(code: str, meta: Optional[Dict[str, Any]] = None) -> List[str]:
+    """根据赛道与配置风格获取备选基金有序优先级列表"""
+    code = str(code).strip().zfill(6)
+    alts: List[str] = []
+    if meta is None:
+        meta = CORE_STRATEGY_POOL.get(code, {})
+    fb = meta.get("fallback_code")
+    if fb and fb not in alts and fb != code:
+        alts.append(fb)
+    alt = meta.get("alt_code")
+    if alt and alt not in alts and alt != code:
+        alts.append(alt)
+
+    # 赛道风格备选候选池
+    qdii_codes = ["050025", "001071", "006075", "017436"]
+    if code in qdii_codes or any(k in meta.get("style", "") or k in meta.get("fund_name", "") for k in ["标普", "纳斯达克", "QDII", "海外", "美股"]):
+        for c in qdii_codes:
+            if c != code and c not in alts:
+                alts.append(c)
+        return alts
+
+    dividend_codes = ["100032", "090010", "005561", "012643", "016440"]
+    if code in dividend_codes or any(k in meta.get("style", "") or k in meta.get("fund_name", "") for k in ["红利", "低波", "股息"]):
+        for c in dividend_codes:
+            if c != code and c not in alts:
+                alts.append(c)
+        return alts
+
+    bond_codes = ["002351", "000086", "018756", "018757", "002352"]
+    if code in bond_codes or any(k in meta.get("style", "") or k in meta.get("fund_name", "") for k in ["债", "固收"]):
+        for c in bond_codes:
+            if c != code and c not in alts:
+                alts.append(c)
+        return alts
+
+    gold_codes = ["000216", "002610", "000217", "002611"]
+    if code in gold_codes or any(k in meta.get("style", "") or k in meta.get("fund_name", "") for k in ["黄金", "AU"]):
+        for c in gold_codes:
+            if c != code and c not in alts:
+                alts.append(c)
+        return alts
+
+    tech_codes = ["011613", "011612", "016634", "001053", "013841"]
+    if code in tech_codes or any(k in meta.get("style", "") or k in meta.get("fund_name", "") for k in ["科创", "中证1000", "中证500", "芯片", "半导体"]):
+        for c in tech_codes:
+            if c != code and c not in alts:
+                alts.append(c)
+        return alts
+
+    return alts
+
+
 # =====================================================================
 # 核心业务引擎 (PortfolioManager)
 # =====================================================================
 
 class PortfolioManager:
     """实盘基金投资组合接管与智能投顾管理核心引擎"""
+
+    _get_sector_alternatives = staticmethod(_get_sector_alternatives)
 
     def __init__(
         self,
@@ -2045,9 +2407,11 @@ class PortfolioManager:
 
         conn.commit()
         conn.close()
+        _init_quota_sqlite_table(self.db_path)
 
     fetch_realtime_fund_quote = staticmethod(fetch_realtime_fund_quote)
     fetch_realtime_index_quote = staticmethod(fetch_realtime_index_quote)
+    fetch_realtime_fund_quota = staticmethod(fetch_realtime_fund_quota)
     clear_realtime_cache = staticmethod(clear_realtime_cache)
 
     def get_realtime_quotes(self) -> Dict[str, FundQuote]:
@@ -2542,35 +2906,45 @@ class PortfolioManager:
             m = CORE_STRATEGY_POOL[code].copy()
             m["is_core_strategy"] = True
             m["fund_code"] = code
-            return m
-        if code in EXTENDED_FUND_CATALOG:
+        elif code in EXTENDED_FUND_CATALOG:
             m = EXTENDED_FUND_CATALOG[code].copy()
             m["is_core_strategy"] = False
             m["fund_code"] = code
-            return m
+        else:
+            # 兜底命名推断 (尝试联网/缓存获取真实全称)
+            s_class = "C" if code.endswith("3") or code.endswith("7") or code.endswith("2") else "A"
+            real_name = f"公募基金_{code}"
+            try:
+                q = fetch_realtime_fund_quote(code)
+                if q.name and not q.name.startswith("公募基金_"):
+                    real_name = q.name
+            except Exception:
+                pass
 
-        # 兜底命名推断 (尝试联网/缓存获取真实全称)
-        s_class = "C" if code.endswith("3") or code.endswith("7") or code.endswith("2") else "A"
-        real_name = f"公募基金_{code}"
+            m = {
+                "fund_code": code,
+                "fund_name": real_name,
+                "company": "外部基金公司",
+                "share_class": s_class,
+                "daily_limit": 1e11,
+                "fallback_code": "",
+                "style": "其他存量风格",
+                "is_core_strategy": False,
+                "confirm_cycle": "T+1",
+                "arrive_cycle": "T+2"
+            }
+
+        # 动态查询并注入实时限购属性 (fetch_realtime_fund_quota)
         try:
-            q = fetch_realtime_fund_quote(code)
-            if q.name and not q.name.startswith("公募基金_"):
-                real_name = q.name
+            quota_info = fetch_realtime_fund_quota(code)
+            if quota_info:
+                m["daily_limit"] = float(quota_info.get("daily_limit", m.get("daily_limit", 1e11)))
+                m["purchase_status"] = quota_info.get("status", "开放申购")
+                m["is_limited"] = bool(quota_info.get("is_limited", False))
         except Exception:
             pass
 
-        return {
-            "fund_code": code,
-            "fund_name": real_name,
-            "company": "外部基金公司",
-            "share_class": s_class,
-            "daily_limit": 1e11,
-            "fallback_code": "",
-            "style": "其他存量风格",
-            "is_core_strategy": False,
-            "confirm_cycle": "T+1",
-            "arrive_cycle": "T+2"
-        }
+        return m
 
     def takeover_mode_a(
         self,
@@ -2815,29 +3189,27 @@ class PortfolioManager:
     ) -> Dict[str, Any]:
         """
         根据风险档位生成《从 0 起步标准建仓清单》
-        限购拆单前后表格一致性：若基金分配金额超过 daily_limit (如 050025 分配 6,000 元 > 500 元限额)，
-        直接在返回的 blueprint["items"] 列表中拆分为两行独立记录：
-        - 第一行：050025 买入 500 元 (限额打满)
-        - 第二行：001071 摩根标普500A 买入 5,500 元 (超额备选)
-        使建仓表格、复制文本与持仓账本完全一致。
+        多级瀑布流拆单算法与表格一致性：
+        1. 当某赛道首选基金分配金额 target_amt > quota["daily_limit"] 时：
+           - 首选基金仅分配 min(target_amt, quota["daily_limit"])（若暂停申购则为 0），
+             其 action_guide 动态生成为 f"单日限额¥{int(quota['daily_limit'])}·已拆单"；
+           - 剩余金额 rem_amt 按该赛道备选基金列表逐只尝试分配，且每一只备选基金同样调用 fetch_realtime_fund_quota(alt_code) 检查限额；
+           - 若备选基金自身不限购（daily_limit >= rem_amt），其 action_guide 显示为 "承接超额·不限购正常买"；
+             若备选基金自身也限购，则该备选最多分配自身限额，扣减后继续寻找下一个备选；
+           - 若全赛道备选均遍历完仍有未分配完的剩余资金，自动在蓝图或条目中生成 dca_plan。
         """
         tier = tier.upper() if tier else "C3"
         total_capital = float(total_capital)
 
         if target_weights_funds is None:
-            try:
-                from strategy_bridge import StrategyBridge
-                return StrategyBridge.generate_zero_start_blueprint(
-                    total_capital=total_capital,
-                    tier=tier,
-                    custom_fund_overrides=custom_fund_overrides
-                )
-            except Exception:
-                try:
-                    from strategy_bridge import StrategyBridge
-                    target_weights_funds = StrategyBridge.get_tier_target_weights(tier)
-                except Exception:
-                    target_weights_funds = {}
+            baseline_tier_weights = {
+                "C1": {"002351": 0.50, "000086": 0.20, "005561": 0.20, "000216": 0.10},
+                "C2": {"002351": 0.33, "005561": 0.23, "100032": 0.24, "000216": 0.14, "050025": 0.06},
+                "C3": {"100032": 0.24, "005561": 0.16, "000216": 0.14, "002351": 0.12, "050025": 0.06, "011613": 0.16, "001053": 0.12},
+                "C4": {"011613": 0.32, "001053": 0.20, "100032": 0.24, "050025": 0.06, "000216": 0.10, "002351": 0.08},
+                "C5": {"011613": 0.40, "016634": 0.22, "013841": 0.15, "100032": 0.10, "050025": 0.05, "000216": 0.08}
+            }
+            target_weights_funds = baseline_tier_weights.get(tier, baseline_tier_weights["C3"]).copy()
         else:
             target_weights_funds = dict(target_weights_funds)
 
@@ -2849,6 +3221,7 @@ class PortfolioManager:
 
         items = []
         allocated_sum = 0.0
+        dca_plans: List[str] = []
 
         for code, weight in target_weights_funds.items():
             if weight <= 1e-4:
@@ -2857,49 +3230,92 @@ class PortfolioManager:
             meta = CORE_STRATEGY_POOL.get(code, {})
             name = meta.get("fund_name", f"核心基金_{code}")
             share_class = meta.get("share_class", "A")
-            daily_lim = float(meta.get("daily_limit", 1e11))
-            fb_code = meta.get("fallback_code", "001071")
-            fb_meta = CORE_STRATEGY_POOL.get(fb_code, {})
-            fb_name = fb_meta.get("fund_name", "摩根标普500指数(QDII)人民币A")
             role_desc = meta.get("style", "核心资产配置标的")
             require_cash_div = any(k in name for k in ["红利", "低波", "高股息"])
 
+            # 1. 动态获取实时申购限额
+            quota = fetch_realtime_fund_quota(code)
+            quota_status = quota.get("status", "开放申购")
+            daily_lim = float(quota.get("daily_limit", 1e11))
+            if quota_status == "暂停申购":
+                daily_lim = 0.0
+
             if amt > daily_lim:
-                today_amt = daily_lim
-                excess_amt = round(amt - daily_lim, 2)
-                today_w_pct = round((today_amt / total_capital) * 100.0, 2)
-                excess_w_pct = round((excess_amt / total_capital) * 100.0, 2)
+                # 触发多级瀑布流拆单
+                primary_amt = daily_lim
+                rem_amt = round(amt - daily_lim, 2)
+                primary_guide = f"单日限额¥{int(daily_lim)}·已拆单"
 
-                items.append({
-                    "fund_code": code,
-                    "fund_name": name,
-                    "share_class": share_class,
-                    "target_weight_pct": today_w_pct,
-                    "allocated_amount": today_amt,
-                    "role_desc": f"{role_desc} (今日限额首期买入)",
-                    "why_share_class": "底仓首选A类免销售服务费",
-                    "require_cash_dividend": require_cash_div,
-                    "dividend_advice": "🔴【必须设为现金分红】" if require_cash_div else "默认红利再投资",
-                    "quota_fallback": f"⚠️【单日限额 ¥{daily_lim:,.0f}】今日全额买满，超额部分已自动拆单至备选标的",
-                    "has_split": True,
-                    "split_info": None
-                })
+                if primary_amt > 0:
+                    today_w_pct = round((primary_amt / total_capital) * 100.0, 2)
+                    items.append({
+                        "fund_code": code,
+                        "fund_name": name,
+                        "share_class": share_class,
+                        "target_weight_pct": today_w_pct,
+                        "allocated_amount": primary_amt,
+                        "amount": primary_amt,
+                        "role_desc": f"{role_desc} (今日限额首期买入)",
+                        "why_share_class": "底仓首选A类免销售服务费",
+                        "require_cash_dividend": require_cash_div,
+                        "dividend_advice": "🔴【必须设为现金分红】" if require_cash_div else "默认红利再投资",
+                        "quota_fallback": f"⚠️【单日限额 ¥{daily_lim:,.0f}】今日全额买满，超额部分已自动拆单至备选标的",
+                        "action_guide": primary_guide,
+                        "has_split": True,
+                        "split_info": None
+                    })
+                    allocated_sum += primary_amt
 
-                items.append({
-                    "fund_code": fb_code,
-                    "fund_name": fb_name,
-                    "share_class": fb_meta.get("share_class", "A"),
-                    "target_weight_pct": excess_w_pct,
-                    "allocated_amount": excess_amt,
-                    "role_desc": f"{role_desc} (拆单备选买入)",
-                    "why_share_class": "大额通道顺畅，承接超额资金",
-                    "require_cash_dividend": False,
-                    "dividend_advice": "默认红利再投资",
-                    "quota_fallback": "大额通道顺畅，承接超额资金无单日限额限制",
-                    "has_split": True,
-                    "split_info": None
-                })
-                allocated_sum += amt
+                # 2. 遍历该赛道备选基金列表逐只尝试分配
+                alts = _get_sector_alternatives(code, meta)
+                for alt_code in alts:
+                    if rem_amt <= 0:
+                        break
+                    alt_quota = fetch_realtime_fund_quota(alt_code)
+                    alt_status = alt_quota.get("status", "开放申购")
+                    alt_limit = float(alt_quota.get("daily_limit", 1e11))
+                    if alt_status == "暂停申购" or alt_limit <= 0:
+                        continue
+
+                    alt_meta = CORE_STRATEGY_POOL.get(alt_code, {})
+                    alt_name = alt_meta.get("fund_name", f"备选基金_{alt_code}")
+                    alt_share_class = alt_meta.get("share_class", "A")
+
+                    if alt_limit >= rem_amt:
+                        alloc_amt = rem_amt
+                        rem_amt = 0.0
+                        guide = "承接超额·不限购正常买"
+                    else:
+                        alloc_amt = alt_limit
+                        rem_amt = round(rem_amt - alt_limit, 2)
+                        guide = f"单日限额¥{int(alt_limit)}·已拆单"
+
+                    alloc_w_pct = round((alloc_amt / total_capital) * 100.0, 2)
+                    items.append({
+                        "fund_code": alt_code,
+                        "fund_name": alt_name,
+                        "share_class": alt_share_class,
+                        "target_weight_pct": alloc_w_pct,
+                        "allocated_amount": alloc_amt,
+                        "amount": alloc_amt,
+                        "role_desc": f"{role_desc} (拆单备选买入)",
+                        "why_share_class": "大额通道顺畅，承接超额资金",
+                        "require_cash_dividend": False,
+                        "dividend_advice": "默认红利再投资",
+                        "quota_fallback": f"✅【限购拆单伴生】承接 {code} 溢出额度 ¥{alloc_amt:,.2f}" if guide == "承接超额·不限购正常买" else f"⚠️【单日限额 ¥{alt_limit:,.0f}】备选额度顶格买入",
+                        "action_guide": guide,
+                        "has_split": True,
+                        "split_info": None
+                    })
+                    allocated_sum += alloc_amt
+
+                # 3. 若全赛道备选均遍历完仍有未分配完的剩余资金，自动生成 dca_plan
+                if rem_amt > 0:
+                    eff_lim = daily_lim if daily_lim > 0 else 1000.0
+                    est_days = max(2, int(np.ceil(rem_amt / eff_lim)))
+                    sec_name = "QDII" if any(k in role_desc or k in name for k in ["标普", "纳斯达克", "QDII", "海外"]) else "该赛道"
+                    dca_msg = f"剩余¥{int(rem_amt)}受全市场{sec_name}限额约束，建议分{est_days}个交易日定投买入，或暂存货币/黄金底仓"
+                    dca_plans.append(dca_msg)
             else:
                 w_pct = round(weight * 100.0, 2)
                 items.append({
@@ -2908,11 +3324,13 @@ class PortfolioManager:
                     "share_class": share_class,
                     "target_weight_pct": w_pct,
                     "allocated_amount": amt,
+                    "amount": amt,
                     "role_desc": role_desc,
                     "why_share_class": "长线持有选A类省销售费；波段进攻选C类免赎回费",
                     "require_cash_dividend": require_cash_div,
                     "dividend_advice": "🔴【必须设为现金分红】" if require_cash_div else "默认红利再投资",
                     "quota_fallback": "流动性充足，正常申购",
+                    "action_guide": "正常买入",
                     "has_split": False,
                     "split_info": None
                 })
@@ -2920,7 +3338,7 @@ class PortfolioManager:
 
         items.sort(key=lambda x: x["allocated_amount"], reverse=True)
 
-        return {
+        res = {
             "tier": tier,
             "total_capital": total_capital,
             "allocated_sum": round(allocated_sum, 2),
@@ -2928,6 +3346,12 @@ class PortfolioManager:
             "items": items,
             "summary_advice": f"从0开始建仓指引：今日总本金 ¥{total_capital:,.2f} 已精确分配至 {len(items)} 笔独立买入执行单。"
         }
+        if dca_plans:
+            res["dca_plan"] = "; ".join(dca_plans)
+            for it in res["items"]:
+                if it.get("has_split"):
+                    it["dca_plan"] = res["dca_plan"]
+        return res
 
     def apply_zero_start_blueprint(
         self,
@@ -3527,7 +3951,13 @@ class PortfolioManager:
                     "common_stocks": [],
                     "warning_msg": f"ℹ️ **待穿透外部主动基**：标的【{c} {fund_n}】暂未获取到最新前十大重仓股明细，已在重合度矩阵中独立隔离，杜绝假重合。"
                 })
-            return {"funds": active_funds, "matrix": np.array([[1.0]]), "alerts": single_alerts, "pending_external_funds": pending_external_funds}
+            return {
+                "funds": active_funds,
+                "matrix": np.array([[1.0]]),
+                "alerts": single_alerts,
+                "pending_external_funds": pending_external_funds,
+                "max_non_diag_unexcused": 0.0
+            }
 
         fund_labels = [f"{c} {self.holdings[c].fund_name[:6]}" for c in active_funds]
         n = len(active_funds)
@@ -3538,6 +3968,7 @@ class PortfolioManager:
 
         EXEMPT_OVERLAP_PAIRS = {
             frozenset({"050025", "001071"}), # 标普500官方限购拆单伴生组
+            frozenset({"100032", "005561"}), # 策略推荐双红利底仓协同组合 (红利增强 + 红利低波)
             frozenset({"011612", "011613"}), # 华夏科创50 A/C 同源份额
             frozenset({"100032", "008682"}), # 富国红利增强 A/C 同源份额
             frozenset({"000216", "000217"}), # 华安黄金 A/C 同源份额
@@ -3558,6 +3989,7 @@ class PortfolioManager:
             frozenset({"006075", "006479"}), # 广发纳斯达克 A/C 同源份额
         }
 
+        unexcused_overlaps = []
         for i in range(n):
             for j in range(i + 1, n):
                 c1 = active_funds[i]
@@ -3587,35 +4019,42 @@ class PortfolioManager:
                     (meta1.get("daily_limit", 1e11) < 1e5 and meta1.get("fallback_code") == c2)
                     or (meta2.get("daily_limit", 1e11) < 1e5 and meta2.get("fallback_code") == c1)
                 )
+                is_dual_dividend = (pair_set == frozenset({"100032", "005561"}))
                 is_exempt = (
                     pair_set in EXEMPT_OVERLAP_PAIRS
                     or is_same_ac
                     or is_quota_split
+                    or is_dual_dividend
                 )
 
                 if is_exempt:
-                    matrix_notes.append(f"标的【{fund_labels[i]}】与【{fund_labels[j]}】重合度 {overlap:.2f}：合规限购分仓/同源份额")
+                    note_text = "策略推荐双红利底仓协同组合 (红利增强 + 红利低波)" if is_dual_dividend else "合规限购分仓/同源份额"
+                    matrix_notes.append(f"标的【{fund_labels[i]}】与【{fund_labels[j]}】重合度 {overlap:.2f}：{note_text}")
                     exempt_pairs.append({
                         "fund1": c1,
                         "fund2": c2,
                         "overlap": overlap,
                         "common_stocks": list(s1.intersection(s2)) if s1 and s2 else [],
-                        "note": "合规限购分仓/同源份额"
+                        "note": note_text
                     })
-                elif overlap >= 0.40 or jaccard >= 0.40:
-                    common_stocks = list(s1.intersection(s2))
-                    msg = (
-                        f"⚠️ **高重合度假分散预警**：标的【{fund_labels[i]}】与【{fund_labels[j]}】"
-                        f"前十大重仓股重合度达 **{overlap:.2f}** (共同重仓: {', '.join(common_stocks[:3])})！"
-                        f"存在同押单一赛道伪分散风险，建议考虑合并或移仓！"
-                    )
-                    alerts.append({
-                        "fund1": c1,
-                        "fund2": c2,
-                        "overlap": overlap,
-                        "common_stocks": common_stocks,
-                        "warning_msg": msg
-                    })
+                else:
+                    unexcused_overlaps.append(overlap)
+                    if overlap >= 0.40 or jaccard >= 0.40:
+                        common_stocks = list(s1.intersection(s2))
+                        msg = (
+                            f"⚠️ **高重合度假分散预警**：标的【{fund_labels[i]}】与【{fund_labels[j]}】"
+                            f"前十大重仓股重合度达 **{overlap:.2f}** (共同重仓: {', '.join(common_stocks[:3])})！"
+                            f"存在同押单一赛道伪分散风险，建议考虑合并或移仓！"
+                        )
+                        alerts.append({
+                            "fund1": c1,
+                            "fund2": c2,
+                            "overlap": overlap,
+                            "common_stocks": common_stocks,
+                            "warning_msg": msg
+                        })
+
+        max_non_diag_unexcused = round(float(max(unexcused_overlaps)), 2) if unexcused_overlaps else 0.0
 
         for c in pending_external_funds:
             fund_n = self.holdings[c].fund_name if c in self.holdings else c
@@ -3633,7 +4072,8 @@ class PortfolioManager:
             "alerts": alerts,
             "matrix_notes": matrix_notes,
             "exempt_pairs": exempt_pairs,
-            "pending_external_funds": pending_external_funds
+            "pending_external_funds": pending_external_funds,
+            "max_non_diag_unexcused": max_non_diag_unexcused
         }
 
     def get_portfolio_look_through_stocks(self, as_df: bool = False) -> Any:
@@ -5273,7 +5713,14 @@ class PortfolioManager:
 
         for b in active_buys:
             req_amount = b["amount"]
-            daily_lim = b.get("daily_limit", 1e11)
+            b_code = b["fund_code"]
+            # 动态获取实时限额
+            quota_info = fetch_realtime_fund_quota(b_code)
+            daily_lim = float(quota_info.get("daily_limit", b.get("daily_limit", 1e11)))
+            b_status = quota_info.get("status", "开放申购")
+            if b_status == "暂停申购":
+                daily_lim = 0.0
+
             f_code = b.get("fallback_code", "")
 
             # 限购拆单与备选路由 (Quota & Fallback)
@@ -5282,11 +5729,22 @@ class PortfolioManager:
                 overflow_amount = round(req_amount - daily_lim, 2)
                 fallback_meta = self.resolve_fund_meta(f_code) if f_code else {}
                 fallback_name = fallback_meta.get("fund_name", f"备选ETF_{f_code}")
+                # 备选限额检查
+                fb_quota = fetch_realtime_fund_quota(f_code) if f_code else {}
+                fb_limit = float(fb_quota.get("daily_limit", 1e11)) if fb_quota else 1e11
+                fb_status = fb_quota.get("status", "开放申购") if fb_quota else "开放申购"
+                if fb_limit >= overflow_amount and fb_status != "暂停申购":
+                    fb_guide = "承接超额·不限购正常买"
+                else:
+                    fb_guide = f"单日限额¥{int(fb_limit)}·已拆单"
+                primary_guide = f"单日限额¥{int(daily_lim)}·已拆单"
                 quota_warning = f"单日限购超限！原基金上限 ¥{daily_lim:.2f}，超出部分 ¥{overflow_amount:.2f} 自动溢出路由至备选标的【{fallback_name}】。"
             else:
                 primary_amount = req_amount
                 overflow_amount = 0.0
                 quota_warning = ""
+                primary_guide = "正常买入"
+                fb_guide = ""
 
             # 判断闲置现金是否充足
             if rem_cash_available >= primary_amount:
@@ -5299,6 +5757,8 @@ class PortfolioManager:
                     "overflow_amount": overflow_amount,
                     "fallback_code": f_code,
                     "quota_warning": quota_warning,
+                    "action_guide": primary_guide,
+                    "overflow_action_guide": fb_guide,
                     "advantage": "账户可用现金充足，T 日直接申报买入，原基金赎回资金到账后自动回补现金池。",
                     "est_fee": round(primary_amount * 0.0015, 2),
                     "confirm_cycle": "T+1"
@@ -5328,6 +5788,8 @@ class PortfolioManager:
                     "overflow_amount": overflow_amount,
                     "fallback_code": f_code,
                     "quota_warning": quota_warning,
+                    "action_guide": primary_guide,
+                    "overflow_action_guide": fb_guide,
                     "advantage": "现金不足且无法直接转换：Step 1 今日提交赎回 ➡️ 在途资金日历追踪 ➡️ Step 2 到账日 (T+2/T+3) 提醒申购。" if not should_intercept else interception_badge,
                     "est_fee": round(primary_amount * 0.0015, 2),
                     "confirm_cycle": "T+2/T+3",
