@@ -2600,14 +2600,32 @@ with tab_market_optimizer:
                 )
                 mo_result = mo_optimizer.optimize(progress_callback=_mo_cb)
 
-                # 专家精选池对比（取在 NAV 矩阵中可用的专家池基金等权）
+                # 专家精选池对比（独立获取专家池 NAV，不依赖候选矩阵）
                 mo_expert_cmp = None
                 try:
                     import portfolio_manager as _pm_mod
-                    _expert_codes = [c for c in getattr(_pm_mod, "CORE_STRATEGY_POOL", {}).keys() if c in mo_nav.columns]
+                    _all_expert = list(getattr(_pm_mod, "CORE_STRATEGY_POOL", {}).keys())
+                    # 去重：仅保留 A 类（奇数位通常是 A 类，但更安全的做法是去重）
+                    _expert_a = [c for c in _all_expert
+                                 if not getattr(_pm_mod, "CORE_STRATEGY_POOL", {}).get(c, {}).get("share_class", "A") == "C"]
+                    if not _expert_a:
+                        _expert_a = _all_expert
+                    # 优先用候选 NAV 矩阵中已有的，不足则独立获取
+                    _in_nav = [c for c in _expert_a if c in mo_nav.columns]
+                    _expert_nav = None
+                    if len(_in_nav) >= 5:
+                        _expert_codes = _in_nav
+                    else:
+                        _mo_cb(0, 1, "获取专家池基金 NAV 用于同口径对比...")
+                        _expert_nav = MarketScreener.fetch_candidate_nav_matrix(
+                            _expert_a, start_date="2018-01-01"
+                        )
+                        _expert_codes = [c for c in _expert_a if c in _expert_nav.columns]
                     if _expert_codes:
                         _ew = {c: 1.0 / len(_expert_codes) for c in _expert_codes}
-                        mo_expert_cmp = mo_optimizer.compare_with_expert_pool(_ew)
+                        mo_expert_cmp = mo_optimizer.compare_with_expert_pool(
+                            _ew, expert_nav_matrix=_expert_nav
+                        )
                         mo_expert_cmp["n_funds"] = len(_expert_codes)
                 except Exception as _e_cmp:
                     mo_expert_cmp = {"error": str(_e_cmp)}

@@ -791,18 +791,34 @@ class WinRateOptimizer:
     def compare_with_expert_pool(
         self,
         expert_weights: Dict[str, float],
+        expert_nav_matrix: Optional[pd.DataFrame] = None,
     ) -> Dict[str, Any]:
-        """与专家精选池的组合对比"""
-        # AI 优化组合
-        ai_wr = WinRateEngine.rolling_target_winrate(
-            self._build_portfolio_nav(self.nav_matrix, expert_weights),
-            self.holding_days, self.target_return,
-        ) if expert_weights else {"win_rate": 0, "no_loss_rate": 0}
+        """与专家精选池的组合对比。
+
+        Parameters
+        ----------
+        expert_weights : 专家池基金等权权重
+        expert_nav_matrix : 专家池基金独立 NAV 矩阵（可选）。
+            如果提供，则用该矩阵计算专家池胜率（解决专家池基金不在候选 NAV 矩阵中的问题）。
+            如果不提供，回退到 self.nav_matrix（仅当专家基金恰好在候选池中才有效）。
+        """
+        nav_source = expert_nav_matrix if expert_nav_matrix is not None else self.nav_matrix
+        if not expert_weights:
+            return {"expert_pool": {"win_rate": 0, "no_loss_rate": 0, "avg_return": 0}}
+
+        portfolio_nav = self._build_portfolio_nav(nav_source, expert_weights)
+        if portfolio_nav.empty or len(portfolio_nav) < self.holding_days + 10:
+            return {"expert_pool": {"win_rate": 0, "no_loss_rate": 0, "avg_return": 0,
+                                    "note": "专家池 NAV 数据不足，无法同口径对比"}}
+
+        expert_wr = WinRateEngine.rolling_target_winrate(
+            portfolio_nav, self.holding_days, self.target_return,
+        )
 
         return {
             "expert_pool": {
-                "win_rate": ai_wr.get("win_rate", 0),
-                "no_loss_rate": ai_wr.get("no_loss_rate", 0),
-                "avg_return": ai_wr.get("avg_return_annualized", 0),
+                "win_rate": expert_wr.get("win_rate", 0),
+                "no_loss_rate": expert_wr.get("no_loss_rate", 0),
+                "avg_return": expert_wr.get("avg_return_annualized", 0),
             }
         }

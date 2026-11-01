@@ -48,7 +48,7 @@ BUCKET_MAP: Dict[str, List[str]] = {
         "指数型-海外股票", "QDII-混合偏股", "QDII-普通股票",
         "QDII-混合灵活", "QDII-混合债", "QDII-混合平衡", "QDII-FOF",
     ],
-    "commodity": ["QDII-商品", "商品", "QDII-REITs", "Reits"],
+    "commodity": ["QDII-商品", "商品", "QDII-REITs", "Reits", "指数型-其他"],
     "money": ["货币型-普通货币", "货币型-浮动净值"],
     "fof": ["FOF-稳健型", "FOF-均衡型", "FOF-进取型"],
     "balanced_debt": ["混合型-偏债", "混合型-绝对收益", "QDII-纯债"],
@@ -63,7 +63,10 @@ for bucket, types in BUCKET_MAP.items():
 
 def _assign_bucket(fund_type: str) -> str:
     """将 fund_type 映射到 bucket，未知类型归入 'other'"""
-    return _TYPE_TO_BUCKET.get(fund_type, "other")
+    ft = str(fund_type).strip() if fund_type else ""
+    if not ft:
+        return "other"
+    return _TYPE_TO_BUCKET.get(ft, "other")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -531,7 +534,7 @@ class MarketScreener:
     def fetch_candidate_nav_matrix(
         cls,
         candidate_codes: List[str],
-        start_date: str = "2018-01-01",
+        start_date: Optional[str] = None,
         progress_callback: Optional[Callable] = None,
     ) -> pd.DataFrame:
         """
@@ -542,6 +545,10 @@ class MarketScreener:
         3. 对齐到统一日期轴，前值填充
         4. 返回 DatetimeIndex × fund_code 的 DataFrame
         """
+        if start_date is None:
+            start_date = (
+                datetime.date.today() - datetime.timedelta(days=int(5 * 365.25))
+            ).isoformat()
         # 检查矩阵缓存
         cache_key = SmartCacheManager._matrix_cache_key(candidate_codes, start_date)
         cached = SmartCacheManager.get_nav_matrix_cache(cache_key)

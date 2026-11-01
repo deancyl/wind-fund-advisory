@@ -99,9 +99,10 @@ class WinRateEngine:
         redeem_fee_rate = _get_redemption_fee(holding_days, fund_type)
         effective_sell_value = sell_nav * (1.0 - redeem_fee_rate)
 
-        # C 类额外扣年化销售服务费
+        # C 类额外扣年化销售服务费（holding_days 是交易日，需转换为自然日）
         if fund_type == "C":
-            service_fee = C_ANNUAL_SERVICE_FEE * (holding_days / 365.0)
+            calendar_days = holding_days / 250.0 * 365.0
+            service_fee = C_ANNUAL_SERVICE_FEE * (calendar_days / 365.0)
             effective_sell_value *= (1.0 - service_fee)
 
         return (effective_sell_value / effective_buy_cost) - 1.0
@@ -164,7 +165,8 @@ class WinRateEngine:
             effective_buy = buy_navs * (1.0 + purchase_fee)
             effective_sell = sell_navs * (1.0 - redeem_fee)
             if fund_type == "C":
-                service_fee = C_ANNUAL_SERVICE_FEE * (holding_days / 365.0)
+                calendar_days = holding_days / 250.0 * 365.0
+                service_fee = C_ANNUAL_SERVICE_FEE * (calendar_days / 365.0)
                 effective_sell = effective_sell * (1.0 - service_fee)
             total_returns = (effective_sell / effective_buy) - 1.0
         else:
