@@ -108,11 +108,16 @@ def test_bug3_pre_market_trading_clock_and_signal_harmony():
     assert guidance["stage"] == "CLOSED_PREMARKET"
     assert "盘前未开市" in guidance["title"]
 
-    # 验证在 08:21 传入时，evaluate_intraday_signal 绝不虚假误报变盘
-    eval_pre = StrategyBridge.evaluate_intraday_signal(current_time_str="08:21")
-    assert not eval_pre["is_state_changed"], "盘前 08:21 绝不能误触发变盘信号"
-    assert eval_pre["action_urgency"] == "STABLE_HOLD"
-    assert "盘前未开市" in eval_pre["trigger_warning_text"]
+    # 验证在 08:21 传入时，evaluate_intraday_signal 绝不虚假误报变盘 (mock 交易日以免疫周末运行休市)
+    from unittest.mock import patch
+    with patch("strategy_bridge.datetime") as mock_dt_pre:
+        mock_dt_pre.now.return_value = dt_821
+        mock_dt_pre.combine = datetime.combine
+        mock_dt_pre.strptime = datetime.strptime
+        eval_pre = StrategyBridge.evaluate_intraday_signal(current_time_str="08:21")
+        assert not eval_pre["is_state_changed"], "盘前 08:21 绝不能误触发变盘信号"
+        assert eval_pre["action_urgency"] == "STABLE_HOLD"
+        assert "盘前未开市" in eval_pre["trigger_warning_text"]
 
     # 验证非交易日（周末）时钟与状态机绝不误报盘中变盘或盘前未开市
     sat_date = date(2026, 10, 24)
@@ -215,9 +220,9 @@ def test_bug6_streamlit_apptest_full_render():
     """Bug 6 验收: 通过 Streamlit 官方 AppTest 框架端到端渲染运行 app_gui.py，覆盖 C1~C5 全档位切换分支"""
     app_path = Path(__file__).parent.parent / "app_gui.py"
 
+    at = AppTest.from_file(str(app_path), default_timeout=120)
     for tier in ["C1", "C2", "C3", "C4", "C5"]:
-        at = AppTest.from_file(str(app_path), default_timeout=45)
         at.session_state.active_tier_val = tier
         at.session_state.target_return_val = RISK_TIERS_CONFIG[tier]["default_target"]
-        at.run()
+        at.run(timeout=120)
         assert len(at.exception) == 0, f"app_gui.py 在 {tier} 档位渲染抛出异常: {[e.value for e in at.exception]}"

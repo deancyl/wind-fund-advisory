@@ -32,7 +32,7 @@ If Not IsPortListening(8501) Then
         pythonExe = """C:\Users\deanc\AppData\Local\Programs\Python\Python311\python.exe"""
     End If
     WshShell.CurrentDirectory = currentDir
-    cmdStart = "cmd.exe /c cd /d """ & currentDir & """ && python -m streamlit run app_gui.py --server.headless=true --server.port=8501"
+    cmdStart = "cmd.exe /c cd /d """ & currentDir & """ && " & pythonExe & " -m streamlit run app_gui.py --server.headless=true --server.port=8501"
     WshShell.Run cmdStart, 0, False
     
     ' Wait for Streamlit to start listening (up to 12 seconds)

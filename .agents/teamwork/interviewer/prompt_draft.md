@@ -1,77 +1,73 @@
-启动阶段一重构（后端核心算法与真数据闭环）：本次任务仅聚焦于 portfolio_manager.py、strategy_bridge.py、data_loader.py 与 tests/，严禁在前端打猴子补丁，严禁使用硬编码字典应付测试。请调度以下 4 个协同角色作业：Agent-1（实时限购与估值纠偏专家 - 负责 portfolio_manager.py）、Agent-2（全天候攻防盈利算法专家 - 负责 strategy_bridge.py 与 data_loader.py）、Agent-3（存量持仓调仓裁决与后果推演专家 - 负责 strategy_bridge.py 与 portfolio_manager.py）、Agent-4（红队反作弊与单元测试员 - 负责 tests/）。
+启动阶段二重构（Web GUI 视觉大扫除与四大导航重塑）：本次任务专门重构 app_gui.py，彻底清理顶部省略号截断、删除 time.sleep 假延迟、重塑四大 Tab 导航入口，并将阶段一开发好的“实时限购指引、今日是否适合调仓裁决卡、温和 vs 强行调仓双模式与四大后果账单”完整装配上线。
 
 Working directory: d:\Google\Workspace\Wind\AGY2_FundAdvisory
 Integrity mode: development
 
 ## Verification Resources
-- 现有测试套件位于 `tests/` 目录，以及系统只读的 4 个裁判基建文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）。
-- 由团队在 `tests/` 目录下补充编写完整的端到端与边界断言测试用例，覆盖实时限购与瀑布流拆单、QDII 盘中估值纠偏、全档位动态配权与三段式攻防、调仓适宜度四维裁决与强行调仓四大后果推演、以及双红利底仓协同豁免。
+- 现有测试套件位于 `tests/` 目录（包含 `test_e2e_gui_render.py` 与全量 pytest 测试套件）。
+- 由团队补充编写 Streamlit AppTest 渲染测试用例，覆盖四大 Tab 导航切换、卡片渲染、限额指引展示及调仓模式推演。
 
 ## Requirements
 
-### R1. 物理安全红线与反作弊约束
-- 严禁触碰、修改或解锁系统只读裁判文件（judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py）。
-- 严禁使用 time.sleep 伪造耗时。
-- 严禁将 daily_limit 写死为 500 或 1000。
-- 严禁让 C3 档位绕过动态权重计算函数。
-- 严禁在前端打猴子补丁，严禁使用硬编码字典应付测试。
+### R1. 反偷懒红线与工程约束
+- 严禁在 `app_gui.py` 中使用 `time.sleep`。
+- 严禁保留任何已被截断成省略号（`...`）的窄卡片。
+- 严禁在表格中写死“限额买500”。
 
-### R2. 废除硬编码限额，实现实时限购获取与多级瀑布流拆单及 QDII 盘中估值纠偏（portfolio_manager.py）
-- 在 `portfolio_manager.py` 中新增 `fetch_realtime_fund_quota(fund_code: str) -> Dict[str, Any]`：
-  - 调用 `akshare.fund_purchase_em()` 获取全市场基金当日申购状态（开放申购/限制大额申购/暂停申购）与 `日累计限定金额`，并在本地 SQLite/Parquet 中建立带日期戳的缓存表（当日有效，断网时读取最近一次真实缓存）。
-  - 返回结构：`{"fund_code": code, "status": "开放申购"|"限制大额"|"暂停申购", "daily_limit": float, "is_limited": bool}`。
-- 重写 `generate_zero_start_blueprint()` 与调仓拆单逻辑中的限额分配算法（多级瀑布流拆单）：
-  - 当某赛道首选基金分配金额 `target_amt > quota["daily_limit"]` 时：
-    1. 首选基金仅分配 `min(target_amt, quota["daily_limit"])`（若暂停申购则为 0），其 `action_guide` 动态生成为 `f"单日限额¥{int(quota['daily_limit'])}·已拆单"`（严禁写死“限额买500”）；
-    2. 剩余金额 `rem_amt` 按该赛道备选基金评分顺序逐只尝试分配，且每一只备选基金必须同样调用 `fetch_realtime_fund_quota(alt_code)` 检查其自身限额；
-    3. 若备选基金自身不限购（`daily_limit >= rem_amt`），其 `action_guide` 必须显示为 `"承接超额·不限购正常买"`；若备选基金自身也限购（如限额 1,000 元），则该备选基金最多只分配 1,000 元，剩余未分配完的资金自动生成 `dca_plan`（如：`剩余¥4,500受全市场QDII限额约束，建议分5个交易日定投买入，或暂存货币/黄金底仓`）。
-- 修复 QDII 与跨市场基金盘中估值（`gszzl`）失真：
-  - 在 `fetch_realtime_fund_quote()` 中，对 QDII 标普/纳指及黄金联接基金，同时对比底层基准实时涨跌幅（`sh513500` / `gb_inx` / `sh518880`）。若基金估算涨跌幅 `gszzl` 与基准涨跌幅绝对偏差 `> 1.5%`（如 050025 显示 +0.49% 而 001071 异常显示 -4.92%），自动使用基准实时涨跌幅乘以 0.95 覆盖纠偏。
+### R2. 顶部全局看板大瘦身（从 3 层 7 窄卡压缩为“1 行 4 宽卡”，彻底消灭省略号）
+- 删除 `app_gui.py` 原先占满屏幕顶部的“调仓网格横幅 + 7张窄卡片 + 蓝色宏观雷达长条”，合并浓缩为 1 行 4 张宽裕的清爽卡片 + 1 个刷新按钮：
+  1. **卡片 1【🕒 交易时钟与窗口 ⓘ】**：
+     - 主值：`🟢 14:30黄金窗口` / `🔵 盘中观察期` / `🟡 盘后已关账`（配倒计时）。
+     - 副标题：`距下次常规网格日 X 天`（悬停 `ⓘ` 显示 15:00 申赎成交规则）。
+  2. **卡片 2【🧭 市场定调与攻防线 ⓘ】**：
+     - 主值：`🟢 震荡收息期`（或 `🔥 科技主升浪` / `🛡️ 熊市防守期`）。
+     - 副标题：直接显示双向触发点位 `📈破 4,141 进攻 ｜ 🛡️跌 3,846 防守`（悬停 `ⓘ` 显示沪深300现价、MA20/MA60 及突破后的具体加减仓方向）。
+  3. **卡片 3【🌡️ 估值与资金面温度 ⓘ】**：
+     - 主值：`估值极便宜 · 资金充裕`。
+     - 副标题：`股票性价比高｜央妈呵护`（将 ERP 分位数、DR007 利率、期权 IV、IC 期指贴水率全部放入该卡片的 `ⓘ` 悬停 title 中，主界面零专业黑话）。
+  4. **卡片 4【💰 我的总资产与今日预估 ⓘ】**：
+     - 主值：`¥XXX,XXX.XX`。
+     - 副标题：`今日预估 ¥+XX.XX (+X.XX%)`（右侧并排放置紧凑的 `🔄 刷新实时行情` 按钮）。
 
-### R3. 清除静态权重劫持与打通三段式攻防闭环（strategy_bridge.py 与 data_loader.py）
-- 清除静态权重劫持：
-  - 检查 `generate_zero_start_blueprint()` 与 `get_latest_market_snapshot()`，确保 C1 至 C5 所有档位的目标基金配比 100% 由 `compute_dynamic_tier_weights()` 动态算出（融合 Hedge 四大专家实时权重与 EWMA 波动率倒数），严禁在 `tier == "C3"` 时直接返回写死的 `0.38 / 0.30 / 0.14 / 0.12 / 0.06` 常数。
-- 在 `compute_dynamic_tier_weights()` 中植入完整低买高卖闭环：
-  1. 左侧极值超卖吸筹：当 `erp_percentile >= 75.0` 且沪深300或科创50的 20 日均线乖离率 `bias_20 <= -4.5%`（极度超卖）时，自动从纯债仓位中划拨 `10% ~ 15%` 仓位逆向增配高弹性宽基（011613 / 001053），在底部左侧吃反弹。
-  2. 右侧施密特迟滞防打脸：维持 `[-1.5%, +1.2%]` 均线迟滞缓冲带，在震荡噪音期锁定仓位不折腾。
-  3. 右侧极端超买阶梯止盈：当进攻标的出现 `bias_20 >= +6.5%`（短期暴涨严重超买）或触发 `crowding_warning == True`（极度拥挤且聪明钱流出）时，不等跌破均线，主动将高波动成长仓位削减 `30% ~ 35%` 并落袋转入纯债（002351）与红利低波（005561），锁住牛市脉冲利润。
-- 在回测与实盘算子中对齐 7天/30天/180天 真实阶梯赎回费。
+### R3. 重塑四大主导航 Tab（功能入口清晰、职责单一）
+将 `st.tabs` 重构为以下 4 个一级入口：
+- **Tab 1：`🌱 新资金从0建仓推演`**（专注新资金定目标、看推演、拿建仓单）：
+  1. 步骤一（定目标/测风险）：保留模式 A（滑块即拉即变 C1~C5）与模式 B（30秒风险测评），去掉“场景一/场景二”下拉框（存量持仓已独立为 Tab 2）。
+  2. 步骤二（看推演结果）：删除所有的 `time.sleep(0.35)`，改为真实调用阶段一的实时限购查询、Hedge 专家权重计算与回测算子，并在 4 个默认收起（`expanded=False`）的白盒抽屉标题上直接写出本轮算出的核心数字摘要；保留 5 张核心结果卡与《三句话看懂本方案》卡片。
+  3. 步骤三（专属从 0 建仓执行单）：9 列精简表格，其中第 9 列 `实操分红与限购指引` 必须绑定阶段一 `blueprint["items"]` 动态生成的真实限额说明（如 `现金分红·今日限额¥500`、`承接超额·不限购正常买`），彻底删除写死的 `"现金分红·限额买500"`；若存在全赛道限购溢出资金，在表格下方用醒目蓝色提示条展示《超限资金分批定投执行计划》。
+- **Tab 2：`💼 我的当前持仓与今日调仓建议`**（日常看盘与调仓核心驾驶舱）：
+  当用户进入此 Tab 时，按“先给今日结论 ➔ 再给调仓方案与后果 ➔ 最后看持仓账本”垂直排布：
+  1. 第一层【🚦 今日是否适合调仓？AI 综合裁决卡】：调用 `StrategyBridge.evaluate_today_rebalance_suitability(pm, active_tier)`，在顶部渲染醒目的红/黄/绿灯裁决横幅（如：`🟡 今日建议按兵不动：大盘处于震荡箱体中部，且您的持仓最大偏离仅 1.2%，无需折腾损耗手续费`），下方用 4 个简短胶囊列出【行情位置】、【申赎时钟】、【偏离净效用】、【批次锁定期】四维实测结论。
+  2. 第二层【⚖️ 今日怎么调？如果一定要调仓会有什么后果？】：调用 `StrategyBridge.simulate_rebalance_modes_and_consequences(pm, active_tier)`；提供醒目的单选切换（`rebal_mode = st.radio("选择调仓推演模式：", ["🛡️ 模式一：AI 温和免伤调仓 (仅调动免惩罚费份额·遵循3%免折腾缓冲，推荐)", "⚡ 模式二：如果今天一定要调仓 (无视缓冲带强行一步到位对齐目标配比，查看真实代价)"], horizontal=True)`）；紧接着并排渲染 4 张《本次调仓四大真实后果量化账单》卡片：
+     - 后果① 手续费直接损耗：显示总手续费 `¥XX.XX`（若含 `<7天` 1.5% 惩罚费则红字高亮预警）及预计靠分红回本天数 `X 天`；
+     - 后果② T+2 资金在途踏空风险：显示跨公司换仓导致的在途冻结资金 `¥XX,XXX (占X%)`、空窗期 `2~4天` 及同公司转换（`SWITCH`）节省的在途金额；
+     - 后果③ 组合攻防与回撤变化：显示调仓前后权益仓位（`X% ➔ Y%`）、年化波动率（`X% ➔ Y%`）与极端回撤水位变化；
+     - 后果④ 持有期清零重算后果：显示新买入资金 `¥XX,XXX` 将重新进入 7 天惩罚锁定期。
+     下方展示对应的 9 列《今日建议调仓执行单》表格与一键执行/保存预案按钮。
+  3. 第三层【📋 我的实时持仓明细与接管录入】：展示精简无横向滚动条的实时持仓表；将《✨ 零门槛导入/新增持仓向导》、《✏️ 编辑修改持仓数据》、《📦 FIFO 份额批次免赎倒计时》3 个工具面板全部设为 `expanded=(len(pm.holdings) == 0)`（有持仓时默认全部折叠收起）。
+- **Tab 3：`🔍 组合深度体检与算费工具箱`**：包含大类资产缺口图、加权行业暴露与重仓股重合度检测（已豁免 `100032+005561` 与 `050025+001071` 误报）、底层重仓股排雷宽表、聪明钱监控、在途对账与 A/C 算费器。
+- **Tab 4：`📈 策略历史回测与胜率档案`**：包含 C1~C5 全周期净值回测曲线、水下回撤图、大类仓位变迁图、6 大历史切片战报与历史相似行情匹配器。
 
-### R4. 今日调仓适宜度裁决器与强行调仓四大后果推演器（strategy_bridge.py 与 portfolio_manager.py）
-- 新增方法 `StrategyBridge.evaluate_today_rebalance_suitability(pm, active_tier="C3") -> Dict[str, Any]`：
-  - 综合评估并返回：
-    - `verdict_level`: `"SUITABLE"`（🟢 今日适合调仓） / `"HOLD_ON"`（🟡 今日建议按兵不动） / `"FORBIDDEN"`（🔴 今日不宜调仓·高损预警）
-    - `verdict_title`: 一句话鲜明结论（如：`🟡 今日建议按兵不动：大盘处于均线震荡噪音带，且您的持仓最大偏离仅 1.2%`）
-    - `reasons_4d`: 包含 `market_position_reason`（近期行情位置诊断）、`clock_window_reason`（15:00交易时钟诊断）、`deviation_utility_reason`（偏离度与净效用诊断）、`lockup_fee_reason`（FIFO批次锁定期诊断）4 个字段的详细白话字典。
-- 新增方法 `StrategyBridge.simulate_rebalance_modes_and_consequences(pm, active_tier="C3") -> Dict[str, Any]`：
-  - 同时计算并返回两种调仓模式的完整订单列表与四大后果对比数据：
-    - `mode_gentle`（模式一：温和免伤调仓——仅卖出已满免赎回费期份额、优先同基金公司转换 `SWITCH`、遵循 3% 免折腾阈值）；
-    - `mode_forced`（模式二：强行一步到位调仓——无视 3% 缓冲带与持有期限制，强行将所有持仓对齐至今日目标权重，供“如果今天一定要调仓”场景使用）；
-    - 每个模式下均精确计算 `consequences` 字典：
-      1. `fee_loss`: `{"redemption_fee": float, "penalty_fee_7d": float, "subscription_fee": float, "total_fee": float, "payback_days": int}`（精确到每一笔 FIFO 批次的实际持有天数阶梯费率）；
-      2. `in_transit_risk`: `{"in_transit_amount": float, "in_transit_pct": float, "lock_days": str, "switch_saved_amount": float, "missed_rally_cost_est": float}`（跨公司换仓 T+2/T+4 在途资金空窗期与潜在踏空成本）；
-      3. `risk_shift`: `{"equity_before": float, "equity_after": float, "vol_before": float, "vol_after": float, "mdd_before": float, "mdd_after": float, "div_yield_before": float, "div_yield_after": float}`；
-      4. `lockup_reset`: `{"new_buy_amount": float, "reset_warning_text": str}`（新买入资金重新触发 7 天 1.5% 惩罚锁定期与 A 类免赎期清零提醒）。
-- 修复 `calculate_stock_overlap_matrix()`：
-  - 将策略推荐的双红利底仓对 `{"100032", "005561"}` 与限购伴生对 `{"050025", "001071"}` 均纳入组合协同豁免池，计算 `max_non_diag_unexcused`（非豁免最大重叠度），确保当用户持有标准推荐组合时绝不触发黄色伪分散警告。
-
-### R5. 红队单元测试与断言覆盖（tests/）
-- 对上述 3 个模块的真实返回值与边界条件进行严格断言测试。
+### R4. 全量测试与服务重启
+- 运行全量测试与 Streamlit AppTest 渲染验证，确保所有测试 100% 通过。
+- 重启 8501 端口服务，确保服务正常运行且无黑框或端口冲突。
 
 ## Acceptance Criteria
 
-### 算法功能与真实数据闭环
-- [ ] `fetch_realtime_fund_quota` 成功拉取全市场基金申购状态与限额并落盘带日期戳缓存，断网时能够正确回退读取最近一次真实缓存。
-- [ ] 多级瀑布流拆单算法在限购时正确分配首选基金、备选基金并在全市场限购超额时生成 `dca_plan`，`action_guide` 动态生成且无硬编码数字。
-- [ ] QDII 盘中估值异常（与基准偏差绝对值 > 1.5%）时，自动按基准涨跌幅 * 0.95 覆盖纠偏。
-- [ ] C1 至 C5 全档位目标基金配比 100% 由 `compute_dynamic_tier_weights()` 动态算出，C3 档位不存在硬编码静态常数拦截。
-- [ ] 三段式攻防逻辑（左侧极值吸筹、右侧施密特迟滞、右侧极端超买止盈）在对应行情与指标触发时准确执行仓位划拨与调整。
-- [ ] 回测与实盘算子严格对齐 7天/30天/180天 真实阶梯赎回费。
-- [ ] `evaluate_today_rebalance_suitability` 返回符合规定的 `verdict_level`、`verdict_title` 与包含 4 个维度的 `reasons_4d` 字典。
-- [ ] `simulate_rebalance_modes_and_consequences` 正确输出 `mode_gentle` 与 `mode_forced` 两种调仓模式及其完整的 `consequences`（fee_loss, in_transit_risk, risk_shift, lockup_reset）量化推演数据。
-- [ ] `calculate_stock_overlap_matrix` 正确豁免推荐双红利对与限购伴生对，标准推荐组合不产生伪分散误报。
+### 视觉呈现与布局优化
+- [ ] 顶部导航与看板成功精简为 1 行 4 宽卡 + 1 个刷新按钮，页面无文本被截断为省略号（`...`）。
+- [ ] 4 张卡片的指标主值、副标题及 ⓘ 悬停提示完整呈现，主界面无专业黑话堆叠。
+- [ ] Tab 导航清晰划分为 4 个一级入口（新资金从0建仓推演、我的当前持仓与今日调仓建议、组合深度体检与算费工具箱、策略历史回测与胜率档案）。
 
-### 安全红线与工程质量
-- [ ] 4 个只读裁判文件（judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py）未被修改或触碰。
-- [ ] 代码中无 `time.sleep` 伪造耗时，前端未打猴子补丁，测试中无硬编码字典应付断言。
-- [ ] 全量 pytest 测试套件 100% 通过。
+### 功能逻辑与阶段一算法装配
+- [ ] `app_gui.py` 中彻底清除所有 `time.sleep`，调用阶段一后端算法与数据接口。
+- [ ] Tab 1 步骤二抽屉标题动态呈现核心数字摘要，步骤三执行单第 9 列动态绑定真实限额说明（无写死“现金分红·限额买500”），全赛道限购溢出时展示分批定投计划。
+- [ ] Tab 2 完整装配“今日是否适合调仓”AI 裁决卡与四维实测结论。
+- [ ] Tab 2 完整装配双模式调仓推演单选及并排 4 张调仓后果量化账单卡片，支持 9 列执行单展示与预案保存。
+- [ ] Tab 2 持仓管理 3 个向导面板在有持仓时默认全部折叠收起。
+- [ ] Tab 3 与 Tab 4 功能完整可用，重合度检测正确豁免双红利底仓对与限购伴生对。
+
+### 工程规范与系统验证
+- [ ] 代码中无硬编码“限额买500”。
+- [ ] 全量 pytest 单元测试套件与 Streamlit AppTest 渲染测试 100% 通过。
+- [ ] 8501 端口 Streamlit 服务成功重启并处于正常监听与可用状态。

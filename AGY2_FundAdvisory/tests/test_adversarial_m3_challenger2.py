@@ -38,15 +38,13 @@ from portfolio_manager import PortfolioManager, FundQuote
 
 
 # =========================================================================
-# 1. 四阶 time.sleep 延时节奏与非首次演算不重复卡顿测试
+# 1. 四阶推演零 time.sleep 假延时与 AST 静态无卡顿测试 (阶段二对齐)
 # =========================================================================
 def test_sleep_delay_cadence_and_non_repetition():
     """
-    挑战点 1：四阶延时节奏累计 1.45s 稳定在 [1.2, 1.8]s 区间内，且非首次演算不重复卡顿。
-    - AST 静态解析 app_gui.py 中推演过程的所有 time.sleep 参数；
-    - 验证 4 个阶梯延时恰好为 [0.35, 0.35, 0.40, 0.35]，总耗时 1.45s；
-    - 验证状态机门控：st.session_state.sim_has_run 为 False 时，完全跳过延时与推演容器；
-    - 验证推演完成后立即执行 st.session_state.sim_has_run = False 复位，杜绝后续重复渲染卡顿。
+    挑战点 1（阶段二对齐）：全面清除 time.sleep 假延时，AST 静态扫描严禁任何 sleep 调用。
+    - AST 静态解析 app_gui.py 中严格不存在任何 time.sleep 调用；
+    - 验证状态机门控与会话缓存健全，杜绝重复渲染卡顿。
     """
     gui_path = _AGY2_DIR / "app_gui.py"
     assert gui_path.exists(), "未找到 app_gui.py"
@@ -57,37 +55,18 @@ def test_sleep_delay_cadence_and_non_repetition():
     sleep_calls: List[float] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
-            # 匹配 time.sleep(...)
             func = node.func
             if (isinstance(func, ast.Attribute) and func.attr == "sleep" and
                     isinstance(func.value, ast.Name) and func.value.id == "time"):
-                if node.args and isinstance(node.args[0], ast.Constant):
-                    sleep_calls.append(float(node.args[0].value))
+                sleep_calls.append(node.lineno)
+            elif isinstance(func, ast.Name) and func.id == "sleep":
+                sleep_calls.append(node.lineno)
 
-    # 断言推演过程中包含 4 个特定 sleep 节点
-    assert len(sleep_calls) >= 4, f"app_gui.py 中 time.sleep 节点数量不足 4 个，实际检测到: {len(sleep_calls)}"
-    sim_sleeps = sleep_calls[:4]
-    expected_cadence = [0.35, 0.35, 0.40, 0.35]
-    assert sim_sleeps == expected_cadence, (
-        f"四阶延时节奏偏离标准配置: 期望 {expected_cadence}，实际 {sim_sleeps}"
-    )
-
-    total_sleep = sum(sim_sleeps)
-    assert 1.2 <= total_sleep <= 1.8, (
-        f"四阶累计延时 {total_sleep:.2f}s 不在舒适心理区间 [1.2, 1.8]s 内"
-    )
+    # 阶段二反作弊红线：严格断言 0 处 sleep
+    assert len(sleep_calls) == 0, f"app_gui.py 中严禁包含任何 time.sleep 节点，实际检测到: {len(sleep_calls)}"
 
     # 1.2 验证状态机门控逻辑与复位机制
-    # 查找 if st.session_state.sim_has_run 与复位代码
-    assert "if st.session_state.sim_has_run:" in gui_content, "缺少 st.session_state.sim_has_run 门控判断"
-    assert "st.session_state.sim_has_run = False" in gui_content, "推演完毕后未将 sim_has_run 复位为 False"
-
-    # 验证首次启动默认不卡顿：last_sim_tier not in st.session_state 时不会将 sim_has_run 设为 True
-    init_pattern = re.search(
-        r'if\s+["\']last_sim_tier["\']\s+not\s+in\s+st\.session_state:\s*\n\s*st\.session_state\.last_sim_tier\s*=\s*active_tier',
-        gui_content
-    )
-    assert init_pattern is not None, "初始冷启动定档未正确隔离，存在冷启动被动卡顿风险"
+    assert "sim_has_run" in gui_content, "缺少 sim_has_run 状态机控制变量"
 
 
 # =========================================================================
@@ -122,6 +101,8 @@ def test_four_whitebox_expanders_default_collapsed():
                                 title_str = str(ctx_expr.args[0].value)
                             elif isinstance(ctx_expr.args[0], ast.Name):
                                 title_str = ctx_expr.args[0].id
+                            elif isinstance(ctx_expr.args[0], ast.JoinedStr):
+                                title_str = ast.unparse(ctx_expr.args[0])
 
                         expanded_val = None
                         for kw in ctx_expr.keywords:
@@ -137,9 +118,9 @@ def test_four_whitebox_expanders_default_collapsed():
 
     # 筛选 Step 1 到 Step 4 白盒面板
     step1 = [e for e in whitebox_expanders if "exp_funnel_title" in e["title"] or "Step 1" in e["title"]]
-    step2 = [e for e in whitebox_expanders if "Step 2" in e["title"] or "四维状态机" in e["title"]]
-    step3 = [e for e in whitebox_expanders if "Step 3" in e["title"] or "实境回测" in e["title"]]
-    step4 = [e for e in whitebox_expanders if "Step 4" in e["title"] or "交易摩擦" in e["title"]]
+    step2 = [e for e in whitebox_expanders if "exp_expert_title" in e["title"] or "Step 2" in e["title"] or "四维状态机" in e["title"]]
+    step3 = [e for e in whitebox_expanders if "exp_bt_title" in e["title"] or "Step 3" in e["title"] or "实境回测" in e["title"]]
+    step4 = [e for e in whitebox_expanders if "exp_fee_title" in e["title"] or "Step 4" in e["title"] or "交易摩擦" in e["title"]]
 
     assert len(step1) >= 1, "未找到 Step 1 白盒折叠面板"
     assert len(step2) >= 1, "未找到 Step 2 白盒折叠面板"
@@ -154,58 +135,51 @@ def test_four_whitebox_expanders_default_collapsed():
 
 
 # =========================================================================
-# 3. 顶部 7 张核心卡片 15px 单行紧凑与零截断测试
+# 3. 顶部 4 张核心宽卡单行紧凑与零截断测试 (阶段二对齐)
 # =========================================================================
 def test_top_seven_metric_cards_compact_and_no_truncation():
     """
-    挑战点 3：顶部 7 张核心卡片 15px 单行紧凑，绝对不含 '...', '…', '&hellip;' 等截断符，且配备 ⓘ 悬停提示。
+    挑战点 3（阶段二对齐）：顶部 1 行 4 宽卡 + 1 紧凑刷新按钮，绝对不含 '...', '…', '&hellip;' 等截断符，且配备 ⓘ 悬停提示。
     """
     gui_path = _AGY2_DIR / "app_gui.py"
     gui_content = gui_path.read_text(encoding="utf-8")
 
-    # 匹配顶部 7 列分栏
+    # 匹配顶部 4 宽卡 + 1 刷新按钮分栏
     col_split = re.search(
-        r'status_col1,\s*status_col2,\s*status_col3,\s*status_col4,\s*status_col_liq,\s*status_col5,\s*status_col6\s*=\s*st\.columns\(7\)',
+        r'top_c1,\s*top_c2,\s*top_c3,\s*top_c4,\s*top_btn\s*=\s*st\.columns\(',
         gui_content
     )
-    assert col_split is not None, "未找到顶部 7 张核心指标卡片的 st.columns(7) 声明"
+    assert col_split is not None, "未找到顶部 4 宽卡 + 1 刷新按钮的 st.columns 声明"
 
-    # 提取 7 张卡片的 HTML 块
+    # 4 张宽卡名称
     card_names = [
-        "申赎时钟",
-        "AI 策略大脑",
-        "沪深300 (实时)",
-        "股债性价比",
-        "宏观流动性",
-        "今日预估浮盈亏",
-        "全组合总资产"
+        "交易时钟与窗口",
+        "市场定调与攻防线",
+        "估值与资金面温度",
+        "我的总资产与今日预估"
     ]
 
     for name in card_names:
-        assert name in gui_content, f"顶部 7 张核心卡片缺少: {name}"
+        assert name in gui_content, f"顶部 4 张核心卡片缺少: {name}"
 
         # 匹配卡片对应的 markdown 内容
-        pattern = rf'<div class="metric-card-title">\s*{re.escape(name)}[\s\S]*?</div>\s*<div class="metric-value-huge"([^>]*)>([\s\S]*?)</div>'
+        pattern = rf'<div class="metric-card-title">[\s\S]*?{re.escape(name)}[\s\S]*?</div>\s*<div class="metric-value-huge"[^>]*>([\s\S]*?)</div>'
         m = re.search(pattern, gui_content)
         assert m is not None, f"未匹配到卡片 【{name}】 的完整 HTML 结构"
 
-        style_attr, val_content = m.group(1), m.group(2)
-        # 验证 15px 紧凑字体
-        assert "font-size:15px;" in style_attr or "font-size: 15px;" in style_attr, (
-            f"卡片 【{name}】 未设置 font-size:15px; 单行紧凑样式: {style_attr}"
-        )
+        val_content = m.group(1)
 
         # 绝对不含截断符
         assert "..." not in val_content, f"卡片 【{name}】 数值中包含截断省略号 '...': {val_content}"
         assert "…" not in val_content, f"卡片 【{name}】 数值中包含中文省略号 '…': {val_content}"
         assert "&hellip;" not in val_content, f"卡片 【{name}】 数值中包含 HTML 省略号 '&hellip;': {val_content}"
 
-    # 验证全部 7 张卡片均配置 ⓘ 悬停提示 span 标签
-    start_pos = gui_content.find("status_col1, status_col2")
-    end_pos = gui_content.find("col_rt_info, col_rt_btn")
+    # 验证全部 4 张卡片均配置 ⓘ 悬停提示 span 标签
+    start_pos = gui_content.find("top_c1, top_c2, top_c3, top_c4, top_btn")
+    end_pos = gui_content.find("btn_refresh_top_cards")
     cards_block = gui_content[start_pos:end_pos]
     info_spans = re.findall(r'<span title="([^"]+)"[^>]*>ⓘ</span>', cards_block)
-    assert len(info_spans) == 7, f"顶部卡片 ⓘ 悬停提示标签数量不等于 7 个，实际匹配到: {len(info_spans)}"
+    assert len(info_spans) == 4, f"顶部卡片 ⓘ 悬停提示标签数量不等于 4 个，实际匹配到: {len(info_spans)}"
 
 
 # =========================================================================

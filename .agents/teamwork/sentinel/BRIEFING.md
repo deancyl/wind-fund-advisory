@@ -1,44 +1,36 @@
-# BRIEFING — 2026-11-01T01:00:10Z
+# BRIEFING — 2026-11-01T15:25:05Z
 
 ## Mission
-阶段一重构（后端核心算法与真数据闭环）：监督 Project Orchestrator (orchestrator_4) 协调 Agent-1 至 Agent-4 推进 portfolio_manager.py、strategy_bridge.py、data_loader.py 与 tests/ 的架构与算法重构，并通过独立 Victory Auditor 终审核验。
+启动阶段二重构（Web GUI 视觉大扫除与四大导航重塑）：重构 app_gui.py，彻底清理顶部省略号截断、删除 time.sleep 假延迟、重塑四大 Tab 导航入口，装配实时限购指引、调仓裁决卡、双模式推演与四大后果账单，并通过全量测试与 Streamlit AppTest 验证，重启 8501 服务。
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: d:\Google\Workspace\Wind\.agents\teamwork\sentinel
-- Orchestrator: d536f3b8-ee96-41ed-9fa9-cbd10993bb6a (orchestrator_4, Retired)
-- Victory Auditor: ac8a6d70-2eba-4102-b56f-420e37f9fb55 (victory_auditor_4, VICTORY CONFIRMED)
-- Interviewer: a21a4aa7-6bef-4652-a3ee-df48ab13d7eb (Killed/Completed)
+- Orchestrator: 15a3e419-5e4d-47c4-a669-7f8d1a1ddcee (orchestrator_5)
+- Victory Auditor: 1b5befd7-d1e6-42bf-94b2-f426e3878f25 (victory_auditor_5)
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
 - Victory Audit is MANDATORY before reporting completion
-- Must not write code or make technical decisions
-- Monitor orchestrator via two crons (progress report & liveness check)
-- Strictly protect read-only files: judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py
-- Working directory: d:\Google\Workspace\Wind\AGY2_FundAdvisory
-- Integrity mode: development
-- Complete all 5 requirements (R1-R7) and satisfy all Acceptance Criteria
-- Restart local 8501 Streamlit service upon completion
-- Anti-hardcoding iron rule: 100% dynamic models, zero hardcoded stock symbols or static weight dictionaries
-- Dispatch 4 subagents: Agent-1 (strategy_bridge.py), Agent-2 (portfolio_manager.py), Agent-3 (app_gui.py), Agent-4 (tests/)
-- R1-R6 requirements and full acceptance criteria strictly satisfied
-- Phase 1 Focus: portfolio_manager.py, strategy_bridge.py, data_loader.py, tests/
-- Forbidden: monkey patching in frontend, hardcoded dictionaries to pass tests
+- 严禁在 app_gui.py 中使用 time.sleep
+- 严禁保留任何已被截断成省略号（...）的窄卡片
+- 严禁在表格中写死“限额买500”
+- 顶部全局看板大瘦身（从 3 层 7 窄卡压缩为 1 行 4 宽卡 + 1 个刷新按钮）
+- 重塑四大主导航 Tab（新资金从0建仓推演、我的当前持仓与今日调仓建议、组合深度体检与算费工具箱、策略历史回测与胜率档案）
+- 全量 pytest 测试套件与 Streamlit AppTest 渲染测试 100% 通过
+- 重启 8501 端口服务，保持无窗口黑框后台常驻
 - Physical safety: read-only judge files (judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py) strictly untouched
-- Anti-laziness: no time.sleep, no hardcoded daily_limit (500/1000), no static C3 bypass of compute_dynamic_tier_weights
-- Pass 100% full pytest suite
 
 ## User Context
-- **Last user request**: 系统配额已恢复，请继续推进 Final Gate 终审大决战与全量验收任务。
+- **Last user request**: 阶段二重构（Web GUI 视觉大扫除与四大导航重塑）已全部完成交付
 - **Pending clarifications**: none
-- **Delivered results**: 阶段一重构全部圆满交付！4 个裁判基建文件 100% 保持 0 变动，87 项阶段一核心测试与 556 项全库回归测试全绿通过，独立 Victory Auditor 签发 VICTORY CONFIRMED 裁决。
+- **Delivered results**: 独立 Victory Auditor 已出具三阶段核验裁决：VICTORY CONFIRMED
 
 ## Project Status
 - **Phase**: complete
-- **Active Orchestrator**: d536f3b8-ee96-41ed-9fa9-cbd10993bb6a (orchestrator_4, Retired)
-- **Active Victory Auditor**: ac8a6d70-2eba-4102-b56f-420e37f9fb55 (victory_auditor_4, Retired)
-- **Crons**: cancelled (task-374, task-375)
+- **Active Orchestrator**: 15a3e419-5e4d-47c4-a669-7f8d1a1ddcee (orchestrator_5)
+- **Active Victory Auditor**: 1b5befd7-d1e6-42bf-94b2-f426e3878f25 (victory_auditor_5)
+- **Crons**: cancelled
 
 ## Victory Audit Status
 - **Triggered**: yes
@@ -47,8 +39,9 @@
 
 ## Artifact Index
 - d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md — Authoritative record of user request
-- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_4\PROJECT.md — Project blueprint & contracts
-- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_4\handoff.md — Orchestrator completion handoff
-- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_4\GATE_STATUS.md — Gate decision record
-- d:\Google\Workspace\Wind\.agents\teamwork\victory_auditor_4\handoff.md — Victory Auditor final report (VICTORY CONFIRMED)
-- d:\Google\Workspace\Wind\.agents\teamwork\sentinel\handoff.md — Sentinel completion handoff
+- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_5\plan.md — Orchestrator plan
+- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_5\PROJECT.md — Global architecture and milestones
+- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_5\handoff.md — Orchestrator final handoff
+- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_5\GATE_STATUS.md — Gate record
+- d:\Google\Workspace\Wind\.agents\teamwork\victory_auditor_5\handoff.md — Victory Auditor final audit report
+- d:\Google\Workspace\Wind\.agents\teamwork\sentinel\handoff.md — Sentinel final handoff

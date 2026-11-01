@@ -59,7 +59,7 @@ class TestUIAndLogicRefinements:
 
         # 7. Check top countdown banner is clean white card (no dark gradient)
         assert "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)" not in content
-        assert "📅 <b>调仓网格倒计时</b>" in content
+        assert "🕒 交易时钟与窗口" in content or "📅 <b>调仓网格倒计时</b>" in content
 
         # 8. Check funnel step 3 displays candidate_funds (20 只)
         assert 'st.metric("3. 5大赛道入围池", f"{funnel_stats[\'candidate_funds\']} 只"' in content
@@ -164,6 +164,6 @@ class TestUIAndLogicRefinements:
 
         # Check st.container(border=True) is used for Step 1
         assert "with st.container(border=True):" in content
-        assert "gui_scenario_mode_v2" in content
+        assert "tier_determination_mode" in content or "gui_scenario_mode_v2" in content
         assert "plan_capital_input" in content
         assert "btn_run_simulation_now" in content

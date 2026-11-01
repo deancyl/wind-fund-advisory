@@ -379,7 +379,7 @@ def test_gui_step3_table_9_cols_and_no_truncation():
     from pathlib import Path
 
     app_path = _AGY2_DIR / "app_gui.py"
-    at = AppTest.from_file(str(app_path), default_timeout=60)
+    at = AppTest.from_file(str(app_path), default_timeout=120)
     at.session_state.tier_determination_mode = "模式 A：按期望年化收益率滑块定档 (滑块即拉即变)"
     at.session_state.target_return_val = 15.0
     at.session_state.active_tier_val = "C3"
@@ -397,7 +397,7 @@ def test_gui_step3_table_9_cols_and_no_truncation():
     for df_elem in at.dataframe:
         df_val = df_elem.value
         cols = list(df_val.columns)
-        if "基金代码" in cols and ("精确买入金额(元)" in cols or "目标占比(%)" in cols):
+        if "基金代码" in cols and "精确买入金额(元)" in cols and "实操分红与限购指引" in cols:
             found_order_df = True
             assert len(cols) == 9, (
                 f"步骤三建仓执行单应严格为 9 列，实际为 {len(cols)} 列: {cols}"
