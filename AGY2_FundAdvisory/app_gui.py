@@ -51,6 +51,10 @@ from strategy_bridge import (
     get_aggressive_dream_reality_check,
     strategy_fn_for_tier
 )
+from winrate_engine import WinRateEngine, HOLDING_PERIODS
+from market_screener import MarketScreener
+from portfolio_optimizer import WinRateOptimizer
+from cache_manager import SmartCacheManager
 
 # 统一资产分类解析器动态兜底 (通用行业属性与投资标的规则，绝无静态固定代码字典)
 if not hasattr(PortfolioManager, "classify_fund_asset_class"):
@@ -475,11 +479,12 @@ if pending_count > 0:
 # -------------------------------------------------------------
 # 核心四大工作区 (符合直觉的重塑布局)
 # -------------------------------------------------------------
-tab_zero_start, tab_holdings_and_rebalance, tab_toolbox, tab_backtest = st.tabs([
+tab_zero_start, tab_holdings_and_rebalance, tab_toolbox, tab_backtest, tab_market_optimizer = st.tabs([
     "🌱 新资金从0建仓推演",
     "💼 我的当前持仓与今日调仓建议",
     "🔍 组合深度体检与算费工具箱",
-    "📈 策略历史回测与胜率档案"
+    "📈 策略历史回测与胜率档案",
+    "🎯 全市场胜率最优选基"
 ])
 
 
@@ -527,7 +532,7 @@ with tab_zero_start:
 
         tier_mode = st.radio(
             "定档方式",
-            ["模式 A：按期望年化收益率滑块定档 (滑块即拉即变)", "模式 B：30秒风险承受力测评定档"],
+            ["模式 A：按期望年化收益率滑块定档 (滑块即拉即变)", "模式 B：30秒风险承受力测评定档", "模式 C：🎯 AI全市场胜率最优选基 (设定收益目标+持有期)"],
             horizontal=True,
             key="tier_determination_mode"
         )
@@ -576,7 +581,7 @@ with tab_zero_start:
             else:
                 st.caption(f"💡 目标收益 {target_ret_input:.0f}% ➔ 当前档位：【{active_tier} {cur_tier_meta['name']}】（权益上限 {cur_tier_meta['equity_range'][1]}% ｜ 预期年化 {cur_tier_meta['target_cagr']} ｜ 核心：{cur_tier_meta['core_assets']}）")
 
-        else:
+        elif tier_mode.startswith("模式 B"):
             col_q1, col_q2, col_q3 = st.columns(3)
             with col_q1:
                 q1_ans = st.selectbox(
@@ -647,6 +652,38 @@ with tab_zero_start:
                     st.rerun()
 
             st.caption(f"📝 问卷总分：`{total_q_score} 分` ➔ 评定承受档位：**【{active_tier} {cur_tier_meta['name']}】**（建议年化 {cur_tier_meta['target_cagr']}，最大回撤容忍 {cur_tier_meta['max_drawdown_limit']}）")
+
+        elif tier_mode.startswith("模式 C"):
+            # ─── 模式 C：全市场胜率最优选基（内联入口）────────────
+            st.markdown("#### 🎯 AI 全市场胜率最优选基")
+            st.caption("从全市场约 28,000 只公募基金中，智能筛选并优化出在您设定的目标收益和持有期下历史胜率最高的基金组合。")
+
+            col_mc1, col_mc2, col_mc3 = st.columns([4, 3, 3])
+            with col_mc1:
+                mc_target_ret = st.slider(
+                    "🎚️ 目标年化收益率 (%)",
+                    min_value=3.0, max_value=25.0, value=8.0, step=1.0,
+                    format="%.0f%%", key="mode_c_target_return"
+                )
+            with col_mc2:
+                mc_horizon = st.radio(
+                    "📅 计划持有期",
+                    ["短期(3~6月)", "中期(1~2年)", "长期(3~5年)"],
+                    index=1, horizontal=True, key="mode_c_horizon"
+                )
+            with col_mc3:
+                mc_capital = st.number_input(
+                    "💰 投资金额 (元)",
+                    min_value=1000.0, max_value=100000000.0, value=100000.0,
+                    step=10000.0, format="%.0f", key="mode_c_capital"
+                )
+            horizon_map_c = {"短期(3~6月)": "short", "中期(1~2年)": "medium", "长期(3~5年)": "long"}
+            mc_period_key = horizon_map_c.get(mc_horizon, "medium")
+            active_tier = map_slider_to_tier(mc_target_ret)
+            st.session_state.active_tier_val = active_tier
+            cur_tier_meta = RISK_TIERS_CONFIG[active_tier]
+            plan_capital = mc_capital
+            st.info("💡 **提示**：完整的全市场选基功能请前往第 5 个 Tab「🎯 全市场胜率最优选基」，支持分步可视化筛选流程和详细对比。")
 
     # ---------------------------------------------------------
     # 步骤二：【🧪 现场推演看好坏】—— 全市场回测与人话指标深度检验
@@ -2459,3 +2496,239 @@ with tab_toolbox:
             )
         else:
             st.success("所有核心监控场内 ETF 溢价率均处于正常安全范围 (<= 0.8%)。")
+# =========================================================
+# Tab 5: 【🎯 全市场胜率最优选基】—— 阶段三：智能漏斗 + 三维胜率 + SLSQP 优化
+# =========================================================
+with tab_market_optimizer:
+    st.markdown("### 🎯 全市场胜率最优选基引擎")
+    _mo_today = date.today()
+    st.caption(
+        f"📅 评估基准日：**{_mo_today.isoformat()}**（随使用日期动态滚动）｜"
+        "从全市场公募基金中经「预筛 → 分桶评分 → NAV 回测 → 胜率最大化优化」四步漏斗，"
+        "找出在您设定的目标收益与持有期下历史滚动胜率最高的 5~8 只基金组合。"
+    )
+    st.warning(
+        "⚠️ 历史胜率基于过去滚动持有窗口回测（已扣除申购费、阶梯赎回费、C类销售服务费），"
+        "不代表未来收益承诺。市场有风险，投资需谨慎。"
+    )
+
+    # ─── Step 1：目标设定 ────────────────────────────────────
+    st.markdown("#### 步骤一：设定收益目标与持有期")
+    mo_col1, mo_col2, mo_col3 = st.columns([4, 3, 3])
+    with mo_col1:
+        mo_target_pct = st.slider(
+            "🎚️ 目标年化收益率 (%)",
+            min_value=3.0, max_value=25.0,
+            value=float(st.session_state.get("mode_c_target_return", 8.0)),
+            step=1.0, format="%.0f%%", key="mo_target_return"
+        )
+    with mo_col2:
+        _mo_horizon_labels = ["短期(3~6月)", "中期(1~2年)", "长期(3~5年)"]
+        _mo_default_h = st.session_state.get("mode_c_horizon", "中期(1~2年)")
+        mo_horizon = st.radio(
+            "📅 计划持有期", _mo_horizon_labels,
+            index=_mo_horizon_labels.index(_mo_default_h) if _mo_default_h in _mo_horizon_labels else 1,
+            horizontal=True, key="mo_horizon"
+        )
+    with mo_col3:
+        mo_capital = st.number_input(
+            "💰 投资金额 (元)", min_value=1000.0, max_value=100000000.0,
+            value=float(st.session_state.get("mode_c_capital", 100000.0)),
+            step=10000.0, format="%.0f", key="mo_capital"
+        )
+
+    _mo_hmap = {"短期(3~6月)": "short", "中期(1~2年)": "medium", "长期(3~5年)": "long"}
+    mo_period_key = _mo_hmap.get(mo_horizon, "medium")
+    mo_holding_days = HOLDING_PERIODS[mo_period_key]["trading_days"]
+    mo_tier = map_slider_to_tier(mo_target_pct)
+    mo_tier_meta = RISK_TIERS_CONFIG[mo_tier]
+    mo_share_class = "C" if mo_period_key == "short" else "A"
+    st.caption(
+        f"💡 目标 {mo_target_pct:.0f}% ➔ 风险档位【{mo_tier} {mo_tier_meta['name']}】"
+        f"（最大回撤容忍 {mo_tier_meta['max_drawdown_limit']}）｜持有约 {mo_holding_days} 个交易日｜"
+        f"份额建议：**{mo_share_class} 类**（{'短期持有 C 类免申购费更省' if mo_share_class == 'C' else '中长期持有 A 类免销售服务费更省'}）"
+    )
+
+    with st.expander("⚙️ 高级筛选参数", expanded=False):
+        adv_c1, adv_c2, adv_c3 = st.columns(3)
+        with adv_c1:
+            mo_min_aum = st.number_input("最低规模 (亿元)", min_value=0.5, max_value=50.0, value=2.0, step=0.5, key="mo_min_aum")
+        with adv_c2:
+            mo_min_years = st.number_input("最短成立年限 (年)", min_value=1.0, max_value=10.0, value=3.0, step=0.5, key="mo_min_years")
+        with adv_c3:
+            mo_top_n = st.number_input("每类型桶保留 Top N", min_value=10, max_value=200, value=80, step=10, key="mo_top_n")
+        mo_force = st.checkbox("强制重建候选池（忽略周度缓存，耗时较长）", value=False, key="mo_force_rebuild")
+
+    mo_run = st.button("🚀 开始全市场胜率最优选基", type="primary", key="btn_market_optimize")
+
+    # ─── Step 2：分步漏斗执行 ────────────────────────────────
+    if mo_run:
+        _mo_err = None
+        with st.status("🔍 全市场智能漏斗运行中...", expanded=True) as mo_status:
+            _mo_prog = st.progress(0.0)
+            _mo_msg = st.empty()
+
+            def _mo_cb(cur, total, msg):
+                try:
+                    frac = (float(cur) / float(total)) if total else 0.0
+                except Exception:
+                    frac = 0.0
+                _mo_prog.progress(min(max(frac, 0.0), 1.0))
+                _mo_msg.caption(f"⏳ {msg}")
+
+            try:
+                st.write("**① 全市场预筛 + ② 分桶综合评分 + ③ 候选 NAV 获取**")
+                mo_ranked, mo_nav = MarketScreener.run_full_pipeline(
+                    as_of_date=_mo_today,
+                    min_aum_billion=float(mo_min_aum),
+                    min_years=float(mo_min_years),
+                    top_n_per_bucket=int(mo_top_n),
+                    force_rebuild=bool(mo_force),
+                    progress_callback=_mo_cb,
+                )
+                if mo_ranked is None or mo_ranked.empty or mo_nav is None or mo_nav.empty:
+                    raise RuntimeError("候选池或 NAV 矩阵为空（可能数据源暂不可用）")
+                st.write(f"✅ 候选池 {len(mo_ranked)} 只，NAV 矩阵 {mo_nav.shape[0]} 天 × {mo_nav.shape[1]} 只")
+
+                st.write("**④ 胜率最大化组合优化（贪心 + SLSQP + 局部搜索）**")
+                mo_optimizer = WinRateOptimizer(
+                    nav_matrix=mo_nav,
+                    candidate_info=mo_ranked,
+                    holding_days=mo_holding_days,
+                    target_annual_return=mo_target_pct / 100.0,
+                    tier=mo_tier,
+                )
+                mo_result = mo_optimizer.optimize(progress_callback=_mo_cb)
+
+                # 专家精选池对比（取在 NAV 矩阵中可用的专家池基金等权）
+                mo_expert_cmp = None
+                try:
+                    import portfolio_manager as _pm_mod
+                    _expert_codes = [c for c in getattr(_pm_mod, "CORE_STRATEGY_POOL", {}).keys() if c in mo_nav.columns]
+                    if _expert_codes:
+                        _ew = {c: 1.0 / len(_expert_codes) for c in _expert_codes}
+                        mo_expert_cmp = mo_optimizer.compare_with_expert_pool(_ew)
+                        mo_expert_cmp["n_funds"] = len(_expert_codes)
+                except Exception as _e_cmp:
+                    mo_expert_cmp = {"error": str(_e_cmp)}
+
+                st.session_state.mo_last_result = {
+                    "result": mo_result,
+                    "expert": mo_expert_cmp,
+                    "funnel": MarketScreener.get_funnel_stats(mo_ranked),
+                    "capital": float(mo_capital),
+                    "target_pct": float(mo_target_pct),
+                    "horizon": mo_horizon,
+                    "tier": mo_tier,
+                    "as_of": _mo_today.isoformat(),
+                    "run_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                mo_status.update(label="✅ 全市场选基完成", state="complete", expanded=False)
+            except Exception as _e:
+                _mo_err = str(_e)
+                mo_status.update(label="❌ 选基流程异常", state="error", expanded=True)
+        if _mo_err:
+            st.error(f"选基流程异常：{_mo_err}。请检查网络/数据源后重试，或展开高级参数放宽筛选条件。")
+
+    # ─── Step 3：结果展示 ────────────────────────────────────
+    mo_saved = st.session_state.get("mo_last_result")
+    if mo_saved:
+        mo_res = mo_saved["result"]
+        mo_pm = mo_res.get("portfolio_metrics", {})
+        mo_meta = mo_res.get("optimization_metadata", {})
+        st.markdown(
+            f"#### 步骤三：最优组合结果（目标 {mo_saved['target_pct']:.0f}% ｜ {mo_saved['horizon']} ｜ "
+            f"档位 {mo_saved['tier']} ｜ 基准日 {mo_saved['as_of']}）"
+        )
+        st.caption(f"🔎 漏斗：{mo_saved['funnel'].get('funnel_text', '')} ｜ 运行于 {mo_saved['run_at']}")
+
+        if not mo_res.get("optimal_weights"):
+            st.error(f"未找到可行组合：{mo_meta.get('error', '未知原因')}。建议降低目标收益或延长持有期后重试。")
+        else:
+            k1, k2, k3, k4, k5 = st.columns(5)
+            k1.metric("🎯 滚动达标胜率", f"{mo_pm.get('win_rate', 0) * 100:.1f}%")
+            k2.metric("🛡️ 不亏损率", f"{mo_pm.get('no_loss_rate', 0) * 100:.1f}%")
+            k3.metric("🎲 MC 达标概率", f"{mo_pm.get('monte_carlo_prob', 0) * 100:.1f}%")
+            k4.metric("📈 历史年化", f"{mo_pm.get('expected_return_annualized', 0) * 100:.2f}%")
+            k5.metric("📉 最大回撤", f"{mo_pm.get('max_drawdown', 0) * 100:.2f}%")
+
+            # 双轨双池对比
+            mo_exp = mo_saved.get("expert")
+            if mo_exp and "expert_pool" in mo_exp:
+                ep = mo_exp["expert_pool"]
+                cmp_df = pd.DataFrame([
+                    {"组合": "🤖 AI 量化精选池", "滚动达标胜率": mo_pm.get("win_rate", 0) * 100,
+                     "不亏损率": mo_pm.get("no_loss_rate", 0) * 100, "基金数": len(mo_res["optimal_weights"])},
+                    {"组合": "👨‍💼 专家精选池（等权）", "滚动达标胜率": ep.get("win_rate", 0) * 100,
+                     "不亏损率": ep.get("no_loss_rate", 0) * 100, "基金数": mo_exp.get("n_funds", 0)},
+                ])
+                st.markdown("##### ⚖️ 双轨双池对比")
+                st.dataframe(
+                    cmp_df,
+                    column_config={
+                        "滚动达标胜率": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%"),
+                        "不亏损率": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%"),
+                    },
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                st.caption("ℹ️ 专家精选池基金未进入本次候选 NAV 矩阵，暂无法同口径对比。")
+
+            # 组合详情 + 金额分配
+            st.markdown("##### 📋 组合明细与金额分配")
+            _cap = mo_saved["capital"]
+            detail_rows = []
+            for d in mo_res.get("fund_details", []):
+                detail_rows.append({
+                    "基金代码": d.get("fund_code", ""),
+                    "基金名称": d.get("fund_name", ""),
+                    "类型桶": d.get("bucket", ""),
+                    "权重(%)": d.get("weight", 0) * 100,
+                    "配置金额(元)": round(_cap * d.get("weight", 0), 2),
+                    "个基胜率(%)": d.get("win_rate", 0) * 100,
+                    "年化(%)": d.get("annual_return", 0) * 100,
+                    "最大回撤(%)": d.get("max_dd", 0) * 100,
+                    "夏普": d.get("sharpe", 0),
+                    "建议份额": d.get("share_class_recommendation", ""),
+                    "C类配对码": d.get("ac_pair_code", "") or "",
+                })
+            if detail_rows:
+                st.dataframe(
+                    pd.DataFrame(detail_rows),
+                    column_config={
+                        "权重(%)": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%"),
+                        "配置金额(元)": st.column_config.NumberColumn(format="¥%.2f"),
+                        "个基胜率(%)": st.column_config.NumberColumn(format="%.1f%%"),
+                        "年化(%)": st.column_config.NumberColumn(format="%.2f%%"),
+                        "最大回撤(%)": st.column_config.NumberColumn(format="%.2f%%"),
+                        "夏普": st.column_config.NumberColumn(format="%.2f"),
+                    },
+                    use_container_width=True, hide_index=True
+                )
+                fig_mo = px.pie(
+                    pd.DataFrame(detail_rows), names="基金名称", values="权重(%)",
+                    title="组合权重分布", hole=0.45
+                )
+                st.plotly_chart(fig_mo, use_container_width=True)
+
+            # Monte Carlo 分布详情
+            mc = mo_res.get("monte_carlo_detail", {}) or {}
+            if mc:
+                with st.expander("🎲 Monte Carlo 模拟分布详情", expanded=False):
+                    ci90 = mc.get("ci_90", (0.0, 0.0))
+                    ci95 = mc.get("ci_95", (0.0, 0.0))
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("模拟年化均值", f"{mc.get('mean_return', 0) * 100:.2f}%")
+                    m2.metric("90% 置信区间", f"[{ci90[0] * 100:.2f}%, {ci90[1] * 100:.2f}%]")
+                    m3.metric("95% 置信区间", f"[{ci95[0] * 100:.2f}%, {ci95[1] * 100:.2f}%]")
+                    pct = mc.get("distribution_percentiles", {}) or {}
+                    if pct:
+                        st.dataframe(
+                            pd.DataFrame([{"分位": str(k), "年化收益(%)": float(v) * 100} for k, v in pct.items()]),
+                            use_container_width=True, hide_index=True
+                        )
+
+            with st.expander("🛠️ 优化元数据", expanded=False):
+                st.json(mo_meta)
+    else:
+        st.info("👆 设定目标后点击「开始全市场胜率最优选基」。首次运行需获取候选基金净值（结果按日缓存，后续秒级返回）。")
