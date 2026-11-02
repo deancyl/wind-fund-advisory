@@ -71,13 +71,14 @@ class SmartCacheManager:
     # ─── 候选池缓存（每周重建）───────────────────────────────────
 
     @classmethod
-    def get_candidate_pool(cls, force_rebuild: bool = False) -> Optional[pd.DataFrame]:
+    def get_candidate_pool(cls, force_rebuild: bool = False, min_aum: float = 2.0, min_years: float = 3.0) -> Optional[pd.DataFrame]:
         """
         读取候选池缓存。
         如果缓存不存在或超过 7 天或 force_rebuild，返回 None。
         """
         d = _ensure_dir(_CANDIDATE_POOL_DIR)
-        cache_file = d / "candidate_pool.parquet"
+        _pool_hash = hashlib.md5(f"{min_aum}_{min_years}".encode()).hexdigest()[:8]
+        cache_file = d / f"candidate_pool_{_pool_hash}.parquet"
         if not cache_file.exists() or force_rebuild:
             return None
         # 检查过期（>7 天）
@@ -97,10 +98,11 @@ class SmartCacheManager:
             return None
 
     @classmethod
-    def save_candidate_pool(cls, df: pd.DataFrame):
+    def save_candidate_pool(cls, df: pd.DataFrame, min_aum: float = 2.0, min_years: float = 3.0):
         """保存候选池，记录时间戳"""
         d = _ensure_dir(_CANDIDATE_POOL_DIR)
-        cache_file = d / "candidate_pool.parquet"
+        _pool_hash = hashlib.md5(f"{min_aum}_{min_years}".encode()).hexdigest()[:8]
+        cache_file = d / f"candidate_pool_{_pool_hash}.parquet"
         df.to_parquet(cache_file, index=False)
         _write_meta(cache_file, {"row_count": len(df)})
 
@@ -199,15 +201,21 @@ class SmartCacheManager:
         if not found_today:
             return True
 
-        # 检查沪深300波动
+        # 检查沪深300波动（优先复用本地轻量单点行情，避免拉取全市场指数表）
         try:
-            import akshare as ak
-            df_idx = ak.stock_zh_index_spot_em()
-            row_300 = df_idx[df_idx["代码"] == "000300"]
-            if not row_300.empty:
-                change_pct = abs(float(row_300.iloc[0].get("涨跌幅", 0)))
-                if change_pct > 3.0:
+            from portfolio_manager import fetch_realtime_index_quote
+            q_300 = fetch_realtime_index_quote("000300")
+            if q_300 and hasattr(q_300, "gszzl"):
+                if abs(float(q_300.gszzl or 0.0)) > 3.0:
                     return True
+            else:
+                import akshare as ak
+                df_idx = ak.stock_zh_index_spot_em()
+                row_300 = df_idx[df_idx["代码"] == "000300"]
+                if not row_300.empty:
+                    change_pct = abs(float(row_300.iloc[0].get("涨跌幅", 0)))
+                    if change_pct > 3.0:
+                        return True
         except Exception:
             pass  # 获取失败不影响，保留缓存
 
@@ -298,20 +306,22 @@ class SmartCacheManager:
     @classmethod
     def make_winrate_key(
         cls, fund_codes: List[str], holding_days: int,
-        target_return: float, tier: str
+        target_return: float, tier: str, as_of_date: Optional[str] = None
     ) -> str:
-        """生成胜率缓存键"""
+        """生成胜率缓存键（含基准日）"""
+        as_of = as_of_date or _today_str()
         sorted_codes = sorted(fund_codes)
-        raw = f"wr_{tier}_{holding_days}_{target_return:.4f}_{'_'.join(sorted_codes)}"
+        raw = f"wr_{as_of}_{tier}_{holding_days}_{target_return:.4f}_{'_'.join(sorted_codes)}"
         return hashlib.md5(raw.encode()).hexdigest()[:16]
 
     @classmethod
     def make_optimizer_key(
         cls, holding_days: int, target_return: float,
-        tier: str, n_candidates: int
+        tier: str, n_candidates: int, as_of_date: Optional[str] = None
     ) -> str:
-        """生成优化器缓存键"""
-        raw = f"opt_{tier}_{holding_days}_{target_return:.4f}_{n_candidates}"
+        """生成优化器缓存键（含基准日）"""
+        as_of = as_of_date or _today_str()
+        raw = f"opt_{as_of}_{tier}_{holding_days}_{target_return:.4f}_{n_candidates}"
         return hashlib.md5(raw.encode()).hexdigest()[:16]
 
 

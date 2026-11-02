@@ -171,3 +171,41 @@ def test_cache_roundtrip(tmp_path, monkeypatch):
     got = SmartCacheManager.get_winrate_cache(key)
     assert got is not None and got["win_rate"] == pytest.approx(0.75) and got["n"] == 3
     assert SmartCacheManager.get_winrate_cache("nonexistent_key_xyz") is None
+
+
+def test_cache_pool_param_isolation_and_as_of_date(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache_manager, "CACHE_BASE", tmp_path)
+    df1 = pd.DataFrame({"fund_code": ["000001"], "aum_billion": [5.0]})
+    SmartCacheManager.save_candidate_pool(df1, min_aum=2.0, min_years=3.0)
+    assert SmartCacheManager.get_candidate_pool(min_aum=2.0, min_years=3.0) is not None
+    assert SmartCacheManager.get_candidate_pool(min_aum=10.0, min_years=3.0) is None
+    k1 = SmartCacheManager.make_optimizer_key(250, 0.08, "C3", 50, as_of_date="2026-11-01")
+    k2 = SmartCacheManager.make_optimizer_key(250, 0.08, "C3", 50, as_of_date="2026-11-02")
+    assert k1 != k2
+
+
+def test_rebalance_orders_mode_gentle_vs_forced_and_7d_redline():
+    from strategy_bridge import StrategyBridge
+    from portfolio_manager import FundHolding, HoldingBatch
+    # 偏离 2%（<3% 缓冲区）：gentle 应 HOLD，forced 应触发调仓；但 <7 天批次一律不可卖
+    h_mature = FundHolding(
+        fund_code="100032", fund_name="富国中证红利指数增强A",
+        shares=52000.0, current_nav=1.0, market_value=52000.0,
+        batches=[HoldingBatch(batch_id="b1", buy_date="2026-09-01", shares=52000.0, cost_nav=1.0, fee=0.0, holding_days=60)],
+    )
+    h_locked = FundHolding(
+        fund_code="000216", fund_name="华安黄金易ETF联接A",
+        shares=48000.0, current_nav=1.0, market_value=48000.0,
+        batches=[HoldingBatch(batch_id="b2", buy_date="2026-10-30", shares=48000.0, cost_nav=1.0, fee=0.0, holding_days=3)],
+    )
+    holdings = {"100032": h_mature, "000216": h_locked}
+    targets = {"100032": 0.50, "000216": 0.45}  # 100032 偏离 -2%，000216 偏离 -3% 且未满7天
+    res_gentle = StrategyBridge.generate_ai_rebalance_orders(holdings, 0.0, targets, mode="gentle")
+    res_forced = StrategyBridge.generate_ai_rebalance_orders(holdings, 0.0, targets, mode="forced")
+    map_g = {it["fund_code"]: it for it in res_gentle["items"]}
+    map_f = {it["fund_code"]: it for it in res_forced["items"]}
+    assert map_g["100032"]["action"] == "HOLD"
+    assert map_f["100032"]["action"] == "SELL"
+    # 7天惩罚费红线：即便 forced 模式，未满7天份额也严禁触发卖出
+    assert map_f["000216"]["action"] == "HOLD"
+

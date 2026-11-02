@@ -3058,11 +3058,18 @@ class StrategyBridge:
         current_holdings: Dict[str, Any],
         available_cash: float,
         target_weights_funds: Dict[str, float],
-        pm: Optional[Any] = None
+        pm: Optional[Any] = None,
+        mode: str = "gentle",
     ) -> Dict[str, Any]:
         """
-        对比当前用户真实持仓与 Trial 29 今日模型目标权重，直接生成调仓建议表
+        对比当前用户真实持仓与 Trial 29 今日模型目标权重，直接生成调仓建议表。
+
+        Parameters
+        ----------
+        mode : 'gentle' (温和免伤) 或 'forced' (强行一步到位)
         """
+        is_forced = (mode == "forced")
+        buffer_pct = 0.0 if is_forced else 3.0  # 强行模式下无缓冲区
         ROUTE_NAME_MAP = {
             "PRIORITY_1_SWITCH": "优先级 1：同公司基金转换 (0在途)",
             "PRIORITY_2_CASH_ADVANCE": "优先级 2：闲置现金垫付买入 (T+1确认)",
@@ -3086,7 +3093,7 @@ class StrategyBridge:
         pm_plan = None
         if pm is not None and hasattr(pm, "generate_rebalance_plan"):
             try:
-                pm_plan = pm.generate_rebalance_plan(target_weights_funds, min_buffer_pct=3.0)
+                pm_plan = pm.generate_rebalance_plan(target_weights_funds, min_buffer_pct=buffer_pct)
             except Exception:
                 pm_plan = None
 
@@ -3156,7 +3163,7 @@ class StrategyBridge:
                         break
 
             # 判定动作与路由
-            if abs(diff_w) < 0.03: # 3% 缓冲区
+            if abs(diff_w) < (buffer_pct / 100.0): # 缓冲区（温和3%/强行0%）
                 action = "HOLD"
                 action_text = "维持当前仓位"
                 est_fee = 0.0
@@ -3172,6 +3179,7 @@ class StrategyBridge:
             else:
                 action = "SELL"
                 desired_sell_shares = round(abs(diff_amount) / current_nav, 2)
+                # 7天惩罚期红线对两种模式一律生效（工作区铁律 #2）；强行模式仅取消 3% 缓冲区
                 if h and hasattr(h, 'batches'):
                     if safe_shares <= 1e-4:
                         # 全处于惩罚期，阻断卖出
@@ -3190,7 +3198,7 @@ class StrategyBridge:
                         route_code = routes_by_code.get(code, ("SELL_TO_CASH", est_fee))[0]
                         safety_warning = f"🟡【部分批次保护】已将卖出份额自动锁死在免惩罚上限（{safe_shares:.0f}份），未满7天批次自动保留！"
                     else:
-                        action_text = f"建议减仓 -¥{abs(diff_amount):,.2f}"
+                        action_text = f"{'一步到位减仓' if is_forced else '建议减仓'} -¥{abs(diff_amount):,.2f}"
                         if code in routes_by_code:
                             route_code, est_fee = routes_by_code[code]
                         else:

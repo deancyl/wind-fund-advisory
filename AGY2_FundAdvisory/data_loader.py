@@ -588,7 +588,7 @@ class DataLoader:
                         last_buy = last_buy_dates[a]
                         if is_otc and last_buy is not None:
                             holding_days = (cur_date - last_buy).days
-                            s_class = DataLoader.SHARE_CLASS_MAP.get(a, 'C' if str(a).endswith('C') else 'A')
+                            s_class = DataLoader.SHARE_CLASS_MAP.get(a, 'A')  # MAP 外的未知标的默认 A 类（保守费率）
                             if holding_days < penalty_days:
                                 # 持有不满 7 天：严厉惩罚性赎回费 (1.50%)
                                 r_rate = penalty_rate

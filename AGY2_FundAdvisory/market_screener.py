@@ -117,7 +117,9 @@ class MarketScreener:
 
         # 检查缓存
         if not force_rebuild:
-            cached = SmartCacheManager.get_candidate_pool()
+            cached = SmartCacheManager.get_candidate_pool(
+                min_aum=float(min_aum_billion), min_years=float(min_years)
+            )
             if cached is not None:
                 if progress_callback:
                     progress_callback(1, 1, f"从缓存加载候选池: {len(cached)} 只基金")
@@ -194,7 +196,9 @@ class MarketScreener:
             progress_callback(3, 4, f"预筛完成: {len(result):,} 只候选基金")
 
         # 保存缓存
-        SmartCacheManager.save_candidate_pool(result)
+        SmartCacheManager.save_candidate_pool(
+            result, min_aum=float(min_aum_billion), min_years=float(min_years)
+        )
 
         if progress_callback:
             progress_callback(4, 4, f"候选池已缓存: {len(result):,} 只")

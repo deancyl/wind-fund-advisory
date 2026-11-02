@@ -682,7 +682,7 @@ with tab_zero_start:
             with col_mc1:
                 mc_target_ret = st.slider(
                     "🎚️ 目标年化收益率 (%)",
-                    min_value=3.0, max_value=25.0, value=8.0, step=1.0,
+                    min_value=3.0, max_value=30.0, value=8.0, step=1.0,
                     format="%.0f%%", key="mode_c_target_return"
                 )
             with col_mc2:
@@ -703,7 +703,26 @@ with tab_zero_start:
             st.session_state.active_tier_val = active_tier
             cur_tier_meta = RISK_TIERS_CONFIG[active_tier]
             plan_capital = mc_capital
-            st.info("💡 **提示**：完整的全市场选基功能请前往第 5 个 Tab「🎯 全市场胜率最优选基」，支持分步可视化筛选流程和详细对比。")
+            _mc_saved = st.session_state.get("mo_last_result")
+            if _mc_saved and (_mc_saved.get("result") or {}).get("optimal_weights"):
+                _mc_pm = _mc_saved["result"].get("portfolio_metrics", {})
+                _mc_same = (abs(float(_mc_saved.get("target_pct", -1)) - float(mc_target_ret)) < 1e-6
+                            and _mc_saved.get("horizon") == mc_horizon)
+                st.markdown(f"**📌 最近一次全市场选基结果**（目标 {_mc_saved['target_pct']:.0f}% ｜ {_mc_saved['horizon']} ｜ {_mc_saved['run_at']}）")
+                _mcc = st.columns(4)
+                _mcc[0].metric("滚动达标胜率", f"{_mc_pm.get('win_rate', 0) * 100:.1f}%")
+                _mcc[1].metric("不亏损率", f"{_mc_pm.get('no_loss_rate', 0) * 100:.1f}%")
+                _mcc[2].metric("历史年化", f"{_mc_pm.get('expected_return_annualized', 0) * 100:.2f}%")
+                _mcc[3].metric("基金数", f"{len(_mc_saved['result']['optimal_weights'])} 只")
+                _mc_rows = [{"基金代码": d.get("fund_code", ""), "基金名称": d.get("fund_name", ""),
+                             "权重(%)": round(d.get("weight", 0) * 100, 1)}
+                            for d in _mc_saved["result"].get("fund_details", [])]
+                if _mc_rows:
+                    st.dataframe(pd.DataFrame(_mc_rows), use_container_width=True, hide_index=True)
+                if not _mc_same:
+                    st.caption("⚠️ 当前滑块参数与该结果不一致；如需按新参数重算，请在「🎯 全市场胜率最优选基」页点击运行（参数已自动同步）。")
+            else:
+                st.info("💡 尚无选基结果：上方参数已自动同步到「🎯 全市场胜率最优选基」页，点击运行后结果会回显在此处。")
             # ── 多持有期胜率参考表（模式 C） ──
             try:
                 _wrc_bt = StrategyBridge.get_backtest_nav_for_tier(active_tier)
@@ -1502,7 +1521,8 @@ with tab_holdings_and_rebalance:
         current_holdings=pm.holdings,
         available_cash=pm.available_cash,
         target_weights_funds=tier_target_w,
-        pm=pm
+        pm=pm,
+        mode="forced" if sel_mode_key == "mode_forced" else "gentle",
     )
     items = ai_orders_res["items"]
 
@@ -1588,14 +1608,14 @@ with tab_holdings_and_rebalance:
         with col_exec_ai:
             if guidance["stage"] == "POST_MARKET":
                 if st.button("📌 【保存为明日 14:30 盯盘待办预案】", type="primary", use_container_width=True, key="btn_save_next_plan_tab2"):
-                    p_id = pm.save_next_day_plan({"target_weights": snapshot["target_weights_funds"], "items": items})
+                    p_id = pm.save_next_day_plan({"target_weights": tier_target_w, "items": items, "mode": sel_mode_key})
                     st.balloons()
                     st.success(f"已成功将本次调仓方案保存为【明日 14:30 盯盘待办预案】（{p_id}）！")
                     st.rerun()
             elif guidance["stage"] == "GOLDEN_WINDOW":
                 if st.button("✅ 【立即按今日盘中估值执行调仓】", type="primary", use_container_width=True, key="btn_exec_gold_tab2"):
                     with st.spinner("⚡ 正在执行调仓（锁仓校验 + 限购拆单 + 写入账本）..."):
-                        rebal_plan = pm.generate_rebalance_plan(snapshot["target_weights_funds"], min_buffer_pct=3.0)
+                        rebal_plan = pm.generate_rebalance_plan(tier_target_w, min_buffer_pct=(0.0 if sel_mode_key == "mode_forced" else 3.0))
                         routes_to_run = rebal_plan.get("routes", [])
                     if routes_to_run:
                         with st.spinner("📝 正在提交调仓指令..."):
@@ -1604,12 +1624,12 @@ with tab_holdings_and_rebalance:
                         st.success(f"✅ 已成功一键采纳 AI 策略建议，生成 {len(oids)} 笔在途指令（{', '.join(oids)}）！")
                         st.rerun()
                     else:
-                        st.info("当前持仓与 AI 目标权重偏离度均在 3% 缓冲阈值内，无需额外折腾！")
+                        st.info(("当前持仓与 AI 目标权重已对齐" if sel_mode_key == "mode_forced" else "当前持仓与 AI 目标权重偏离度均在 3% 缓冲阈值内") + "，无需额外折腾！")
             else:
                 obs_force = st.checkbox("⚠️ 我已了解盘中冲高/跳水风险，仍希望在 14:30 前提前执行", value=False, key="chk_obs_force_tab2")
                 if obs_force:
                     if st.button("⚠️ 【盘中提前执行调仓】", type="secondary", use_container_width=True, key="btn_obs_force_tab2"):
-                        rebal_plan = pm.generate_rebalance_plan(snapshot["target_weights_funds"], min_buffer_pct=3.0)
+                        rebal_plan = pm.generate_rebalance_plan(tier_target_w, min_buffer_pct=(0.0 if sel_mode_key == "mode_forced" else 3.0))
                         routes_to_run = rebal_plan.get("routes", [])
                         if routes_to_run:
                             oids = pm.submit_rebalance_orders(routes_to_run)
@@ -1617,7 +1637,7 @@ with tab_holdings_and_rebalance:
                             st.success(f"已成功生成 {len(oids)} 笔在途指令（{', '.join(oids)}）！")
                             st.rerun()
                         else:
-                            st.info("当前持仓与 AI 目标权重偏离度均在 3% 缓冲阈值内，无需额外调仓。")
+                            st.info(("当前持仓与 AI 目标权重已对齐" if sel_mode_key == "mode_forced" else "当前持仓与 AI 目标权重偏离度均在 3% 缓冲阈值内") + "，无需额外调仓。")
                 else:
                     st.button("⏳ 盘中观察中 (等待 14:30 尾盘趋势锁定解锁)", disabled=True, use_container_width=True, key="btn_obs_disabled_tab2")
 
@@ -2562,7 +2582,7 @@ with tab_market_optimizer:
     with mo_col1:
         mo_target_pct = st.slider(
             "🎚️ 目标年化收益率 (%)",
-            min_value=3.0, max_value=25.0,
+            min_value=3.0, max_value=30.0,
             value=float(st.session_state.get("mode_c_target_return", 8.0)),
             step=1.0, format="%.0f%%", key="mo_target_return"
         )
@@ -2725,23 +2745,43 @@ with tab_market_optimizer:
                                  if not getattr(_pm_mod, "CORE_STRATEGY_POOL", {}).get(c, {}).get("share_class", "A") == "C"]
                     if not _expert_a:
                         _expert_a = _all_expert
+                    # 档位真实策略配比（与 Tab 2 调仓同源）；获取失败才回退等权
+                    _tier_w = {}
+                    try:
+                        if mo_tier == "C3":
+                            _tier_w_raw = dict(snapshot.get("target_weights_funds", {}) or {})
+                        else:
+                            _tier_w_raw = dict(StrategyBridge.map_index_weights_to_funds(
+                                strategy_fn_for_tier(StrategyBridge.load_matrix(), tier=mo_tier)
+                            ))
+                        _tier_w = {str(c): float(w) for c, w in _tier_w_raw.items() if float(w) > 1e-4}
+                    except Exception:
+                        _tier_w = {}
+                    if _tier_w:
+                        _expert_a = list(_tier_w.keys())
                     # 优先用候选 NAV 矩阵中已有的，不足则独立获取
                     _in_nav = [c for c in _expert_a if c in mo_nav.columns]
                     _expert_nav = None
-                    if len(_in_nav) >= 5:
+                    if len(_in_nav) >= max(1, int(len(_expert_a) * 0.8)):
                         _expert_codes = _in_nav
                     else:
                         _mo_cb(0, 1, "获取专家池基金 NAV 用于同口径对比...")
-                        _expert_nav = MarketScreener.fetch_candidate_nav_matrix(
-                            _expert_a, start_date="2018-01-01"
-                        )
+                        _expert_nav = MarketScreener.fetch_candidate_nav_matrix(_expert_a)
                         _expert_codes = [c for c in _expert_a if c in _expert_nav.columns]
                     if _expert_codes:
-                        _ew = {c: 1.0 / len(_expert_codes) for c in _expert_codes}
+                        if _tier_w:
+                            _w_sum = sum(_tier_w[c] for c in _expert_codes)
+                            _ew = {c: _tier_w[c] / _w_sum for c in _expert_codes} if _w_sum > 0 else {}
+                        else:
+                            _ew = {}
+                        _weight_mode = f"{mo_tier} 档位策略配比" if _ew else "等权兜底"
+                        if not _ew:
+                            _ew = {c: 1.0 / len(_expert_codes) for c in _expert_codes}
                         mo_expert_cmp = mo_optimizer.compare_with_expert_pool(
                             _ew, expert_nav_matrix=_expert_nav
                         )
                         mo_expert_cmp["n_funds"] = len(_expert_codes)
+                        mo_expert_cmp["weight_mode"] = _weight_mode
                 except Exception as _e_cmp:
                     mo_expert_cmp = {"error": str(_e_cmp)}
 
@@ -2794,7 +2834,7 @@ with tab_market_optimizer:
                 cmp_df = pd.DataFrame([
                     {"组合": "🤖 AI 量化精选池", "滚动达标胜率": mo_pm.get("win_rate", 0) * 100,
                      "不亏损率": mo_pm.get("no_loss_rate", 0) * 100, "基金数": len(mo_res["optimal_weights"])},
-                    {"组合": "👨‍💼 专家精选池（等权）", "滚动达标胜率": ep.get("win_rate", 0) * 100,
+                    {"组合": f"👨‍💼 专家精选池（{mo_exp.get('weight_mode', '等权')}）", "滚动达标胜率": ep.get("win_rate", 0) * 100,
                      "不亏损率": ep.get("no_loss_rate", 0) * 100, "基金数": mo_exp.get("n_funds", 0)},
                 ])
                 st.markdown("##### ⚖️ 双轨双池对比")
@@ -2845,6 +2885,94 @@ with tab_market_optimizer:
                     title="组合权重分布", hole=0.45
                 )
                 st.plotly_chart(fig_mo, use_container_width=True)
+
+            # ── 实盘下单小抄：今日申购限额校验 + 多日拆单（P2） ──
+            if detail_rows:
+                with st.expander("🛒 实盘下单小抄（今日限购校验·多日拆单）+ 一键设为初始持仓", expanded=False):
+                    st.caption("按今日申购状态与日累计限额校验每只基金能否一次买齐；超限自动拆为多个交易日分批申购。限额数据当日缓存。")
+                    _os_key = f"mo_order_sheet::{mo_saved.get('run_at', '')}"
+                    if st.button("🔍 查询今日申购限额并生成下单小抄", key="btn_mo_quota"):
+                        with st.spinner("正在查询今日申购状态与限额（首次需拉取全市场申购表，之后当日秒级）..."):
+                            import math as _math
+                            import portfolio_manager as _pmq
+                            _sheet = []
+                            for _r in detail_rows:
+                                _code = str(_r["基金代码"]).strip()
+                                _amt = float(_r["配置金额(元)"])
+                                try:
+                                    _q = _pmq.fetch_realtime_fund_quota(_code)
+                                except Exception:
+                                    _q = {"status": "未知(查询失败)", "daily_limit": 1e11, "is_limited": False}
+                                _lim = float(_q.get("daily_limit", 1e11) or 0.0)
+                                _st = str(_q.get("status", ""))
+                                if _lim <= 0:
+                                    _days, _day1 = None, 0.0
+                                    _alt = _r.get("C类配对码") or ""
+                                    _note = "⛔ 暂停申购，无法买入" + (f"；可考虑 C 类配对码 {_alt}" if _alt else "；建议替换为同类型次优基金")
+                                else:
+                                    _days = max(1, int(_math.ceil(_amt / _lim))) if _amt > 0 else 0
+                                    _day1 = min(_amt, _lim)
+                                    if _days <= 1:
+                                        _note = "✅ 今日可一次买齐"
+                                    elif _days <= 20:
+                                        _note = f"🟡 限额 ¥{_lim:,.0f}/日，需分 {_days} 个交易日买齐"
+                                    else:
+                                        _note = f"🔴 限额 ¥{_lim:,.0f}/日，需 {_days} 个交易日，周期过长建议替换"
+                                _sheet.append({
+                                    "基金代码": _code, "基金名称": _r.get("基金名称", ""),
+                                    "目标金额(元)": round(_amt, 2), "申购状态": _st,
+                                    "日限额(元)": None if _lim >= 1e10 else round(_lim, 2),
+                                    "今日可买(元)": round(_day1, 2),
+                                    "所需交易日": _days, "执行建议": _note,
+                                })
+                            st.session_state[_os_key] = _sheet
+                    _sheet = st.session_state.get(_os_key)
+                    if _sheet:
+                        _sdf = pd.DataFrame(_sheet)
+                        st.dataframe(
+                            _sdf,
+                            column_config={
+                                "目标金额(元)": st.column_config.NumberColumn(format="¥%.2f"),
+                                "日限额(元)": st.column_config.NumberColumn(format="¥%.0f", help="空白=不限购"),
+                                "今日可买(元)": st.column_config.NumberColumn(format="¥%.2f"),
+                            },
+                            use_container_width=True, hide_index=True,
+                        )
+                        _day1_total = float(sum(x["今日可买(元)"] for x in _sheet))
+                        _blocked = [x["基金代码"] for x in _sheet if x["所需交易日"] is None]
+                        _multi = [x for x in _sheet if (x["所需交易日"] or 0) > 1]
+                        _max_days = max([x["所需交易日"] or 0 for x in _sheet] + [0])
+                        st.markdown(
+                            f"**今日可执行 ¥{_day1_total:,.2f} / 目标 ¥{_cap:,.2f}** ｜ "
+                            f"多日拆单 {len(_multi)} 只（最长 {_max_days} 个交易日） ｜ 暂停申购 {len(_blocked)} 只"
+                        )
+                        if _blocked:
+                            st.warning(f"⛔ 以下基金今日暂停申购，无法按计划买入：{'、'.join(_blocked)}。其对应资金将保留为现金。")
+
+                        st.markdown("---")
+                        st.markdown("##### 📥 一键设为初始持仓")
+                        st.caption("按「今日可买」金额写入持仓账本（视为今日新买入，计入 7 天惩罚期保护）；未能今日买入的部分记为可用现金，待后续交易日分批申购。")
+                        _has_old = bool(getattr(pm, "holdings", None))
+                        _confirm = True
+                        if _has_old:
+                            st.warning(f"⚠️ 当前账本已有 {len(pm.holdings)} 只持仓。此操作将**清空现有持仓与在途单**并以本组合重置。")
+                            _confirm = st.checkbox("我已了解将覆盖现有持仓账本", key="chk_mo_overwrite")
+                        if st.button("📥 一键设为初始持仓", type="primary", key="btn_mo_set_holdings", disabled=not _confirm):
+                            _items = [
+                                {"fund_code": x["基金代码"], "amount": x["今日可买(元)"], "nav": None, "holding_tag": "<7d"}
+                                for x in _sheet if x["今日可买(元)"] > 0
+                            ]
+                            _cash_left = max(0.0, float(_cap) - _day1_total)
+                            if not _items:
+                                st.error("今日无可买入的基金（全部暂停申购），未写入账本。")
+                            else:
+                                with st.spinner("写入持仓账本中（获取最新净值 + 构建 FIFO 批次）..."):
+                                    try:
+                                        pm.takeover_mode_a(_items, available_cash=_cash_left)
+                                        st.success(f"✅ 已写入 {len(_items)} 只基金，可用现金 ¥{_cash_left:,.2f}（待分批申购）。前往「我的当前持仓」查看。")
+                                        st.rerun()
+                                    except Exception as _imp_e:
+                                        st.error(f"写入持仓失败：{_imp_e}")
 
             # Monte Carlo 分布详情
             mc = mo_res.get("monte_carlo_detail", {}) or {}
