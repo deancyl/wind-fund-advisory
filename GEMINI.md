@@ -33,3 +33,23 @@
 - **增量特性与渲染聚焦**：交付前校验严格收口为：① 本次修改相关的针对性测试与 Delta AppTest 用例；② 核心红线静态 AST/正则核验（零 `time.sleep`、零硬编码限额）；③ 服务存活探针健康校验；
 - **事实说话直达交付**：完成上述三阶轻量核验后，立即完成 Git 提交推送与服务平滑托管，拒绝冗余流程拖沓。
 
+## 7. 持仓批次天数与先进先出安全赎回铁律 (Lot Holding Days & FIFO Penalty Defense)
+- **悲观天数防线**：持仓天数测算严禁取批次最大值 `max(holding_days)`（防新老批次混合时误判全部已满期）；必须使用悲观保守的 `min((b.holding_days for b in batches), default=30)` 或严格基于 FIFO 批次精确拆分；
+- **免惩罚份额硬约束**：调仓路径优化器（`WinRateOptimizer.optimize_rebalance_path`）必须强制接入 `penalty_free_shares`，将 $<7$ 天份额锁死在持仓下界（`lower_bound = locked_shares`），从算法数学模型层面物理杜绝卖出锁定批次，守死 1.50% 惩罚费红线；
+- **C 类份额梯级免除**：C 类份额严格遵循 $\ge 30$ 天免赎回费梯级，未满 30 天份额在常规调仓中不得建议减持。
+
+## 8. 当下时点 ($T_{\text{now}}$) 条件胜率与防均值回归算法规范 (State-Conditional Win Rate & Anti-Overbought Rule)
+- **拒绝纯后视镜追高**：严禁采用纯无条件滚动历史均值误导用户在暴涨高位接盘；
+- **同温层状态加权**：必须将当前宏观与微观 5 维状态向量 $\mathbf{x}_{T_{\text{now}}} = [\text{ERP}, \text{Bias20}, \text{Mom60}, \text{EWMA\_Vol}, \text{DR007}]$ 注入胜率引擎，通过高斯核相似度赋权，输出相似市场环境下的条件胜率；
+- **样本外与乖离率惩罚**：必须配置样本外（Walk-Forward，如 70% 训练 + 30% 验证）多周期综合胜率；对短期乖离率过大（$\text{Bias20} > +6\%$）标的实施均值回归折价惩罚，防范结构性泡沫。
+
+## 9. Streamlit 独立 Tab 错误边界与动态模块对齐法则 (Tab Error Isolation & Dynamic Reload Invariant)
+- **Tab 独立错误隔离**：所有顶层 Tab 必须各自包裹独立的 `try ... except Exception as e: st.error(...)` 错误边界，彻底杜绝单 Tab 抛异常导致全屏白屏崩溃；
+- **常驻服务热重载与模块同源**：Streamlit 守护进程主入口须确保工作区目录置于 `sys.path[0]`，并显式对业务模块进行 `importlib.reload()` 保护；
+- **接口变更弹性兼容**：函数入参变更必须保持 `**kwargs` 向下兼容，调用端配合 `inspect.signature` 自适应探测，严防签名不一致直接击穿。
+
+## 10. 动态重载环境下的单元测试 Mock 靶向准则 (String-Based Dynamic Mocking Invariant)
+- **严禁静态对象 Mock**：在存在 `importlib.reload`、热重载或 AppTest 动态加载的测试体系中，严禁使用静态引用的 `patch.object(Class, ...)`（避免 class 对象在 reload 后被替换而脱靶）；
+- **动态字符串路径靶向**：必须统一采用字符串路径 `patch("module.Class.method", ...)` 进行动态注入，保证 mock 永远绑定在 `sys.modules` 的最新类实例上。
+
+
