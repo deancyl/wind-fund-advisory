@@ -66,6 +66,7 @@ class WinRateOptimizer:
         target_annual_return: float,
         tier: str = "C3",
         constraints: Optional[dict] = None,
+        market_snapshot: Optional[Dict[str, Any]] = None,
     ):
         """
         Parameters
@@ -76,6 +77,7 @@ class WinRateOptimizer:
         target_annual_return : 目标年化收益率 (0.08 = 8%)
         tier : 风险档位 C1~C5
         constraints : 自定义约束条件
+        market_snapshot : 当下市场状态快照 (ERP分位、Bias20、Mom60、EWMA波动率、DR007利差)
         """
         self.nav_matrix = nav_matrix
         self.candidate_info = candidate_info
@@ -84,6 +86,13 @@ class WinRateOptimizer:
         self.tier = tier
         self.constraints = {**DEFAULT_CONSTRAINTS, **(constraints or {})}
         self.max_dd = MAX_DRAWDOWN_BY_TIER.get(tier, 0.18)
+        self.market_snapshot = market_snapshot
+        if self.market_snapshot is None:
+            try:
+                from strategy_bridge import StrategyBridge
+                self.market_snapshot = StrategyBridge.get_latest_market_snapshot()
+            except Exception:
+                self.market_snapshot = None
 
         # 预计算个体指标
         self._individual_metrics: Optional[pd.DataFrame] = None
@@ -94,7 +103,7 @@ class WinRateOptimizer:
         self, progress_callback: Optional[Callable] = None
     ) -> pd.DataFrame:
         """
-        预计算每只候选基金的个体指标。
+        预计算每只候选基金的个体指标（含条件胜率与均值回归修正）。
         """
         if self._individual_metrics is not None:
             return self._individual_metrics
@@ -127,19 +136,36 @@ class WinRateOptimizer:
             dd = (nav - cummax) / cummax
             max_dd_val = float(np.min(dd))
 
-            # 快速胜率
-            win_rate = WinRateEngine.quick_screening_score(
-                nav_s, self.holding_days, self.target_return
+            # 条件胜率与不亏损率
+            wr_dict = WinRateEngine.rolling_target_winrate(
+                nav_s, self.holding_days, self.target_return,
+                include_friction=True,
+                market_snapshot=self.market_snapshot,
             )
+            cond_wr = wr_dict.get("conditional_win_rate", wr_dict["win_rate"])
+            uncond_wr = wr_dict.get("unconditional_win_rate", wr_dict["win_rate"])
+            no_loss = wr_dict.get("no_loss_rate", 0.0)
 
-            # 不亏损率
-            buy = nav[:n - self.holding_days]
-            sell = nav[self.holding_days:]
-            no_loss = float(np.mean(sell >= buy)) if len(buy) > 0 else 0.0
-
-            # 获取 bucket
+            # 获取 bucket 与元数据
             info_row = self.candidate_info[self.candidate_info["fund_code"] == code]
             bucket = info_row.iloc[0]["bucket"] if not info_row.empty else "other"
+            fund_name = str(info_row.iloc[0].get("fund_name", "")) if not info_row.empty else ""
+
+            # 短期超买与估值高位惩罚 (均值回归修正)
+            ret_1y = float(nav[-1] / nav[max(0, n - 250)] - 1.0) if n >= 20 else ann_ret
+            ma20_last = float(np.mean(nav[-20:])) if n >= 20 else nav[-1]
+            bias20_last = float((nav[-1] / ma20_last - 1.0) * 100.0) if ma20_last > 0 else 0.0
+
+            if ret_1y > 0.35 and bias20_last > 6.0:
+                # 均值回归扣减与超买惩罚
+                ann_ret = max(-0.5, ann_ret - 0.05)
+                cond_wr = max(0.01, cond_wr - 0.08)
+
+            # 估值底部高性价比安全垫奖励
+            erp_now = float((self.market_snapshot or {}).get("erp_percentile", 50.0))
+            if erp_now >= 75.0:
+                if bucket in ["balanced_debt", "fof"] or "红利" in fund_name or "价值" in fund_name:
+                    cond_wr = min(0.99, cond_wr + 0.05)
 
             metrics.append({
                 "fund_code": code,
@@ -148,7 +174,9 @@ class WinRateOptimizer:
                 "max_dd": max_dd_val,
                 "annual_return": ann_ret,
                 "volatility": float(np.std(daily_ret, ddof=1) * np.sqrt(250)),
-                "win_rate": win_rate,
+                "win_rate": cond_wr,
+                "conditional_win_rate": cond_wr,
+                "unconditional_win_rate": uncond_wr,
                 "no_loss_rate": no_loss,
             })
 
@@ -268,6 +296,12 @@ class WinRateOptimizer:
         if len(sub_nav) < self.holding_days + 10:
             return self._empty_result("NAV 数据长度不足")
 
+        # 样本外稳健性切分 (Out-of-Sample Split: 前 70% 训练，后 30% 验证)
+        n_nav = len(sub_nav)
+        split_idx = max(int(n_nav * 0.70), self.holding_days + 10)
+        train_nav = sub_nav.iloc[:split_idx]
+        val_nav = sub_nav.iloc[split_idx:]
+
         # 尝试不同基金数量，选最优
         best_result = None
         best_winrate = -1.0
@@ -276,24 +310,49 @@ class WinRateOptimizer:
             result = self._optimize_fixed_n(
                 diverse_codes, sub_nav, n_funds, quota_info, progress_callback
             )
-            if result and result.get("portfolio_metrics", {}).get("win_rate", 0) > best_winrate:
-                best_winrate = result["portfolio_metrics"]["win_rate"]
-                best_result = result
+            if result:
+                res_metric = result.get("portfolio_metrics", {})
+                res_wr = float(res_metric.get("conditional_win_rate", res_metric.get("win_rate", 0)))
+                if res_wr > best_winrate:
+                    best_winrate = res_wr
+                    best_result = result
 
         if best_result is None:
             return self._empty_result("优化器未找到可行解")
 
         if progress_callback:
-            progress_callback(3, 5, "计算 Monte Carlo 置信区间...")
+            progress_callback(3, 5, "计算 Monte Carlo 置信区间与样本外验证...")
 
-        # 对最优解计算完整的组合胜率（含 MC）
+        # 对最优解计算完整的组合胜率（含 MC 与条件胜率）
         composite = WinRateEngine.portfolio_composite_winrate(
             sub_nav,
             best_result["optimal_weights"],
             self.holding_days,
             self.target_return,
+            market_snapshot=self.market_snapshot,
         )
+        r_wr = composite.get("rolling_winrate", {})
+        cond_wr = float(r_wr.get("conditional_win_rate", r_wr.get("win_rate", 0.0)))
+        uncond_wr = float(r_wr.get("unconditional_win_rate", r_wr.get("win_rate", 0.0)))
 
+        # 样本外 (OOS) 验证集胜率
+        val_wr = cond_wr
+        if len(val_nav) > 20:
+            val_hdays = min(self.holding_days, len(val_nav) - 5)
+            if val_hdays > 0:
+                val_comp = WinRateEngine.portfolio_composite_winrate(
+                    val_nav,
+                    best_result["optimal_weights"],
+                    val_hdays,
+                    self.target_return,
+                    market_snapshot=self.market_snapshot,
+                )
+                val_wr = float(val_comp.get("rolling_winrate", {}).get("conditional_win_rate", cond_wr))
+
+        best_result["portfolio_metrics"]["win_rate"] = cond_wr
+        best_result["portfolio_metrics"]["conditional_win_rate"] = cond_wr
+        best_result["portfolio_metrics"]["unconditional_win_rate"] = uncond_wr
+        best_result["portfolio_metrics"]["oos_win_rate"] = val_wr
         best_result["portfolio_metrics"]["monte_carlo_prob"] = (
             composite.get("monte_carlo", {}).get("prob_reach_target", 0.0)
         )
@@ -394,11 +453,12 @@ class WinRateOptimizer:
             eq_w = 1.0 / n_funds
             optimal_weights = {c: eq_w for c in selected_codes}
 
-        # 计算组合胜率
+        # 计算组合胜率（接入当下 market_snapshot 条件胜率）
         wr = WinRateEngine.rolling_target_winrate(
             self._build_portfolio_nav(nav_df, optimal_weights),
             self.holding_days,
             self.target_return,
+            market_snapshot=self.market_snapshot,
         )
 
         # 计算组合指标
@@ -434,7 +494,9 @@ class WinRateOptimizer:
         return {
             "optimal_weights": optimal_weights,
             "portfolio_metrics": {
-                "win_rate": wr["win_rate"],
+                "win_rate": wr.get("conditional_win_rate", wr["win_rate"]),
+                "conditional_win_rate": wr.get("conditional_win_rate", wr["win_rate"]),
+                "unconditional_win_rate": wr.get("unconditional_win_rate", wr["win_rate"]),
                 "no_loss_rate": wr["no_loss_rate"],
                 "monte_carlo_prob": 0.0,  # 后续补充
                 "expected_return_annualized": ann_ret,
@@ -471,21 +533,43 @@ class WinRateOptimizer:
         # 归一化
         norm_nav = sub_nav / sub_nav.iloc[0]
         nav_arr = norm_nav.values  # (T, n)
+        T = len(nav_arr)
+        hd = min(self.holding_days, T - 1)
+        M = T - hd
+        split_M = int(M * 0.70) if M > 20 else M
+
+        # 若有 market_snapshot，预计算核权重
+        state_vec = WinRateEngine.extract_state_vector(self.market_snapshot)
+        if state_vec is not None and M > 0:
+            avg_nav = pd.Series(norm_nav.mean(axis=1).values)
+            hist_feat = WinRateEngine.compute_historical_feature_matrix(avg_nav, hd)
+            kw = WinRateEngine.compute_kernel_weights(hist_feat, state_vec)
+        else:
+            kw = np.full(M, 1.0 / M, dtype=np.float64) if M > 0 else np.array([])
 
         def objective(w):
-            """目标：最小化 -胜率"""
+            """目标：最小化 -(0.65*训练集条件胜率 + 0.35*验证集胜率 - 限购惩罚)"""
             portfolio_nav = nav_arr @ w
-            T = len(portfolio_nav)
-            hd = min(self.holding_days, T - 1)
-            if hd <= 0:
+            if hd <= 0 or M <= 0:
                 return 0.0
 
-            buy = portfolio_nav[:T - hd]
-            sell = portfolio_nav[hd:]
+            buy = portfolio_nav[:M]
+            sell = portfolio_nav[hd:hd + M]
             total_ret = sell / buy - 1.0
             years = hd / 250.0
-            ann_ret = np.sign(total_ret + 1) * (np.abs(total_ret + 1) ** (1 / years)) - 1.0
-            wr = np.mean(ann_ret >= self.target_return)
+            ann_ret = np.sign(total_ret + 1.0) * (np.abs(total_ret + 1.0) ** (1.0 / years)) - 1.0
+            is_win = (ann_ret >= self.target_return).astype(np.float64)
+
+            if len(kw) == M:
+                if split_M < M:
+                    kw_train = kw[:split_M] / (np.sum(kw[:split_M]) + 1e-12)
+                    wr_train = float(np.sum(kw_train * is_win[:split_M]))
+                    wr_val = float(np.mean(is_win[split_M:]))
+                    wr = 0.65 * wr_train + 0.35 * wr_val
+                else:
+                    wr = float(np.sum(kw * is_win))
+            else:
+                wr = float(np.mean(is_win))
 
             # 限购惩罚
             penalty = 0.0
@@ -600,12 +684,14 @@ class WinRateOptimizer:
                         if opt_w:
                             opt_nav = self._build_portfolio_nav(nav_df, opt_w)
                             full_wr = WinRateEngine.rolling_target_winrate(
-                                opt_nav, self.holding_days, self.target_return
+                                opt_nav, self.holding_days, self.target_return,
+                                market_snapshot=self.market_snapshot,
                             )
-                            if full_wr["win_rate"] > best_wr:
+                            cur_score = float(full_wr.get("conditional_win_rate", full_wr["win_rate"]))
+                            if cur_score > best_wr:
                                 best_codes = trial_codes
                                 best_weights = opt_w
-                                best_wr = full_wr["win_rate"]
+                                best_wr = cur_score
                                 candidates = [c for c in all_codes if c not in best_codes]
                                 made_swap = True
                                 improved = True
@@ -619,6 +705,7 @@ class WinRateOptimizer:
             full_wr = WinRateEngine.rolling_target_winrate(
                 self._build_portfolio_nav(nav_df, best_weights),
                 self.holding_days, self.target_return,
+                market_snapshot=self.market_snapshot,
             )
             return best_codes, best_weights, full_wr
 
@@ -725,28 +812,73 @@ class WinRateOptimizer:
 
             holding_info = current_holdings.get(code, {})
             h_days = holding_info.get("holding_days", 0)
+            nav = float(holding_info.get("nav", 1.0) or 1.0)
+            if nav <= 0:
+                nav = 1.0
+            penalty_free_shares = holding_info.get("penalty_free_shares", None)
 
             if diff < 0:  # 需要赎回
-                # 检查锁定期
-                if h_days < 7:
-                    locked_funds.append(f"{code}: 持有 {h_days} 天，< 7 天惩罚期")
-                    continue
-
-                redeem_fee = _get_redemption_fee(h_days)
                 redeem_amount = abs(diff) * total_value
-                fee = redeem_amount * redeem_fee
-                total_friction += fee
+                if penalty_free_shares is not None:
+                    if float(penalty_free_shares) <= 1e-4:
+                        locked_funds.append(f"{code}: 持有 < 7 天惩罚期（免惩罚可赎回份额为 0）")
+                        continue
+                    desired_shares = redeem_amount / nav
+                    safe_sell_shares = min(desired_shares, float(penalty_free_shares))
+                    if safe_sell_shares <= 1e-4:
+                        locked_funds.append(f"{code}: 持有 < 7 天惩罚期（免惩罚可赎回份额不足）")
+                        continue
 
-                rebalance_actions.append({
-                    "action": "SELL",
-                    "fund_code": code,
-                    "amount": round(redeem_amount, 2),
-                    "current_weight": round(cur_w * 100, 1),
-                    "target_weight": round(tgt_w * 100, 1),
-                    "holding_days": h_days,
-                    "redemption_fee_rate": redeem_fee,
-                    "estimated_fee": round(fee, 2),
-                })
+                    actual_redeem_amount = safe_sell_shares * nav
+                    note = ""
+                    if desired_shares > float(penalty_free_shares) + 1e-4:
+                        locked_diff = desired_shares - safe_sell_shares
+                        note = f"仅卖出持有≥7天的安全份额 {safe_sell_shares:.1f} 份，剩余未满7天份额已保护锁仓"
+                        locked_funds.append(f"{code}: 包含未满 7 天锁定份额 {locked_diff:.1f} 份（已保护锁仓）")
+
+                    safe_h_days = holding_info.get("safe_holding_days", max(7, h_days))
+                    effective_h_days = max(7, safe_h_days)
+                    f_class = str(holding_info.get("share_class", "A")).upper().strip()
+                    redeem_fee = _get_redemption_fee(effective_h_days, fund_type=f_class)
+                    fee = actual_redeem_amount * redeem_fee
+                    total_friction += fee
+
+                    rebalance_actions.append({
+                        "action": "SELL",
+                        "fund_code": code,
+                        "amount": round(actual_redeem_amount, 2),
+                        "shares": round(safe_sell_shares, 2),
+                        "current_weight": round(cur_w * 100, 1),
+                        "target_weight": round(tgt_w * 100, 1),
+                        "holding_days": h_days,
+                        "effective_holding_days": effective_h_days,
+                        "redemption_fee_rate": redeem_fee,
+                        "estimated_fee": round(fee, 2),
+                        "note": note,
+                    })
+                else:
+                    # 检查锁定期 (原有逻辑兜底)
+                    if h_days < 7:
+                        locked_funds.append(f"{code}: 持有 {h_days} 天，< 7 天惩罚期")
+                        continue
+
+                    redeem_fee = _get_redemption_fee(h_days)
+                    fee = redeem_amount * redeem_fee
+                    total_friction += fee
+
+                    rebalance_actions.append({
+                        "action": "SELL",
+                        "fund_code": code,
+                        "amount": round(redeem_amount, 2),
+                        "shares": round(redeem_amount / nav, 2),
+                        "current_weight": round(cur_w * 100, 1),
+                        "target_weight": round(tgt_w * 100, 1),
+                        "holding_days": h_days,
+                        "effective_holding_days": h_days,
+                        "redemption_fee_rate": redeem_fee,
+                        "estimated_fee": round(fee, 2),
+                        "note": "",
+                    })
             else:  # 需要申购
                 buy_amount = diff * total_value
 
@@ -754,9 +886,14 @@ class WinRateOptimizer:
                     "action": "BUY",
                     "fund_code": code,
                     "amount": round(buy_amount, 2),
+                    "shares": round(buy_amount / nav, 2),
                     "current_weight": round(cur_w * 100, 1),
                     "target_weight": round(tgt_w * 100, 1),
+                    "holding_days": 0,
+                    "effective_holding_days": 0,
+                    "redemption_fee_rate": 0.0,
                     "estimated_fee": round(buy_amount * 0.0015, 2),  # A类申购费
+                    "note": "",
                 })
                 total_friction += buy_amount * 0.0015
 
@@ -822,3 +959,221 @@ class WinRateOptimizer:
                 "avg_return": expert_wr.get("avg_return_annualized", 0),
             }
         }
+
+
+# ══════════════════════════════════════════════════════════════════
+#  全市场选基一键闭环调度器
+# ══════════════════════════════════════════════════════════════════
+
+def execute_market_optimization_flow(
+    target_pct: float,
+    horizon_label: str,
+    capital: float,
+    min_aum: float = 2.0,
+    min_years: float = 3.0,
+    top_n: int = 80,
+    force_rebuild: bool = False,
+    progress_cb: Optional[Callable] = None,
+    pm: Optional[Any] = None,
+    snapshot: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    全市场胜率最优选基流水线一键闭环调度器：
+    全市场漏斗 ➔ NAV矩阵 ➔ 胜率优化 ➔ 专家池对比 ➔ 限额拆单表 ➔ 存量调仓路径
+    """
+    import math as _math
+    from datetime import date, datetime
+    import portfolio_manager as _pmq
+    from market_screener import MarketScreener
+    from strategy_bridge import StrategyBridge, strategy_fn_for_tier
+
+    def _map_slider_to_tier(ret: float) -> str:
+        if ret <= 8.0:
+            return "C1"
+        elif ret <= 12.0:
+            return "C2"
+        elif ret <= 18.0:
+            return "C3"
+        elif ret <= 30.0:
+            return "C4"
+        else:
+            return "C5"
+
+    _mo_today = date.today()
+    _mo_hmap = {"短期(3~6月)": "short", "中期(1~2年)": "medium", "长期(3~5年)": "long"}
+    mo_period_key = _mo_hmap.get(horizon_label, "medium")
+    mo_holding_days = HOLDING_PERIODS[mo_period_key]["trading_days"]
+    mo_tier = _map_slider_to_tier(target_pct)
+
+    if snapshot is None:
+        try:
+            snapshot = StrategyBridge.get_latest_market_snapshot()
+        except Exception:
+            snapshot = {}
+
+    if pm is None:
+        try:
+            import streamlit as _st
+            if hasattr(_st, "session_state") and "pm" in _st.session_state:
+                pm = _st.session_state.pm
+        except Exception:
+            pm = None
+        if pm is None:
+            try:
+                pm = _pmq.PortfolioManager()
+            except Exception:
+                pm = None
+
+
+    # 1. 漏斗与 NAV
+    mo_ranked, mo_nav = MarketScreener.run_full_pipeline(
+        as_of_date=_mo_today,
+        min_aum_billion=float(min_aum),
+        min_years=float(min_years),
+        top_n_per_bucket=int(top_n),
+        force_rebuild=bool(force_rebuild),
+        progress_callback=progress_cb,
+    )
+    if mo_ranked is None or mo_ranked.empty or mo_nav is None or mo_nav.empty:
+        raise RuntimeError("候选池或 NAV 矩阵为空（可能数据源暂不可用）")
+
+    # 2. 胜率优化
+    mo_optimizer = WinRateOptimizer(
+        nav_matrix=mo_nav,
+        candidate_info=mo_ranked,
+        holding_days=mo_holding_days,
+        target_annual_return=target_pct / 100.0,
+        tier=mo_tier,
+        market_snapshot=snapshot,
+    )
+    mo_result = mo_optimizer.optimize(progress_callback=progress_cb)
+
+    # 3. 专家精选池同口径对比
+    mo_expert_cmp = None
+    try:
+        _all_expert = list(getattr(_pmq, "CORE_STRATEGY_POOL", {}).keys())
+        _expert_a = [c for c in _all_expert
+                     if not getattr(_pmq, "CORE_STRATEGY_POOL", {}).get(c, {}).get("share_class", "A") == "C"]
+        if not _expert_a:
+            _expert_a = _all_expert
+        _tier_w = {}
+        try:
+            if mo_tier == "C3":
+                _tier_w_raw = dict((snapshot.get("target_weights_funds", {}) or {}) if snapshot else {})
+            else:
+                _tier_w_raw = dict(StrategyBridge.map_index_weights_to_funds(
+                    strategy_fn_for_tier(StrategyBridge.load_matrix(), tier=mo_tier)
+                ))
+            _tier_w = {str(c): float(w) for c, w in _tier_w_raw.items() if float(w) > 1e-4}
+        except Exception:
+            _tier_w = {}
+        if _tier_w:
+            _expert_a = list(_tier_w.keys())
+        _in_nav = [c for c in _expert_a if c in mo_nav.columns]
+        _expert_nav = None
+        if len(_in_nav) >= max(1, int(len(_expert_a) * 0.8)):
+            _expert_codes = _in_nav
+        else:
+            if progress_cb:
+                progress_cb(0, 1, "获取专家池基金 NAV 用于同口径对比...")
+            _expert_nav = MarketScreener.fetch_candidate_nav_matrix(_expert_a)
+            _expert_codes = [c for c in _expert_a if c in _expert_nav.columns] if _expert_nav is not None else []
+        if _expert_codes:
+            if _tier_w:
+                _w_sum = sum(_tier_w[c] for c in _expert_codes)
+                _ew = {c: _tier_w[c] / _w_sum for c in _expert_codes} if _w_sum > 0 else {}
+            else:
+                _ew = {}
+            _weight_mode = f"{mo_tier} 档位策略配比" if _ew else "等权兜底"
+            if not _ew:
+                _ew = {c: 1.0 / len(_expert_codes) for c in _expert_codes}
+            mo_expert_cmp = mo_optimizer.compare_with_expert_pool(
+                _ew, expert_nav_matrix=_expert_nav
+            )
+            mo_expert_cmp["n_funds"] = len(_expert_codes)
+            mo_expert_cmp["weight_mode"] = _weight_mode
+    except Exception as _e_cmp:
+        mo_expert_cmp = {"error": str(_e_cmp)}
+
+    # 4. 自动生成实盘下单拆单表 (消灭套娃按钮)
+    order_sheet = []
+    fund_details = mo_result.get("fund_details", [])
+    for d in fund_details:
+        _code = str(d.get("fund_code", "")).strip()
+        _amt = round(float(capital) * float(d.get("weight", 0.0)), 2)
+        try:
+            _q = _pmq.fetch_realtime_fund_quota(_code)
+        except Exception:
+            _q = {"status": "未知(查询失败)", "daily_limit": 1e11, "is_limited": False}
+        _lim = float(_q.get("daily_limit", 1e11) or 0.0)
+        _st = str(_q.get("status", ""))
+        if _lim <= 0:
+            _days, _day1 = None, 0.0
+            _alt = d.get("ac_pair_code") or ""
+            _note = "⛔ 暂停申购，无法买入" + (f"；可考虑 C 类配对码 {_alt}" if _alt else "；建议替换为同类型次优基金")
+        else:
+            _ceil_days = int(_math.ceil(_amt / _lim)) if _amt > 0 else 0
+            _days = _ceil_days if _ceil_days >= 1 else (1 if _amt > 0 else 0)
+            _day1 = min(_amt, _lim)
+            if _days <= 1:
+                _note = "✅ 今日可一次买齐"
+            elif _days <= 20:
+                _note = f"🟡 限额 ¥{_lim:,.0f}/日，需分 {_days} 个交易日买齐"
+            else:
+                _note = f"🔴 限额 ¥{_lim:,.0f}/日，需 {_days} 个交易日，周期过长建议替换"
+        order_sheet.append({
+            "基金代码": _code,
+            "基金名称": d.get("fund_name", ""),
+            "目标金额(元)": round(_amt, 2),
+            "申购状态": _st,
+            "日限额(元)": None if _lim >= 1e10 else round(_lim, 2),
+            "今日可买(元)": round(_day1, 2),
+            "所需交易日": _days,
+            "执行建议": _note,
+        })
+
+    # 5. 自动核算存量持仓调仓路径 (消灭套娃按钮，安全批次与 <7天 防御)
+    rebalance_path = None
+    if pm is not None and hasattr(pm, "holdings") and pm.holdings and len(pm.holdings) > 0 and mo_result.get("optimal_weights"):
+        _rb_holdings = {}
+        _rb_total_val = 0.0
+        for _h_code, _h_obj in pm.holdings.items():
+            _h_shares = float(getattr(_h_obj, "shares", 0) or 0)
+            _h_nav = float(getattr(_h_obj, "current_nav", 1.0) or 1.0)
+            _h_cost = float(getattr(_h_obj, "cost_price", _h_nav) or _h_nav)
+            _h_batches = getattr(_h_obj, "batches", []) or []
+            _h_days = min((getattr(b, "holding_days", 0) or 0 for b in _h_batches), default=30)
+            _h_penalty_free = pm.get_penalty_free_redeemable_shares(_h_code) if hasattr(pm, "get_penalty_free_redeemable_shares") else _h_shares
+            _safe_batches = [b for b in _h_batches if getattr(b, "holding_days", 0) >= 7 and not getattr(b, "safety_lock", False)]
+            _h_safe_days = max((getattr(b, "holding_days", 0) or 0 for b in _safe_batches), default=_h_days)
+            _rb_holdings[str(_h_code).strip()] = {
+                "shares": _h_shares, "nav": _h_nav,
+                "cost": _h_cost, "holding_days": _h_days,
+                "safe_holding_days": _h_safe_days,
+                "penalty_free_shares": _h_penalty_free,
+                "share_class": getattr(_h_obj, "share_class", "A"),
+            }
+            _rb_total_val += _h_shares * _h_nav
+
+        if _rb_total_val > 0:
+            rebalance_path = mo_optimizer.optimize_rebalance_path(
+                current_holdings=_rb_holdings,
+                optimal_weights=mo_result.get("optimal_weights", {}),
+                total_value=_rb_total_val,
+            )
+
+    full_payload = {
+        "result": mo_result,
+        "expert": mo_expert_cmp,
+        "funnel": MarketScreener.get_funnel_stats(mo_ranked),
+        "capital": float(capital),
+        "target_pct": float(target_pct),
+        "horizon": horizon_label,
+        "tier": mo_tier,
+        "as_of": _mo_today.isoformat(),
+        "run_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "order_sheet": order_sheet,
+        "rebalance_path": rebalance_path,
+    }
+    return full_payload
+

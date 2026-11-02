@@ -209,3 +209,229 @@ def test_rebalance_orders_mode_gentle_vs_forced_and_7d_redline():
     # 7天惩罚费红线：即便 forced 模式，未满7天份额也严禁触发卖出
     assert map_f["000216"]["action"] == "HOLD"
 
+
+def test_conditional_winrate_bottom_vs_top():
+    """验证高斯核条件胜率在底部估值区与顶部亢奋区的反追高表现"""
+    n = 1000
+    t = np.linspace(0, 4 * np.pi, n)
+    trend = 0.0001 * np.arange(n)
+    cycle = 0.20 * np.sin(t)
+    nav_series = pd.Series(
+        1.0 + trend + cycle,
+        index=pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=n)
+    )
+    hf = WinRateEngine.compute_historical_feature_matrix(nav_series, 125)
+    vol_m = float(hf[:, 3].mean())
+
+    bottom_snapshot = {
+        "erp_percentile": 85.0,
+        "bias20": -0.2,
+        "mom60": -6.0,
+        "ewma_vol": vol_m,
+        "dr007_spread": -0.4,
+    }
+    top_snapshot = {
+        "erp_percentile": 15.0,
+        "bias20": 0.2,
+        "mom60": 5.0,
+        "ewma_vol": vol_m,
+        "dr007_spread": 0.4,
+    }
+
+    res_bottom = WinRateEngine.rolling_target_winrate(
+        nav_series, holding_days=125, target_annual_return=0.08, market_snapshot=bottom_snapshot
+    )
+    res_top = WinRateEngine.rolling_target_winrate(
+        nav_series, holding_days=125, target_annual_return=0.08, market_snapshot=top_snapshot
+    )
+
+    c_wr_bottom = res_bottom.get("conditional_win_rate", res_bottom["win_rate"])
+    c_wr_top = res_top.get("conditional_win_rate", res_top["win_rate"])
+
+    # 底部高 ERP 负 Bias 的条件胜率必须显著高于顶部追高区
+    assert c_wr_bottom > c_wr_top
+    assert "kernel_weights" in res_bottom
+    assert "unconditional_win_rate" in res_bottom
+
+
+def test_optimize_rebalance_path_with_mixed_batches_protects_locked():
+    """验证含 60天+2天 批次的持仓在调仓优化中绝不卖出 <7天 批次"""
+    opt = WinRateOptimizer(
+        nav_matrix=pd.DataFrame(),
+        candidate_info=pd.DataFrame([{"fund_code": "005561", "status": "正常"}]),
+        holding_days=250,
+        target_annual_return=0.10,
+    )
+    # 持仓包含 10,000 份，其中 6,000 份为 60 天老批次，4,000 份为 2 天在途新批次
+    current_holdings = {
+        "005561": {
+            "shares": 10000.0,
+            "nav": 1.5,
+            "cost": 1.5,
+            "holding_days": 2,  # min batch holding days
+            "penalty_free_shares": 6000.0,  # 仅 6,000 份免惩罚
+        }
+    }
+    total_val = 10000.0 * 1.5  # 15,000 元
+    # 目标权重为 0（需要全额清仓）
+    optimal_weights = {"005561": 0.0}
+
+    res = opt.optimize_rebalance_path(
+        current_holdings=current_holdings,
+        optimal_weights=optimal_weights,
+        total_value=total_val,
+    )
+
+    actions = res["rebalance_actions"]
+    assert len(actions) == 1
+    act = actions[0]
+    assert act["action"] == "SELL"
+    # 必须只卖出 6,000 份安全份额，金额为 9,000 元
+    assert act["shares"] == 6000.0
+    assert act["amount"] == 9000.0
+    # 赎回费率严禁按 2 天 (1.5%) 计算，必须按 >=7 天计算
+    assert act["redemption_fee_rate"] < 0.015
+    assert "安全份额" in act.get("note", "")
+
+    # 全量 <7 天极端情况：免惩罚份额为 0，必须直接锁仓拦截
+    current_holdings_zero_free = {
+        "005561": {
+            "shares": 4000.0,
+            "nav": 1.5,
+            "cost": 1.5,
+            "holding_days": 2,
+            "penalty_free_shares": 0.0,
+        }
+    }
+    res_zero = opt.optimize_rebalance_path(
+        current_holdings=current_holdings_zero_free,
+        optimal_weights=optimal_weights,
+        total_value=6000.0,
+    )
+    assert len(res_zero["rebalance_actions"]) == 0
+    assert len(res_zero["locked_funds"]) == 1
+    assert "惩罚期" in res_zero["locked_funds"][0]
+
+
+def test_one_click_market_optimization_flow_structure():
+    """验证全市场选基一次点击调度流程产出完整字段（含 order_sheet 与 rebalance_path）"""
+    from portfolio_optimizer import execute_market_optimization_flow
+    from unittest.mock import patch
+    import portfolio_manager
+
+    buckets = ["equity", "bond", "overseas", "commodity", "fof"]
+    navs, info = {}, []
+    for i in range(5):
+        code = f"8{i:05d}"
+        b = buckets[i % len(buckets)]
+        navs[code] = _synthetic_nav(n=600, annual=0.06 + 0.01 * i, vol=0.05, seed=200 + i)
+        info.append({"fund_code": code, "fund_name": f"全市场测试{i}", "bucket": b, "ac_pair_code": ""})
+
+
+    fake_ranked = pd.DataFrame(info)
+    fake_nav = pd.DataFrame(navs)
+
+    with patch.object(MarketScreener, "run_full_pipeline", return_value=(fake_ranked, fake_nav)), \
+         patch.object(MarketScreener, "fetch_candidate_nav_matrix", return_value=fake_nav), \
+         patch.object(portfolio_manager, "fetch_realtime_fund_quota", return_value={"status": "开放", "daily_limit": 10000.0, "is_limited": True}):
+        flow_res = execute_market_optimization_flow(
+            target_pct=8.0,
+            horizon_label="中期(1~2年)",
+            capital=100000.0,
+            progress_cb=lambda c, t, m: None,
+        )
+
+        assert "result" in flow_res
+        assert "order_sheet" in flow_res
+        assert "rebalance_path" in flow_res
+        assert flow_res["result"]["optimal_weights"]
+        sheet = flow_res["order_sheet"]
+        assert len(sheet) == len(flow_res["result"]["optimal_weights"])
+        for row in sheet:
+            assert "今日可买(元)" in row
+            assert "执行建议" in row
+
+
+
+
+
+def test_optimize_rebalance_path_partial_lock_and_c_class_fee():
+    """验证部分批次安全卖出锁仓提示与 C 类份额 30 天免赎回费率"""
+    opt = WinRateOptimizer(
+        nav_matrix=pd.DataFrame(),
+        candidate_info=pd.DataFrame([{"fund_code": "005561", "status": "正常"}, {"fund_code": "008682", "status": "正常"}]),
+        holding_days=250,
+        target_annual_return=0.10,
+    )
+    current_holdings = {
+        "005561": {
+            "shares": 10000.0,
+            "nav": 1.5,
+            "cost": 1.5,
+            "holding_days": 2,
+            "safe_holding_days": 60,
+            "penalty_free_shares": 6000.0,
+            "share_class": "A",
+        },
+        "008682": {
+            "shares": 5000.0,
+            "nav": 1.0,
+            "cost": 1.0,
+            "holding_days": 35,
+            "safe_holding_days": 35,
+            "penalty_free_shares": 5000.0,
+            "share_class": "C",
+        }
+    }
+    total_val = 10000.0 * 1.5 + 5000.0 * 1.0  # 20,000 元
+    optimal_weights = {"005561": 0.0, "008682": 0.0}
+
+    res = opt.optimize_rebalance_path(
+        current_holdings=current_holdings,
+        optimal_weights=optimal_weights,
+        total_value=total_val,
+    )
+
+    action_map = {a["fund_code"]: a for a in res["rebalance_actions"]}
+    # A 类 60 天安全份额费率应为 0.25% (0.0025)
+    assert abs(action_map["005561"]["redemption_fee_rate"] - 0.0025) < 1e-4
+    # C 类 35 天免赎份额费率应为 0.0
+    assert abs(action_map["008682"]["redemption_fee_rate"] - 0.0) < 1e-4
+    # 005561 未满 7 天锁定份额应进入 locked_funds 预警
+    assert any("005561" in lf and "保护锁仓" in lf for lf in res["locked_funds"])
+
+
+def test_one_click_market_optimization_flow_all_suspended_edge_case():
+    """验证全市场入选基金全部暂停申购（日限额为0）极端流动性场景下安全防御"""
+    from portfolio_optimizer import execute_market_optimization_flow
+    from unittest.mock import patch
+    import portfolio_manager
+
+    buckets = ["equity", "bond", "overseas", "commodity", "fof"]
+    navs, info = {}, []
+    for i in range(5):
+        code = f"9{i:05d}"
+        b = buckets[i]
+        navs[code] = _synthetic_nav(n=600, annual=0.07 + 0.01 * i, vol=0.04, seed=500 + i)
+        info.append({"fund_code": code, "fund_name": f"限购测试{i}", "bucket": b, "ac_pair_code": ""})
+
+    fake_ranked = pd.DataFrame(info)
+    fake_nav = pd.DataFrame(navs)
+
+    with patch.object(MarketScreener, "run_full_pipeline", return_value=(fake_ranked, fake_nav)), \
+         patch.object(MarketScreener, "fetch_candidate_nav_matrix", return_value=fake_nav), \
+         patch.object(portfolio_manager, "fetch_realtime_fund_quota", return_value={"status": "暂停申购", "daily_limit": 0.0, "is_limited": True}):
+        flow_res = execute_market_optimization_flow(
+            target_pct=8.0,
+            horizon_label="中期(1~2年)",
+            capital=50000.0,
+            progress_cb=lambda c, t, m: None,
+        )
+
+        sheet = flow_res["order_sheet"]
+        assert len(sheet) == len(flow_res["result"]["optimal_weights"])
+        assert len(sheet) >= 3
+        for row in sheet:
+            assert row["所需交易日"] is None
+            assert row["今日可买(元)"] == 0.0
+            assert "暂停申购" in row["执行建议"]

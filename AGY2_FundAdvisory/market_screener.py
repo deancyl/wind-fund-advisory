@@ -497,36 +497,26 @@ class MarketScreener:
                 to_fetch.append(code)
 
         if to_fetch:
+            total_to_fetch = len(to_fetch)
             if progress_callback:
-                progress_callback(0, len(to_fetch), f"需从网络获取 {len(to_fetch)} 只基金净值...")
+                progress_callback(0, total_to_fetch, f"需从网络获取 {total_to_fetch} 只基金净值...")
 
             try:
                 import akshare as ak
-                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+                import threading
+                from concurrent.futures import ThreadPoolExecutor
 
-                _consecutive_failures = 0
-                _MAX_CONSECUTIVE_FAILURES = 5  # 连续失败熔断阈值
+                lock = threading.Lock()
+                completed_count = 0
+                t0 = time.time()
 
-                for i, code in enumerate(to_fetch):
-                    # 熔断：连续失败过多，跳过剩余
-                    if _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
-                        warnings.warn(
-                            f"akshare 连续 {_MAX_CONSECUTIVE_FAILURES} 次超时/失败，熔断剩余 {len(to_fetch)-i} 只"
-                        )
-                        break
-
+                def _fetch_single_fund(code: str):
                     try:
-                        # 单次请求超时 15 秒（Windows 兼容）
-                        with ThreadPoolExecutor(max_workers=1) as _tp:
-                            _future = _tp.submit(
-                                ak.fund_open_fund_daily_em,
-                                fund=code,
-                                start_date=start_date.replace("-", ""),
-                            )
-                            df = _future.result(timeout=15)
-
+                        df = ak.fund_open_fund_daily_em(
+                            fund=code,
+                            start_date=start_date.replace("-", ""),
+                        )
                         if df is not None and not df.empty:
-                            # 标准化列名
                             df_clean = pd.DataFrame()
                             for col in df.columns:
                                 if "日期" in col or "date" in col.lower():
@@ -538,22 +528,42 @@ class MarketScreener:
 
                             if "date" in df_clean.columns and "nav" in df_clean.columns:
                                 df_clean = df_clean.dropna().sort_values("date").reset_index(drop=True)
-                                SmartCacheManager.save_nav_cache(code, df_clean)
-                                nav_data[code] = df_clean["nav"].tolist()
-
-                        _consecutive_failures = 0  # 成功则重置
-
-                        # akshare 限频
-                        time.sleep(0.3)
-
-                    except FuturesTimeout:
-                        _consecutive_failures += 1
-                        warnings.warn(f"基金 {code} NAV 获取超时(15s)，跳过")
+                                if len(df_clean) > 0:
+                                    return code, df_clean["nav"].tolist(), df_clean
                     except Exception:
-                        _consecutive_failures += 1
+                        pass
+                    return None
 
-                    if progress_callback:
-                        progress_callback(i + 1, len(to_fetch), f"NAV 获取: {i+1}/{len(to_fetch)}")
+                def _worker(code: str):
+                    nonlocal completed_count
+                    res = _fetch_single_fund(code)
+                    with lock:
+                        completed_count += 1
+                        if res is not None:
+                            c, nav_list, df_clean = res
+                            nav_data[c] = nav_list
+                            try:
+                                SmartCacheManager.save_nav_cache(c, df_clean)
+                            except Exception:
+                                pass
+                        if progress_callback:
+                            elapsed = max(time.time() - t0, 0.1)
+                            pct = int(completed_count / total_to_fetch * 100)
+                            rate = completed_count / elapsed
+                            remaining_sec = max(0, int((total_to_fetch - completed_count) / rate)) if rate > 0 else 0
+                            msg = f"已完成 {completed_count} / {total_to_fetch} 只 ({pct}%) ｜ 已耗时 {elapsed:.1f}s ｜ 预计剩余 ~{remaining_sec}s"
+                            try:
+                                progress_callback(completed_count, total_to_fetch, msg)
+                            except Exception:
+                                pass
+
+                with ThreadPoolExecutor(max_workers=12) as executor:
+                    futures = [executor.submit(_worker, code) for code in to_fetch]
+                    for f in futures:
+                        try:
+                            f.result()
+                        except Exception:
+                            pass
 
             except ImportError:
                 warnings.warn("akshare 未安装，无法获取 NAV 数据")

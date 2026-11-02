@@ -66,12 +66,110 @@ HOLDING_PERIODS = {
 }
 
 
+def extract_state_vector(snapshot: Optional[Dict[str, Any]]) -> Optional[np.ndarray]:
+    """
+    从市场快照中提取 5 维当下状态向量:
+    x_T_now = [ERP分位, Bias20均线乖离, Mom60动量, EWMA波动率, DR007利差]
+    """
+    if not snapshot:
+        return None
+    erp = float(snapshot.get("erp_percentile", snapshot.get("erp_pct", 50.0)))
+    bias20 = float(snapshot.get("bias_20", snapshot.get("bias20", 0.0)))
+    mom60 = float(snapshot.get("mom60_300", snapshot.get("mom_60", snapshot.get("mom60", 0.0))))
+    vol = float(snapshot.get("ewma_vol", snapshot.get("volatility", snapshot.get("ann_vol", 0.15))))
+    dr007 = float(snapshot.get("dr007_spread_bp", snapshot.get("dr007_spread", snapshot.get("dr007", 0.0))))
+    return np.array([erp, bias20, mom60, vol, dr007], dtype=np.float64)
+
+
+def compute_historical_feature_matrix(
+    nav_series: pd.Series,
+    holding_days: int,
+) -> np.ndarray:
+    """
+    对日频净值序列计算每个滚动窗口起点 t (0 <= t < n - holding_days) 处的 5 维历史特征向量:
+    [ERP分位(或逆价格分位代理), Bias20均线乖离(%), Mom60动量(%), EWMA波动率, DR007利差(或流动性代理)]
+    全程 NumPy 向量化，零 Python 显式循环。
+    """
+    nav = np.asarray(nav_series, dtype=np.float64)
+    n = len(nav)
+    M = n - holding_days
+    if M <= 0:
+        return np.empty((0, 5), dtype=np.float64)
+
+    s_nav = pd.Series(nav)
+
+    # 1. Bias20 (%) at each t: (nav[t] / MA20[t] - 1.0) * 100
+    ma20 = s_nav.rolling(20, min_periods=1).mean().values[:M]
+    nav_head = nav[:M]
+    bias20 = np.where(ma20 > 0, (nav_head / ma20 - 1.0) * 100.0, 0.0)
+
+    # 2. Mom60 (%) at each t: (nav[t] / nav[max(0, t-60)] - 1.0) * 100
+    base_idx = np.maximum(0, np.arange(M) - 60)
+    mom60 = np.where(nav[base_idx] > 0, (nav_head / nav[base_idx] - 1.0) * 100.0, 0.0)
+
+    # 3. EWMA 波动率 (年化)
+    ret = np.zeros(n, dtype=np.float64)
+    ret[1:] = nav[1:] / np.maximum(nav[:-1], 1e-8) - 1.0
+    s_ret = pd.Series(ret)
+    ewma_vol = (s_ret.ewm(span=20, min_periods=1).std().bfill().fillna(0.01).values * np.sqrt(250.0))[:M]
+
+    # 4. ERP 分位代理 (0~100)
+    # 价格处于 250 天低位 -> ERP 极高 (80~90+); 处于高位 -> ERP 极低 (10~20)
+    roll_min = s_nav.rolling(250, min_periods=1).min().values[:M]
+    roll_max = s_nav.rolling(250, min_periods=1).max().values[:M]
+    spread = np.maximum(roll_max - roll_min, 1e-6)
+    norm_p = (nav_head - roll_min) / spread
+    erp_proxy = np.clip((1.0 - norm_p) * 80.0 + 10.0, 5.0, 95.0)
+
+    # 5. DR007 利差代理 (bp)
+    dr007_proxy = np.clip(bias20 * 2.0, -50.0, 50.0)
+
+    features = np.column_stack([erp_proxy, bias20, mom60, ewma_vol, dr007_proxy])
+    return features
+
+
+def compute_kernel_weights(
+    historical_features: np.ndarray,
+    target_state: np.ndarray,
+    h_bandwidth: float = 1.2,
+) -> np.ndarray:
+    """
+    计算历史状态向量与当下状态 target_state 的标准化马氏/欧氏距离 d_t，
+    生成高斯同温层核权重 kappa_t:
+        kappa_t = exp(-d_t^2 / (2 * h^2)) / sum(exp(-d_j^2 / (2 * h^2)))
+    """
+    M = len(historical_features)
+    if M == 0:
+        return np.array([], dtype=np.float64)
+
+    mean_vec = np.nanmean(historical_features, axis=0)
+    std_vec = np.nanstd(historical_features, axis=0)
+    std_vec = np.where(std_vec < 1e-6, 1.0, std_vec)
+
+    Z = (historical_features - mean_vec) / std_vec
+    z_target = (target_state - mean_vec) / std_vec
+
+    d2 = np.sum((Z - z_target) ** 2, axis=1)
+    h = h_bandwidth if h_bandwidth > 0 else 1.2
+    d2_shift = d2 - np.min(d2)  # 数值稳定性保护
+    exp_args = -d2_shift / (2.0 * (h ** 2))
+    raw_weights = np.exp(exp_args)
+    weights_sum = np.sum(raw_weights)
+    if weights_sum <= 0 or not np.isfinite(weights_sum):
+        return np.full(M, 1.0 / M, dtype=np.float64)
+    return raw_weights / weights_sum
+
+
 # ══════════════════════════════════════════════════════════════════
 #  核心引擎
 # ══════════════════════════════════════════════════════════════════
 
 class WinRateEngine:
     """多维度胜率计算引擎"""
+
+    extract_state_vector = staticmethod(extract_state_vector)
+    compute_historical_feature_matrix = staticmethod(compute_historical_feature_matrix)
+    compute_kernel_weights = staticmethod(compute_kernel_weights)
 
     # ─── 辅助：摩擦成本调整后的收益率 ─────────────────────────
 
@@ -107,18 +205,22 @@ class WinRateEngine:
 
         return (effective_sell_value / effective_buy_cost) - 1.0
 
-    # ─── ① 滚动持有达标胜率（向量化）──────────────────────────
 
-    @staticmethod
+    # ─── ① 滚动持有达标胜率（向量化 + 当下时点条件胜率）─────────
+
+    @classmethod
     def rolling_target_winrate(
+        cls,
         nav_series: pd.Series,
         holding_days: int,
         target_annual_return: float,
         include_friction: bool = True,
         fund_type: str = "A",
+        market_snapshot: Optional[Dict[str, Any]] = None,
+        h_bandwidth: float = 1.2,
     ) -> Dict[str, Any]:
         """
-        滚动持有达标胜率（NumPy 向量化计算）。
+        滚动持有达标胜率（NumPy 向量化计算 + 当下时点 T_now 高斯核条件胜率）。
 
         Parameters
         ----------
@@ -132,10 +234,14 @@ class WinRateEngine:
             是否扣除摩擦成本
         fund_type : str
             "A" 或 "C"
+        market_snapshot : Optional[Dict[str, Any]]
+            当下市场状态快照，用于高斯核同温层条件胜率
+        h_bandwidth : float
+            高斯核带宽系数
 
         Returns
         -------
-        Dict with win_rate, no_loss_rate, stats, etc.
+        Dict with conditional_win_rate, unconditional_win_rate, win_rate, stats, etc.
         """
         nav = np.asarray(nav_series, dtype=np.float64)
         n = len(nav)
@@ -143,8 +249,12 @@ class WinRateEngine:
         if n <= holding_days or holding_days <= 0:
             return {
                 "win_rate": 0.0,
+                "conditional_win_rate": 0.0,
+                "unconditional_win_rate": 0.0,
                 "no_loss_rate": 0.0,
+                "unconditional_no_loss_rate": 0.0,
                 "avg_return_annualized": 0.0,
+                "unconditional_avg_return": 0.0,
                 "median_return_annualized": 0.0,
                 "worst_return_annualized": 0.0,
                 "best_return_annualized": 0.0,
@@ -152,6 +262,7 @@ class WinRateEngine:
                 "p90_return": 0.0,
                 "total_windows": 0,
                 "winning_windows": 0,
+                "kernel_weights": np.array([], dtype=np.float64),
             }
 
         # 向量化：买入 NAV 和卖出 NAV
@@ -174,7 +285,6 @@ class WinRateEngine:
 
         # 年化收益率
         years = holding_days / 250.0  # 约 250 个交易日/年
-        # 避免负数底数的幂运算问题
         ann_returns = np.sign(total_returns + 1.0) * (
             np.abs(total_returns + 1.0) ** (1.0 / years)
         ) - 1.0
@@ -182,11 +292,37 @@ class WinRateEngine:
         total_windows = len(ann_returns)
         winning = int(np.sum(ann_returns >= target_annual_return))
         no_loss = int(np.sum(total_returns >= 0))
+        unconditional_wr = winning / total_windows if total_windows > 0 else 0.0
+        unconditional_nlr = no_loss / total_windows if total_windows > 0 else 0.0
+        unconditional_avg = float(np.mean(ann_returns)) if total_windows > 0 else 0.0
+
+        # 高斯核同温层条件胜率计算 (Conditional Win-Rate at T_now)
+        state_vec = extract_state_vector(market_snapshot)
+        if state_vec is not None and total_windows > 0:
+            hist_feat = compute_historical_feature_matrix(nav_series, holding_days)
+            kw = compute_kernel_weights(hist_feat, state_vec, h_bandwidth=h_bandwidth)
+            conditional_wr = float(np.sum(kw * (ann_returns >= target_annual_return)))
+            conditional_nlr = float(np.sum(kw * (total_returns >= 0.0)))
+            conditional_avg = float(np.sum(kw * ann_returns))
+            win_rate = conditional_wr
+            no_loss_rate = conditional_nlr
+            avg_return_annualized = conditional_avg
+        else:
+            conditional_wr = unconditional_wr
+            conditional_nlr = unconditional_nlr
+            kw = np.full(total_windows, 1.0 / total_windows, dtype=np.float64) if total_windows > 0 else np.array([])
+            win_rate = unconditional_wr
+            no_loss_rate = unconditional_nlr
+            avg_return_annualized = unconditional_avg
 
         return {
-            "win_rate": winning / total_windows if total_windows > 0 else 0.0,
-            "no_loss_rate": no_loss / total_windows if total_windows > 0 else 0.0,
-            "avg_return_annualized": float(np.mean(ann_returns)),
+            "win_rate": win_rate,
+            "conditional_win_rate": conditional_wr,
+            "unconditional_win_rate": unconditional_wr,
+            "no_loss_rate": no_loss_rate,
+            "unconditional_no_loss_rate": unconditional_nlr,
+            "avg_return_annualized": avg_return_annualized,
+            "unconditional_avg_return": unconditional_avg,
             "median_return_annualized": float(np.median(ann_returns)),
             "worst_return_annualized": float(np.min(ann_returns)),
             "best_return_annualized": float(np.max(ann_returns)),
@@ -194,7 +330,35 @@ class WinRateEngine:
             "p90_return": float(np.percentile(ann_returns, 90)),
             "total_windows": total_windows,
             "winning_windows": winning,
+            "kernel_weights": kw,
         }
+
+    # ─── ② 当下状态条件胜率快捷接口 ─────────────────────────────
+
+    @classmethod
+    def compute_fund_winrate(
+        cls,
+        nav_series: pd.Series,
+        holding_days: int,
+        target_annual_return: float,
+        market_snapshot: Optional[Dict[str, Any]] = None,
+        include_friction: bool = True,
+        fund_type: str = "A",
+        h_bandwidth: float = 1.2,
+    ) -> Dict[str, Any]:
+        """
+        当下时点 (T_now) 核密度条件胜率核心接口。
+        输出 conditional_win_rate 与 unconditional_win_rate。
+        """
+        return cls.rolling_target_winrate(
+            nav_series=nav_series,
+            holding_days=holding_days,
+            target_annual_return=target_annual_return,
+            include_friction=include_friction,
+            fund_type=fund_type,
+            market_snapshot=market_snapshot,
+            h_bandwidth=h_bandwidth,
+        )
 
     # ─── ③ Block Bootstrap Monte Carlo ────────────────────────
 
@@ -311,6 +475,7 @@ class WinRateEngine:
         target_annual_return: float,
         include_friction: bool = True,
         fund_types: Optional[Dict[str, str]] = None,
+        market_snapshot: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         组合级综合胜率。
@@ -366,6 +531,7 @@ class WinRateEngine:
         rolling = WinRateEngine.rolling_target_winrate(
             portfolio_nav, holding_days, target_annual_return,
             include_friction=include_friction, fund_type=dominant_type,
+            market_snapshot=market_snapshot,
         )
 
         mc = WinRateEngine.monte_carlo_simulation(
@@ -380,6 +546,7 @@ class WinRateEngine:
             component_winrates[code] = WinRateEngine.rolling_target_winrate(
                 sub_matrix[code], holding_days, target_annual_return,
                 include_friction=include_friction, fund_type=ft,
+                market_snapshot=market_snapshot,
             )
 
         return {
@@ -447,28 +614,34 @@ class WinRateEngine:
 
     # ─── 多持有期综合胜率表 ────────────────────────────────────
 
-    @staticmethod
+    @classmethod
     def multi_horizon_winrate_table(
+        cls,
         nav_series: pd.Series,
         target_annual_return: float,
         include_friction: bool = True,
         fund_type: str = "A",
+        market_snapshot: Optional[Dict[str, Any]] = None,
+        h_bandwidth: float = 1.2,
     ) -> Dict[str, Dict[str, Any]]:
         """
         一次性计算三个持有期（短期/中期/长期）的胜率。
-        用于用户拉滑块时实时显示"该目标在三个持有期下的历史胜率参考值"。
+        支持传入 market_snapshot 计算当下状态条件胜率。
         """
         result = {}
         for period_key, period_cfg in HOLDING_PERIODS.items():
             days = period_cfg["trading_days"]
-            rolling = WinRateEngine.rolling_target_winrate(
+            rolling = cls.rolling_target_winrate(
                 nav_series, days, target_annual_return,
                 include_friction=include_friction, fund_type=fund_type,
+                market_snapshot=market_snapshot, h_bandwidth=h_bandwidth,
             )
             result[period_key] = {
                 "label": period_cfg["label"],
                 "holding_days": days,
                 "win_rate": rolling["win_rate"],
+                "conditional_win_rate": rolling.get("conditional_win_rate", rolling["win_rate"]),
+                "unconditional_win_rate": rolling.get("unconditional_win_rate", rolling["win_rate"]),
                 "no_loss_rate": rolling["no_loss_rate"],
                 "avg_return": rolling["avg_return_annualized"],
                 "median_return": rolling["median_return_annualized"],

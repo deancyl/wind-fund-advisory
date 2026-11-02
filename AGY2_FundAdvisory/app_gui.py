@@ -17,6 +17,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # 路径对齐
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -53,8 +54,23 @@ from strategy_bridge import (
 )
 from winrate_engine import WinRateEngine, HOLDING_PERIODS
 from market_screener import MarketScreener
-from portfolio_optimizer import WinRateOptimizer
+from portfolio_optimizer import WinRateOptimizer, execute_market_optimization_flow
 from cache_manager import SmartCacheManager
+
+
+def map_slider_to_tier(ret: float) -> str:
+    """模式 A 目标收益率到风险档位映射: C1 (5-8%), C2 (>8-12%), C3 (>12-18%), C4 (>18-30%), C5 (>30-100%)"""
+    if ret <= 8.0:
+        return "C1"
+    elif ret <= 12.0:
+        return "C2"
+    elif ret <= 18.0:
+        return "C3"
+    elif ret <= 30.0:
+        return "C4"
+    else:
+        return "C5"
+
 
 # 统一资产分类解析器动态兜底 (通用行业属性与投资标的规则，绝无静态固定代码字典)
 if not hasattr(PortfolioManager, "classify_fund_asset_class"):
@@ -479,6 +495,38 @@ pending_count = len([o for o in pm.pending_orders if o.status == "PENDING"])
 if pending_count > 0:
     st.info(f"🔔 **在途对账提醒**：当前有 **{pending_count}** 笔在途待确认订单！可在【🔍 组合穿透诊断、对账与工具箱】输入公布净值完成确认与校准。")
 
+
+# ─── 高性能缓存与全市场选基流水线统一调度器 ───────────────────────
+
+@st.cache_data(ttl=300)
+def _cached_backtest_nav(tier: str):
+    return StrategyBridge.get_backtest_nav_for_tier(tier)
+
+@st.cache_data(ttl=300)
+def _cached_find_historical_analogs(top_k: int = 3):
+    return StrategyBridge.find_historical_analogs(top_k=top_k)
+
+@st.cache_data(ttl=300)
+def _cached_look_through_industry(holdings_repr: str):
+    return pm.calculate_look_through_industry_exposure()
+
+@st.cache_data(ttl=300)
+def _cached_stock_overlap(holdings_repr: str):
+    return pm.calculate_stock_overlap_matrix()
+
+@st.cache_data(ttl=300)
+def _cached_penetration_risk(holdings_repr: str):
+    return pm.calculate_portfolio_penetration_risk()
+
+@st.cache_data(ttl=300)
+def _cached_stocks_df(holdings_repr: str):
+    return pm.get_portfolio_look_through_stocks_df()
+
+
+# execute_market_optimization_flow 统一由 portfolio_optimizer 模块导出与承载
+
+
+
 # -------------------------------------------------------------
 # 核心四大工作区 (符合直觉的重塑布局)
 # -------------------------------------------------------------
@@ -588,7 +636,8 @@ with tab_zero_start:
                 _wr_bt = StrategyBridge.get_backtest_nav_for_tier(active_tier)
                 if _wr_bt is not None and 'strategy_nav' in _wr_bt.columns and len(_wr_bt) > 250:
                     _wr_table = WinRateEngine.multi_horizon_winrate_table(
-                        _wr_bt['strategy_nav'], target_ret_input / 100.0
+                        _wr_bt['strategy_nav'], target_ret_input / 100.0,
+                        market_snapshot=snapshot
                     )
                     _wr_cols = st.columns(3)
                     for _wi, (_wk, _wv) in enumerate(_wr_table.items()):
@@ -703,6 +752,30 @@ with tab_zero_start:
             st.session_state.active_tier_val = active_tier
             cur_tier_meta = RISK_TIERS_CONFIG[active_tier]
             plan_capital = mc_capital
+            if st.button("🚀 立即运行全市场胜率最优选基", type="primary", use_container_width=True, key="btn_run_mode_c_screener"):
+                with st.status("🔍 全市场智能选基流水线运行中...", expanded=True) as mc_status:
+                    _mc_prog = st.progress(0.0)
+                    _mc_msg = st.empty()
+                    def _mc_cb_inline(cur, total, msg):
+                        frac = (float(cur) / float(total)) if total else 0.0
+                        _mc_prog.progress(min(max(frac, 0.0), 1.0))
+                        _mc_msg.caption(f"⏳ {msg}")
+                    try:
+                        mo_payload = execute_market_optimization_flow(
+                            target_pct=float(mc_target_ret),
+                            horizon_label=mc_horizon,
+                            capital=float(mc_capital),
+                            progress_cb=_mc_cb_inline,
+                            pm=pm,
+                            snapshot=snapshot,
+                        )
+                        st.session_state.mo_last_result = mo_payload
+                        mc_status.update(label="✅ 全市场选基完成，已自动同步至下方建仓单！", state="complete", expanded=False)
+                        st.rerun()
+                    except Exception as _mc_e:
+                        mc_status.update(label="❌ 选基流程异常", state="error", expanded=True)
+                        st.error(f"选基异常：{_mc_e}")
+
             _mc_saved = st.session_state.get("mo_last_result")
             if _mc_saved and (_mc_saved.get("result") or {}).get("optimal_weights"):
                 _mc_pm = _mc_saved["result"].get("portfolio_metrics", {})
@@ -720,15 +793,16 @@ with tab_zero_start:
                 if _mc_rows:
                     st.dataframe(pd.DataFrame(_mc_rows), use_container_width=True, hide_index=True)
                 if not _mc_same:
-                    st.caption("⚠️ 当前滑块参数与该结果不一致；如需按新参数重算，请在「🎯 全市场胜率最优选基」页点击运行（参数已自动同步）。")
+                    st.caption("⚠️ 当前滑块参数与该结果不一致；点击上方【🚀 立即运行全市场胜率最优选基】可按新参数重算。")
             else:
-                st.info("💡 尚无选基结果：上方参数已自动同步到「🎯 全市场胜率最优选基」页，点击运行后结果会回显在此处。")
+                st.info("💡 尚无选基结果：点击上方【🚀 立即运行全市场胜率最优选基】开始全市场漏斗筛选与优化，结果将直接对齐建仓单。")
             # ── 多持有期胜率参考表（模式 C） ──
             try:
                 _wrc_bt = StrategyBridge.get_backtest_nav_for_tier(active_tier)
                 if _wrc_bt is not None and 'strategy_nav' in _wrc_bt.columns and len(_wrc_bt) > 250:
                     _wrc_table = WinRateEngine.multi_horizon_winrate_table(
-                        _wrc_bt['strategy_nav'], mc_target_ret / 100.0
+                        _wrc_bt['strategy_nav'], mc_target_ret / 100.0,
+                        market_snapshot=snapshot
                     )
                     _wrc_cols = st.columns(3)
                     for _wci, (_wck, _wcv) in enumerate(_wrc_table.items()):
@@ -751,7 +825,7 @@ with tab_zero_start:
         st.session_state.last_sim_tier = active_tier
     elif st.session_state.last_sim_tier != active_tier:
         st.session_state.last_sim_tier = active_tier
-        st.session_state.sim_has_run = True
+        # 拖动滑块仅更新轻量指标卡与档位元数据，不自动触发4步模拟（点击【⚡ 现场推演】按钮时才运行）
 
     sim_container = st.container()
     readable_kpi = None
@@ -1222,14 +1296,24 @@ with tab_zero_start:
 
     overrides = st.session_state.custom_fund_overrides
 
+    # 模式 C 下若有全市场选基结果，自动同步全市场最优组合权重至建仓单
+    mode_c_weights = None
+    if tier_mode.startswith("模式 C") and st.session_state.get("mo_last_result"):
+        _saved_res = st.session_state.mo_last_result.get("result", {})
+        if _saved_res.get("optimal_weights"):
+            mode_c_weights = dict(_saved_res["optimal_weights"])
+
     blueprint = StrategyBridge.generate_zero_start_blueprint(
         total_capital=plan_capital,
-        target_weights_funds=None,
+        target_weights_funds=mode_c_weights,
         tier=active_tier,
         custom_fund_overrides=overrides
     )
 
-    st.markdown(f"#### 🌱 专属从 0 建仓执行单 (本金 ¥{plan_capital:,.2f} ｜ 档位：{active_tier} {cur_tier_meta['name']})")
+    if mode_c_weights:
+        st.markdown(f"#### 🌱 专属从 0 建仓执行单 (本金 ¥{plan_capital:,.2f} ｜ 🎯 **AI 全市场最优选基组合同步生效中**)")
+    else:
+        st.markdown(f"#### 🌱 专属从 0 建仓执行单 (本金 ¥{plan_capital:,.2f} ｜ 档位：{active_tier} {cur_tier_meta['name']})")
     if overrides:
         st.info(f"💡 检测到您自定义替换了 {len(overrides)} 只标的：{overrides}，配置方案已实时动态调整！")
 
@@ -1494,28 +1578,50 @@ with tab_holdings_and_rebalance:
         """, unsafe_allow_html=True)
 
     # 调仓执行单
-    if active_tier == "C3":
-        tier_target_w = dict(snapshot["target_weights_funds"])
+    rebal_pool_choice = st.radio(
+        "🎯 选择调仓目标池：",
+        ["🛡️ 核心指数全天候策略池", "🎯 AI全市场最高条件胜率组合"],
+        index=0,
+        horizontal=True,
+        key="rad_rebal_target_pool"
+    )
+    is_market_pool = "AI全市场" in rebal_pool_choice
+    mo_pool_saved = st.session_state.get("mo_last_result")
+    if is_market_pool:
+        if mo_pool_saved and (mo_pool_saved.get("result") or {}).get("optimal_weights"):
+            tier_target_w = dict(mo_pool_saved["result"]["optimal_weights"])
+            st.info(f"🎯 已对齐 AI 全市场最优胜率组合（目标 {mo_pool_saved['target_pct']:.0f}% ｜ {mo_pool_saved['horizon']} ｜ {len(tier_target_w)} 只标的）")
+        else:
+            st.warning("⚠️ 尚未检测到全市场最优选基结果，已暂回退到核心指数全天候策略池。请先在 Tab 5 或 Tab 1 模式 C 点击运行选基。")
+            if active_tier == "C3":
+                tier_target_w = dict(snapshot["target_weights_funds"])
+            else:
+                df_mat = StrategyBridge.load_matrix()
+                w_idx = strategy_fn_for_tier(df_mat, tier=active_tier)
+                tier_target_w = StrategyBridge.map_index_weights_to_funds(w_idx)
     else:
-        df_mat = StrategyBridge.load_matrix()
-        w_idx = strategy_fn_for_tier(df_mat, tier=active_tier)
-        tier_target_w = StrategyBridge.map_index_weights_to_funds(w_idx)
+        if active_tier == "C3":
+            tier_target_w = dict(snapshot["target_weights_funds"])
+        else:
+            df_mat = StrategyBridge.load_matrix()
+            w_idx = strategy_fn_for_tier(df_mat, tier=active_tier)
+            tier_target_w = StrategyBridge.map_index_weights_to_funds(w_idx)
 
-    sec_selection = StrategyBridge.get_tier_sector_fund_selection(active_tier)
-    for sec_data in sec_selection.values():
-        if sec_data.get("is_promoted"):
-            def_c = sec_data.get("default_champion_code")
-            act_c = sec_data.get("champion_code")
-            if def_c and act_c and def_c in tier_target_w and act_c != def_c:
-                w_auto = tier_target_w.pop(def_c)
-                tier_target_w[act_c] = round(tier_target_w.get(act_c, 0.0) + w_auto, 4)
+        sec_selection = StrategyBridge.get_tier_sector_fund_selection(active_tier)
+        for sec_data in sec_selection.values():
+            if sec_data.get("is_promoted"):
+                def_c = sec_data.get("default_champion_code")
+                act_c = sec_data.get("champion_code")
+                if def_c and act_c and def_c in tier_target_w and act_c != def_c:
+                    w_auto = tier_target_w.pop(def_c)
+                    tier_target_w[act_c] = round(tier_target_w.get(act_c, 0.0) + w_auto, 4)
 
-    if st.session_state.custom_fund_overrides:
-        tier_target_w = dict(tier_target_w)
-        for old_code, new_code in st.session_state.custom_fund_overrides.items():
-            if old_code in tier_target_w:
-                w_val = tier_target_w.pop(old_code)
-                tier_target_w[new_code] = round(tier_target_w.get(new_code, 0.0) + w_val, 4)
+        if st.session_state.custom_fund_overrides:
+            tier_target_w = dict(tier_target_w)
+            for old_code, new_code in st.session_state.custom_fund_overrides.items():
+                if old_code in tier_target_w:
+                    w_val = tier_target_w.pop(old_code)
+                    tier_target_w[new_code] = round(tier_target_w.get(new_code, 0.0) + w_val, 4)
 
     ai_orders_res = StrategyBridge.generate_ai_rebalance_orders(
         current_holdings=pm.holdings,
@@ -1995,7 +2101,7 @@ with tab_backtest:
         bt_cfg = RISK_TIERS_CONFIG[cur_bt_tier]
         st.info(f"💡 当前检视档位：**【{cur_bt_tier} {bt_cfg['name']}】** ｜ 权益上限 {bt_cfg['equity_range'][1]}% ｜ 目标年化 {bt_cfg['target_cagr']} ｜ 核心资产：{bt_cfg['core_assets']}")
 
-    df_bt = StrategyBridge.get_backtest_nav_for_tier(cur_bt_tier)
+    df_bt = _cached_backtest_nav(cur_bt_tier)
 
     # 动态计算该档位的核心表现
     tier_cagr = (df_bt['strategy_nav'].iloc[-1] ** (252.0 / len(df_bt)) - 1.0) * 100.0
@@ -2212,7 +2318,7 @@ with tab_backtest:
     st.markdown("#### 🔍 历史相似行情与宏观同温层匹配器 (History Analog Matcher)")
     st.caption("回测不仅是过往记忆，更是当下的指路明灯。系统通过 4 维特征向量在 2018~2026 年大样本中匹配历史同温层：")
 
-    analog_tab2 = StrategyBridge.find_historical_analogs(top_k=3)
+    analog_tab2 = _cached_find_historical_analogs(top_k=3)
     st.info(analog_tab2["summary_text"])
 
     if analog_tab2["matches"]:
@@ -2349,10 +2455,11 @@ with tab_toolbox:
         # 行业集中度与重仓股重合度
         st.markdown("---")
         st.markdown("#### 🏭 加权行业集中度暴露与重仓股重叠穿透")
+        _h_repr = str(sorted((c, h.shares, h.current_nav) for c, h in pm.holdings.items()))
         col_i1, col_i2 = st.columns([5, 5])
         with col_i1:
             st.markdown("##### 🏭 行业穿透暴露")
-            df_ind = pm.calculate_look_through_industry_exposure()
+            df_ind = _cached_look_through_industry(_h_repr)
             if not df_ind.empty:
                 fig_ind_b = px.bar(df_ind, x="暴露占比(%)", y="行业", orientation="h", color="暴露占比(%)", color_continuous_scale="Viridis", text_auto=".1f%")
                 fig_ind_b.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=300, yaxis={'categoryorder':'total ascending'})
@@ -2362,7 +2469,7 @@ with tab_toolbox:
 
         with col_i2:
             st.markdown("##### ⚠️ 前十大重仓股重叠交叉检测")
-            overlap_res = pm.calculate_stock_overlap_matrix()
+            overlap_res = _cached_stock_overlap(_h_repr)
             max_unexcused = float(overlap_res.get("max_non_diag_unexcused", 0.0))
             alerts = overlap_res.get("alerts", [])
 
@@ -2403,7 +2510,7 @@ with tab_toolbox:
         st.markdown("---")
         st.markdown("#### 🛡️ 基金底层前十大重仓股穿透排雷大宽表 (商誉/存贷双高/质押/解禁)")
         if len(pm.holdings) > 0:
-            port_risk = pm.calculate_portfolio_penetration_risk()
+            port_risk = _cached_penetration_risk(_h_repr)
             c_pr1, c_pr2, c_pr3 = st.columns(3)
             with c_pr1:
                 st.metric("组合加权排雷风险指数", f"{port_risk['portfolio_risk_index']:.1f} / 100", delta=port_risk['risk_badge'])
@@ -2412,7 +2519,7 @@ with tab_toolbox:
             with c_pr3:
                 st.metric("🟡 关注警戒重仓股数", f"{port_risk['watch_stock_count']} 只")
 
-            df_scr = pm.get_portfolio_look_through_stocks_df()
+            df_scr = _cached_stocks_df(_h_repr)
             if not df_scr.empty:
                 disp_cols = [
                     "关联持仓基金", "股票代码", "股票名称", "占组合总市值比例(%)",
@@ -2712,90 +2819,19 @@ with tab_market_optimizer:
                         _mo_steps[_si2].caption(f"⬜ {_mo_step_labels[_si2]}")
 
             try:
-                st.write("**① 全市场预筛 + ② 分桶综合评分 + ③ 候选 NAV 获取**")
-                mo_ranked, mo_nav = MarketScreener.run_full_pipeline(
-                    as_of_date=_mo_today,
-                    min_aum_billion=float(mo_min_aum),
+                mo_payload = execute_market_optimization_flow(
+                    target_pct=float(mo_target_pct),
+                    horizon_label=mo_horizon,
+                    capital=float(mo_capital),
+                    min_aum=float(mo_min_aum),
                     min_years=float(mo_min_years),
-                    top_n_per_bucket=int(mo_top_n),
+                    top_n=int(mo_top_n),
                     force_rebuild=bool(mo_force),
-                    progress_callback=_mo_cb,
+                    progress_cb=_mo_cb,
+                    pm=pm,
+                    snapshot=snapshot,
                 )
-                if mo_ranked is None or mo_ranked.empty or mo_nav is None or mo_nav.empty:
-                    raise RuntimeError("候选池或 NAV 矩阵为空（可能数据源暂不可用）")
-                st.write(f"✅ 候选池 {len(mo_ranked)} 只，NAV 矩阵 {mo_nav.shape[0]} 天 × {mo_nav.shape[1]} 只")
-
-                st.write("**④ 胜率最大化组合优化（贪心 + SLSQP + 局部搜索）**")
-                mo_optimizer = WinRateOptimizer(
-                    nav_matrix=mo_nav,
-                    candidate_info=mo_ranked,
-                    holding_days=mo_holding_days,
-                    target_annual_return=mo_target_pct / 100.0,
-                    tier=mo_tier,
-                )
-                mo_result = mo_optimizer.optimize(progress_callback=_mo_cb)
-
-                # 专家精选池对比（独立获取专家池 NAV，不依赖候选矩阵）
-                mo_expert_cmp = None
-                try:
-                    import portfolio_manager as _pm_mod
-                    _all_expert = list(getattr(_pm_mod, "CORE_STRATEGY_POOL", {}).keys())
-                    # 去重：仅保留 A 类（奇数位通常是 A 类，但更安全的做法是去重）
-                    _expert_a = [c for c in _all_expert
-                                 if not getattr(_pm_mod, "CORE_STRATEGY_POOL", {}).get(c, {}).get("share_class", "A") == "C"]
-                    if not _expert_a:
-                        _expert_a = _all_expert
-                    # 档位真实策略配比（与 Tab 2 调仓同源）；获取失败才回退等权
-                    _tier_w = {}
-                    try:
-                        if mo_tier == "C3":
-                            _tier_w_raw = dict(snapshot.get("target_weights_funds", {}) or {})
-                        else:
-                            _tier_w_raw = dict(StrategyBridge.map_index_weights_to_funds(
-                                strategy_fn_for_tier(StrategyBridge.load_matrix(), tier=mo_tier)
-                            ))
-                        _tier_w = {str(c): float(w) for c, w in _tier_w_raw.items() if float(w) > 1e-4}
-                    except Exception:
-                        _tier_w = {}
-                    if _tier_w:
-                        _expert_a = list(_tier_w.keys())
-                    # 优先用候选 NAV 矩阵中已有的，不足则独立获取
-                    _in_nav = [c for c in _expert_a if c in mo_nav.columns]
-                    _expert_nav = None
-                    if len(_in_nav) >= max(1, int(len(_expert_a) * 0.8)):
-                        _expert_codes = _in_nav
-                    else:
-                        _mo_cb(0, 1, "获取专家池基金 NAV 用于同口径对比...")
-                        _expert_nav = MarketScreener.fetch_candidate_nav_matrix(_expert_a)
-                        _expert_codes = [c for c in _expert_a if c in _expert_nav.columns]
-                    if _expert_codes:
-                        if _tier_w:
-                            _w_sum = sum(_tier_w[c] for c in _expert_codes)
-                            _ew = {c: _tier_w[c] / _w_sum for c in _expert_codes} if _w_sum > 0 else {}
-                        else:
-                            _ew = {}
-                        _weight_mode = f"{mo_tier} 档位策略配比" if _ew else "等权兜底"
-                        if not _ew:
-                            _ew = {c: 1.0 / len(_expert_codes) for c in _expert_codes}
-                        mo_expert_cmp = mo_optimizer.compare_with_expert_pool(
-                            _ew, expert_nav_matrix=_expert_nav
-                        )
-                        mo_expert_cmp["n_funds"] = len(_expert_codes)
-                        mo_expert_cmp["weight_mode"] = _weight_mode
-                except Exception as _e_cmp:
-                    mo_expert_cmp = {"error": str(_e_cmp)}
-
-                st.session_state.mo_last_result = {
-                    "result": mo_result,
-                    "expert": mo_expert_cmp,
-                    "funnel": MarketScreener.get_funnel_stats(mo_ranked),
-                    "capital": float(mo_capital),
-                    "target_pct": float(mo_target_pct),
-                    "horizon": mo_horizon,
-                    "tier": mo_tier,
-                    "as_of": _mo_today.isoformat(),
-                    "run_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                }
+                st.session_state.mo_last_result = mo_payload
                 _elapsed_total = _time_mod.time() - _mo_t0
                 _cache_hint = "（日缓存命中·秒级返回）" if _elapsed_total < 5 else f"（耗时 {_elapsed_total:.1f}s）"
                 mo_status.update(label=f"✅ 全市场选基完成 {_cache_hint}", state="complete", expanded=False)
@@ -2886,47 +2922,45 @@ with tab_market_optimizer:
                 )
                 st.plotly_chart(fig_mo, use_container_width=True)
 
-            # ── 实盘下单小抄：今日申购限额校验 + 多日拆单（P2） ──
+            # ── 实盘下单小抄：今日申购限额校验 + 多日拆单（消灭套娃按钮，自动就绪） ──
             if detail_rows:
-                with st.expander("🛒 实盘下单小抄（今日限购校验·多日拆单）+ 一键设为初始持仓", expanded=False):
+                with st.expander("🛒 实盘下单小抄（今日限购校验·多日拆单）+ 一键设为初始持仓", expanded=True):
                     st.caption("按今日申购状态与日累计限额校验每只基金能否一次买齐；超限自动拆为多个交易日分批申购。限额数据当日缓存。")
-                    _os_key = f"mo_order_sheet::{mo_saved.get('run_at', '')}"
-                    if st.button("🔍 查询今日申购限额并生成下单小抄", key="btn_mo_quota"):
-                        with st.spinner("正在查询今日申购状态与限额（首次需拉取全市场申购表，之后当日秒级）..."):
-                            import math as _math
-                            import portfolio_manager as _pmq
-                            _sheet = []
-                            for _r in detail_rows:
-                                _code = str(_r["基金代码"]).strip()
-                                _amt = float(_r["配置金额(元)"])
-                                try:
-                                    _q = _pmq.fetch_realtime_fund_quota(_code)
-                                except Exception:
-                                    _q = {"status": "未知(查询失败)", "daily_limit": 1e11, "is_limited": False}
-                                _lim = float(_q.get("daily_limit", 1e11) or 0.0)
-                                _st = str(_q.get("status", ""))
-                                if _lim <= 0:
-                                    _days, _day1 = None, 0.0
-                                    _alt = _r.get("C类配对码") or ""
-                                    _note = "⛔ 暂停申购，无法买入" + (f"；可考虑 C 类配对码 {_alt}" if _alt else "；建议替换为同类型次优基金")
+                    _sheet = mo_saved.get("order_sheet")
+                    if not _sheet:
+                        import math as _math
+                        import portfolio_manager as _pmq
+                        _sheet = []
+                        for _r in detail_rows:
+                            _code = str(_r["基金代码"]).strip()
+                            _amt = float(_r["配置金额(元)"])
+                            try:
+                                _q = _pmq.fetch_realtime_fund_quota(_code)
+                            except Exception:
+                                _q = {"status": "未知(查询失败)", "daily_limit": 1e11, "is_limited": False}
+                            _lim = float(_q.get("daily_limit", 1e11) or 0.0)
+                            _st = str(_q.get("status", ""))
+                            if _lim <= 0:
+                                _days, _day1 = None, 0.0
+                                _alt = _r.get("C类配对码") or ""
+                                _note = "⛔ 暂停申购，无法买入" + (f"；可考虑 C 类配对码 {_alt}" if _alt else "；建议替换为同类型次优基金")
+                            else:
+                                _ceil_days = int(_math.ceil(_amt / _lim)) if _amt > 0 else 0
+                                _days = _ceil_days if _ceil_days >= 1 else (1 if _amt > 0 else 0)
+                                _day1 = min(_amt, _lim)
+                                if _days <= 1:
+                                    _note = "✅ 今日可一次买齐"
+                                elif _days <= 20:
+                                    _note = f"🟡 限额 ¥{_lim:,.0f}/日，需分 {_days} 个交易日买齐"
                                 else:
-                                    _days = max(1, int(_math.ceil(_amt / _lim))) if _amt > 0 else 0
-                                    _day1 = min(_amt, _lim)
-                                    if _days <= 1:
-                                        _note = "✅ 今日可一次买齐"
-                                    elif _days <= 20:
-                                        _note = f"🟡 限额 ¥{_lim:,.0f}/日，需分 {_days} 个交易日买齐"
-                                    else:
-                                        _note = f"🔴 限额 ¥{_lim:,.0f}/日，需 {_days} 个交易日，周期过长建议替换"
-                                _sheet.append({
-                                    "基金代码": _code, "基金名称": _r.get("基金名称", ""),
-                                    "目标金额(元)": round(_amt, 2), "申购状态": _st,
-                                    "日限额(元)": None if _lim >= 1e10 else round(_lim, 2),
-                                    "今日可买(元)": round(_day1, 2),
-                                    "所需交易日": _days, "执行建议": _note,
-                                })
-                            st.session_state[_os_key] = _sheet
-                    _sheet = st.session_state.get(_os_key)
+                                    _note = f"🔴 限额 ¥{_lim:,.0f}/日，需 {_days} 个交易日，周期过长建议替换"
+                            _sheet.append({
+                                "基金代码": _code, "基金名称": _r.get("基金名称", ""),
+                                "目标金额(元)": round(_amt, 2), "申购状态": _st,
+                                "日限额(元)": None if _lim >= 1e10 else round(_lim, 2),
+                                "今日可买(元)": round(_day1, 2),
+                                "所需交易日": _days, "执行建议": _note,
+                            })
                     if _sheet:
                         _sdf = pd.DataFrame(_sheet)
                         st.dataframe(
@@ -2994,69 +3028,70 @@ with tab_market_optimizer:
             with st.expander("🛠️ 优化元数据", expanded=False):
                 st.json(mo_meta)
 
-            # ── 存量持仓调仓路径（接入 #1） ──
+            # ── 存量持仓调仓路径（消灭套娃按钮，自动就绪） ──
             if hasattr(pm, 'holdings') and pm.holdings and len(pm.holdings) > 0 and mo_res.get("optimal_weights"):
-                with st.expander("📦 存量持仓 → 最优组合调仓路径", expanded=False):
-                    st.caption("基于您当前持仓与本次最优组合的差异，计算最低摩擦成本的调仓操作路径。")
-                    if st.button("🔄 计算调仓路径", key="btn_rebalance_path"):
-                        with st.spinner("正在计算调仓路径..."):
-                            try:
-                                _rb_holdings = {}
-                                _rb_total_val = 0.0
-                                # pm.holdings 是 Dict[str, FundHolding]，需用 .items() 遍历
-                                for _h_code, _h_obj in pm.holdings.items():
-                                    _h_shares = float(getattr(_h_obj, "shares", 0) or 0)
-                                    _h_nav = float(getattr(_h_obj, "current_nav", 1.0) or 1.0)
-                                    _h_cost = float(getattr(_h_obj, "cost_price", _h_nav) or _h_nav)
-                                    # 从 batches 计算最早持有天数
-                                    _h_batches = getattr(_h_obj, "batches", []) or []
-                                    _h_days = max((getattr(b, "holding_days", 0) or 0 for b in _h_batches), default=0)
-                                    _rb_holdings[str(_h_code).strip()] = {
-                                        "shares": _h_shares, "nav": _h_nav,
-                                        "cost": _h_cost, "holding_days": _h_days,
-                                    }
-                                    _rb_total_val += _h_shares * _h_nav
+                with st.expander("📦 存量持仓 → 最优组合调仓路径", expanded=True):
+                    st.caption("基于您当前持仓与本次最优组合的差异，计算最低摩擦成本的调仓操作路径（已执行严格先进先出与 <7天 锁仓保护）。")
+                    _rb_result = mo_saved.get("rebalance_path")
+                    if not _rb_result:
+                        try:
+                            _rb_holdings = {}
+                            _rb_total_val = 0.0
+                            for _h_code, _h_obj in pm.holdings.items():
+                                _h_shares = float(getattr(_h_obj, "shares", 0) or 0)
+                                _h_nav = float(getattr(_h_obj, "current_nav", 1.0) or 1.0)
+                                _h_cost = float(getattr(_h_obj, "cost_price", _h_nav) or _h_nav)
+                                _h_batches = getattr(_h_obj, "batches", []) or []
+                                _h_days = min((getattr(b, "holding_days", 0) or 0 for b in _h_batches), default=30)
+                                _h_penalty_free = pm.get_penalty_free_redeemable_shares(_h_code) if hasattr(pm, "get_penalty_free_redeemable_shares") else _h_shares
+                                _safe_batches = [b for b in _h_batches if getattr(b, "holding_days", 0) >= 7 and not getattr(b, "safety_lock", False)]
+                                _h_safe_days = max((getattr(b, "holding_days", 0) or 0 for b in _safe_batches), default=_h_days)
+                                _rb_holdings[str(_h_code).strip()] = {
+                                    "shares": _h_shares, "nav": _h_nav,
+                                    "cost": _h_cost, "holding_days": _h_days,
+                                    "safe_holding_days": _h_safe_days,
+                                    "penalty_free_shares": _h_penalty_free,
+                                    "share_class": getattr(_h_obj, "share_class", "A"),
+                                }
+                                _rb_total_val += _h_shares * _h_nav
 
-                                if _rb_total_val > 0:
-                                    # 从 mo_saved 恢复用户选定的持有期（HOLDING_PERIODS 映射）
-                                    _rb_horizon_map = {"短期(3~6月)": 125, "中期(1~2年)": 250, "长期(3~5年)": 500}
-                                    _rb_hdays = _rb_horizon_map.get(mo_saved.get("horizon", ""), 250)
-                                    # 就地构造轻量 optimizer（仅需 candidate_info 用于席位警告）
-                                    _rb_opt = WinRateOptimizer(
-                                        nav_matrix=pd.DataFrame(),
-                                        candidate_info=pd.DataFrame(mo_res.get("fund_details", [])).rename(
-                                            columns={"fund_code": "fund_code"}
-                                        ) if mo_res.get("fund_details") else pd.DataFrame(columns=["fund_code", "status"]),
-                                        holding_days=_rb_hdays,
-                                        target_annual_return=mo_saved["target_pct"] / 100.0,
-                                    )
-                                    _rb_result = _rb_opt.optimize_rebalance_path(
-                                        current_holdings=_rb_holdings,
-                                        optimal_weights=mo_res["optimal_weights"],
-                                        total_value=_rb_total_val,
-                                    )
-                                    # 展示调仓操作
-                                    _rb_actions = _rb_result.get("rebalance_actions", [])
-                                    if _rb_actions:
-                                        st.markdown(f"**调仓操作：{_rb_result['n_sells']} 笔赎回 + {_rb_result['n_buys']} 笔申购 ｜ 预估摩擦成本 ¥{_rb_result['total_friction_cost']:,.2f} ｜ 预估完成 {_rb_result['estimated_days']} 个工作日**")
-                                        _rb_df = pd.DataFrame(_rb_actions)
-                                        _rb_col_map = {"action": "操作", "fund_code": "基金代码", "amount": "金额(元)",
-                                                       "current_weight": "当前权重(%)", "target_weight": "目标权重(%)",
-                                                       "holding_days": "已持有天数", "redemption_fee_rate": "赎回费率",
-                                                       "estimated_fee": "预估费用(元)"}
-                                        _rb_df = _rb_df.rename(columns=_rb_col_map)
-                                        st.dataframe(_rb_df, use_container_width=True, hide_index=True)
-                                    else:
-                                        st.success("✅ 当前持仓与最优组合差异极小，无需调仓！")
-                                    # 锁定期警告
-                                    for _lf in _rb_result.get("locked_funds", []):
-                                        st.warning(f"🔒 {_lf}")
-                                    # 席位丢失警告
-                                    for _sw in _rb_result.get("seat_warnings", []):
-                                        st.error(_sw)
-                                else:
-                                    st.info("当前持仓市值为 0，无法计算调仓路径。")
-                            except Exception as _rb_e:
-                                st.error(f"调仓路径计算异常：{_rb_e}")
+                            if _rb_total_val > 0:
+                                _rb_horizon_map = {"短期(3~6月)": 125, "中期(1~2年)": 250, "长期(3~5年)": 500}
+                                _rb_hdays = _rb_horizon_map.get(mo_saved.get("horizon", ""), 250)
+                                _rb_opt = WinRateOptimizer(
+                                    nav_matrix=pd.DataFrame(),
+                                    candidate_info=pd.DataFrame(mo_res.get("fund_details", [])).rename(
+                                        columns={"fund_code": "fund_code"}
+                                    ) if mo_res.get("fund_details") else pd.DataFrame(columns=["fund_code", "status"]),
+                                    holding_days=_rb_hdays,
+                                    target_annual_return=mo_saved["target_pct"] / 100.0,
+                                )
+                                _rb_result = _rb_opt.optimize_rebalance_path(
+                                    current_holdings=_rb_holdings,
+                                    optimal_weights=mo_res["optimal_weights"],
+                                    total_value=_rb_total_val,
+                                )
+                        except Exception as _rb_e:
+                            st.error(f"调仓路径计算异常：{_rb_e}")
+
+                    if _rb_result:
+                        _rb_actions = _rb_result.get("rebalance_actions", [])
+                        if _rb_actions:
+                            st.markdown(f"**调仓操作：{_rb_result['n_sells']} 笔赎回 + {_rb_result['n_buys']} 笔申购 ｜ 预估摩擦成本 ¥{_rb_result['total_friction_cost']:,.2f} ｜ 预估完成 {_rb_result['estimated_days']} 个工作日**")
+                            _rb_df = pd.DataFrame(_rb_actions)
+                            _rb_col_map = {"action": "操作", "fund_code": "基金代码", "amount": "金额(元)",
+                                           "current_weight": "当前权重(%)", "target_weight": "目标权重(%)",
+                                           "holding_days": "已持有天数", "redemption_fee_rate": "赎回费率",
+                                           "estimated_fee": "预估费用(元)", "note": "安全备注"}
+                            _rb_df = _rb_df.rename(columns=_rb_col_map)
+                            st.dataframe(_rb_df, use_container_width=True, hide_index=True)
+                        else:
+                            st.success("✅ 当前持仓与最优组合差异极小，无需调仓！")
+                        for _lf in _rb_result.get("locked_funds", []):
+                            st.warning(f"🔒 {_lf}")
+                        for _sw in _rb_result.get("seat_warnings", []):
+                            st.error(_sw)
+                    else:
+                        st.info("当前持仓市值为 0，无法计算调仓路径。")
     else:
         st.info("👆 设定目标后点击「开始全市场胜率最优选基」。首次运行需获取候选基金净值（结果按日缓存，后续秒级返回）。")
