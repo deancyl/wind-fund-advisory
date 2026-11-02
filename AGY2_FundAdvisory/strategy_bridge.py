@@ -1457,7 +1457,9 @@ def calculate_human_readable_metrics(
     capital: float = 100000.0,
     target_return_pct: float = 15.0,
     tier: Optional[str] = None,
-    initial_capital: Optional[float] = None
+    initial_capital: Optional[float] = None,
+    market_snapshot: Optional[Dict[str, Any]] = None,
+    **kwargs
 ) -> Dict[str, Any]:
     """
     普通人秒懂的【最好/最坏情况、最长回本时间与达标周期】精算引擎
@@ -1564,10 +1566,19 @@ def calculate_human_readable_metrics(
     else:
         tuw_message = "净值持续创历史新高，历史未出现跨周期水下回撤！"
 
-    # 4. 🏁 达到预期收益所需时间（Time to Target）与滚动胜率
-    win_6m = float(np.mean(nav_arr[125:] > nav_arr[:-125]) * 100.0) if n > 125 else 100.0
-    win_1y = float(np.mean(nav_arr[250:] > nav_arr[:-250]) * 100.0) if n > 250 else 100.0
-    win_2y = float(np.mean(nav_arr[500:] > nav_arr[:-500]) * 100.0) if n > 500 else 100.0
+    # 4. 🏁 达到预期收益所需时间（Time to Target）与滚动胜率（统一委托 WinRateEngine 单一真理源）
+    from winrate_engine import WinRateEngine
+    nav_s = pd.Series(nav_arr) if not isinstance(nav_series, pd.Series) else nav_series
+    target_dec = float(target_return_pct) / 100.0
+    w_6m = WinRateEngine.rolling_target_winrate(nav_s, 125, target_dec, market_snapshot=market_snapshot)
+    w_1y = WinRateEngine.rolling_target_winrate(nav_s, 250, target_dec, market_snapshot=market_snapshot)
+    w_2y = WinRateEngine.rolling_target_winrate(nav_s, 500, target_dec, market_snapshot=market_snapshot)
+    w_3y = WinRateEngine.rolling_target_winrate(nav_s, 750, target_dec, market_snapshot=market_snapshot)
+
+    win_6m = round(float(w_6m["win_rate"]) * 100.0, 1)
+    win_1y = round(float(w_1y["win_rate"]) * 100.0, 1)
+    win_2y = round(float(w_2y["win_rate"]) * 100.0, 1)
+    win_3y = round(float(w_3y["win_rate"]) * 100.0, 1)
 
     target_ratio = 1.0 + float(target_return_pct) / 100.0
     reach_days_list = []
@@ -1612,12 +1623,7 @@ def calculate_human_readable_metrics(
         {"环境": "🛡️ 应对防御机制", "表现": "内置 3% 缓冲阀与 7天锁", "量化原因": "严格过滤日间随机噪音，未满7天绝对阻断卖出，杜绝1.50%惩罚扣款"}
     ]
 
-    rolling_3y = min(750, n - 1)
-    if n > rolling_3y:
-        r_3y = (nav_arr[rolling_3y:] / nav_arr[:-rolling_3y]) - 1.0
-        win_3y = float((r_3y > 0).mean() * 100.0)
-    else:
-        win_3y = 100.0
+    # win_3y 已统一由上方 WinRateEngine 计算
 
     tier_meta = RISK_TIERS_CONFIG.get(tier_name, RISK_TIERS_CONFIG["C3"])
     suitable_for = f"适合拟持有 {tier_meta['target_cagr']} 预期、最大能忍受 {tier_meta['max_drawdown_limit']} 回撤的资金"
@@ -1809,11 +1815,81 @@ class StrategyBridge:
         return _PORTFOLIO_MANAGER_SINGLETON
 
     @classmethod
-    def get_backtest_nav_for_tier(cls, tier: str = "C3", force_reload: bool = False) -> pd.DataFrame:
+    def get_backtest_nav_for_tier(
+        cls,
+        tier: str = "C3",
+        force_reload: bool = False,
+        target_return_pct: Optional[float] = None
+    ) -> pd.DataFrame:
         """
-        获取指定风险档位 (C1~C5) 的 2018-2026 全周期策略回测净值与回撤时序
+        获取指定风险档位 (C1~C5) 或目标收益率的 2018-2026 全周期策略回测净值与回撤时序。
+        当传入 target_return_pct 时，支持在相邻基准档位间平滑插值合成连续日度净值，消除阶跃断崖。
         """
         tier = tier.upper() if tier else "C3"
+        t_key = round(float(target_return_pct), 1) if target_return_pct is not None else None
+        cache_key = f"{tier}_{t_key}" if t_key is not None else tier
+
+        if not force_reload and cache_key in cls._cached_tier_backtests:
+            return cls._cached_tier_backtests[cache_key]
+
+        # 连续动态资产配比插值 (Continuous Asset Allocation Blending)
+        if target_return_pct is not None:
+            t_val = float(target_return_pct)
+            anchors = [("C1", 6.5), ("C2", 10.0), ("C3", 15.0), ("C4", 22.0), ("C5", 35.0)]
+            if t_val <= anchors[0][1]:
+                base_df = cls.get_backtest_nav_for_tier("C1", force_reload=force_reload)
+            elif t_val >= anchors[-1][1]:
+                base_df = cls.get_backtest_nav_for_tier("C5", force_reload=force_reload)
+            else:
+                t1_name, t1_val = anchors[0]
+                t2_name, t2_val = anchors[1]
+                for k in range(len(anchors) - 1):
+                    if anchors[k][1] <= t_val <= anchors[k+1][1]:
+                        t1_name, t1_val = anchors[k]
+                        t2_name, t2_val = anchors[k+1]
+                        break
+                mu = (t_val - t1_val) / (t2_val - t1_val) if t2_val > t1_val else 0.0
+                df1 = cls.get_backtest_nav_for_tier(t1_name, force_reload=force_reload)
+                df2 = cls.get_backtest_nav_for_tier(t2_name, force_reload=force_reload)
+
+                r1 = df1['strategy_nav'].pct_change().fillna(0.0)
+                r2 = df2['strategy_nav'].pct_change().fillna(0.0)
+                r_blend = (1.0 - mu) * r1 + mu * r2
+                strat_nav = (1.0 + r_blend).cumprod()
+
+                strat_ret = strat_nav.pct_change().fillna(0.0)
+                cash_ret_daily = 0.018 / 250.0
+                otc_daily_ret = 0.95 * strat_ret + 0.05 * cash_ret_daily
+                strat_nav_otc = (1.0 + otc_daily_ret).cumprod()
+
+                strat_cummax = strat_nav.cummax()
+                strat_dd = (strat_nav - strat_cummax) / np.maximum(strat_cummax, 1e-6) * 100.0
+
+                strat_otc_cummax = strat_nav_otc.cummax()
+                strat_otc_dd = (strat_nav_otc - strat_otc_cummax) / np.maximum(strat_otc_cummax, 1e-6) * 100.0
+
+                w_ashare = (1.0 - mu) * df1['weight_ashare'] + mu * df2['weight_ashare']
+                w_bond = (1.0 - mu) * df1['weight_bond'] + mu * df2['weight_bond']
+                w_gold = (1.0 - mu) * df1['weight_gold'] + mu * df2['weight_gold']
+                w_spx = (1.0 - mu) * df1['weight_spx'] + mu * df2['weight_spx']
+
+                base_df = pd.DataFrame({
+                    'date': df1['date'],
+                    'strategy_nav': strat_nav,
+                    'strategy_nav_otc': strat_nav_otc,
+                    'benchmark_50_50_nav': df1['benchmark_50_50_nav'],
+                    'h300_nav': df1['h300_nav'],
+                    'strategy_drawdown': strat_dd,
+                    'strategy_otc_drawdown': strat_otc_dd,
+                    'h300_drawdown': df1['h300_drawdown'],
+                    'weight_ashare': w_ashare,
+                    'weight_bond': w_bond,
+                    'weight_gold': w_gold,
+                    'weight_spx': w_spx
+                })
+            cls._cached_tier_backtests[cache_key] = base_df
+            return base_df
+
         if tier == "C3":
             return cls.get_backtest_nav_and_drawdown(force_reload=force_reload)
 

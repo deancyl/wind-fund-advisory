@@ -60,9 +60,9 @@ def _get_redemption_fee(holding_days: int, fund_type: str = "A") -> float:
 # ══════════════════════════════════════════════════════════════════
 
 HOLDING_PERIODS = {
-    "short":  {"label": "短期3~6月",  "months_range": (3, 6),  "trading_days": 125},
-    "medium": {"label": "中期1~2年",  "months_range": (12, 24), "trading_days": 500},
-    "long":   {"label": "长期3~5年",  "months_range": (36, 60), "trading_days": 1000},
+    "short":  {"label": "短期3~6月",  "months_range": (3, 6),   "trading_days": 125},
+    "medium": {"label": "中期1~2年",  "months_range": (12, 24), "trading_days": 250},
+    "long":   {"label": "长期3~5年",  "months_range": (36, 60), "trading_days": 750},
 }
 
 
@@ -132,11 +132,15 @@ def compute_kernel_weights(
     historical_features: np.ndarray,
     target_state: np.ndarray,
     h_bandwidth: float = 1.2,
+    min_eff_ratio: float = 0.35,
+    min_eff_abs: float = 60.0,
+    uniform_fusion_weight: float = 0.40,
+    **kwargs
 ) -> np.ndarray:
     """
     计算历史状态向量与当下状态 target_state 的标准化马氏/欧氏距离 d_t，
-    生成高斯同温层核权重 kappa_t:
-        kappa_t = exp(-d_t^2 / (2 * h^2)) / sum(exp(-d_j^2 / (2 * h^2)))
+    动态自适应调节高斯核带宽 h 确保有效样本容量 N_eff >= min(min_eff_abs, min_eff_ratio * M)，
+    并融合 (1 - uniform_fusion_weight) * 当下同温层核权重 + uniform_fusion_weight * 全周期均匀权重。
     """
     M = len(historical_features)
     if M == 0:
@@ -150,14 +154,33 @@ def compute_kernel_weights(
     z_target = (target_state - mean_vec) / std_vec
 
     d2 = np.sum((Z - z_target) ** 2, axis=1)
-    h = h_bandwidth if h_bandwidth > 0 else 1.2
     d2_shift = d2 - np.min(d2)  # 数值稳定性保护
-    exp_args = -d2_shift / (2.0 * (h ** 2))
-    raw_weights = np.exp(exp_args)
-    weights_sum = np.sum(raw_weights)
+
+    # 动态调节带宽 h 保证有效样本容量 N_eff >= min(60, 0.35 M)
+    target_neff = min(float(min_eff_abs), float(min_eff_ratio * M))
+    h = max(0.5, float(h_bandwidth)) if h_bandwidth > 0 else 1.2
+    kw_h = np.full(M, 1.0 / M, dtype=np.float64)
+
+    for _ in range(25):
+        exp_args = -d2_shift / (2.0 * (h ** 2))
+        raw_weights = np.exp(exp_args)
+        weights_sum = np.sum(raw_weights)
+        if weights_sum <= 0 or not np.isfinite(weights_sum):
+            raw_weights = np.ones(M, dtype=np.float64)
+            weights_sum = float(M)
+        kw_h = raw_weights / weights_sum
+        n_eff = 1.0 / (np.sum(kw_h ** 2) + 1e-12)
+        if n_eff >= target_neff or h >= 50.0:
+            break
+        h *= 1.25
+
+    # 贝叶斯收缩 / 权重融合: 60% 当下同温层核权重 + 40% 全周期均匀权重
+    u_weight = float(np.clip(uniform_fusion_weight, 0.0, 1.0))
+    fused_weights = (1.0 - u_weight) * kw_h + u_weight * (1.0 / M)
+    weights_sum = np.sum(fused_weights)
     if weights_sum <= 0 or not np.isfinite(weights_sum):
         return np.full(M, 1.0 / M, dtype=np.float64)
-    return raw_weights / weights_sum
+    return fused_weights / weights_sum
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -291,10 +314,16 @@ class WinRateEngine:
         ) - 1.0
 
         total_windows = len(ann_returns)
+        # 达标阈值采用 +-0.5% (0.005) 软边界平滑过渡 (C1 连续 Hermite Smoothstep)
+        diff_ann = ann_returns - target_annual_return
+        x_win = np.clip((diff_ann + 0.005) / 0.010, 0.0, 1.0)
+        is_win_soft = 3.0 * (x_win ** 2) - 2.0 * (x_win ** 3)
+        is_noloss_soft = (total_returns >= 0.0).astype(np.float64)
+
         winning = int(np.sum(ann_returns >= target_annual_return))
         no_loss = int(np.sum(total_returns >= 0))
-        unconditional_wr = winning / total_windows if total_windows > 0 else 0.0
-        unconditional_nlr = no_loss / total_windows if total_windows > 0 else 0.0
+        unconditional_wr = float(np.mean(is_win_soft)) if total_windows > 0 else 0.0
+        unconditional_nlr = float(np.mean(is_noloss_soft)) if total_windows > 0 else 0.0
         unconditional_avg = float(np.mean(ann_returns)) if total_windows > 0 else 0.0
 
         # 高斯核同温层条件胜率计算 (Conditional Win-Rate at T_now)
@@ -302,8 +331,8 @@ class WinRateEngine:
         if state_vec is not None and total_windows > 0:
             hist_feat = compute_historical_feature_matrix(nav_series, holding_days)
             kw = compute_kernel_weights(hist_feat, state_vec, h_bandwidth=h_bandwidth)
-            conditional_wr = float(np.sum(kw * (ann_returns >= target_annual_return)))
-            conditional_nlr = float(np.sum(kw * (total_returns >= 0.0)))
+            conditional_wr = float(np.sum(kw * is_win_soft))
+            conditional_nlr = float(np.sum(kw * is_noloss_soft))
             conditional_avg = float(np.sum(kw * ann_returns))
             win_rate = conditional_wr
             no_loss_rate = conditional_nlr

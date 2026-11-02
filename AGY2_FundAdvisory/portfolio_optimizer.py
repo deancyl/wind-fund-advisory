@@ -378,10 +378,14 @@ class WinRateOptimizer:
         if progress_callback:
             progress_callback(4, 5, "生成基金详细信息...")
 
-        # 补充基金详细信息
+        # 补充基金详细信息与日度组合净值序列
         best_result["fund_details"] = self._build_fund_details(
             best_result["optimal_weights"], metrics
         )
+        try:
+            best_result["portfolio_nav_series"] = self._build_portfolio_nav(nav_df, best_result["optimal_weights"])
+        except Exception:
+            best_result["portfolio_nav_series"] = None
         best_result["holding_period"] = self._holding_period_label()
         best_result["target_return"] = self.target_return
         best_result["tier"] = self.tier
