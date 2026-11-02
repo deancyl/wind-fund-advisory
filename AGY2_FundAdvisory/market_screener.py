@@ -154,7 +154,10 @@ class MarketScreener:
         mask = pd.Series(True, index=merged.index)
 
         if "aum_billion" in merged.columns:
-            mask &= merged["aum_billion"] >= min_aum_billion
+            if merged["aum_billion"].notna().any():
+                mask &= merged["aum_billion"].fillna(0) >= min_aum_billion
+            else:
+                warnings.warn("规模数据完全缺失（降级模式），跳过规模过滤")
 
         if "inception_date" in merged.columns:
             merged["inception_date"] = pd.to_datetime(merged["inception_date"], errors="coerce")
@@ -256,7 +259,7 @@ class MarketScreener:
             result = pd.DataFrame({
                 "fund_code": catalog_df["symbol"].astype(str),
                 "inception_date": pd.NaT,
-                "aum_billion": 999.0,  # 放过所有基金
+                "aum_billion": np.nan,  # 降级：规模未知，由过滤逻辑决定是否跳过
                 "status": "正常",
             })
             return result
@@ -495,9 +498,29 @@ class MarketScreener:
 
             try:
                 import akshare as ak
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+
+                _consecutive_failures = 0
+                _MAX_CONSECUTIVE_FAILURES = 5  # 连续失败熔断阈值
+
                 for i, code in enumerate(to_fetch):
+                    # 熔断：连续失败过多，跳过剩余
+                    if _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                        warnings.warn(
+                            f"akshare 连续 {_MAX_CONSECUTIVE_FAILURES} 次超时/失败，熔断剩余 {len(to_fetch)-i} 只"
+                        )
+                        break
+
                     try:
-                        df = ak.fund_open_fund_daily_em(fund=code, start_date=start_date.replace("-", ""))
+                        # 单次请求超时 15 秒（Windows 兼容）
+                        with ThreadPoolExecutor(max_workers=1) as _tp:
+                            _future = _tp.submit(
+                                ak.fund_open_fund_daily_em,
+                                fund=code,
+                                start_date=start_date.replace("-", ""),
+                            )
+                            df = _future.result(timeout=15)
+
                         if df is not None and not df.empty:
                             # 标准化列名
                             df_clean = pd.DataFrame()
@@ -514,13 +537,18 @@ class MarketScreener:
                                 SmartCacheManager.save_nav_cache(code, df_clean)
                                 nav_data[code] = df_clean["nav"].tolist()
 
+                        _consecutive_failures = 0  # 成功则重置
+
                         # akshare 限频
                         time.sleep(0.3)
 
+                    except FuturesTimeout:
+                        _consecutive_failures += 1
+                        warnings.warn(f"基金 {code} NAV 获取超时(15s)，跳过")
                     except Exception:
-                        pass
+                        _consecutive_failures += 1
 
-                    if progress_callback and (i + 1) % 20 == 0:
+                    if progress_callback:
                         progress_callback(i + 1, len(to_fetch), f"NAV 获取: {i+1}/{len(to_fetch)}")
 
             except ImportError:

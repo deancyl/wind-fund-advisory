@@ -583,6 +583,23 @@ with tab_zero_start:
                 st.caption(f"⚡ 高收益提示：目标年化 {target_ret_input:.0f}% 对应【{active_tier} {cur_tier_meta['name']}】，历史最大回撤约 {abs(cur_tier_meta['historical_mdd']):.1f}%，解套需 {cur_tier_meta['max_tolerated_months']} 个月，建议长钱长投。")
             else:
                 st.caption(f"💡 目标收益 {target_ret_input:.0f}% ➔ 当前档位：【{active_tier} {cur_tier_meta['name']}】（权益上限 {cur_tier_meta['equity_range'][1]}% ｜ 预期年化 {cur_tier_meta['target_cagr']} ｜ 核心：{cur_tier_meta['core_assets']}）")
+            # ── 多持有期胜率参考表（实时跟随滑块） ──
+            try:
+                _wr_bt = StrategyBridge.get_backtest_nav_for_tier(active_tier)
+                if _wr_bt is not None and 'strategy_nav' in _wr_bt.columns and len(_wr_bt) > 250:
+                    _wr_table = WinRateEngine.multi_horizon_winrate_table(
+                        _wr_bt['strategy_nav'], target_ret_input / 100.0
+                    )
+                    _wr_cols = st.columns(3)
+                    for _wi, (_wk, _wv) in enumerate(_wr_table.items()):
+                        with _wr_cols[_wi]:
+                            st.metric(
+                                f"{_wv['label']} 胜率",
+                                f"{_wv['win_rate']*100:.1f}%",
+                                delta=f"不亏损 {_wv['no_loss_rate']*100:.0f}%",
+                            )
+            except Exception:
+                pass
 
         elif tier_mode.startswith("模式 B"):
             col_q1, col_q2, col_q3 = st.columns(3)
@@ -687,6 +704,23 @@ with tab_zero_start:
             cur_tier_meta = RISK_TIERS_CONFIG[active_tier]
             plan_capital = mc_capital
             st.info("💡 **提示**：完整的全市场选基功能请前往第 5 个 Tab「🎯 全市场胜率最优选基」，支持分步可视化筛选流程和详细对比。")
+            # ── 多持有期胜率参考表（模式 C） ──
+            try:
+                _wrc_bt = StrategyBridge.get_backtest_nav_for_tier(active_tier)
+                if _wrc_bt is not None and 'strategy_nav' in _wrc_bt.columns and len(_wrc_bt) > 250:
+                    _wrc_table = WinRateEngine.multi_horizon_winrate_table(
+                        _wrc_bt['strategy_nav'], mc_target_ret / 100.0
+                    )
+                    _wrc_cols = st.columns(3)
+                    for _wci, (_wck, _wcv) in enumerate(_wrc_table.items()):
+                        with _wrc_cols[_wci]:
+                            st.metric(
+                                f"{_wcv['label']} 胜率",
+                                f"{_wcv['win_rate']*100:.1f}%",
+                                delta=f"不亏损 {_wcv['no_loss_rate']*100:.0f}%",
+                            )
+            except Exception:
+                pass
 
     # ---------------------------------------------------------
     # 步骤二：【🧪 现场推演看好坏】—— 全市场回测与人话指标深度检验
@@ -2806,5 +2840,65 @@ with tab_market_optimizer:
 
             with st.expander("🛠️ 优化元数据", expanded=False):
                 st.json(mo_meta)
+
+            # ── 存量持仓调仓路径（接入 #1） ──
+            if hasattr(pm, 'holdings') and pm.holdings and len(pm.holdings) > 0 and mo_res.get("optimal_weights"):
+                with st.expander("📦 存量持仓 → 最优组合调仓路径", expanded=False):
+                    st.caption("基于您当前持仓与本次最优组合的差异，计算最低摩擦成本的调仓操作路径。")
+                    if st.button("🔄 计算调仓路径", key="btn_rebalance_path"):
+                        with st.spinner("正在计算调仓路径..."):
+                            try:
+                                _rb_holdings = {}
+                                _rb_total_val = 0.0
+                                for _h in pm.holdings:
+                                    _h_code = str(_h.get("fund_code", "")).strip()
+                                    _h_shares = float(_h.get("shares", 0) or _h.get("quantity", 0) or 0)
+                                    _h_nav = float(_h.get("nav", 1.0) or 1.0)
+                                    _h_cost = float(_h.get("cost", _h_nav) or _h_nav)
+                                    _h_days = int(_h.get("holding_days", 0) or 0)
+                                    _rb_holdings[_h_code] = {
+                                        "shares": _h_shares, "nav": _h_nav,
+                                        "cost": _h_cost, "holding_days": _h_days,
+                                    }
+                                    _rb_total_val += _h_shares * _h_nav
+
+                                if _rb_total_val > 0:
+                                    # 就地构造轻量 optimizer（仅需 candidate_info 用于席位警告）
+                                    _rb_opt = WinRateOptimizer(
+                                        nav_matrix=pd.DataFrame(),
+                                        candidate_info=pd.DataFrame(mo_res.get("fund_details", [])).rename(
+                                            columns={"fund_code": "fund_code"}
+                                        ) if mo_res.get("fund_details") else pd.DataFrame(columns=["fund_code", "status"]),
+                                        holding_days=250,
+                                        target_annual_return=mo_saved["target_pct"] / 100.0,
+                                    )
+                                    _rb_result = _rb_opt.optimize_rebalance_path(
+                                        current_holdings=_rb_holdings,
+                                        optimal_weights=mo_res["optimal_weights"],
+                                        total_value=_rb_total_val,
+                                    )
+                                    # 展示调仓操作
+                                    _rb_actions = _rb_result.get("rebalance_actions", [])
+                                    if _rb_actions:
+                                        st.markdown(f"**调仓操作：{_rb_result['n_sells']} 笔赎回 + {_rb_result['n_buys']} 笔申购 ｜ 预估摩擦成本 ¥{_rb_result['total_friction_cost']:,.2f} ｜ 预估完成 {_rb_result['estimated_days']} 个工作日**")
+                                        _rb_df = pd.DataFrame(_rb_actions)
+                                        _rb_col_map = {"action": "操作", "fund_code": "基金代码", "amount": "金额(元)",
+                                                       "current_weight": "当前权重(%)", "target_weight": "目标权重(%)",
+                                                       "holding_days": "已持有天数", "redemption_fee_rate": "赎回费率",
+                                                       "estimated_fee": "预估费用(元)"}
+                                        _rb_df = _rb_df.rename(columns=_rb_col_map)
+                                        st.dataframe(_rb_df, use_container_width=True, hide_index=True)
+                                    else:
+                                        st.success("✅ 当前持仓与最优组合差异极小，无需调仓！")
+                                    # 锁定期警告
+                                    for _lf in _rb_result.get("locked_funds", []):
+                                        st.warning(f"🔒 {_lf}")
+                                    # 席位丢失警告
+                                    for _sw in _rb_result.get("seat_warnings", []):
+                                        st.error(_sw)
+                                else:
+                                    st.info("当前持仓市值为 0，无法计算调仓路径。")
+                            except Exception as _rb_e:
+                                st.error(f"调仓路径计算异常：{_rb_e}")
     else:
         st.info("👆 设定目标后点击「开始全市场胜率最优选基」。首次运行需获取候选基金净值（结果按日缓存，后续秒级返回）。")
