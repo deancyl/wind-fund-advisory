@@ -268,15 +268,18 @@ with st.sidebar:
 
     with col_undo:
         if st.button("↩️ 一键撤销", use_container_width=True, help="撤销上一步操作并回滚快照"):
-            if pm.undo():
-                st.info("已成功回滚至上一快照！")
+            with st.spinner("↩️ 回滚中..."):
+                _undo_ok = pm.undo()
+            if _undo_ok:
+                st.info("✅ 已成功回滚至上一快照！")
                 st.rerun()
             else:
                 st.warning("暂无更早快照可撤销")
 
     if st.button("🔄 同步最新真实净值", use_container_width=True, help="双源拉取天天基金与新浪最新净值/估值，刷新持仓市值与 Alpha"):
-        s_res = pm.sync_holdings_live_nav(use_intraday_gsz=True)
-        st.success(f"已同步 {s_res.get('updated_count', 0)} 只持仓最新净值！")
+        with st.spinner("🔄 正在从天天基金/新浪双源拉取最新净值..."):
+            s_res = pm.sync_holdings_live_nav(use_intraday_gsz=True)
+        st.success(f"✅ 已同步 {s_res.get('updated_count', 0)} 只持仓最新净值！")
         st.rerun()
 
     # 接管模式切换与信息
@@ -750,8 +753,9 @@ with tab_zero_start:
 
                 sim_elapsed = max(0.01, round(time.time() - sim_t0, 3))
                 if status is not None and hasattr(status, "update"):
+                    _cache_str = "（极速缓存返回）" if sim_elapsed < 0.5 else f"（耗时 {sim_elapsed:.2f} 秒）"
                     status.update(
-                        label=f"✅ 现场推演成功（耗时 {sim_elapsed:.2f} 秒，数据基准时间：{st.session_state.sim_timestamp}）",
+                        label=f"✅ 现场推演完成 {_cache_str}  ⏱️ {st.session_state.sim_timestamp}",
                         state="complete",
                         expanded=False
                     )
@@ -1295,8 +1299,9 @@ with tab_holdings_and_rebalance:
         col_demo_btn, _ = st.columns([4, 6])
         with col_demo_btn:
             if st.button("🚀 一键载入演示组合体验调仓驾驶舱", type="primary", use_container_width=True, key="btn_load_demo_tab2"):
-                pm.load_demo_portfolio()
-                st.success("演示组合载入成功！")
+                with st.spinner("📦 正在载入演示组合（含深套基与在途单）..."):
+                    pm.load_demo_portfolio()
+                st.success("✅ 演示组合载入成功！")
                 st.rerun()
 
     # 第一层【🚦 今日是否适合调仓？AI 综合裁决卡】
@@ -1555,12 +1560,14 @@ with tab_holdings_and_rebalance:
                     st.rerun()
             elif guidance["stage"] == "GOLDEN_WINDOW":
                 if st.button("✅ 【立即按今日盘中估值执行调仓】", type="primary", use_container_width=True, key="btn_exec_gold_tab2"):
-                    rebal_plan = pm.generate_rebalance_plan(snapshot["target_weights_funds"], min_buffer_pct=3.0)
-                    routes_to_run = rebal_plan.get("routes", [])
+                    with st.spinner("⚡ 正在执行调仓（锁仓校验 + 限购拆单 + 写入账本）..."):
+                        rebal_plan = pm.generate_rebalance_plan(snapshot["target_weights_funds"], min_buffer_pct=3.0)
+                        routes_to_run = rebal_plan.get("routes", [])
                     if routes_to_run:
-                        oids = pm.submit_rebalance_orders(routes_to_run)
+                        with st.spinner("📝 正在提交调仓指令..."):
+                            oids = pm.submit_rebalance_orders(routes_to_run)
                         st.balloons()
-                        st.success(f"已成功一键采纳 AI 策略建议，生成 {len(oids)} 笔在途指令（{', '.join(oids)}）！")
+                        st.success(f"✅ 已成功一键采纳 AI 策略建议，生成 {len(oids)} 笔在途指令（{', '.join(oids)}）！")
                         st.rerun()
                     else:
                         st.info("当前持仓与 AI 目标权重偏离度均在 3% 缓冲阈值内，无需额外折腾！")
@@ -1694,7 +1701,8 @@ with tab_holdings_and_rebalance:
 
             if btn_parse or ("parsed_smart_items" in st.session_state and st.session_state.parsed_smart_items):
                 if btn_parse:
-                    parsed_items = pm.parse_smart_text_holdings(smart_text_in)
+                    with st.spinner("🔍 智能语义解析中（正则+模糊匹配+拼音识别）..."):
+                        parsed_items = pm.parse_smart_text_holdings(smart_text_in)
                     st.session_state.parsed_smart_items = parsed_items
                 else:
                     parsed_items = st.session_state.parsed_smart_items
@@ -1728,7 +1736,8 @@ with tab_holdings_and_rebalance:
                     )
 
                     if st.button("📥 确认一键接管/导入此持仓 (写入账本)", type="primary", use_container_width=True, key="btn_confirm_smart_import"):
-                        res_imp = pm.import_from_smart_text(parsed_items, available_cash=smart_cash_in)
+                        with st.spinner("📥 正在写入账本..."):
+                            res_imp = pm.import_from_smart_text(parsed_items, available_cash=smart_cash_in)
                         st.session_state.parsed_smart_items = []
                         st.balloons()
                         st.success(f"🎉 已成功接管 {res_imp['funds_count']} 只基金！账本总资产 ¥{res_imp['total_equity']:,.2f}。")
@@ -1875,8 +1884,9 @@ with tab_holdings_and_rebalance:
                             t_val = ">=30d" if "30天以上" in tag else ("7-29d" if "7~29天" in tag else "<7d")
                             c_nav = float(q_obj.dwjz) if q_obj and q_obj.dwjz > 0 else 1.0
                             items_cold.append({"fund_code": code, "amount": amt, "nav": c_nav, "holding_tag": t_val})
-                    pm.takeover_mode_a(items_cold, available_cash=init_cash_in)
-                    st.success("已成功以模式 A 冷启动接管！")
+                    with st.spinner("🚀 冷启动接管中（FIFO 批次构建 + 写入账本）..."):
+                        pm.takeover_mode_a(items_cold, available_cash=init_cash_in)
+                    st.success("✅ 已成功以模式 A 冷启动接管！")
                     st.rerun()
 
     # FIFO 批次折叠透视面板
@@ -2560,6 +2570,7 @@ with tab_market_optimizer:
         mo_force = st.checkbox("强制重建候选池（忽略周度缓存，耗时较长）", value=False, key="mo_force_rebuild")
 
     mo_run = st.button("🚀 开始全市场胜率最优选基", type="primary", key="btn_market_optimize")
+    st.caption("💡 首次运行约需 3~8 分钟（需从东方财富获取候选基金净值），结果按日缓存，后续秒级返回。")
 
     # ─── Step 2：分步漏斗执行 ────────────────────────────────
     if mo_run:
@@ -2568,13 +2579,58 @@ with tab_market_optimizer:
             _mo_prog = st.progress(0.0)
             _mo_msg = st.empty()
 
+            import time as _time_mod
+            _mo_t0 = _time_mod.time()
+            _mo_steps = [st.empty() for _ in range(4)]
+            _mo_step_labels = [
+                "① 全市场预筛（规模·年限·清盘过滤）",
+                "② 分桶综合评分（夏普·回撤·年化 Top N）",
+                "③ 候选基金 NAV 批量获取",
+                "④ 胜率最大化组合优化（贪心+SLSQP+局部搜索）"
+            ]
+            for _si, _sl in enumerate(_mo_step_labels):
+                _mo_steps[_si].caption(f"⬜ {_sl}")
+            _mo_cur_stage = [0]  # mutable for closure
+
             def _mo_cb(cur, total, msg):
                 try:
                     frac = (float(cur) / float(total)) if total else 0.0
                 except Exception:
                     frac = 0.0
                 _mo_prog.progress(min(max(frac, 0.0), 1.0))
-                _mo_msg.caption(f"⏳ {msg}")
+                elapsed = _time_mod.time() - _mo_t0
+                eta_str = ""
+                if frac > 0.05:
+                    eta_sec = elapsed / frac * (1.0 - frac)
+                    if eta_sec < 60:
+                        eta_str = f" ｜ 预计剩余 ~{eta_sec:.0f}s"
+                    else:
+                        eta_str = f" ｜ 预计剩余 ~{eta_sec/60:.1f}min"
+                _mo_msg.caption(f"⏳ {msg}（已耗时 {elapsed:.0f}s{eta_str}）")
+                # 更新 checklist
+                stage = _mo_cur_stage[0]
+                if "预筛完成" in msg or "候选基金" in msg and "评分" not in msg:
+                    if stage < 1:
+                        _mo_steps[0].caption(f"✅ {_mo_step_labels[0]}  ✓")
+                        _mo_cur_stage[0] = 1
+                if "分桶排名完成" in msg or "综合评分" in msg:
+                    if stage < 2:
+                        _mo_steps[1].caption(f"✅ {_mo_step_labels[1]}  ✓")
+                        _mo_cur_stage[0] = 2
+                if "NAV 矩阵" in msg or "矩阵构建完成" in msg:
+                    if stage < 3:
+                        _mo_steps[2].caption(f"✅ {_mo_step_labels[2]}  ✓")
+                        _mo_cur_stage[0] = 3
+                if "优化完成" in msg:
+                    if stage < 4:
+                        _mo_steps[3].caption(f"✅ {_mo_step_labels[3]}  ✓")
+                        _mo_cur_stage[0] = 4
+                # 活跃阶段高亮
+                for _si2 in range(_mo_cur_stage[0], 4):
+                    if _si2 == _mo_cur_stage[0]:
+                        _mo_steps[_si2].caption(f"🔄 {_mo_step_labels[_si2]}  进行中...")
+                    else:
+                        _mo_steps[_si2].caption(f"⬜ {_mo_step_labels[_si2]}")
 
             try:
                 st.write("**① 全市场预筛 + ② 分桶综合评分 + ③ 候选 NAV 获取**")
@@ -2641,7 +2697,9 @@ with tab_market_optimizer:
                     "as_of": _mo_today.isoformat(),
                     "run_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 }
-                mo_status.update(label="✅ 全市场选基完成", state="complete", expanded=False)
+                _elapsed_total = _time_mod.time() - _mo_t0
+                _cache_hint = "（日缓存命中·秒级返回）" if _elapsed_total < 5 else f"（耗时 {_elapsed_total:.1f}s）"
+                mo_status.update(label=f"✅ 全市场选基完成 {_cache_hint}", state="complete", expanded=False)
             except Exception as _e:
                 _mo_err = str(_e)
                 mo_status.update(label="❌ 选基流程异常", state="error", expanded=True)
