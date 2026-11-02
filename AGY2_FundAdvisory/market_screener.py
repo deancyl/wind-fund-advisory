@@ -587,6 +587,16 @@ class MarketScreener:
         3. 对齐到统一日期轴，前值填充
         4. 返回 DatetimeIndex × fund_code 的 DataFrame
         """
+        if isinstance(candidate_codes, pd.DataFrame):
+            if "fund_code" in candidate_codes.columns:
+                candidate_codes = candidate_codes["fund_code"].astype(str).tolist()
+            else:
+                candidate_codes = candidate_codes.index.astype(str).tolist()
+        elif isinstance(candidate_codes, pd.Series):
+            candidate_codes = candidate_codes.astype(str).tolist()
+        elif not isinstance(candidate_codes, list):
+            candidate_codes = list(candidate_codes)
+
         if start_date is None:
             start_date = (
                 datetime.date.today() - datetime.timedelta(days=int(5 * 365.25))

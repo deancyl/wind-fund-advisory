@@ -386,6 +386,10 @@ class WinRateOptimizer:
             best_result["portfolio_nav_series"] = self._build_portfolio_nav(nav_df, best_result["optimal_weights"])
         except Exception:
             best_result["portfolio_nav_series"] = None
+
+        # 双向兼容顶层字段，彻底根治 0.0% 回显
+        best_result["portfolio_annual_return"] = float(best_result.get("portfolio_metrics", {}).get("expected_return_annualized", 0.0))
+        best_result["win_rate"] = float(best_result.get("portfolio_metrics", {}).get("conditional_win_rate", best_result.get("portfolio_metrics", {}).get("win_rate", 0.0)))
         best_result["holding_period"] = self._holding_period_label()
         best_result["target_return"] = self.target_return
         best_result["tier"] = self.tier
@@ -993,6 +997,9 @@ def execute_market_optimization_flow(
     progress_cb: Optional[Callable] = None,
     pm: Optional[Any] = None,
     snapshot: Optional[Dict[str, Any]] = None,
+    precomputed_ranked: Optional[pd.DataFrame] = None,
+    precomputed_nav: Optional[pd.DataFrame] = None,
+    **kwargs
 ) -> Dict[str, Any]:
     """
     全市场胜率最优选基流水线一键闭环调度器：
@@ -1042,15 +1049,21 @@ def execute_market_optimization_flow(
                 pm = None
 
 
-    # 1. 漏斗与 NAV
-    mo_ranked, mo_nav = MarketScreener.run_full_pipeline(
-        as_of_date=_mo_today,
-        min_aum_billion=float(min_aum),
-        min_years=float(min_years),
-        top_n_per_bucket=int(top_n),
-        force_rebuild=bool(force_rebuild),
-        progress_callback=progress_cb,
-    )
+    # 1. 漏斗与 NAV（支持分步预计算直接复用）
+    if precomputed_ranked is not None and not precomputed_ranked.empty and precomputed_nav is not None and not precomputed_nav.empty:
+        mo_ranked = precomputed_ranked
+        mo_nav = precomputed_nav
+        if progress_cb:
+            progress_cb(1, 1, "复用已有候选池与 NAV 矩阵...")
+    else:
+        mo_ranked, mo_nav = MarketScreener.run_full_pipeline(
+            as_of_date=_mo_today,
+            min_aum_billion=float(min_aum),
+            min_years=float(min_years),
+            top_n_per_bucket=int(top_n),
+            force_rebuild=bool(force_rebuild),
+            progress_callback=progress_cb,
+        )
     if mo_ranked is None or mo_ranked.empty or mo_nav is None or mo_nav.empty:
         raise RuntimeError("候选池或 NAV 矩阵为空（可能数据源暂不可用）")
 

@@ -687,6 +687,8 @@ class WinRateEngine:
                 "no_loss_rate": rolling["no_loss_rate"],
                 "avg_return": rolling["avg_return_annualized"],
                 "median_return": rolling["median_return_annualized"],
+                "median_ann_return": rolling["median_return_annualized"],
+                "avg_ann_return": rolling["avg_return_annualized"],
                 "p10_return": rolling["p10_return"],
                 "p90_return": rolling["p90_return"],
             }

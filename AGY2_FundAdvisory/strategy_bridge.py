@@ -1,3 +1,4 @@
+import pickle
 """
 实时策略桥接模块 (strategy_bridge.py)
 深度桥接 Trial 29 策略大脑与 AGY2 智能投顾 GUI / 组合管理器：
@@ -1756,6 +1757,7 @@ class StrategyBridge:
     _cached_backtest_df: Optional[pd.DataFrame] = None
     _cached_snapshot: Optional[Dict[str, Any]] = None
     _cached_tier_backtests: Dict[str, pd.DataFrame] = {}
+    _cached_quant_tables: Dict[str, Tuple[float, pd.DataFrame]] = {}
     _cached_tier_sector_selections: Dict[str, Tuple[float, Dict[str, Any]]] = _CACHED_TIER_SECTOR_SELECTIONS
     _expert_updater: Optional[OnlineExpertWeightUpdater] = None
     _schmidt_buffer: Optional[SchmidtHysteresisBuffer] = None
@@ -1828,6 +1830,20 @@ class StrategyBridge:
         tier = tier.upper() if tier else "C3"
         t_key = round(float(target_return_pct), 1) if target_return_pct is not None else None
         cache_key = f"{tier}_{t_key}" if t_key is not None else tier
+
+        # 优先从本地预计算快照载入 C1~C5 基准序列（毫秒级响应，消除 43 秒等待）
+        if not force_reload:
+            snapshot_path = WORKSPACE_ROOT / "data/cache/tier_base_backtests.pkl"
+            if not all(k in cls._cached_tier_backtests for k in ["C1", "C2", "C3", "C4", "C5"]) and snapshot_path.exists():
+                try:
+                    with open(snapshot_path, "rb") as _sf:
+                        _disk_cache = pickle.load(_sf)
+                    if isinstance(_disk_cache, dict):
+                        for _k, _v in _disk_cache.items():
+                            if _k not in cls._cached_tier_backtests:
+                                cls._cached_tier_backtests[_k] = _v
+                except Exception:
+                    pass
 
         if not force_reload and cache_key in cls._cached_tier_backtests:
             return cls._cached_tier_backtests[cache_key]
@@ -4085,8 +4101,15 @@ class StrategyBridge:
         包含赛道、基金代码、基金名称、各项六维得分、总评分、是否当前配置等，并支持替换标的。
         """
         t = str(tier).upper().strip() if tier else "C3"
-        sec_selection = cls.get_tier_sector_fund_selection(t)
         overrides = custom_fund_overrides or {}
+        cache_k = f"{t}_{sorted(list(overrides.items()))}"
+        now_ts = time.time()
+        if cache_k in cls._cached_quant_tables:
+            ts, df_cached = cls._cached_quant_tables[cache_k]
+            if now_ts - ts < 60.0:
+                return df_cached.copy()
+
+        sec_selection = cls.get_tier_sector_fund_selection(t)
         snapshot = cls.get_latest_market_snapshot()
 
         rows = []

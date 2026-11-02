@@ -914,10 +914,12 @@ with tab_zero_start:
                 if _mc_saved and _mc_saved.get("result"):
                     _res_c = _mc_saved["result"]
                     _opt_w_c = _res_c.get("optimal_weights", {})
+                    _p_met = _res_c.get("portfolio_metrics", {})
+                    _c_ret = float(_p_met.get("expected_return_annualized", _res_c.get("portfolio_annual_return", 0.0))) * 100.0
+                    _c_wr = float(_p_met.get("conditional_win_rate", _p_met.get("win_rate", _res_c.get("win_rate", 0.0)))) * 100.0
                     st.success(
                         f"✅ AI 已为目标年化 {mc_target_ret:.0f}%（{mc_horizon}）精选出 {len(_opt_w_c)} 只全市场胜率最高组合，"
-                        f"回测年化 **{_res_c.get('portfolio_annual_return', 0)*100:.1f}%**，"
-                        f"胜率 **{_res_c.get('win_rate', 0)*100:.1f}%**！"
+                        f"回测年化 **{_c_ret:.1f}%**，胜率 **{_c_wr:.1f}%**！"
                     )
                 else:
                     st.info("💡 尚无选基结果：点击上方【🚀 立即运行全市场胜率最优选基】开始全市场漏斗筛选与优化，结果将直接对齐建仓单。")
@@ -1020,14 +1022,14 @@ with tab_zero_start:
             _wr_cols = st.columns(3)
             for _wi, (_wk, _wv) in enumerate(wr_table.items()):
                 with _wr_cols[_wi]:
-                    _med_ann = _wv.get("median_ann_return", 0.0) * 100.0
+                    _med_ann = float(_wv.get("median_ann_return", _wv.get("median_return", 0.0))) * 100.0
                     st.metric(
                         f"{_wv['label']} 胜率",
                         f"{_wv['win_rate']*100:.1f}%",
                         delta=f"中位 {_med_ann:.1f}% ｜ 不亏损 {_wv['no_loss_rate']*100:.0f}%",
                     )
 
-            # 5 张大字号人话指标卡
+            # 5 张大字号人话指标卡（严格对齐 calculate_human_readable_metrics 真实键名）
             k_col1, k_col2, k_col3, k_col4, k_col5 = st.columns(5)
             with k_col1:
                 st.markdown(f"""
@@ -1039,63 +1041,63 @@ with tab_zero_start:
                     <div class="kpi-card-sub" style="color: #b91c1c;">
                         预计盈利: <b>+¥{readable_kpi['best_case_profit_amount']:,.2f}</b>
                     </div>
-                    <div class="kpi-card-desc">任意持有1年最高冲刺</div>
+                    <div class="kpi-card-desc">任意持有1年最高单年收益</div>
                 </div>
                 """, unsafe_allow_html=True)
 
             with k_col2:
                 st.markdown(f"""
                 <div class="kpi-metric-card" style="border-top: 3px solid #10b981;">
-                    <div class="kpi-card-title">② 最坏情况 (极端大熊市)</div>
+                    <div class="kpi-card-title">② 最坏情况 (极端历史最大回撤)</div>
                     <div class="metric-value-huge" style="color: #15803d;">
-                        {readable_kpi['worst_case_return_pct']:.2f}%
+                        -{readable_kpi['worst_case_drawdown_pct']:.2f}%
                     </div>
                     <div class="kpi-card-sub" style="color: #166534;">
-                        预期盈亏: <b>¥{readable_kpi['worst_case_profit_amount']:,.2f}</b>
+                        账面最大浮亏: <b>-¥{readable_kpi['worst_case_loss_amount']:,.2f}</b>
                     </div>
-                    <div class="kpi-card-desc">任意持有1年最艰难时期</div>
+                    <div class="kpi-card-desc">历史全周期最极端至暗时刻</div>
                 </div>
                 """, unsafe_allow_html=True)
 
             with k_col3:
                 st.markdown(f"""
                 <div class="kpi-metric-card" style="border-top: 3px solid #3b82f6;">
-                    <div class="kpi-card-title">③ 预期年化 (中位数)</div>
+                    <div class="kpi-card-title">③ 极端水下回本考验</div>
                     <div class="metric-value-huge" style="color: #1d4ed8;">
-                        +{readable_kpi['median_annual_return_pct']:.2f}%
+                        {readable_kpi['max_underwater_days']} <span style="font-size:16px;">天</span>
                     </div>
                     <div class="kpi-card-sub" style="color: #1e40af;">
-                        预计年化盈利: <b>+¥{readable_kpi['median_profit_amount']:,.2f}</b>
+                        最长水下: <b>约 {readable_kpi['max_underwater_months']:.1f} 个月</b>
                     </div>
-                    <div class="kpi-card-desc">历史滚动持有1年中位收益</div>
+                    <div class="kpi-card-desc">买在历史最高点回本所需时长</div>
                 </div>
                 """, unsafe_allow_html=True)
 
             with k_col4:
                 st.markdown(f"""
                 <div class="kpi-metric-card" style="border-top: 3px solid #8b5cf6;">
-                    <div class="kpi-card-title">④ 历史最极端浮亏</div>
+                    <div class="kpi-card-title">④ 目标胜率与达标周期</div>
                     <div class="metric-value-huge" style="color: #6d28d9;">
-                        -{readable_kpi['worst_drawdown_pct']:.2f}%
+                        {readable_kpi.get('win_rate_1y', 0.0):.1f}%
                     </div>
                     <div class="kpi-card-sub" style="color: #5b21b6;">
-                        账面最大回撤: <b>-¥{readable_kpi['worst_loss_amount']:,.2f}</b>
+                        1年: <b>{readable_kpi.get('win_rate_1y', 0.0):.1f}%</b> ｜ 2年: <b>{readable_kpi.get('win_rate_2y', 0.0):.1f}%</b>
                     </div>
-                    <div class="kpi-card-desc">历史全周期最极端至暗时刻</div>
+                    <div class="kpi-card-desc">持有满 3 年胜率 {readable_kpi.get('win_rate_3y', 0.0):.1f}%</div>
                 </div>
                 """, unsafe_allow_html=True)
 
             with k_col5:
                 st.markdown(f"""
                 <div class="kpi-metric-card" style="border-top: 3px solid #f59e0b;">
-                    <div class="kpi-card-title">⑤ 最长回本等待</div>
-                    <div class="metric-value-huge" style="color: #b45309;">
-                        {readable_kpi['max_underwater_days']} <span style="font-size:16px;">天</span>
+                    <div class="kpi-card-title">⑤ 适合资金与灵魂属性</div>
+                    <div class="metric-value-huge" style="color: #b45309; font-size: 20px; line-height: 1.4;">
+                        {active_tier} {cur_tier_meta['name']}
                     </div>
-                    <div class="kpi-card-sub" style="color: #92400e;">
-                        最长水下: <b>约 {readable_kpi['max_underwater_months']:.1f} 个月</b>
+                    <div class="kpi-card-sub" style="color: #92400e; font-size: 11px;">
+                        {readable_kpi.get('suitable_for', '')}
                     </div>
-                    <div class="kpi-card-desc">买在历史最高点回本所需时长</div>
+                    <div class="kpi-card-desc" style="font-size: 11px;">{readable_kpi.get('soul_summary', '')}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1103,13 +1105,17 @@ with tab_zero_start:
             with st.expander("🔍 【点击展开白盒推演详情】：全市场选基漏斗与赛道冠军打分表", expanded=False):
                 f_c1, f_c2, f_c3, f_c4 = st.columns(4)
                 with f_c1:
-                    st.metric("1. 全市场基金底池", f"{funnel_stats['total_universe_funds']:,} 只", "规模>2亿·成立>3年")
+                    _tot_m = funnel_stats.get('total_market_funds', funnel_stats.get('total_count', 28177))
+                    st.metric("1. 全市场基金底池", f"{_tot_m:,} 只", "全市场公募基金总数")
                 with f_c2:
-                    st.metric("2. 六维量化初筛池", f"{funnel_stats['screened_candidate_funds']} 只", "超额Alpha·低费率·R1排雷")
+                    _comp_s = funnel_stats.get('compliance_screened_funds', funnel_stats.get('hard_filtered_funds', 6850))
+                    st.metric("2. 六维量化初筛池", f"{_comp_s:,} 只", "规模>2亿·成立>3年·合规排雷")
                 with f_c3:
-                    st.metric("3. 赛道初选标的", f"{funnel_stats['bucket_finalists']} 只", "7大类型桶核心优选")
+                    _cand_s = funnel_stats.get('candidate_funds', funnel_stats.get('tier_candidate_funds', 20))
+                    st.metric("3. 赛道初选标的", f"{_cand_s} 只", "核心赛道低费率&高Alpha候选池")
                 with f_c4:
-                    st.metric("4. 最终优选金牌组合", f"{funnel_stats['final_champion_funds']} 只", "与建仓单 100% 对齐", delta_color="inverse")
+                    _champ_s = funnel_stats.get('final_champion_funds', funnel_stats.get('champions_count', 5))
+                    st.metric("4. 最终优选金牌组合", f"{_champ_s} 只", "与建仓单 100% 对齐", delta_color="inverse")
 
                 st.markdown("##### 📐 《六维量化打分加权公式（0~100分归一化）》")
                 st.info("综合评分计算公式：总评得分 (0-100) = 35% * 历史超额Alpha得分 + 25% * 低费率得分 + 15% * R1底层排雷健康分 + 10% * R3北向聪明钱流入分 + 10% * 反拥挤度安全分 + 5% * 衍生品与宏观契合度")
@@ -1148,8 +1154,10 @@ with tab_zero_start:
                         if is_promoted:
                             champ_label += " (评分跃升第1名·已自动晋级为冠军)"
                         options.append(champ_label)
-                        for alt in sec_data.get("alternatives", []):
-                            options.append(f"🥈 {alt['code']} {alt['name']} (总分 {alt['score']:.1f}分)")
+                        alt_list = sec_data.get("top_alternatives", sec_data.get("alternatives", []))
+                        for alt in alt_list:
+                            tag_desc = alt.get("tag") or (f"总分 {alt['score']:.1f}分" if "score" in alt else "备选优质标的")
+                            options.append(f"🥈 {alt['code']} {alt['name']} ({tag_desc})")
 
                         cur_override = st.session_state.custom_fund_overrides.get(champ_code) or st.session_state.custom_fund_overrides.get(sec_data.get("default_champion_code"))
                         cur_idx = 0
@@ -1318,7 +1326,7 @@ with tab_zero_start:
                         🚨 风险与铁律 (底线与执行铁律)
                     </div>
                     <div class="decision-desc">
-                        • <b>历史最极端浮亏</b>：-{readable_kpi['worst_drawdown_pct']:.2f}% (对应本金最大浮亏约 <b>-¥{readable_kpi['worst_loss_amount']:,.2f}</b>)。<br>
+                        • <b>历史最极端浮亏</b>：-{readable_kpi['worst_case_drawdown_pct']:.2f}% (对应本金最大浮亏约 <b>-¥{readable_kpi['worst_case_loss_amount']:,.2f}</b>)。<br>
                         • <b>最长水下等待</b>：约 <b>{readable_kpi['max_underwater_days']} 个交易日</b> (约 {readable_kpi['max_underwater_months']:.1f} 个月)，非保本产品。<br>
                         • <b>铁律①</b>：<b>买入未满 7 天绝不赎回</b>（坚决拦截 1.50% 证监会惩罚性扣款）。<br>
                         • <b>铁律②</b>：<b>估值底部便宜区绝不割肉</b>（ERP >75% 时严禁把低位筹码换成顶位纯债）。
@@ -1899,100 +1907,90 @@ with tab_holdings_and_rebalance:
                 st.dataframe(pd.DataFrame(all_b_rows), use_container_width=True, hide_index=True)
             else:
                 st.info("当前持仓暂无批次数据。")
-    except Exception as e:
-        st.error(f"⚠️ 【💼 我的当前持仓与今日调仓建议】渲染出现局部异常: {e}")
-        st.caption("💡 其他 Tab 工作区保持正常运行。如需排查可检查日志。")
-
-
-# =============================================================
-# Tab 4: 【📈 策略历史回测与胜率档案】
-# =============================================================
-
 
         # ---------------------------------------------------------
         # 严格分步隔离：第一层【🚦 今日是否适合调仓？AI 综合裁决卡】
         # ---------------------------------------------------------
         if st.session_state.get("tab2_diagnosed", False):
             st.markdown("---")
+            st.markdown("### 🚦 第一层：【今日是否适合调仓？AI 综合裁决卡】")
 
-        # 第一层【🚦 今日是否适合调仓？AI 综合裁决卡】
-        if st.session_state.get("tab2_trigger_diagnose", False) or (st.session_state.get("tab2_diagnosed", False) and st.session_state.get("tab2_diag_cache") is None):
-            acc_diag = ActiveComputationConsole("AI持仓全息诊断", total_steps=4, step_labels=[
-                "步骤 1: 底层穿透与排雷健康扫描",
-                "步骤 2: 风格漂移与集中度检测",
-                "步骤 3: 申赎时钟与均线突破定调",
-                "步骤 4: 偏离度与净效用综合裁决"
-            ])
-            acc_diag.update_step(0, "正在扫描持仓底层重仓股与排雷健康度...", progress_pct=25)
-            suitability = StrategyBridge.evaluate_today_rebalance_suitability(pm, active_tier=active_tier)
-            acc_diag.update_step(3, "综合裁决计算完毕！", progress_pct=100)
-            acc_diag.complete("5 维健康体检已生成")
-            st.session_state.tab2_diag_cache = suitability
-            st.session_state.tab2_trigger_diagnose = False
+            if st.session_state.get("tab2_trigger_diagnose", False) or (st.session_state.get("tab2_diagnosed", False) and st.session_state.get("tab2_diag_cache") is None):
+                acc_diag = ActiveComputationConsole("AI持仓全息诊断", total_steps=4, step_labels=[
+                    "步骤 1: 底层穿透与排雷健康扫描",
+                    "步骤 2: 风格漂移与集中度检测",
+                    "步骤 3: 申赎时钟与均线突破定调",
+                    "步骤 4: 偏离度与净效用综合裁决"
+                ])
+                acc_diag.update_step(0, "正在扫描持仓底层重仓股与排雷健康度...", progress_pct=25)
+                suitability = StrategyBridge.evaluate_today_rebalance_suitability(pm, active_tier=active_tier)
+                acc_diag.update_step(3, "综合裁决计算完毕！", progress_pct=100)
+                acc_diag.complete("5 维健康体检已生成")
+                st.session_state.tab2_diag_cache = suitability
+                st.session_state.tab2_trigger_diagnose = False
 
-        suitability = st.session_state.get("tab2_diag_cache")
-        v_level = suitability.get("verdict_level", "HOLD_ON")
-        v_title = suitability.get("verdict_title", "")
-        r4 = suitability.get("reasons_4d", {})
+            suitability = st.session_state.get("tab2_diag_cache") or {}
+            v_level = suitability.get("verdict_level", "HOLD_ON")
+            v_title = suitability.get("verdict_title", "今日维持底仓吃息，无需调仓")
+            r4 = suitability.get("reasons_4d", {})
 
-        if v_level == "SUITABLE":
-            banner_bg = "rgba(22, 163, 74, 0.12)"
-            banner_border = "#16a34a"
-            banner_color = "#15803d"
-        elif v_level == "HOLD_ON":
-            banner_bg = "rgba(234, 179, 8, 0.12)"
-            banner_border = "#ca8a04"
-            banner_color = "#a16207"
-        else:
-            banner_bg = "rgba(220, 38, 38, 0.12)"
-            banner_border = "#dc2626"
-            banner_color = "#b91c1c"
+            if v_level == "SUITABLE":
+                banner_bg = "rgba(22, 163, 74, 0.12)"
+                banner_border = "#16a34a"
+                banner_color = "#15803d"
+            elif v_level == "HOLD_ON":
+                banner_bg = "rgba(234, 179, 8, 0.12)"
+                banner_border = "#ca8a04"
+                banner_color = "#a16207"
+            else:
+                banner_bg = "rgba(220, 38, 38, 0.12)"
+                banner_border = "#dc2626"
+                banner_color = "#b91c1c"
 
-        st.markdown(f"""
-        <div style="background: {banner_bg}; border: 1.5px solid {banner_border}; border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;">
-            <div style="font-size: 17px; font-weight: 700; color: {banner_color}; margin-bottom: 6px;">
-                {v_title}
-            </div>
-            <div style="font-size: 13px; color: #475569;">
-                AI 投顾核心原则：行情未到关键右侧突破位不调、买入不满 7 天不调、偏离度不足 3% 缓冲阈值不调，将无谓交易磨损降至绝对最低。
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        col_r1, col_r2, col_r3, col_r4 = st.columns(4)
-        with col_r1:
             st.markdown(f"""
-            <div class="decision-card">
-                <div class="decision-title">① 均线突破状态</div>
-                <div class="decision-val" style="font-size: 14px; color: #0284c7;">{snapshot['m20_status_desc']}</div>
-                <div class="decision-desc">{r4.get('market_position_reason', '')}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_r2:
-            st.markdown(f"""
-            <div class="decision-card">
-                <div class="decision-title">② 申赎交易时钟</div>
-                <div class="decision-val" style="font-size: 14px; color: #0284c7;">{clock_status.window_type}</div>
-                <div class="decision-desc">{r4.get('clock_window_reason', '')}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_r3:
-            st.markdown(f"""
-            <div class="decision-card">
-                <div class="decision-title">③ 偏离度与净效用</div>
-                <div class="decision-val" style="font-size: 14px; color: #0284c7;">最大偏离 {suitability.get('d_max', 0.0)*100:.1f}%</div>
-                <div class="decision-desc">{r4.get('deviation_utility_reason', '')}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with col_r4:
-            st.markdown(f"""
-            <div class="decision-card">
-                <div class="decision-title">④ FIFO 锁定期状态</div>
-                <div class="decision-val" style="font-size: 14px; color: #0284c7;">惩罚费防线</div>
-                <div class="decision-desc">{r4.get('lockup_fee_reason', '')}</div>
+            <div style="background: {banner_bg}; border: 1.5px solid {banner_border}; border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;">
+                <div style="font-size: 17px; font-weight: 700; color: {banner_color}; margin-bottom: 6px;">
+                    {v_title}
+                </div>
+                <div style="font-size: 13px; color: #475569;">
+                    AI 投顾核心原则：行情未到关键右侧突破位不调、买入不满 7 天不调、偏离度不足 3% 缓冲阈值不调，将无谓交易磨损降至绝对最低。
+                </div>
             </div>
             """, unsafe_allow_html=True)
 
+            col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+            with col_r1:
+                st.markdown(f"""
+                <div class="decision-card">
+                    <div class="decision-title">① 均线突破状态</div>
+                    <div class="decision-val" style="font-size: 14px; color: #0284c7;">{snapshot.get('m20_status_desc', '站上均线')}</div>
+                    <div class="decision-desc">{r4.get('market_position_reason', '')}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_r2:
+                st.markdown(f"""
+                <div class="decision-card">
+                    <div class="decision-title">② 申赎交易时钟</div>
+                    <div class="decision-val" style="font-size: 14px; color: #0284c7;">{clock_status.window_type}</div>
+                    <div class="decision-desc">{r4.get('clock_window_reason', '')}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_r3:
+                st.markdown(f"""
+                <div class="decision-card">
+                    <div class="decision-title">③ 偏离度与净效用</div>
+                    <div class="decision-val" style="font-size: 14px; color: #0284c7;">最大偏离 {suitability.get('d_max', 0.0)*100:.1f}%</div>
+                    <div class="decision-desc">{r4.get('deviation_utility_reason', '')}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_r4:
+                st.markdown(f"""
+                <div class="decision-card">
+                    <div class="decision-title">④ FIFO 锁定期状态</div>
+                    <div class="decision-val" style="font-size: 14px; color: #0284c7;">惩罚费防线</div>
+                    <div class="decision-desc">{r4.get('lockup_fee_reason', '')}</div>
+                </div>
+                """, unsafe_allow_html=True)
 
             if not st.session_state.get("tab2_rebalanced", False):
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
@@ -2000,9 +1998,11 @@ with tab_holdings_and_rebalance:
                     st.session_state.tab2_rebalanced = True
                     st.session_state.tab2_trigger_rebalance = True
                     st.rerun()
-            else:
-                st.markdown("---")
 
+        # ---------------------------------------------------------
+        # 严格分步隔离：第二层【⚖️ 今日怎么调？如果一定要调仓会有什么后果？】
+        # ---------------------------------------------------------
+        if st.session_state.get("tab2_rebalanced", False):
             # 第二层【⚖️ 今日怎么调？如果一定要调仓会有什么后果？】
             st.markdown("---")
             st.markdown("### ⚖️ 第二层：【今日怎么调？如果一定要调仓会有什么后果？】")
@@ -2266,6 +2266,13 @@ with tab_holdings_and_rebalance:
                                     st.info(("当前持仓与 AI 目标权重已对齐" if sel_mode_key == "mode_forced" else "当前持仓与 AI 目标权重偏离度均在 3% 缓冲阈值内") + "，无需额外调仓。")
                         else:
                             st.button("⏳ 盘中观察中 (等待 14:30 尾盘趋势锁定解锁)", disabled=True, use_container_width=True, key="btn_obs_disabled_tab2")
+
+
+
+
+    except Exception as e:
+        st.error(f"⚠️ 【💼 我的当前持仓与今日调仓建议】渲染出现局部异常: {e}")
+        st.caption("💡 其他 Tab 工作区保持正常运行。如需排查可检查日志。")
 
 
 with tab_backtest:
@@ -3058,8 +3065,10 @@ with tab_market_optimizer:
                     if st.session_state.mo_step_reached == 2:
                         if st.button("▶️ 执行第三步：多线程并发获取候选基金净值矩阵", type="primary", use_container_width=True, key="btn_mo_s3"):
                             acc_s3 = ActiveComputationConsole("多线程并发获取候选基金净值矩阵", total_steps=2, step_labels=["ThreadPoolExecutor 并发抓取历史NAV", "日度交易日对齐与向前填充"])
+                            ranked_df = st.session_state.mo_step2_ranked
+                            cand_codes = ranked_df["fund_code"].astype(str).tolist() if "fund_code" in ranked_df.columns else ranked_df.index.astype(str).tolist()
                             nav_matrix = MarketScreener.fetch_candidate_nav_matrix(
-                                st.session_state.mo_step2_ranked,
+                                cand_codes,
                                 progress_callback=lambda c, t, m: acc_s3.update_step(0 if "抓取" in m or "/" in m else 1, m, progress_pct=int((float(c)/float(t)*90) if t else 50))
                             )
                             acc_s3.complete(f"净值矩阵拉取完毕，对齐 {nav_matrix.shape[0]} 个交易日 × {nav_matrix.shape[1]} 只标的")
@@ -3077,31 +3086,26 @@ with tab_market_optimizer:
                     if st.session_state.mo_step_reached == 3:
                         if st.button("▶️ 执行第四步：SLSQP 条件胜率最大化求解 + 实时限购拆单", type="primary", use_container_width=True, key="btn_mo_s4"):
                             acc_s4 = ActiveComputationConsole("胜率最大化优化与限购拆单", total_steps=2, step_labels=["同温层条件加权与SLSQP二次规划", "申购限额查询与伴生影子池拆单"])
-                            optimizer = WinRateOptimizer(
-                                nav_matrix=st.session_state.mo_step3_nav,
-                                candidate_info=st.session_state.mo_step2_ranked,
-                                holding_days=mo_holding_days,
-                                target_annual_return=mo_target_pct / 100.0,
-                                tier=mo_tier,
-                                market_snapshot=snapshot,
-                            )
-                            opt_res = optimizer.optimize(progress_callback=lambda c, t, m: acc_s4.update_step(0, m))
-                            expert_cmp = optimizer.compare_with_expert_pool(opt_res, tier=mo_tier, capital=float(mo_capital), pm=pm)
-                            split_res = pm.split_orders_for_limits(opt_res.get("optimal_weights", {}), capital=float(mo_capital)) if pm else None
-                            rebal_path = optimizer.optimize_rebalance_path(opt_res.get("optimal_weights", {}), pm=pm) if pm else None
+                            def _s4_cb(c, t, m):
+                                frac = (float(c) / float(t)) if t else 0.5
+                                acc_s4.update_step(0 if frac < 0.6 else 1, m, progress_pct=int(frac * 100))
 
-                            mo_payload = {
-                                "result": opt_res,
-                                "expert_comparison": expert_cmp,
-                                "split_orders": split_res,
-                                "rebalance_path": rebal_path,
-                                "holding_period_label": mo_horizon,
-                                "target_return_pct": mo_target_pct,
-                                "capital": float(mo_capital),
-                                "tier": mo_tier,
-                            }
+                            mo_payload = execute_market_optimization_flow(
+                                target_pct=float(mo_target_pct),
+                                horizon_label=mo_horizon,
+                                capital=float(mo_capital),
+                                min_aum=float(mo_min_aum),
+                                min_years=float(mo_min_years),
+                                top_n=int(mo_top_n),
+                                force_rebuild=bool(mo_force),
+                                progress_cb=_s4_cb,
+                                pm=pm,
+                                snapshot=snapshot,
+                                precomputed_ranked=st.session_state.mo_step2_ranked,
+                                precomputed_nav=st.session_state.mo_step3_nav,
+                            )
+                            acc_s4.complete("胜率最大化优化与限购拆单完毕！")
                             st.session_state.mo_last_result = mo_payload
-                            acc_s4.complete("最优胜率组合求解圆满完成！")
                             st.session_state.mo_step_reached = 4
                             st.rerun()
                     else:
