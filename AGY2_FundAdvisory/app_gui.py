@@ -682,8 +682,8 @@ with tab_zero_start:
     try:
         active_tier = st.session_state.get("active_tier_val", "C3")
         cur_tier_meta = RISK_TIERS_CONFIG.get(active_tier, RISK_TIERS_CONFIG["C3"])
-        st.subheader("🌱 新资建仓推演驾驶舱")
-        st.caption("从全市场 2.8 万只基金智能漏斗选基！支持 3~15 只基金自由调节，四大机构级量化模型自适应定权，现场生成清晰的人话账单与实盘建仓单。")
+        st.subheader("🌱 新资建仓")
+        st.caption("全市场 2.8 万只基金智能漏斗！支持 3~15 只基金自由调节，四大机构级模型自适应定权，现场生成清晰账单。")
 
         # 初始化状态机
         if "tab1_step_reached" not in st.session_state:
@@ -719,10 +719,10 @@ with tab_zero_start:
         )
 
         # ---------------------------------------------------------
-        # 步骤一：【🎯 定目标 / 测风险】—— 解耦定档向导
+        # 步骤一：设定目标风险
         # ---------------------------------------------------------
         with st.container(border=True):
-            st.markdown("### 步骤一：【🎯 定目标 / 测风险】—— 解耦定档向导")
+            st.markdown("### 步骤一：设定目标风险")
 
             tier_mode = st.radio(
                 "定档方式",
@@ -869,7 +869,8 @@ with tab_zero_start:
         if st.session_state.get("tab1_step_reached", 1) >= 2:
             st.markdown("---")
             m_title = QUANT_MODELS_CATALOG.get(sel_model_type, {}).get("name", "鲁棒双核HRP")
-            st.markdown(f"### 步骤二：【🧪 现场推演看好坏】—— 模型：**【{m_title}】** ｜ 优选基金：**{num_funds_input} 只** ｜ 档位：**【{active_tier} {cur_tier_meta['name']}】**")
+            st.markdown(f"### 步骤二：现场推演评估")
+            st.caption(f"当前模型：**{m_title}** ｜ 优选标的：**{num_funds_input} 只** ｜ 目标档位：**【{active_tier} {cur_tier_meta['name']}】**")
 
             if st.session_state.get("tab1_trigger_sim", False) or st.session_state.get("tab1_sim_cache") is None:
                 acc = ActiveComputationConsole(f"AI 投顾真全市场 2.8 万只漏斗推演 ({num_funds_input}只)", total_steps=4, step_labels=[
@@ -1181,7 +1182,7 @@ with tab_zero_start:
         # ---------------------------------------------------------
         if st.session_state.get("tab1_step_reached", 1) >= 3:
             st.markdown("---")
-            st.markdown("### 步骤三：【📋 拿方案去执行】—— 专属方案落地执行")
+            st.markdown("### 步骤三：生成实盘建仓")
 
             if st.session_state.get("tab1_trigger_s3", False) or st.session_state.get("tab1_step3_cache") is None:
                 sim_c = st.session_state.get("tab1_sim_cache") or {}
@@ -1333,7 +1334,7 @@ with tab_holdings_and_rebalance:
     try:
         active_tier = st.session_state.get("active_tier_val", "C3")
         cur_tier_meta = RISK_TIERS_CONFIG.get(active_tier, RISK_TIERS_CONFIG["C3"])
-        st.subheader("💼 我的持仓与调仓驾驶舱")
+        st.subheader("💼 持仓调仓")
         st.caption("自然三步工作流：查验账本资产 ➔ AI五维裁决今日调仓时机 ➔ 模拟温和/强行后果并生成执行清单。")
 
         # 状态机初始化
@@ -1364,9 +1365,9 @@ with tab_holdings_and_rebalance:
         )
 
         # ---------------------------------------------------------
-        # 步骤一：【📋 当前持仓账本】（4 张卡片 + 表格 + 接管向导 + FIFO）
+        # 步骤一：当前持仓账本
         # ---------------------------------------------------------
-        st.markdown("### 步骤一：【📋 当前持仓账本与资产核对】")
+        st.markdown("### 步骤一：当前持仓账本")
 
         _t2_mkt = sum(getattr(h, "shares", 0.0) * getattr(h, "current_nav", 1.0) for h in pm.holdings.values()) if pm.holdings else 0.0
         _t2_cost = sum(getattr(h, "shares", 0.0) * getattr(h, "cost_price", getattr(h, "current_nav", 1.0)) for h in pm.holdings.values()) if pm.holdings else 0.0
@@ -1458,11 +1459,11 @@ with tab_holdings_and_rebalance:
                 )
 
         has_holdings = len(pm.holdings) > 0
-        with st.expander("✨ 零门槛持仓接管向导 (微信自由粘贴、中文拼音搜索、标准模板导入)", expanded=(not has_holdings)):
+        with st.expander("✨ 快速录入持仓", expanded=(not has_holdings)):
             sub_tab1, sub_tab2, sub_tab3 = st.tabs([
-                "📋 智能文本自由粘贴",
-                "🔍 中文/拼音搜索添加",
-                "📥 标准表格模板导入"
+                "📋 文本粘贴导入",
+                "🔍 搜索添加标的",
+                "📥 表格模板导入"
             ])
             with sub_tab1:
                 sample_smart_text = """华泰柏瑞低波 30000 盈利1200\n华夏科创50C 20000 亏500\n000216 15000\n100032 25000 成本0.96 现价0.98 已持满60天"""
@@ -1552,7 +1553,7 @@ with tab_holdings_and_rebalance:
         # ---------------------------------------------------------
         if st.session_state.get("tab2_diagnosed", False):
             st.markdown("---")
-            st.markdown("### 步骤二：【🚦 调仓时机裁决】—— AI 综合裁决卡")
+            st.markdown("### 步骤二：调仓时机裁决")
 
             if st.session_state.get("tab2_trigger_diagnose", False) or st.session_state.get("tab2_diag_cache") is None:
                 acc_diag = ActiveComputationConsole("AI持仓全息诊断", total_steps=4, step_labels=[
@@ -1634,7 +1635,7 @@ with tab_holdings_and_rebalance:
         # ---------------------------------------------------------
         if st.session_state.get("tab2_rebalanced", False):
             st.markdown("---")
-            st.markdown("### 步骤三：【⚖️ 调仓方案对比与执行单】")
+            st.markdown("### 步骤三：调仓方案执行")
 
             if st.session_state.get("tab2_trigger_rebalance", False) or st.session_state.get("tab2_rebal_cache") is None:
                 acc_reb = ActiveComputationConsole("智能调仓模拟精算", total_steps=4, step_labels=[
@@ -1840,8 +1841,8 @@ with tab_holdings_and_rebalance:
 # =============================================================
 with tab_backtest:
     try:
-        st.subheader("📈 组合回测驾驶舱 (2018-2026 全周期实境)")
-        st.caption("真实穿透回测：拒绝抽象死板档位！支持针对【新建仓组合】、【当前实盘持仓】、【调仓前后双曲线对比】展开全周期穿透，9大基准指数自由多选同屏对比。")
+        st.subheader("📈 组合回测")
+        st.caption("真实穿透回测：支持新建仓组合、当前实盘、调仓前后全周期穿透，9大基准指数自由多选同屏对比。")
 
         c_bt_obj, c_bt_bench = st.columns([4, 6])
         with c_bt_obj:
@@ -2187,7 +2188,7 @@ with tab_backtest:
 # =============================================================
 with tab_toolbox:
     try:
-        st.subheader("🔍 组合穿透工具箱")
+        st.subheader("🔍 穿透工具")
 
         box_tab1, box_tab2, box_tab3 = st.tabs([
             "📊 资产穿透",
@@ -2196,7 +2197,7 @@ with tab_toolbox:
         ])
 
         with box_tab1:
-            st.markdown("#### 🎯 资产配置大类对比与缺口分析")
+            st.markdown("#### 🎯 资产大类缺口")
 
             cur_cats = {}
             for c, h in pm.holdings.items():
