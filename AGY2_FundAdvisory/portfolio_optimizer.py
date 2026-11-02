@@ -29,6 +29,13 @@ if str(_THIS_DIR) not in sys.path:
 from winrate_engine import WinRateEngine, HOLDING_PERIODS
 from cache_manager import SmartCacheManager
 
+__all__ = [
+    "WinRateOptimizer",
+    "DEFAULT_CONSTRAINTS",
+    "MAX_DRAWDOWN_BY_TIER",
+    "execute_market_optimization_flow",
+]
+
 
 # ══════════════════════════════════════════════════════════════════
 #  约束与参数
@@ -349,14 +356,20 @@ class WinRateOptimizer:
                 )
                 val_wr = float(val_comp.get("rolling_winrate", {}).get("conditional_win_rate", cond_wr))
 
-        best_result["portfolio_metrics"]["win_rate"] = cond_wr
-        best_result["portfolio_metrics"]["conditional_win_rate"] = cond_wr
-        best_result["portfolio_metrics"]["unconditional_win_rate"] = uncond_wr
-        best_result["portfolio_metrics"]["oos_win_rate"] = val_wr
-        best_result["portfolio_metrics"]["monte_carlo_prob"] = (
+        def _clamp_rate(v: Any) -> float:
+            try:
+                return float(min(1.0, max(0.0, float(v))))
+            except Exception:
+                return 0.0
+
+        best_result["portfolio_metrics"]["win_rate"] = _clamp_rate(cond_wr)
+        best_result["portfolio_metrics"]["conditional_win_rate"] = _clamp_rate(cond_wr)
+        best_result["portfolio_metrics"]["unconditional_win_rate"] = _clamp_rate(uncond_wr)
+        best_result["portfolio_metrics"]["oos_win_rate"] = _clamp_rate(val_wr)
+        best_result["portfolio_metrics"]["monte_carlo_prob"] = _clamp_rate(
             composite.get("monte_carlo", {}).get("prob_reach_target", 0.0)
         )
-        best_result["portfolio_metrics"]["no_loss_rate"] = (
+        best_result["portfolio_metrics"]["no_loss_rate"] = _clamp_rate(
             composite.get("rolling_winrate", {}).get("no_loss_rate", 0.0)
         )
         best_result["monte_carlo_detail"] = composite.get("monte_carlo", {})
@@ -494,10 +507,10 @@ class WinRateOptimizer:
         return {
             "optimal_weights": optimal_weights,
             "portfolio_metrics": {
-                "win_rate": wr.get("conditional_win_rate", wr["win_rate"]),
-                "conditional_win_rate": wr.get("conditional_win_rate", wr["win_rate"]),
-                "unconditional_win_rate": wr.get("unconditional_win_rate", wr["win_rate"]),
-                "no_loss_rate": wr["no_loss_rate"],
+                "win_rate": float(min(1.0, max(0.0, float(wr.get("conditional_win_rate", wr["win_rate"]))))),
+                "conditional_win_rate": float(min(1.0, max(0.0, float(wr.get("conditional_win_rate", wr["win_rate"]))))),
+                "unconditional_win_rate": float(min(1.0, max(0.0, float(wr.get("unconditional_win_rate", wr["win_rate"]))))),
+                "no_loss_rate": float(min(1.0, max(0.0, float(wr["no_loss_rate"])))),
                 "monte_carlo_prob": 0.0,  # 后续补充
                 "expected_return_annualized": ann_ret,
                 "max_drawdown": max_dd_val,

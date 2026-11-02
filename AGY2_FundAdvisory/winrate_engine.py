@@ -315,6 +315,16 @@ class WinRateEngine:
             no_loss_rate = unconditional_nlr
             avg_return_annualized = unconditional_avg
 
+        def _clamp(v: float) -> float:
+            return float(min(1.0, max(0.0, float(v))))
+
+        win_rate = _clamp(win_rate)
+        conditional_wr = _clamp(conditional_wr)
+        unconditional_wr = _clamp(unconditional_wr)
+        no_loss_rate = _clamp(no_loss_rate)
+        conditional_nlr = _clamp(conditional_nlr)
+        unconditional_nlr = _clamp(unconditional_nlr)
+
         return {
             "win_rate": win_rate,
             "conditional_win_rate": conditional_wr,

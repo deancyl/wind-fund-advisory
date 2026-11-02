@@ -54,7 +54,13 @@ from strategy_bridge import (
 )
 from winrate_engine import WinRateEngine, HOLDING_PERIODS
 from market_screener import MarketScreener
-from portfolio_optimizer import WinRateOptimizer, execute_market_optimization_flow
+try:
+    from portfolio_optimizer import WinRateOptimizer, execute_market_optimization_flow
+except ImportError:
+    import importlib
+    import portfolio_optimizer
+    importlib.reload(portfolio_optimizer)
+    from portfolio_optimizer import WinRateOptimizer, execute_market_optimization_flow
 from cache_manager import SmartCacheManager
 
 
