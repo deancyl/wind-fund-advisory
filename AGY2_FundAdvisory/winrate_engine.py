@@ -218,6 +218,7 @@ class WinRateEngine:
         fund_type: str = "A",
         market_snapshot: Optional[Dict[str, Any]] = None,
         h_bandwidth: float = 1.2,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         滚动持有达标胜率（NumPy 向量化计算 + 当下时点 T_now 高斯核条件胜率）。
@@ -633,6 +634,7 @@ class WinRateEngine:
         fund_type: str = "A",
         market_snapshot: Optional[Dict[str, Any]] = None,
         h_bandwidth: float = 1.2,
+        **kwargs
     ) -> Dict[str, Dict[str, Any]]:
         """
         一次性计算三个持有期（短期/中期/长期）的胜率。
@@ -645,6 +647,7 @@ class WinRateEngine:
                 nav_series, days, target_annual_return,
                 include_friction=include_friction, fund_type=fund_type,
                 market_snapshot=market_snapshot, h_bandwidth=h_bandwidth,
+                **kwargs
             )
             result[period_key] = {
                 "label": period_cfg["label"],

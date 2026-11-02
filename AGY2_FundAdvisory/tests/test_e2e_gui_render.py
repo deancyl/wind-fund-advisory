@@ -10,11 +10,16 @@ AGY2 端到端渲染与 C1~C5 全档位分支严密验收测试套件 (tests/tes
 """
 
 from datetime import datetime, date, time
+import sys
 from pathlib import Path
 import pytest
 import pandas as pd
 import numpy as np
 from streamlit.testing.v1 import AppTest
+
+_CURRENT_DIR = Path(__file__).resolve().parent.parent
+if str(_CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(_CURRENT_DIR))
 
 import app_gui
 from portfolio_manager import PortfolioManager, get_fund_selection_funnel_stats

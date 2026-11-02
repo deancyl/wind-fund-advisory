@@ -331,9 +331,9 @@ def test_one_click_market_optimization_flow_structure():
     fake_ranked = pd.DataFrame(info)
     fake_nav = pd.DataFrame(navs)
 
-    with patch.object(MarketScreener, "run_full_pipeline", return_value=(fake_ranked, fake_nav)), \
-         patch.object(MarketScreener, "fetch_candidate_nav_matrix", return_value=fake_nav), \
-         patch.object(portfolio_manager, "fetch_realtime_fund_quota", return_value={"status": "开放", "daily_limit": 10000.0, "is_limited": True}):
+    with patch("market_screener.MarketScreener.run_full_pipeline", return_value=(fake_ranked, fake_nav)), \
+         patch("market_screener.MarketScreener.fetch_candidate_nav_matrix", return_value=fake_nav), \
+         patch("portfolio_manager.fetch_realtime_fund_quota", return_value={"status": "开放", "daily_limit": 10000.0, "is_limited": True}):
         flow_res = execute_market_optimization_flow(
             target_pct=8.0,
             horizon_label="中期(1~2年)",
@@ -418,9 +418,9 @@ def test_one_click_market_optimization_flow_all_suspended_edge_case():
     fake_ranked = pd.DataFrame(info)
     fake_nav = pd.DataFrame(navs)
 
-    with patch.object(MarketScreener, "run_full_pipeline", return_value=(fake_ranked, fake_nav)), \
-         patch.object(MarketScreener, "fetch_candidate_nav_matrix", return_value=fake_nav), \
-         patch.object(portfolio_manager, "fetch_realtime_fund_quota", return_value={"status": "暂停申购", "daily_limit": 0.0, "is_limited": True}):
+    with patch("market_screener.MarketScreener.run_full_pipeline", return_value=(fake_ranked, fake_nav)), \
+         patch("market_screener.MarketScreener.fetch_candidate_nav_matrix", return_value=fake_nav), \
+         patch("portfolio_manager.fetch_realtime_fund_quota", return_value={"status": "暂停申购", "daily_limit": 0.0, "is_limited": True}):
         flow_res = execute_market_optimization_flow(
             target_pct=8.0,
             horizon_label="中期(1~2年)",

@@ -1,6 +1,7 @@
 ' =========================================================================
 ' AGY2 Quantitative Robo-Advisory Workstation - Windows Desktop Launcher
 ' Pure background silent execution with MS Edge App Mode (No console window)
+' Hardened with Windows 8.3 ShortPath against CMD quote-stripping pitfalls
 ' =========================================================================
 
 Set WshShell = CreateObject("WScript.Shell")
@@ -8,6 +9,9 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 
 ' Get current workspace directory
 currentDir = fso.GetParentFolderName(WScript.ScriptFullName)
+If fso.FolderExists(currentDir) Then
+    currentDir = fso.GetFolder(currentDir).ShortPath
+End If
 
 ' Function to check if Streamlit HTTP server on port 8501 is responding
 Function IsPortListening(port)
@@ -29,14 +33,14 @@ End Function
 If Not IsPortListening(8501) Then
     pythonExe = "python"
     If fso.FileExists("C:\Users\deanc\AppData\Local\Programs\Python\Python311\python.exe") Then
-        pythonExe = """C:\Users\deanc\AppData\Local\Programs\Python\Python311\python.exe"""
+        pythonExe = fso.GetFile("C:\Users\deanc\AppData\Local\Programs\Python\Python311\python.exe").ShortPath
     End If
     WshShell.CurrentDirectory = currentDir
-    cmdStart = "cmd.exe /c cd /d """ & currentDir & """ && " & pythonExe & " -m streamlit run app_gui.py --server.headless=true --server.port=8501"
+    cmdStart = """" & pythonExe & """ -m streamlit run app_gui.py --server.headless=true --server.port=8501"
     WshShell.Run cmdStart, 0, False
     
-    ' Wait for Streamlit to start listening (up to 12 seconds)
-    For i = 1 To 12
+    ' Wait for Streamlit to start listening (up to 15 seconds)
+    For i = 1 To 15
         WScript.Sleep 1000
         If IsPortListening(8501) Then
             Exit For
@@ -47,14 +51,14 @@ End If
 ' 2. Locate Microsoft Edge executable
 edgePath = ""
 If fso.FileExists("C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe") Then
-    edgePath = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+    edgePath = fso.GetFile("C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe").ShortPath
 ElseIf fso.FileExists("C:\Program Files\Microsoft\Edge\Application\msedge.exe") Then
-    edgePath = "C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+    edgePath = fso.GetFile("C:\Program Files\Microsoft\Edge\Application\msedge.exe").ShortPath
 End If
 
 ' 3. Launch in standalone Desktop App Mode (--app=..., no address bar, no tabs)
 If edgePath <> "" Then
-    WshShell.Run """" & edgePath & """ --app=http://localhost:8501", 1, False
+    WshShell.Run edgePath & " --app=http://localhost:8501", 1, False
 Else
     ' Fallback to system default handler
     WshShell.Run "cmd.exe /c start msedge --app=http://localhost:8501", 0, False

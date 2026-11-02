@@ -3060,6 +3060,7 @@ class StrategyBridge:
         target_weights_funds: Dict[str, float],
         pm: Optional[Any] = None,
         mode: str = "gentle",
+        **kwargs
     ) -> Dict[str, Any]:
         """
         对比当前用户真实持仓与 Trial 29 今日模型目标权重，直接生成调仓建议表。
@@ -3155,12 +3156,16 @@ class StrategyBridge:
             # 7天安全锁检查与安全可卖份额计算
             safety_warning = ""
             safe_shares = 0.0
-            if h and hasattr(h, 'batches'):
+            h_holding_days = 0
+            if h and hasattr(h, 'batches') and h.batches:
+                h_holding_days = min((getattr(b, 'holding_days', 0) for b in h.batches), default=0)
                 for b in h.batches:
                     if getattr(b, 'holding_days', 0) >= 7 and not getattr(b, 'safety_lock', False):
                         safe_shares += getattr(b, 'shares', 0.0)
                     else:
                         break
+            elif h and hasattr(h, 'holding_days'):
+                h_holding_days = getattr(h, 'holding_days', 0)
 
             # 判定动作与路由
             if abs(diff_w) < (buffer_pct / 100.0): # 缓冲区（温和3%/强行0%）
@@ -3216,6 +3221,11 @@ class StrategyBridge:
                 advice_share = "A类底仓：持有满180天免赎回费，建议将分红方式变更为【现金分红】实现股息零损耗沉淀！"
             else:
                 advice_share = "C类波段：0申购费，持有满30天免赎回费，高弹性波段调仓利器！"
+                if 7 <= h_holding_days < 30 and action == "SELL":
+                    c_warn = f"⏳【临近30天免赎期】该C类标的已持有 {h_holding_days} 天（满30天免赎回费），建议持有满期再行赎回！"
+                    advice_share = f"{c_warn} ｜ " + advice_share
+                    if not safety_warning:
+                        safety_warning = c_warn
 
             # 聪明钱与机构抱团拥挤度排查 (R3)
             crowd_info = {}
@@ -3266,6 +3276,7 @@ class StrategyBridge:
                 "fund_name": fund_name,
                 "share_class": share_class,
                 "market_value": round(mv, 2),
+                "holding_days": h_holding_days,
                 "current_weight_pct": round(c_w * 100.0, 2),
                 "target_weight_pct": round(t_w * 100.0, 2),
                 "diff_weight_pct": round(diff_w * 100.0, 2),
@@ -3309,7 +3320,9 @@ class StrategyBridge:
         current_holdings: Optional[Dict[str, Any]] = None,
         available_cash: Optional[float] = None,
         custom_fund_overrides: Optional[Dict[str, str]] = None,
-        pm: Optional[Any] = None
+        pm: Optional[Any] = None,
+        mode: str = "gentle",
+        **kwargs
     ) -> Dict[str, Any]:
         """存量调仓统一调度入口：对齐 CUSUM 自进化优选冠军标的后生成调仓执行单 (R5/R6)"""
         if pm is None:
@@ -3341,7 +3354,9 @@ class StrategyBridge:
             current_holdings=holdings,
             available_cash=cash,
             target_weights_funds=tier_target_w,
-            pm=pm
+            pm=pm,
+            mode=mode,
+            **kwargs
         )
 
     # =====================================================================
