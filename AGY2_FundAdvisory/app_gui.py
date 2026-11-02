@@ -2625,45 +2625,70 @@ with tab_market_optimizer:
             for _si, _sl in enumerate(_mo_step_labels):
                 _mo_steps[_si].caption(f"⬜ {_sl}")
             _mo_cur_stage = [0]  # mutable for closure
+            _mo_peak_frac = [0.0]  # monotonic progress high-water mark
+            # Stage weights: ① 预筛 15%, ② 分桶 10%, ③ NAV获取 55%, ④ 优化 20%
+            _STAGE_WEIGHTS = [0.15, 0.10, 0.55, 0.20]
+            _STAGE_OFFSETS = [0.0, 0.15, 0.25, 0.80]  # cumsum prefix
+
+            def _detect_stage(msg):
+                """根据消息内容检测当前所处阶段 0~3"""
+                if "优化完成" in msg or "优化" in msg and ("贪心" in msg or "SLSQP" in msg or "局部" in msg):
+                    return 3
+                if "NAV" in msg or "净值" in msg or "矩阵" in msg:
+                    return 2
+                if "分桶" in msg or "综合评分" in msg or "排名" in msg or "夏普" in msg:
+                    return 1
+                if "预筛" in msg or "规模" in msg or "过滤" in msg or "基金目录" in msg or "缓存加载候选池" in msg:
+                    return 0
+                return _mo_cur_stage[0]  # fallback: stay in current stage
 
             def _mo_cb(cur, total, msg):
+                # 1. 检测并更新阶段
+                detected = _detect_stage(msg)
+                if detected > _mo_cur_stage[0]:
+                    # 将跳过的中间阶段全部标记为已完成
+                    for _skip_s in range(_mo_cur_stage[0], detected):
+                        _mo_steps[_skip_s].caption(f"✅ {_mo_step_labels[_skip_s]}  ✓")
+                    _mo_cur_stage[0] = detected
+                stage = _mo_cur_stage[0]
+
+                # 2. 计算全局单调递增进度
                 try:
-                    frac = (float(cur) / float(total)) if total else 0.0
+                    local_frac = (float(cur) / float(total)) if total else 0.0
                 except Exception:
-                    frac = 0.0
-                _mo_prog.progress(min(max(frac, 0.0), 1.0))
+                    local_frac = 0.0
+                local_frac = min(max(local_frac, 0.0), 1.0)
+                global_frac = _STAGE_OFFSETS[stage] + _STAGE_WEIGHTS[stage] * local_frac
+                # 单调递增保护：进度条永远只往前走
+                _mo_peak_frac[0] = max(_mo_peak_frac[0], global_frac)
+                _mo_prog.progress(min(_mo_peak_frac[0], 1.0))
+
+                # 3. ETA 计算（基于全局单调进度）
                 elapsed = _time_mod.time() - _mo_t0
                 eta_str = ""
-                if frac > 0.05:
-                    eta_sec = elapsed / frac * (1.0 - frac)
+                if _mo_peak_frac[0] > 0.05:
+                    eta_sec = elapsed / _mo_peak_frac[0] * (1.0 - _mo_peak_frac[0])
                     if eta_sec < 60:
                         eta_str = f" ｜ 预计剩余 ~{eta_sec:.0f}s"
                     else:
                         eta_str = f" ｜ 预计剩余 ~{eta_sec/60:.1f}min"
                 _mo_msg.caption(f"⏳ {msg}（已耗时 {elapsed:.0f}s{eta_str}）")
-                # 更新 checklist
-                stage = _mo_cur_stage[0]
-                if "预筛完成" in msg or "候选基金" in msg and "评分" not in msg:
-                    if stage < 1:
-                        _mo_steps[0].caption(f"✅ {_mo_step_labels[0]}  ✓")
-                        _mo_cur_stage[0] = 1
-                if "分桶排名完成" in msg or "综合评分" in msg:
-                    if stage < 2:
-                        _mo_steps[1].caption(f"✅ {_mo_step_labels[1]}  ✓")
-                        _mo_cur_stage[0] = 2
-                if "NAV 矩阵" in msg or "矩阵构建完成" in msg:
-                    if stage < 3:
-                        _mo_steps[2].caption(f"✅ {_mo_step_labels[2]}  ✓")
-                        _mo_cur_stage[0] = 3
-                if "优化完成" in msg:
-                    if stage < 4:
-                        _mo_steps[3].caption(f"✅ {_mo_step_labels[3]}  ✓")
-                        _mo_cur_stage[0] = 4
-                # 活跃阶段高亮
-                for _si2 in range(_mo_cur_stage[0], 4):
-                    if _si2 == _mo_cur_stage[0]:
+
+                # 4. 更新 checklist — 标记完成的阶段
+                if ("预筛完成" in msg or ("候选基金" in msg and "评分" not in msg)) and stage >= 0:
+                    _mo_steps[0].caption(f"✅ {_mo_step_labels[0]}  ✓")
+                if ("分桶排名完成" in msg or "综合评分" in msg) and stage >= 1:
+                    _mo_steps[1].caption(f"✅ {_mo_step_labels[1]}  ✓")
+                if ("NAV 矩阵" in msg or "矩阵构建完成" in msg) and stage >= 2:
+                    _mo_steps[2].caption(f"✅ {_mo_step_labels[2]}  ✓")
+                if "优化完成" in msg and stage >= 3:
+                    _mo_steps[3].caption(f"✅ {_mo_step_labels[3]}  ✓")
+
+                # 5. 活跃阶段高亮 + 未完成阶段保持空心
+                for _si2 in range(stage, 4):
+                    if _si2 == stage:
                         _mo_steps[_si2].caption(f"🔄 {_mo_step_labels[_si2]}  进行中...")
-                    else:
+                    elif _si2 > stage:
                         _mo_steps[_si2].caption(f"⬜ {_mo_step_labels[_si2]}")
 
             try:
@@ -2850,26 +2875,31 @@ with tab_market_optimizer:
                             try:
                                 _rb_holdings = {}
                                 _rb_total_val = 0.0
-                                for _h in pm.holdings:
-                                    _h_code = str(_h.get("fund_code", "")).strip()
-                                    _h_shares = float(_h.get("shares", 0) or _h.get("quantity", 0) or 0)
-                                    _h_nav = float(_h.get("nav", 1.0) or 1.0)
-                                    _h_cost = float(_h.get("cost", _h_nav) or _h_nav)
-                                    _h_days = int(_h.get("holding_days", 0) or 0)
-                                    _rb_holdings[_h_code] = {
+                                # pm.holdings 是 Dict[str, FundHolding]，需用 .items() 遍历
+                                for _h_code, _h_obj in pm.holdings.items():
+                                    _h_shares = float(getattr(_h_obj, "shares", 0) or 0)
+                                    _h_nav = float(getattr(_h_obj, "current_nav", 1.0) or 1.0)
+                                    _h_cost = float(getattr(_h_obj, "cost_price", _h_nav) or _h_nav)
+                                    # 从 batches 计算最早持有天数
+                                    _h_batches = getattr(_h_obj, "batches", []) or []
+                                    _h_days = max((getattr(b, "holding_days", 0) or 0 for b in _h_batches), default=0)
+                                    _rb_holdings[str(_h_code).strip()] = {
                                         "shares": _h_shares, "nav": _h_nav,
                                         "cost": _h_cost, "holding_days": _h_days,
                                     }
                                     _rb_total_val += _h_shares * _h_nav
 
                                 if _rb_total_val > 0:
+                                    # 从 mo_saved 恢复用户选定的持有期（HOLDING_PERIODS 映射）
+                                    _rb_horizon_map = {"短期(3~6月)": 125, "中期(1~2年)": 250, "长期(3~5年)": 500}
+                                    _rb_hdays = _rb_horizon_map.get(mo_saved.get("horizon", ""), 250)
                                     # 就地构造轻量 optimizer（仅需 candidate_info 用于席位警告）
                                     _rb_opt = WinRateOptimizer(
                                         nav_matrix=pd.DataFrame(),
                                         candidate_info=pd.DataFrame(mo_res.get("fund_details", [])).rename(
                                             columns={"fund_code": "fund_code"}
                                         ) if mo_res.get("fund_details") else pd.DataFrame(columns=["fund_code", "status"]),
-                                        holding_days=250,
+                                        holding_days=_rb_hdays,
                                         target_annual_return=mo_saved["target_pct"] / 100.0,
                                     )
                                     _rb_result = _rb_opt.optimize_rebalance_path(
