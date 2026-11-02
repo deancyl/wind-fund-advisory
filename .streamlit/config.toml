@@ -1,0 +1,9 @@
+[client]
+toolbarMode = "minimal"
+showErrorDetails = true
+
+[ui]
+hideTopBar = true
+
+[browser]
+gatherUsageStats = false

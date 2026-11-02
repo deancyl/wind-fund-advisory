@@ -33,8 +33,104 @@ __all__ = [
     "WinRateOptimizer",
     "DEFAULT_CONSTRAINTS",
     "MAX_DRAWDOWN_BY_TIER",
+    "QUANT_MODELS_CATALOG",
+    "recommend_model_for_regime",
     "execute_market_optimization_flow",
 ]
+
+# ─── 四大机构级量化定权模型目录（名称严格 ≤ 6 字） ────────────────────
+QUANT_MODELS_CATALOG: Dict[str, Dict[str, Any]] = {
+    "hrp_cvar": {
+        "key": "hrp_cvar",
+        "name": "鲁棒双核HRP",
+        "badge": "🛡️ 机构首选·高确定性",
+        "principle": "层次风险平价(Hierarchical Risk Parity)聚类树分配 + Black-Litterman宏观视图 + 95% CVaR尾部风险约束。",
+        "advantage": "无需对协方差矩阵求逆，彻底根除单一赛道押注与历史过拟合，样本外跨周期稳健性最高。",
+        "suitable_when": "震荡磨底期、行业快速轮动期、或希望构建全天候高确定性底仓时。",
+    },
+    "cond_winrate": {
+        "key": "cond_winrate",
+        "name": "条件胜率最优",
+        "badge": "🎯 同温层状态匹配",
+        "principle": "当下时点(T_now)五维宏观向量高斯核相似度赋权 + SLSQP非线性规划最大化目标年化达标胜率。",
+        "advantage": "精准锁定与今日估值、利率、波动率最相似的历史同温层行情，直接最大化目标收益达成概率。",
+        "suitable_when": "宏观估值与技术面信号明确、对特定目标年化收益率有明确达成诉求时。",
+    },
+    "min_cvar": {
+        "key": "min_cvar",
+        "name": "尾部风控CVaR",
+        "badge": "⚓ 极小化极端回撤",
+        "principle": "Rockafellar-Uryasev 95%条件风险价值(CVaR)极小化 + 索提诺比率(Sortino仅惩罚下行波动)最大化。",
+        "advantage": "严控最差5%极端黑天鹅行情的平均亏损底线，优先保护本金安全与最短水下回本周期。",
+        "suitable_when": "大盘高位剧烈震荡、期权隐含波动率(iVIX)偏高、或厌恶深度浮亏的防御阶段。",
+    },
+    "kelly_momentum": {
+        "key": "kelly_momentum",
+        "name": "凯利动量增强",
+        "badge": "⚡ 右侧复利进攻",
+        "principle": "半凯利准则(Half-Kelly对数几何期望增长率最大化) + 右侧均线动量增强(内置超买均值回归折价)。",
+        "advantage": "在严防破产风险的前提下最大化长期复利斜率，顺势捕捉右侧主升浪超额Alpha。",
+        "suitable_when": "股债性价比(ERP)处于底部击球区且指数放量站上MA20生命线的右侧主升期。",
+    },
+}
+
+
+def recommend_model_for_regime(
+    market_snapshot: Optional[Dict[str, Any]] = None,
+    target_return_pct: float = 12.0,
+) -> Dict[str, Any]:
+    """
+    根据当下实时市场环境（四维状态：ERP估值分位、MA20乖离率、DR007利率、iVIX期权波动率）
+    自动识别所处市场阶段并推荐最匹配的机构级量化模型。
+    """
+    snap = market_snapshot or {}
+    erp_pct = float(snap.get("erp_percentile", 75.0))
+    bias_20 = float(snap.get("bias_20", 0.5))
+    dr007 = float(snap.get("dr007_7d_ma", 1.65))
+    ivix = float(snap.get("option_iv_pct", snap.get("ivix_index", 18.5)))
+    m_state = str(snap.get("market_state", "震荡收息期"))
+
+    if ivix > 26.0 or bias_20 < -2.5 or erp_pct < 35.0 or "防守" in m_state or "避险" in m_state:
+        regime_name = "高波防御避险期"
+        rec_key = "min_cvar"
+        reason = (
+            f"当前期权波动率({ivix:.1f}%)/均线乖离({bias_20:+.2f}%)显示市场处于尾部波动敏感期，"
+            f"使用【尾部风控CVaR】可锁死最差5%极端行情的下行底线，严防深套。"
+        )
+    elif erp_pct >= 65.0 and 0.3 <= bias_20 <= 5.5 and ("进攻" in m_state or "突破" in m_state or target_return_pct >= 18.0):
+        regime_name = "底部右侧突破期"
+        rec_key = "kelly_momentum"
+        reason = (
+            f"当前ERP估值分位高达 {erp_pct:.1f}%（权益极度便宜）且站稳MA20均线({bias_20:+.2f}%)，"
+            f"使用【凯利动量增强】可顺势捕捉右侧主升浪复利弹性。"
+        )
+    elif erp_pct >= 60.0 and abs(bias_20) <= 3.0:
+        regime_name = "高性价比磨底期"
+        rec_key = "hrp_cvar"
+        reason = (
+            f"当前ERP处于 {erp_pct:.1f}% 高性价比区、均线窄幅震荡({bias_20:+.2f}%)、DR007利率 {dr007:.2f}% 充裕，"
+            f"使用【鲁棒双核HRP】可通过层次聚类均衡配置多资产，消除单一赛道过拟合，确定性最高。"
+        )
+    else:
+        regime_name = "结构分化轮动期"
+        rec_key = "cond_winrate"
+        reason = (
+            f"当前市场处于【{m_state}】（ERP分位 {erp_pct:.1f}%，MA20乖离 {bias_20:+.2f}%），"
+            f"使用【条件胜率最优】可在历史同温层样本中精准锁定达标率最高的组合。"
+        )
+
+    rec_meta = QUANT_MODELS_CATALOG[rec_key]
+    return {
+        "regime_name": regime_name,
+        "recommended_model_key": rec_key,
+        "recommended_model_name": rec_meta["name"],
+        "reason": reason,
+        "erp_percentile": erp_pct,
+        "bias_20": bias_20,
+        "dr007": dr007,
+        "ivix": ivix,
+        "models_catalog": QUANT_MODELS_CATALOG,
+    }
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -74,6 +170,8 @@ class WinRateOptimizer:
         tier: str = "C3",
         constraints: Optional[dict] = None,
         market_snapshot: Optional[Dict[str, Any]] = None,
+        target_num_funds: Optional[int] = None,
+        model_type: str = "cond_winrate",
     ):
         """
         Parameters
@@ -92,6 +190,13 @@ class WinRateOptimizer:
         self.target_return = target_annual_return
         self.tier = tier
         self.constraints = {**DEFAULT_CONSTRAINTS, **(constraints or {})}
+        self.model_type = model_type if model_type in QUANT_MODELS_CATALOG else "cond_winrate"
+        self.target_num_funds = int(max(3, min(15, target_num_funds))) if target_num_funds is not None else None
+        if self.target_num_funds is not None:
+            n_f = self.target_num_funds
+            self.constraints["n_funds_range"] = (n_f, n_f)
+            self.constraints["max_single_weight"] = float(min(0.55, max(0.15, round(2.2 / n_f, 2))))
+            self.constraints["min_single_weight"] = float(max(0.02, min(0.08, round(0.45 / n_f, 3))))
         self.max_dd = MAX_DRAWDOWN_BY_TIER.get(tier, 0.18)
         self.market_snapshot = market_snapshot
         if self.market_snapshot is None:
@@ -286,11 +391,19 @@ class WinRateOptimizer:
         if progress_callback:
             progress_callback(1, 5, "多样化预选...")
 
-        # 预选
+        # 预选（随用户设定基金数 N∈[3,15] 自适应扩容候选池）
         n_funds_min, n_funds_max = self.constraints["n_funds_range"]
+        pool_target = min(max(30, n_funds_max * 3), len(metrics))
         diverse_codes = self._select_diverse_candidates(
-            n_target=min(30, len(metrics)), progress_callback=progress_callback
+            n_target=pool_target, progress_callback=progress_callback
         )
+        # 若相关性过滤后不足 n_funds_max，按评分依序补足确保 3~15 只全覆盖
+        if len(diverse_codes) < min(n_funds_max, len(metrics)):
+            for _fc in metrics.sort_values("win_rate", ascending=False)["fund_code"]:
+                if _fc not in diverse_codes:
+                    diverse_codes.append(_fc)
+                if len(diverse_codes) >= min(max(n_funds_max + 4, 15), len(metrics)):
+                    break
 
         if len(diverse_codes) < n_funds_min:
             return self._empty_result(f"有效候选不足 {n_funds_min} 只")
@@ -395,11 +508,16 @@ class WinRateOptimizer:
         best_result["tier"] = self.tier
 
         elapsed = _time.monotonic() - t0
+        model_meta = QUANT_MODELS_CATALOG.get(self.model_type, QUANT_MODELS_CATALOG["cond_winrate"])
+        best_result["model_type"] = self.model_type
+        best_result["model_name"] = model_meta["name"]
+        best_result["model_principle"] = model_meta["principle"]
         best_result["optimization_metadata"] = {
             "candidates_screened": len(metrics),
             "candidates_entered_optimizer": len(diverse_codes),
             "optimization_time_seconds": round(elapsed, 2),
-            "method": "greedy_init + SLSQP + local_search",
+            "method": f"{model_meta['name']} ({self.model_type})",
+            "target_num_funds": self.target_num_funds or len(best_result.get("optimal_weights", {})),
         }
 
         if progress_callback:
@@ -420,10 +538,29 @@ class WinRateOptimizer:
         if metrics is None:
             return None
 
-        # 贪心选初始基金组合
-        sorted_by_wr = metrics[metrics["fund_code"].isin(all_codes)].sort_values(
-            "win_rate", ascending=False
-        )
+        # 根据所选机构模型对候选基金进行特征排序
+        sub_m = metrics[metrics["fund_code"].isin(all_codes)].copy()
+        if self.model_type == "min_cvar":
+            sub_m["_model_rank_score"] = (
+                0.45 * sub_m["no_loss_rate"]
+                + 0.35 * (1.0 - np.clip(np.abs(sub_m["max_dd"]) / max(self.max_dd * 1.5, 0.05), 0.0, 1.0))
+                + 0.20 * sub_m["win_rate"]
+            )
+        elif self.model_type == "kelly_momentum":
+            sub_m["_model_rank_score"] = (
+                0.50 * np.clip(sub_m["annual_return"] / max(self.target_return, 0.05), -0.5, 2.0)
+                + 0.30 * sub_m["win_rate"]
+                + 0.20 * np.clip(sub_m["sharpe"] / 2.0, -0.5, 1.5)
+            )
+        elif self.model_type == "hrp_cvar":
+            sub_m["_model_rank_score"] = (
+                0.40 * sub_m["win_rate"]
+                + 0.35 * np.clip(sub_m["sharpe"] / 2.0, 0.0, 1.5)
+                + 0.25 * (1.0 - np.clip(np.abs(sub_m["max_dd"]) / max(self.max_dd * 1.5, 0.05), 0.0, 1.0))
+            )
+        else:
+            sub_m["_model_rank_score"] = sub_m["win_rate"]
+        sorted_by_wr = sub_m.sort_values("_model_rank_score", ascending=False)
 
         initial_codes: List[str] = []
         buckets_used = set()
@@ -466,8 +603,8 @@ class WinRateOptimizer:
 
         selected_codes = initial_codes[:n_funds]
 
-        # SLSQP 优化权重
-        optimal_weights = self._slsqp_optimize(selected_codes, nav_df, quota_info)
+        # 按所选机构模型求解最优权重 (HRP / 条件胜率 / 尾部CVaR / 凯利动量)
+        optimal_weights = self._optimize_by_model_type(selected_codes, nav_df, quota_info)
 
         if optimal_weights is None:
             # 等权回退
@@ -526,6 +663,109 @@ class WinRateOptimizer:
                 "volatility_annualized": ann_vol,
             },
         }
+
+    def _compute_hrp_weights(self, codes: List[str], nav_df: pd.DataFrame) -> Dict[str, float]:
+        """
+        层次风险平价 (Hierarchical Risk Parity - Lopez de Prado) + Black-Litterman 状态倾斜
+        1. 计算日收益率相关性距离矩阵 D = sqrt(0.5 * (1 - Corr))
+        2. 凝聚层次聚类准对角化 (Quasi-Diagonalization)
+        3. 递归二分逆下行半方差分配 (Recursive Bisection with Downside Risk)
+        """
+        from scipy.cluster.hierarchy import linkage, leaves_list
+        from scipy.spatial.distance import squareform
+
+        n = len(codes)
+        if n <= 1:
+            return {codes[0]: 1.0} if n == 1 else {}
+
+        sub_nav = nav_df[codes].dropna()
+        if len(sub_nav) < 30:
+            return {c: 1.0 / n for c in codes}
+
+        ret_df = sub_nav.pct_change().dropna()
+        corr = ret_df.corr().fillna(0.0).to_numpy(copy=True)
+        np.fill_diagonal(corr, 1.0)
+        corr = np.clip(corr, -1.0, 1.0)
+
+        dist = np.sqrt(np.clip(0.5 * (1.0 - corr), 0.0, 1.0))
+        np.fill_diagonal(dist, 0.0)
+        try:
+            condensed = squareform(dist, checks=False)
+            link = linkage(condensed, method="single")
+            sort_ix = list(leaves_list(link))
+        except Exception:
+            sort_ix = list(range(n))
+
+        ordered_codes = [codes[i] for i in sort_ix]
+        cov = ret_df[ordered_codes].cov().values * 250.0
+
+        def _get_cluster_var(cov_mat: np.ndarray, c_items: List[int]) -> float:
+            cov_slice = cov_mat[np.ix_(c_items, c_items)]
+            ivp = 1.0 / np.maximum(np.diag(cov_slice), 1e-8)
+            ivp /= np.sum(ivp)
+            return float(np.dot(ivp, np.dot(cov_slice, ivp)))
+
+        weights = pd.Series(1.0, index=range(n))
+        clusters = [list(range(n))]
+        while len(clusters) > 0:
+            clusters = [
+                i[j:k]
+                for i in clusters
+                for j, k in ((0, len(i) // 2), (len(i) // 2, len(i)))
+                if len(i) > 1
+            ]
+            for i in range(0, len(clusters), 2):
+                if i + 1 >= len(clusters):
+                    break
+                c0 = clusters[i]
+                c1 = clusters[i + 1]
+                v0 = _get_cluster_var(cov, c0)
+                v1 = _get_cluster_var(cov, c1)
+                alpha = 1.0 - v0 / max(v0 + v1, 1e-10)
+                weights[c0] *= alpha
+                weights[c1] *= (1.0 - alpha)
+
+        # 融合 Black-Litterman 当下条件胜率主观视图 (70% HRP风险底盘 + 30% 同温层胜率倾斜)
+        metrics = self._individual_metrics
+        raw_w = {}
+        for idx_pos, c in enumerate(ordered_codes):
+            w_hrp = float(weights.iloc[idx_pos])
+            wr_prior = 0.5
+            if metrics is not None and not metrics.empty:
+                m_row = metrics[metrics["fund_code"] == c]
+                if not m_row.empty:
+                    wr_prior = float(m_row.iloc[0].get("conditional_win_rate", 0.5))
+            raw_w[c] = w_hrp * (0.70 + 0.60 * wr_prior)
+
+        # 投影到单基上下限约束 [min_w, max_w]
+        max_w = self.constraints["max_single_weight"]
+        min_w = self.constraints["min_single_weight"]
+        w_arr = np.array([raw_w[c] for c in codes], dtype=float)
+        w_arr = w_arr / max(np.sum(w_arr), 1e-10)
+        for _ in range(5):
+            w_arr = np.clip(w_arr, min_w, max_w)
+            s = np.sum(w_arr)
+            if s > 0:
+                w_arr /= s
+        return {c: round(float(w), 4) for c, w in zip(codes, w_arr)}
+
+    def _optimize_by_model_type(
+        self,
+        codes: List[str],
+        nav_df: pd.DataFrame,
+        quota_info: Optional[Dict[str, Dict]],
+    ) -> Optional[Dict[str, float]]:
+        """根据 self.model_type 调度四大机构级量化模型求解权重"""
+        if self.model_type == "hrp_cvar":
+            hrp_w = self._compute_hrp_weights(codes, nav_df)
+            slsqp_w = self._slsqp_optimize(codes, nav_df, quota_info)
+            if slsqp_w is not None and hrp_w:
+                # 双核融合：60% 层次风险平价 + 40% CVaR-胜率规划
+                blended = {c: 0.60 * hrp_w.get(c, 1.0 / len(codes)) + 0.40 * slsqp_w.get(c, 1.0 / len(codes)) for c in codes}
+                tot = sum(blended.values())
+                return {c: round(v / tot, 4) for c, v in blended.items()}
+            return hrp_w
+        return self._slsqp_optimize(codes, nav_df, quota_info)
 
     def _slsqp_optimize(
         self,
@@ -601,6 +841,18 @@ class WinRateOptimizer:
                     if qi.get("is_limited", False):
                         penalty += pen_coef * w[i]
 
+            if getattr(self, "model_type", "cond_winrate") == "min_cvar":
+                p5 = float(np.percentile(ann_ret, 5)) if len(ann_ret) > 0 else 0.0
+                tail_s = ann_ret[ann_ret <= p5]
+                cvar_95 = float(np.mean(tail_s)) if len(tail_s) > 0 else p5
+                down_s = ann_ret[ann_ret < 0]
+                down_vol = float(np.sqrt(np.mean(down_s ** 2))) if len(down_s) > 0 else 0.01
+                sortino = float(np.mean(ann_ret)) / max(down_vol, 0.01)
+                return -(0.45 * wr + 0.35 * cvar_95 + 0.15 * np.clip(sortino * 0.1, -0.5, 0.5) - penalty)
+            elif getattr(self, "model_type", "cond_winrate") == "kelly_momentum":
+                safe_r = np.clip(0.5 * ann_ret, -0.45, 2.0)
+                kelly_g = float(np.mean(np.log1p(safe_r)))
+                return -(0.50 * wr + 0.50 * kelly_g - penalty)
             return -(wr - penalty)
 
         # 初始等权
@@ -999,6 +1251,8 @@ def execute_market_optimization_flow(
     snapshot: Optional[Dict[str, Any]] = None,
     precomputed_ranked: Optional[pd.DataFrame] = None,
     precomputed_nav: Optional[pd.DataFrame] = None,
+    target_num_funds: Optional[int] = None,
+    model_type: str = "hrp_cvar",
     **kwargs
 ) -> Dict[str, Any]:
     """
@@ -1067,7 +1321,7 @@ def execute_market_optimization_flow(
     if mo_ranked is None or mo_ranked.empty or mo_nav is None or mo_nav.empty:
         raise RuntimeError("候选池或 NAV 矩阵为空（可能数据源暂不可用）")
 
-    # 2. 胜率优化
+    # 2. 多模型量化定权优化 (支持 3~15 只基金自由调节与四大专业模型)
     mo_optimizer = WinRateOptimizer(
         nav_matrix=mo_nav,
         candidate_info=mo_ranked,
@@ -1075,6 +1329,8 @@ def execute_market_optimization_flow(
         target_annual_return=target_pct / 100.0,
         tier=mo_tier,
         market_snapshot=snapshot,
+        target_num_funds=target_num_funds,
+        model_type=model_type,
     )
     mo_result = mo_optimizer.optimize(progress_callback=progress_cb)
 

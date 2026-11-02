@@ -11,7 +11,12 @@ Tests for UI and logic refinements:
 import pytest
 import math
 import re
+import sys
 from pathlib import Path
+
+_CUR_DIR = Path(__file__).resolve().parent.parent
+if str(_CUR_DIR) not in sys.path:
+    sys.path.insert(0, str(_CUR_DIR))
 
 from portfolio_manager import (
     SECTOR_FUND_SELECTION,

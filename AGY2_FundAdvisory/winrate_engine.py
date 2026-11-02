@@ -65,6 +65,13 @@ HOLDING_PERIODS = {
     "long":   {"label": "长期3~5年",  "months_range": (36, 60), "trading_days": 750},
 }
 
+WINRATE_METRIC_DEFINITIONS = {
+    "win_rate": "【达标胜率】：任意交易日买入并持有期满，扣除申购费、阶梯赎回费与C类服务费后，真实复合年化收益率(CAGR) ≥ 设定目标年化收益率的概率（经当前宏观四维状态高斯核加权）。",
+    "no_loss_rate": "【绝对保本率】：扣除全部交易摩擦成本后，持有期满账面累计净收益率 ≥ 0.0%（本金不发生亏损）的概率。",
+    "beat_cash_rate": "【跑赢货基率】：扣除全部交易摩擦成本后，持有期满年化净收益率 ≥ 1.8%（超越货币基金/逆回购无风险收益基准）的概率。",
+    "cvar_95": "【95%尾部底线(CVaR)】：在历史最恶劣的 5% 极端建仓时点买入并持有期满的平均年化收益底线。",
+}
+
 
 def extract_state_vector(snapshot: Optional[Dict[str, Any]]) -> Optional[np.ndarray]:
     """
@@ -277,6 +284,11 @@ class WinRateEngine:
                 "unconditional_win_rate": 0.0,
                 "no_loss_rate": 0.0,
                 "unconditional_no_loss_rate": 0.0,
+                "beat_cash_rate": 0.0,
+                "unconditional_beat_cash_rate": 0.0,
+                "cvar_95_annualized": 0.0,
+                "no_loss_windows": 0,
+                "beat_cash_windows": 0,
                 "avg_return_annualized": 0.0,
                 "unconditional_avg_return": 0.0,
                 "median_return_annualized": 0.0,
@@ -319,12 +331,22 @@ class WinRateEngine:
         x_win = np.clip((diff_ann + 0.005) / 0.010, 0.0, 1.0)
         is_win_soft = 3.0 * (x_win ** 2) - 2.0 * (x_win ** 3)
         is_noloss_soft = (total_returns >= 0.0).astype(np.float64)
+        # 跑赢货币基金基准 (年化 >= 1.8%，带 +-0.2% 平滑过渡)
+        x_cash = np.clip((ann_returns - 0.018 + 0.002) / 0.004, 0.0, 1.0)
+        is_beat_cash_soft = 3.0 * (x_cash ** 2) - 2.0 * (x_cash ** 3)
 
         winning = int(np.sum(ann_returns >= target_annual_return))
         no_loss = int(np.sum(total_returns >= 0))
+        beat_cash = int(np.sum(ann_returns >= 0.018))
         unconditional_wr = float(np.mean(is_win_soft)) if total_windows > 0 else 0.0
         unconditional_nlr = float(np.mean(is_noloss_soft)) if total_windows > 0 else 0.0
+        unconditional_bcr = float(np.mean(is_beat_cash_soft)) if total_windows > 0 else 0.0
         unconditional_avg = float(np.mean(ann_returns)) if total_windows > 0 else 0.0
+
+        # 95% CVaR (最差 5% 窗口平均年化收益)
+        p5_thresh = float(np.percentile(ann_returns, 5)) if total_windows > 0 else 0.0
+        tail_slice = ann_returns[ann_returns <= p5_thresh]
+        cvar_95_ann = float(np.mean(tail_slice)) if len(tail_slice) > 0 else p5_thresh
 
         # 高斯核同温层条件胜率计算 (Conditional Win-Rate at T_now)
         state_vec = extract_state_vector(market_snapshot)
@@ -333,16 +355,20 @@ class WinRateEngine:
             kw = compute_kernel_weights(hist_feat, state_vec, h_bandwidth=h_bandwidth)
             conditional_wr = float(np.sum(kw * is_win_soft))
             conditional_nlr = float(np.sum(kw * is_noloss_soft))
+            conditional_bcr = float(np.sum(kw * is_beat_cash_soft))
             conditional_avg = float(np.sum(kw * ann_returns))
             win_rate = conditional_wr
             no_loss_rate = conditional_nlr
+            beat_cash_rate = conditional_bcr
             avg_return_annualized = conditional_avg
         else:
             conditional_wr = unconditional_wr
             conditional_nlr = unconditional_nlr
+            conditional_bcr = unconditional_bcr
             kw = np.full(total_windows, 1.0 / total_windows, dtype=np.float64) if total_windows > 0 else np.array([])
             win_rate = unconditional_wr
             no_loss_rate = unconditional_nlr
+            beat_cash_rate = unconditional_bcr
             avg_return_annualized = unconditional_avg
 
         def _clamp(v: float) -> float:
@@ -354,6 +380,8 @@ class WinRateEngine:
         no_loss_rate = _clamp(no_loss_rate)
         conditional_nlr = _clamp(conditional_nlr)
         unconditional_nlr = _clamp(unconditional_nlr)
+        beat_cash_rate = _clamp(beat_cash_rate)
+        unconditional_bcr = _clamp(unconditional_bcr)
 
         return {
             "win_rate": win_rate,
@@ -361,6 +389,9 @@ class WinRateEngine:
             "unconditional_win_rate": unconditional_wr,
             "no_loss_rate": no_loss_rate,
             "unconditional_no_loss_rate": unconditional_nlr,
+            "beat_cash_rate": beat_cash_rate,
+            "unconditional_beat_cash_rate": unconditional_bcr,
+            "cvar_95_annualized": cvar_95_ann,
             "avg_return_annualized": avg_return_annualized,
             "unconditional_avg_return": unconditional_avg,
             "median_return_annualized": float(np.median(ann_returns)),
@@ -370,6 +401,8 @@ class WinRateEngine:
             "p90_return": float(np.percentile(ann_returns, 90)),
             "total_windows": total_windows,
             "winning_windows": winning,
+            "no_loss_windows": no_loss,
+            "beat_cash_windows": beat_cash,
             "kernel_weights": kw,
         }
 
@@ -685,11 +718,18 @@ class WinRateEngine:
                 "conditional_win_rate": rolling.get("conditional_win_rate", rolling["win_rate"]),
                 "unconditional_win_rate": rolling.get("unconditional_win_rate", rolling["win_rate"]),
                 "no_loss_rate": rolling["no_loss_rate"],
+                "unconditional_no_loss_rate": rolling.get("unconditional_no_loss_rate", rolling["no_loss_rate"]),
+                "beat_cash_rate": rolling.get("beat_cash_rate", rolling["no_loss_rate"]),
+                "cvar_95_annualized": rolling.get("cvar_95_annualized", rolling["p10_return"]),
                 "avg_return": rolling["avg_return_annualized"],
                 "median_return": rolling["median_return_annualized"],
                 "median_ann_return": rolling["median_return_annualized"],
                 "avg_ann_return": rolling["avg_return_annualized"],
                 "p10_return": rolling["p10_return"],
                 "p90_return": rolling["p90_return"],
+                "total_windows": rolling.get("total_windows", 0),
+                "winning_windows": rolling.get("winning_windows", 0),
+                "no_loss_windows": rolling.get("no_loss_windows", 0),
+                "beat_cash_windows": rolling.get("beat_cash_windows", 0),
             }
         return result

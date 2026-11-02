@@ -158,7 +158,7 @@ def test_tab2_signature_fallback_logic():
 
 
 def test_ast_tab_error_boundaries_isolation():
-    """通过静态 AST 语法树断言 5 大主 Tab 均有顶层 try...except 错误边界隔离"""
+    """通过静态 AST 语法树断言 4 大精简主 Tab 均有顶层 try...except 错误边界隔离"""
     app_path = CURRENT_DIR / "app_gui.py"
     with open(app_path, "r", encoding="utf-8") as f:
         source = f.read()
@@ -169,7 +169,6 @@ def test_ast_tab_error_boundaries_isolation():
         "tab_holdings_and_rebalance",
         "tab_toolbox",
         "tab_backtest",
-        "tab_market_optimizer"
     }
 
     protected_tabs = set()
@@ -196,4 +195,4 @@ def test_streamlit_apptest_zero_exceptions():
     exceptions = [f"{type(e).__name__}: {e.value}" for e in at.exception]
     assert len(at.exception) == 0, f"AppTest 运行抛出未捕获异常: {exceptions}"
     assert len(at.error) == 0, f"AppTest 页面出现错误横幅: {[e.value for e in at.error]}"
-    assert len(at.tabs) >= 5, f"预期渲染至少 5 个 Tab 容器，实际渲染 {len(at.tabs)} 个"
+    assert len(at.tabs) >= 4, f"预期渲染至少 4 个 Tab 容器，实际渲染 {len(at.tabs)} 个"
