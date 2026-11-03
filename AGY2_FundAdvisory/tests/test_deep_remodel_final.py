@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-from AGY2_FundAdvisory.portfolio_manager import PortfolioManager
+from AGY2_FundAdvisory.portfolio_manager import PortfolioManager, fetch_batch_realtime_indices
 from AGY2_FundAdvisory.strategy_bridge import StrategyBridge
 from AGY2_FundAdvisory.winrate_engine import WinRateEngine
 from AGY2_FundAdvisory.data_loader import DataLoader
@@ -108,6 +108,23 @@ def test_winrate_dual_gauge_and_sample_capacity():
         assert pinfo["total_windows"] > 500, f"Rolling windows count {pinfo['total_windows']} too small"
         assert 0.0 <= pinfo["conditional_win_rate"] <= 1.0
         assert 0.0 <= pinfo["unconditional_win_rate"] <= 1.0
+
+
+def test_core_indices_csi_dividend_accuracy():
+    """
+    断言核心指数行情带中证红利 (000922) 真实点位对齐，
+    物理杜绝被错判为上证红利 (000015，约 3300 点)。
+    """
+    indices = fetch_batch_realtime_indices(use_cache=False)
+    assert len(indices) == 6, f"Expected 6 indices, got {len(indices)}"
+    
+    idx_map = {item["code"]: item for item in indices}
+    assert "000922" in idx_map, "000922 (中证红利) must be present in core indices"
+    
+    div_item = idx_map["000922"]
+    assert div_item["name"] == "中证红利"
+    # 中证红利真实点位处于 5000~6500 区间，严禁跌入上证红利的 3000~3500 区间
+    assert div_item["point"] > 4500.0, f"CSI Dividend point {div_item['point']} is invalid (likely mistaken as SSE Dividend ~3300)!"
 
 
 def test_ui_cleanliness_and_title_length():
