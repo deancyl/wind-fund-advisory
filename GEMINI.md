@@ -52,4 +52,19 @@
 - **严禁静态对象 Mock**：在存在 `importlib.reload`、热重载或 AppTest 动态加载的测试体系中，严禁使用静态引用的 `patch.object(Class, ...)`（避免 class 对象在 reload 后被替换而脱靶）；
 - **动态字符串路径靶向**：必须统一采用字符串路径 `patch("module.Class.method", ...)` 进行动态注入，保证 mock 永远绑定在 `sys.modules` 的最新类实例上。
 
+## 11. 移动端超长截图失真拦截与无损物理切片 (Long Screenshot Slicing & Lossless Extraction)
+- **超长图直接 OCR 拦截**：严禁直接对用户聊天上传的超长截图（长宽比 $\ge 3:1$ 或高 $>2000$ 且宽 $\le 300$px，前端压缩后字高仅 2~3px）进行 OCR 或敏感资产数字直接提取，杜绝模型产生脑补幻觉；
+- **高清原图与物理分片双轨**：资产账单、调仓明细与持仓列表核验优先引导用户提供本地高清原图；长图必须使用 Python 脚本按高 1000~1200px（保留 100px 垂直重叠带）进行物理切片后高对比度读取，逐项累加并与总数做分厘级平账勾稽。
+
+## 12. Windows 瞬态出站端口碰撞与非破坏性甄别 (Transient Outbound Port Collision Defense)
+- **非破坏性探针先行**：启动 Streamlit（默认端口 8501）或量化服务遭遇 `Port is not available` 或 `WinError 10013` 时，严禁盲目执行 `taskkill` 或强杀进程；
+- **监听与出站状态甄别**：优先执行 `netstat -ano | findstr <port>` 甄别连接状态：严格区分是本地服务处于监听态（`LISTENING`），还是系统客户端瞬态本地出站连接（`ESTABLISHED` / `TIME_WAIT`）；
+- **自适应重试与回退**：对瞬态出站端口碰撞，采用 1~2s 缓冲重试或递增端口自适应启动，彻底杜绝误杀 Windows 系统基础网络进程。
+
+## 13. 工作区经验沉淀闭环与全局规则隔离铁律 (Workspace Learn Isolation & Self-Containment)
+- **规则沉淀 100% 局域化**：凡在 Wind 投顾量化工作区内执行 `/learn`、复盘总结或纠偏所得出的所有经验规范与防御机制，强制 100% 写入本工作区根目录的 `GEMINI.md`；
+- **严禁向全局溢出**：严禁将本工作区的量化业务、前端框架或特定测试逻辑写入全局 `c:\Users\deanc\.gemini\GEMINI.md`；
+- **全会话透明继承**：本工作区所有后续会话与子任务自动继承本规范，保持工作区自治与纯净闭环。
+
+
 

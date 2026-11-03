@@ -1,83 +1,71 @@
-# BRIEFING — 2026-10-29T10:01:00Z
+# BRIEFING — 2026-11-03T06:58:00Z
 
 ## Mission
-Lead the team to integrate WindToolkit's 6 advanced financial research capabilities into AGY2_FundAdvisory (Look-through Risk Screen, Macro High-Frequency Liquidity, Smart Money & Crowding) with 100% test pass and zero regression.
+Lead production-grade deep refactoring of Wind advisory system: global UI/UX redesign, optimizer degradation fix, and win rate statistics expansion.
 
 ## 🔒 My Identity
 - Archetype: orchestrator
 - Roles: orchestrator, user_liaison, human_reporter, successor
 - Working directory: d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_1
-- Original parent: parent
-- Original parent conversation ID: a0715af7-a3cc-4c2e-991d-685d4dfec835
+- Original parent: parent (sentinel)
+- Original parent conversation ID: affddc2f-4348-4b2a-896b-c02e3b236adb
 
 ## 🔒 My Workflow
 - **Pattern**: Project Pattern (Dual Track: Implementation + E2E Testing)
 - **Scope document**: d:\Google\Workspace\Wind\PROJECT.md
-1. **Decompose**: Survey codebase & WindToolkit -> define PROJECT.md architecture & milestones -> decompose into M1 (Look-Through Risk Screen R1), M2 (Macro Liquidity & Dashboard R2), M3 (Smart Money & Crowding R3), M4 (GUI Integration), M5 (E2E Tests Pass & Coverage Hardening R4) + Parallel E2E Testing Track
-2. **Dispatch & Execute**: Direct iteration loop or delegate to sub-orchestrators
+1. **Decompose**: Survey codebase -> define PROJECT.md architecture & milestones -> decompose into M1 (Optimizer Degradation & Weight Conservation Fix), M2 (Win Rate Statistics & Sample Expansion), M3 (UI/UX Information Architecture & Visual Redesign), M4 (E2E Verification & Service Restart) + E2E Testing Track
+2. **Dispatch & Execute**: Direct iteration loop or delegate
 3. **On failure**: Retry -> Replace -> Skip -> Redistribute -> Redesign
 4. **Succession**: At 16 spawns, write handoff.md, spawn successor
 - **Work items**:
-  1. Survey & Codebase Exploration [done]
-  2. Architecture & PROJECT.md Definition [done]
-  3. Milestone 1: Look-Through Risk Screen Engine (R1) [done]
-  4. Milestone 2: Macro High-Frequency Liquidity Thermometer (R2) [in-progress]
-  5. Milestone 3: Smart Money & Crowding Monitor (R3) [in-progress]
-  6. Milestone 4: GUI Dashboard Integration [pending]
-  7. Milestone 5: E2E Test Suite & Adversarial Hardening [pending]
-  8. E2E Testing Track [done - TEST_READY.md published]
-- **Current phase**: 2 (Milestone 2 & Milestone 3 Implementation)
-- **Current focus**: Integrating macro liquidity thermometer, dual-track radar, smart money & crowding in strategy_bridge.py and portfolio_manager.py
+  1. Survey & Codebase Exploration [pending]
+  2. Architecture & PROJECT.md Definition [pending]
+  3. Milestone 1: Optimizer Degradation & Weight Conservation Fix (R1.1) [pending]
+  4. Milestone 2: Win Rate Statistics Expansion & Dual Modes (R1.2) [pending]
+  5. Milestone 3: Global UI/UX Redesign & Information Architecture (R2) [pending]
+  6. Milestone 4: Full Regression & Service Restart (R3, R4) [pending]
+- **Current phase**: 0 (Survey)
+- **Current focus**: Launching parallel Explorers to investigate optimizer, win rate, and UI codebases.
 
 ## 🔒 Key Constraints
 - NEVER write, modify, or create source code files directly.
 - NEVER run build/test commands yourself — require workers to do so.
-- NEVER touch or unlock read-only files: judge_engine.py, holdout_vault.py, AGENT_SPEC.md.
-- Maintain 100% pass rate on all existing 112 tests and all new tests.
-- Offline DuckDB fallback for when network/external data is unavailable.
-- Streamlit GUI (port 8501) zero-error rendering.
+- NEVER touch or unlock read-only files: judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py.
+- Mathematical Invariants: Total allocated_amount == total_capital, target_weight_pct == 100.0%, models must produce differentiated weights (no 1/N collapse).
+- UI Requirements: Sidebar restored as navigation desk, top indices full-width single line, 4 models as responsive cards, 6-dim scoring popover, 3 core logic cards dynamic, titles <= 7 Chinese chars.
 - Path to ORIGINAL_REQUEST.md must be provided to every subagent.
 
 ## Current Parent
-- Conversation ID: a0715af7-a3cc-4c2e-991d-685d4dfec835
-- Updated: not yet
+- Conversation ID: affddc2f-4348-4b2a-896b-c02e3b236adb
+- Updated: 2026-11-03T06:55:20Z
 
 ## Key Decisions Made
-- Survey Phase complete.
-- E2E Test Suite complete & published in TEST_READY.md.
-- Milestone 1 Gate PASSED (204/204 tests pass, read-only preserved, auditor CLEAN).
-- Dispatched worker_m2_m3 for Milestone 2 (Macro Liquidity) and Milestone 3 (Smart Money & Crowding).
+- Starting Phase 0 Survey with 3 parallel Explorers:
+  1. Explorer 1: portfolio_optimizer.py, strategy_bridge.py, generate_zero_start_blueprint, mathematical invariants.
+  2. Explorer 2: win rate calculation, historical index and net value datasets, dual-mode win rate implementation.
+  3. Explorer 3: app_gui.py, sidebar restoration, top index tickers, model card layout, 3-card attribution, <=7 char title audit.
 
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |-------|------|-----------|--------|---------|
-| explorer_survey_1 | teamwork_preview_spec_miner | WindToolkit Spec Investigation | completed | 6b22bedb-170b-443a-88b4-f9d557cf9fd1 |
-| explorer_survey_2 | teamwork_preview_explorer | AGY2 Codebase & Invariants | completed | 7a9a7ae5-9982-4f1a-b937-1f559317b36a |
-| explorer_survey_3 | teamwork_preview_explorer | Integration & Gap Analysis | completed | da2a6cae-a6b7-4fe0-a99e-ebdcb19c746f |
-| test_writer_e2e | teamwork_preview_test_writer | E2E Test Suite (test_toolkit_integration.py) | completed | e0e026c9-c8ed-4d94-a85c-9221212b67d9 |
-| worker_m1 | teamwork_preview_worker | Milestone 1 (portfolio_manager.py R1) | completed | ab34d572-8929-4fbb-83c5-797d4b02f0fc |
-| reviewer_m1_1 | teamwork_preview_reviewer | Reviewer 1 for M1 | completed | 45583441-43d7-4c1d-9e6a-be31b9e47330 |
-| reviewer_m1_2 | teamwork_preview_reviewer | Reviewer 2 for M1 | completed | b5785210-613a-4d45-931e-b70e86b8be4a |
-| challenger_m1_1 | teamwork_preview_challenger | Challenger 1 for M1 | completed | 03fd8004-4e19-4886-9b94-99691e8649c2 |
-| challenger_m1_2 | teamwork_preview_challenger | Challenger 2 for M1 | completed | 9215eb29-ee66-433d-a5f3-168dfc65fcc5 |
-| auditor_m1_1 | teamwork_preview_auditor | Forensic Auditor for M1 | completed | 9cb82f72-f2bd-4fa3-8a4a-51f678f4aed3 |
-| worker_m1_fix | teamwork_preview_worker | Milestone 1 Remediation | completed | b8c6e62f-f09a-49b5-a6aa-80a05df3362e |
-| worker_m2_m3 | teamwork_preview_worker | Milestone 2 & 3 Implementation | in-progress | 67bded92-6312-4ba1-b3e3-7ceeadc16f0a |
+| teamwork_explorer_prod_1 | teamwork_explorer | R1.1 Optimizer Degradation & Purchasing Limit | in-progress | e9ac7099-11e4-40e2-aadd-bba3cdd04e81 |
+| teamwork_explorer_prod_2 | teamwork_explorer | R1.2 Win Rate Statistics & Sample Expansion | in-progress | 213e0bae-c23f-4bc7-836d-75d05840382c |
+| teamwork_explorer_prod_3 | teamwork_explorer | R2 UI/UX Architecture & Visual Redesign | completed | df3c5016-ec84-4ee8-9421-9e15d655776e |
+| worker_prod_m1 | teamwork_worker | M1 Optimizer Degradation & Invariants | in-progress | d6348e9b-6db9-41e6-a24a-f7ca4bcfd539 |
 
 ## Succession Status
 - Succession required: no
-- Spawn count: 12 / 16
-- Pending subagents: 67bded92-6312-4ba1-b3e3-7ceeadc16f0a
+- Spawn count: 4 / 16
+- Pending subagents: d6348e9b-6db9-41e6-a24a-f7ca4bcfd539
 - Predecessor: none
 - Successor: not yet spawned
 
 ## Active Timers
-- Heartbeat cron: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c/task-8
-- Safety timer: none
+- Heartbeat cron: 79413d19-45ad-4a69-b696-81c549751856/task-34
+- Safety timer: 79413d19-45ad-4a69-b696-81c549751856/task-233
 
 ## Artifact Index
 - d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md — User requirements
 - d:\Google\Workspace\Wind\PROJECT.md — Master project architecture and milestones
-- d:\Google\Workspace\Wind\TEST_INFRA.md — Master E2E testing specification
-- d:\Google\Workspace\Wind\TEST_READY.md — E2E test suite ready signal
+- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_1\progress.md — Progress tracker
 - d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_1\GATE_STATUS.md — Gate status log
