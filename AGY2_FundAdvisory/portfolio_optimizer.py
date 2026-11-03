@@ -811,6 +811,11 @@ class WinRateOptimizer:
         else:
             kw = np.full(M, 1.0 / M, dtype=np.float64) if M > 0 else np.array([])
 
+        # 构建候选基金指标映射
+        m_dict = {}
+        if self._individual_metrics is not None and not self._individual_metrics.empty:
+            m_dict = {r["fund_code"]: r for _, r in self._individual_metrics.iterrows()}
+
         def objective(w):
             """目标：最小化 -(0.65*训练集条件胜率 + 0.35*验证集胜率 - 限购惩罚)"""
             portfolio_nav = nav_arr @ w
@@ -819,21 +824,25 @@ class WinRateOptimizer:
 
             buy = portfolio_nav[:M]
             sell = portfolio_nav[hd:hd + M]
-            total_ret = sell / buy - 1.0
+            total_ret = sell / np.maximum(buy, 1e-8) - 1.0
             years = hd / 250.0
             ann_ret = np.sign(total_ret + 1.0) * (np.abs(total_ret + 1.0) ** (1.0 / years)) - 1.0
-            is_win = (ann_ret >= self.target_return).astype(np.float64)
+
+            # 平滑可导 Sigmoid 胜率代理 (tau = 0.025)
+            tau = 0.025
+            diff = (ann_ret - self.target_return) / tau
+            smooth_win = 1.0 / (1.0 + np.exp(-np.clip(diff, -50.0, 50.0)))
 
             if len(kw) == M:
                 if split_M < M:
                     kw_train = kw[:split_M] / (np.sum(kw[:split_M]) + 1e-12)
-                    wr_train = float(np.sum(kw_train * is_win[:split_M]))
-                    wr_val = float(np.mean(is_win[split_M:]))
+                    wr_train = float(np.sum(kw_train * smooth_win[:split_M]))
+                    wr_val = float(np.mean(smooth_win[split_M:]))
                     wr = 0.65 * wr_train + 0.35 * wr_val
                 else:
-                    wr = float(np.sum(kw * is_win))
+                    wr = float(np.sum(kw * smooth_win))
             else:
-                wr = float(np.mean(is_win))
+                wr = float(np.mean(smooth_win))
 
             # 限购惩罚
             penalty = 0.0
@@ -846,20 +855,47 @@ class WinRateOptimizer:
 
             if getattr(self, "model_type", "cond_winrate") == "min_cvar":
                 p5 = float(np.percentile(ann_ret, 5)) if len(ann_ret) > 0 else 0.0
-                tail_s = ann_ret[ann_ret <= p5]
-                cvar_95 = float(np.mean(tail_s)) if len(tail_s) > 0 else p5
-                down_s = ann_ret[ann_ret < 0]
-                down_vol = float(np.sqrt(np.mean(down_s ** 2))) if len(down_s) > 0 else 0.01
-                sortino = float(np.mean(ann_ret)) / max(down_vol, 0.01)
-                return -(0.45 * wr + 0.35 * cvar_95 + 0.15 * np.clip(sortino * 0.1, -0.5, 0.5) - penalty)
+                tail_losses = np.maximum(0.0, p5 - ann_ret)
+                smooth_cvar = p5 - float(np.mean(tail_losses)) / 0.05
+                down_vol = float(np.sqrt(np.mean(np.minimum(0.0, ann_ret) ** 2)))
+                return -(0.55 * smooth_cvar - 0.35 * down_vol * 2.0 + 0.10 * wr - penalty)
             elif getattr(self, "model_type", "cond_winrate") == "kelly_momentum":
                 safe_r = np.clip(0.5 * ann_ret, -0.45, 2.0)
                 kelly_g = float(np.mean(np.log1p(safe_r)))
-                return -(0.50 * wr + 0.50 * kelly_g - penalty)
-            return -(wr - penalty)
+                sharpes = np.array([float(m_dict.get(c, {}).get("sharpe", 0.5)) for c in valid_codes])
+                mom_tilt = float(np.dot(w, sharpes))
+                return -(0.60 * kelly_g + 0.25 * mom_tilt * 0.1 + 0.15 * wr - penalty)
+            elif getattr(self, "model_type", "cond_winrate") == "hrp_cvar":
+                p5 = float(np.percentile(ann_ret, 5)) if len(ann_ret) > 0 else 0.0
+                smooth_cvar = p5 - float(np.mean(np.maximum(0.0, p5 - ann_ret))) / 0.05
+                return -(0.50 * wr + 0.50 * smooth_cvar - penalty)
 
-        # 初始等权
-        x0 = np.full(n, 1.0 / n)
+            # 默认 cond_winrate：平滑条件胜率 + 达标夏普奖励
+            mu = float(np.mean(ann_ret))
+            vol = float(np.std(ann_ret) + 1e-4)
+            omega_bonus = (mu - self.target_return) / vol
+            return -(0.75 * wr + 0.25 * np.clip(omega_bonus * 0.1, -0.5, 0.5) - penalty)
+
+        # 初始权重根据所选机构模型提供智能先验倾斜 (Prior Tilt)，避免机械 1/N
+        if self.model_type == "min_cvar":
+            priors = np.array([1.0 / max(0.04, abs(float(m_dict.get(c, {}).get("max_dd", 0.15)))) for c in valid_codes], dtype=float)
+        elif self.model_type == "kelly_momentum":
+            priors = np.array([max(0.1, float(m_dict.get(c, {}).get("sharpe", 0.5)) + 1.0) for c in valid_codes], dtype=float)
+        elif self.model_type == "hrp_cvar":
+            hrp_init = self._compute_hrp_weights(valid_codes, nav_df)
+            priors = np.array([hrp_init.get(c, 1.0 / n) for c in valid_codes], dtype=float)
+        else:  # cond_winrate
+            priors = np.array([float(m_dict.get(c, {}).get("conditional_win_rate", m_dict.get(c, {}).get("win_rate", 0.5))) ** 1.8 for c in valid_codes], dtype=float)
+
+        if len(priors) == n and np.all(np.isfinite(priors)) and priors.sum() > 0:
+            x0 = priors / priors.sum()
+            for _ in range(5):
+                x0 = np.clip(x0, min_w, max_w)
+                s = x0.sum()
+                if s > 0:
+                    x0 /= s
+        else:
+            x0 = np.full(n, 1.0 / n)
 
         bounds = [(min_w, max_w)] * n
         constraints_list = [
@@ -894,8 +930,12 @@ class WinRateOptimizer:
                 w = np.clip(w, min_w, max_w)
                 w = w / w.sum()  # 归一化
                 return {code: float(w[i]) for i, code in enumerate(valid_codes)}
+            elif np.all(np.isfinite(x0)) and x0.sum() > 0:
+                # 即使 SLSQP 无法进一步改善，x0 也是有效先验倾斜解
+                return {code: float(x0[i]) for i, code in enumerate(valid_codes)}
         except Exception:
-            pass
+            if np.all(np.isfinite(x0)) and x0.sum() > 0:
+                return {code: float(x0[i]) for i, code in enumerate(valid_codes)}
 
         return None
 

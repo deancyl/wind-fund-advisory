@@ -4371,10 +4371,14 @@ class StrategyBridge:
                 new_w[rep_code] = round(new_w.get(rep_code, 0.0) + w_val, 4)
             opt_weights = new_w
 
-        # 归一化权重确保总和 1.0
+        # 归一化权重确保总和严格 1.0000
         w_sum = sum(opt_weights.values())
         if w_sum > 0:
             opt_weights = {k: round(v / w_sum, 4) for k, v in opt_weights.items()}
+            diff_w = round(1.0 - sum(opt_weights.values()), 4)
+            if abs(diff_w) > 0.0 and opt_weights:
+                max_k = max(opt_weights.keys(), key=lambda k: opt_weights[k])
+                opt_weights[max_k] = round(opt_weights[max_k] + diff_w, 4)
 
         if progress_cb:
             progress_cb(2, 4, "正在合成 2018-2026 跨牛熊组合净值并计算同温层条件胜率...")
@@ -5276,6 +5280,41 @@ class StrategyBridge:
                 })
                 allocated_sum += amt
 
+        # 伴生承接基金去重与合并：若同一基金出现多次，合并其金额
+        merged_items = []
+        code_to_idx = {}
+        for it in items:
+            c = it["fund_code"]
+            if c in code_to_idx:
+                existing = merged_items[code_to_idx[c]]
+                existing["allocated_amount"] = round(existing["allocated_amount"] + it["allocated_amount"], 2)
+                existing["amount"] = existing["allocated_amount"]
+                if it.get("has_split"):
+                    existing["has_split"] = True
+                    existing["quota_fallback"] = f"{existing.get('quota_fallback', '')} ｜ {it.get('quota_fallback', '')}".strip(" ｜")
+            else:
+                code_to_idx[c] = len(merged_items)
+                merged_items.append(it)
+        items = merged_items
+
+        # 分厘平账与百分比严格闭合 (Penny Reconciliation & Percentage Closure)
+        cur_alloc = round(sum(it["allocated_amount"] for it in items), 2)
+        diff_cents = round(total_capital - cur_alloc, 2)
+        if abs(diff_cents) > 0.0 and items:
+            unlim = [it for it in items if not it.get("has_split") or it.get("quota_fallback", "").startswith("✅")]
+            target_item = max(unlim or items, key=lambda x: x["allocated_amount"])
+            target_item["allocated_amount"] = round(target_item["allocated_amount"] + diff_cents, 2)
+            target_item["amount"] = target_item["allocated_amount"]
+
+        for it in items:
+            it["target_weight_pct"] = round((it["allocated_amount"] / total_capital) * 100.0, 2)
+
+        sum_pct = round(sum(it["target_weight_pct"] for it in items), 2)
+        diff_pct = round(100.00 - sum_pct, 2)
+        if abs(diff_pct) > 0.0 and items:
+            target_item = max(items, key=lambda x: x["allocated_amount"])
+            target_item["target_weight_pct"] = round(target_item["target_weight_pct"] + diff_pct, 2)
+
         # 按建议买入金额降序排列
         items.sort(key=lambda x: x["allocated_amount"], reverse=True)
 
@@ -5297,8 +5336,8 @@ class StrategyBridge:
         return {
             "tier": tier,
             "total_capital": total_capital,
-            "allocated_sum": round(allocated_sum, 2),
-            "remaining_cash": round(total_capital - allocated_sum, 2),
+            "allocated_sum": total_capital,
+            "remaining_cash": 0.0,
             "items": items,
             "summary_advice": summary_advice,
             "defensive_triggered": is_defensive,

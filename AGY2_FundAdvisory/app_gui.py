@@ -193,20 +193,30 @@ st.set_page_config(
 # 自定义 CSS 强化桌面客户端质感（含彻底隐藏 Stop / Deploy / 汉堡菜单）
 st.markdown("""
 <style>
-    /* 彻底隐藏侧边栏与展开控制箭头，实现 100% 满宽沉浸式体验 */
-    [data-testid="stSidebar"], [data-testid="collapsedControl"], section[data-testid="stSidebar"] {
-        display: none !important;
+    /* 侧边栏自然展开收起，同时彻底隐藏 Stop / Deploy / 汉堡菜单等 Demo 痕迹 */
+    .stDeployButton, [data-testid="stStatusWidget"], #MainMenu, footer, [data-testid="stHeaderActionElements"], [data-testid="stToolbar"] {
         visibility: hidden !important;
-        width: 0 !important;
+        display: none !important;
     }
-    header[data-testid="stHeader"], [data-testid="stHeader"], .stAppHeader {
-        visibility: hidden !important;
-        display: none !important;
-        height: 0 !important;
+    header[data-testid="stHeader"], .stAppHeader {
+        background: transparent !important;
+        z-index: 99 !important;
     }
-    [data-testid="stToolbar"], .stDeployButton, [data-testid="stStatusWidget"], #MainMenu, footer, [data-testid="stHeaderActionElements"] {
-        visibility: hidden !important;
-        display: none !important;
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        top: 10px !important;
+        left: 10px !important;
+        z-index: 100 !important;
+    }
+    /* 禁用 Streamlit 在重新计算时的 stale 半透明重影 (解决调参时按钮重影) */
+    .stApp [data-testid="stVerticalBlock"] > div[style*="opacity"] {
+        opacity: 1 !important;
+        transition: none !important;
+    }
+    div.stElementContainer[data-stale="true"] {
+        opacity: 1 !important;
+        filter: none !important;
     }
     .main-metric-card {
         background: #ffffff;
@@ -244,30 +254,43 @@ st.markdown("""
         display: inline-flex;
         align-items: center;
         justify-content: space-between;
-        gap: 6px;
+        gap: 8px;
         background: #f8fafc;
         border: 1px solid #e2e8f0;
         border-radius: 6px;
-        padding: 4px 10px;
-        font-size: 12px;
+        padding: 5px 10px;
         flex: 1 1 0;
-        min-width: 120px;
+        min-width: 0;
     }
     .index-pill-name {
+        font-size: 13px;
         font-weight: 600;
         color: #334155;
+        white-space: nowrap;
     }
     .index-pill-point {
+        font-size: 15px;
         font-weight: 700;
         color: #0f172a;
+        white-space: nowrap;
     }
     .index-pill-chg-up {
+        font-size: 12px;
         font-weight: 700;
         color: #dc2626;
+        background: #fee2e2;
+        padding: 1px 6px;
+        border-radius: 4px;
+        white-space: nowrap;
     }
     .index-pill-chg-down {
+        font-size: 12px;
         font-weight: 700;
         color: #16a34a;
+        background: #dcfce7;
+        padding: 1px 6px;
+        border-radius: 4px;
+        white-space: nowrap;
     }
     .metric-card-title {
         font-size: 13px;
@@ -491,8 +514,54 @@ calc = pm.calculator
 # 实时拉取最新策略大脑快照 (首屏 auto_sync=False 纯本地秒级直开)
 snapshot = StrategyBridge.get_latest_market_snapshot(force_reload=False, auto_sync=False)
 
+# -------------------------------------------------------------
+# 侧边栏：【🧭 全局领航台】（无局部操作，纯粹跨 Tab 领航仪表盘）
+# -------------------------------------------------------------
+with st.sidebar:
+    st.subheader("🧭 全局领航台")
+    st.caption("实时宏观状态与多工作区方案总览")
+    st.markdown("---")
 
+    # 1. 实时市场状态与攻防
+    _c_stat = clock.get_market_window_status(datetime.now())
+    _c_color = '#16a34a' if _c_stat.is_golden_window else ('#dc2626' if _c_stat.is_after_market else '#0284c7')
+    _c_txt = "🟢 14:30黄金窗口" if _c_stat.is_golden_window else ("🟡 盘后已关账" if _c_stat.is_after_market else "🔵 盘中观察期")
+    st.markdown("##### 🕒 市场状态")
+    st.write(f"**交易时钟**：{_c_txt}（倒计时 {_c_stat.countdown_str}）")
+    st.write(f"**市场定调**：{snapshot.get('market_state', '震荡收息期')[:6]} ｜ **信噪比**：`{float(snapshot.get('er_snr', 0.65)):.2f}`")
+    _c300 = snapshot.get('c300_price', 4053.0)
+    st.write(f"**攻防红线**：破 `{_c300*1.012:,.0f}` 进攻 ｜ 跌 `{_c300*0.985:,.0f}` 防守")
 
+    st.markdown("---")
+    # 2. 【🌱 新资建仓】方案快照
+    st.markdown("##### 🌱 新资建仓快照")
+    _act_t = st.session_state.get("active_tier_val", "C3")
+    _act_r = float(st.session_state.get("target_return_val", 15.0))
+    _num_f = int(st.session_state.get("tab1_num_funds", 6))
+    _m_type = st.session_state.get("tab1_model_type", "hrp_cvar")
+    _m_name = QUANT_MODELS_CATALOG.get(_m_type, {}).get("name", "鲁棒双核HRP")
+    st.write(f"**目标档位**：【{_act_t}】目标年化 `{_act_r:.1f}%`")
+    st.write(f"**优选只数**：`{_num_f} 只基金` ｜ **模型**：`{_m_name}`")
+
+    st.markdown("---")
+    # 3. 【💼 实盘持仓】账本快照
+    st.markdown("##### 💼 实盘账本快照")
+    _tot_eq = sum(h.market_value for h in pm.holdings.values()) + pm.available_cash + pm.in_transit_cash
+    st.write(f"**组合总资产**：¥{_tot_eq:,.2f}")
+    st.write(f"**可用现金**：¥{pm.available_cash:,.2f} ｜ **持仓标的**：`{len(pm.holdings)} 只`")
+    st.write(f"**最大回撤**：`{pm.max_drawdown_pct:.2f}%` ｜ **Alpha**：`{pm.alpha_return_pct:+.2f}%`")
+
+    st.markdown("---")
+    # 4. 全局一键刷新入口
+    if st.button("🔄 刷新实时行情与估值", use_container_width=True, type="primary", key="btn_sidebar_refresh_all"):
+        clear_realtime_cache()
+        fetch_batch_realtime_indices(use_cache=False)
+        pm.sync_holdings_live_nav(use_intraday_gsz=True)
+        StrategyBridge._cached_snapshot = None
+        StrategyBridge._cached_matrix = None
+        StrategyBridge.get_latest_market_snapshot(force_reload=True, auto_sync=False)
+        st.success("✅ 全局行情与估值已刷新！")
+        st.rerun()
 
 # -------------------------------------------------------------
 # 顶部全局看板：1 行 4 宽卡 + 1 个紧凑刷新按钮 (彻底消灭省略号)
@@ -651,21 +720,21 @@ for idx_item in live_indices_list:
     """)
 
 ticker_inner_html = "\n".join(pill_html_parts)
-strip_col_ticker, strip_col_btn = st.columns([8.2, 1.8])
+strip_col_ticker, strip_col_btn = st.columns([8.6, 1.4])
 
 with strip_col_ticker:
     safe_markdown_html(f"""
     <div class="index-ticker-strip">
         <span style="font-size: 13px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-            📊 核心指数实时行情
+            📊 核心指数
         </span>
         {ticker_inner_html}
     </div>
     """)
 
 with strip_col_btn:
-    safe_markdown_html("<div style='height: 8px;'></div>")
-    if st.button("🔄 刷新实时行情与估值", help="单次批量重新拉取 6 大核心指数点位与全组合最新真实净值", use_container_width=True, type="primary", key="btn_refresh_all_live_quotes"):
+    safe_markdown_html("<div style='height: 6px;'></div>")
+    if st.button("🔄 刷新行情", help="单次批量重新拉取 6 大核心指数点位与全组合最新真实净值", use_container_width=True, type="primary", key="btn_refresh_all_live_quotes"):
         clear_realtime_cache()
         fetch_batch_realtime_indices(use_cache=False)
         pm.sync_holdings_live_nav(use_intraday_gsz=True)
@@ -788,7 +857,7 @@ with tab_zero_start:
         # 步骤一：设定目标风险
         # ---------------------------------------------------------
         with st.container(border=True):
-            st.markdown("### 步骤一：设定目标风险")
+            st.markdown("### 步骤一：设定目标")
 
             tier_mode = st.radio(
                 "定档方式",
@@ -961,17 +1030,25 @@ with tab_zero_start:
             </div>
             """)
 
-            with st.expander("🔍 【点击展开】：四大机构级量化模型特性与适用场景全景对比", expanded=False):
-                model_table_rows = []
-                for m_k, m_info in QUANT_MODELS_CATALOG.items():
-                    model_table_rows.append({
-                        "模型名称": m_info["name"],
-                        "机构评级标签": m_info["badge"],
-                        "数学与量化原理": m_info["principle"],
-                        "核心优势": m_info["advantage"],
-                        "最适用市场环境": m_info["suitable_when"]
-                    })
-                st.dataframe(pd.DataFrame(model_table_rows), use_container_width=True, hide_index=True)
+            with st.expander("🔍 四大模型对比", expanded=False):
+                mod_c1, mod_c2, mod_c3, mod_c4 = st.columns(4)
+                model_cards = [
+                    (mod_c1, "鲁棒双核HRP", "层次聚类 + 极值CVaR", "解决赛道踩踏", "层次聚类隔离风险，低波底仓高波控仓", "结构分化 / 震荡市"),
+                    (mod_c2, "条件胜率最优", "状态机加权 + 贝叶斯核密度", "解决时点错配", "锚定当前估值利率，优配同温层高胜率标的", "估值击球区 / 轮动市"),
+                    (mod_c3, "尾部风控CVaR", "极值下行损失规划", "解决黑天鹅巨亏", "深度压低肥尾亏损，杜绝长期严重套牢", "流动性紧缩 / 避险期"),
+                    (mod_c4, "凯利动量增强", "连续半凯利 + 考夫曼信噪比", "解决踏空主升浪", "高信噪比极速跟进主升浪，衰竭自动减速", "单边趋势 / 顺势行情"),
+                ]
+                for col, m_nm, m_tag, m_prob, m_alloc, m_scen in model_cards:
+                    with col:
+                        safe_markdown_html(f"""
+                        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; height: 100%; box-sizing: border-box;">
+                            <div style="font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 2px;">{m_nm}</div>
+                            <div style="font-size: 11px; color: #2563eb; font-weight: 600; margin-bottom: 6px;">{m_tag}</div>
+                            <div style="font-size: 11px; color: #475569; margin-bottom: 4px;"><b>【解决什么】</b><br>{m_prob}</div>
+                            <div style="font-size: 11px; color: #475569; margin-bottom: 4px;"><b>【怎么分配】</b><br>{m_alloc}</div>
+                            <div style="font-size: 11px; color: #16a34a; font-weight: 500;"><b>【适合行情】</b><br>{m_scen}</div>
+                        </div>
+                        """)
 
             # ── 用户掌控权：参数调整与下游重计算解耦 ──
             cur_tab1_params = {
@@ -1011,7 +1088,7 @@ with tab_zero_start:
         if st.session_state.get("tab1_step_reached", 1) >= 2:
             st.markdown("---")
             m_title = QUANT_MODELS_CATALOG.get(sel_model_type, {}).get("name", "鲁棒双核HRP")
-            st.markdown(f"### 步骤二：现场推演评估")
+            st.markdown(f"### 步骤二：现场推演")
             st.caption(f"当前模型：**{m_title}** ｜ 优选标的：**{num_funds_input} 只** ｜ 目标档位：**【{active_tier} {cur_tier_meta['name']}】**")
 
             if st.session_state.get("tab1_trigger_sim", False) or st.session_state.get("tab1_sim_cache") is None:
@@ -1047,19 +1124,32 @@ with tab_zero_start:
             opt_weights = _cache_entry.get("optimal_weights", {})
             alts_map = _cache_entry.get("alternatives_by_slot", {})
 
-            # 3 张条件胜率卡（带保本率、跑赢货基率、中位年化）
-            st.markdown("#### 🎯 2018-2026 全周期跨牛熊滚动持有胜率 (同温层状态机条件加权)")
+            # 3 张滚动胜率卡（双口径对照：当下相似条件胜率 vs 全历史胜率）
+            st.markdown("#### 🎯 跨牛熊滚动胜率")
             _wr_cols = st.columns(3)
             for _wi, (_wk, _wv) in enumerate(wr_table.items()):
                 with _wr_cols[_wi]:
+                    _cond_wr = float(_wv.get("conditional_win_rate", _wv.get("win_rate", 0.0))) * 100.0
+                    _uncond_wr = float(_wv.get("unconditional_win_rate", _wv.get("win_rate", 0.0))) * 100.0
                     _med_ann = float(_wv.get("median_ann_return", _wv.get("median_return", 0.0))) * 100.0
                     _no_loss = float(_wv.get("no_loss_rate", 0.0)) * 100.0
                     _beat_cash = float(_wv.get("beat_cash_rate", _no_loss * 0.95)) * 100.0
-                    st.metric(
-                        f"{_wv['label']} 胜率",
-                        f"{_wv['win_rate']*100:.1f}%",
-                        delta=f"保本 {_no_loss:.0f}% ｜ 跑赢货基 {_beat_cash:.0f}% ｜ 中位 {_med_ann:.1f}%",
-                    )
+                    _tot_w = int(_wv.get("total_windows", 0))
+                    safe_markdown_html(f"""
+                    <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                        <div style="font-size: 13px; font-weight: 600; color: #475569; display: flex; justify-content: space-between;">
+                            <span>{_wv['label']} 达标胜率</span>
+                            <span style="font-size: 11px; color: #0284c7; background: #e0f2fe; padding: 1px 6px; border-radius: 4px;">{_tot_w:,} 期样本</span>
+                        </div>
+                        <div style="font-size: 24px; font-weight: 700; color: #0f172a; margin: 4px 0;">
+                            {_cond_wr:.1f}%
+                            <span style="font-size: 12px; font-weight: 500; color: #64748b;">(全历史 {_uncond_wr:.1f}%)</span>
+                        </div>
+                        <div style="font-size: 12px; color: #16a34a; font-weight: 500;">
+                            保本率 <b>{_no_loss:.0f}%</b> ｜ 跑赢货基 <b>{_beat_cash:.0f}%</b> ｜ 中位年化 <b>{_med_ann:.1f}%</b>
+                        </div>
+                    </div>
+                    """)
 
             with st.expander("ℹ️ 【量化数学定义】：为什么需要同时看达标胜率、保本率、跑赢货基率与 95% CVaR？", expanded=False):
                 st.markdown(r"""
@@ -1142,7 +1232,7 @@ with tab_zero_start:
                 """)
 
             # 白盒折叠框 1: 全市场选基漏斗与评分表
-            with st.expander("🔍 【点击展开白盒推演详情】：全市场选基漏斗与赛道冠军打分表", expanded=False):
+            with st.expander("🔍 选基漏斗与评分", expanded=False):
                 f_c1, f_c2, f_c3, f_c4 = st.columns(4)
                 with f_c1:
                     _tot_m = funnel_stats.get('total_market_funds', 28177)
@@ -1157,8 +1247,21 @@ with tab_zero_start:
                     _champ_s = len(opt_weights)
                     st.metric("4. 最终优选金牌组合", f"{_champ_s} 只", f"动态对齐用户调节的 {num_funds_input} 只", delta_color="inverse")
 
-                st.markdown("##### 📐 《六维量化打分加权公式（0~100分归一化）》")
-                st.info("综合评分计算公式：总评得分 (0-100) = 35% * 历史超额Alpha得分 + 25% * 低费率得分 + 15% * R1底层排雷健康分 + 10% * R3北向聪明钱流入分 + 10% * 反拥挤度安全分 + 5% * 衍生品与宏观契合度")
+                col_f_title, col_f_pop = st.columns([8, 2])
+                with col_f_title:
+                    st.markdown("##### 📐 六维评分公式")
+                with col_f_pop:
+                    with st.popover("ⓘ 评分细则", use_container_width=True):
+                        st.markdown("""
+                        **六维评分标准 (0~100 分)：**
+                        1. **超额收益 (35%)**：近3年超额 Alpha 分位数；
+                        2. **综合费率 (25%)**：申赎与管理销售服务费率综合折算；
+                        3. **底层排雷 (15%)**：商誉、质押、存贷双高与解禁排雷；
+                        4. **聪明钱流 (10%)**：北向增持、机构重仓占比与净流入；
+                        5. **反拥挤度 (10%)**：行业及个股集中度过高抱团惩罚；
+                        6. **宏观契合 (5%)**：与当前 ERP/DR007 同温层契合度。
+                        """)
+                st.info("总评得分 = 35%×超额收益 + 25%×低费率 + 15%×排雷健康 + 10%×聪明钱 + 10%×反拥挤 + 5%×宏观契合")
 
                 st.markdown(f"##### 📊 《当前档位入选标的：{_champ_s} 只冠军基金六维量化评分明细表》")
                 if not quant_table.empty:
@@ -1241,7 +1344,7 @@ with tab_zero_start:
                                 st.rerun()
 
             # 白盒折叠框 2: 宏观信号
-            with st.expander("🧭 【点击展开白盒推演详情】：宏观流动性、风格动量与衍生品四维因果决策信号", expanded=False):
+            with st.expander("🧭 宏观决策信号", expanded=False):
                 c_sig1, c_sig2, c_sig3, c_sig4 = st.columns(4)
                 with c_sig1:
                     safe_markdown_html(f"""
@@ -1300,53 +1403,71 @@ with tab_zero_start:
                     </div>
                     """)
 
-            # 三句话看懂本方案 (四大归因卡片)
-            st.markdown("#### 🎯 《三句话看懂本方案：怎么赚钱、为什么能赢、风险与铁律》")
-            col_card1, col_card2, col_card3, col_card4 = st.columns(4)
-            with col_card1:
+            # 方案核心归因 (3 栏深度归因大卡片，100% 动态读取推演数据)
+            st.markdown("#### 🎯 方案核心归因")
+
+            # 动态计算进攻与防守分类资产比例
+            _def_w = 0.0
+            _off_w = 0.0
+            _top_f_code = ""
+            _top_f_w = 0.0
+            for _fc, _fw in sorted(opt_weights.items(), key=lambda x: x[1], reverse=True):
+                if not _top_f_code:
+                    _top_f_code = _fc
+                    _top_f_w = _fw
+                _ac = pm.classify_fund_asset_class(_fc)
+                if any(k in _ac for k in ["债", "固收", "货币", "黄金"]):
+                    _def_w += _fw
+                else:
+                    _off_w += _fw
+            _top_f_meta = CORE_STRATEGY_POOL.get(_top_f_code, {}) or EXTENDED_FUND_CATALOG.get(_top_f_code, {})
+            _top_f_name = _top_f_meta.get("fund_name", f"优选基金_{_top_f_code}")
+            _def_amt = plan_capital * _def_w
+            _off_amt = plan_capital * _off_w
+            _m_title_now = QUANT_MODELS_CATALOG.get(sel_model_type, {}).get("name", "鲁棒双核HRP")
+            _worst_dd_pct = float(readable_kpi.get('worst_case_drawdown_pct', 0.0))
+            _worst_dd_amt = plan_capital * (_worst_dd_pct / 100.0)
+            _underwater_d = int(readable_kpi.get('max_underwater_days', 0))
+
+            c_attr1, c_attr2, c_attr3 = st.columns(3)
+            with c_attr1:
                 safe_markdown_html(f"""
-                <div class="decision-card" style="border-top: 3px solid #b91c1c;">
+                <div class="decision-card" style="border-top: 3px solid #b91c1c; height: 100%;">
                     <div class="decision-title" style="color: #b91c1c;">
-                        💰 ① 怎么赚钱？
+                        💰 怎么赚钱？
                     </div>
                     <div class="decision-desc">
-                        高比例稳健纯债与红利低波筑牢底盘，估值低位增配高贝塔成长先锋，捕捉牛市主升浪。
+                        <b>防守收息</b>：¥{_def_amt:,.0f} ({_def_w*100:.1f}%) 筑牢底仓底线<br>
+                        <b>进攻弹性</b>：¥{_off_amt:,.0f} ({_off_w*100:.1f}%) 捕捉超额收益<br>
+                        <b>第一重仓</b>：{_top_f_name} ({_top_f_code}) 占比 <b>{_top_f_w*100:.1f}%</b>
                     </div>
                 </div>
                 """)
 
-            with col_card2:
+            with c_attr2:
                 safe_markdown_html(f"""
-                <div class="decision-card" style="border-top: 3px solid #15803d;">
+                <div class="decision-card" style="border-top: 3px solid #15803d; height: 100%;">
                     <div class="decision-title" style="color: #15803d;">
-                        🏆 ② 为什么能赢？
+                        🏆 为什么能赢？
                     </div>
                     <div class="decision-desc">
-                        28,177只全市场漏斗严选各赛道前1%冠军标的，同温层状态机匹配相似历史高胜率解。
+                        <b>严选漏斗</b>：2.8 万只基金初筛，赛道入围评分 Top 1%<br>
+                        <b>量化定权</b>：采用【{_m_title_now}】避免等权与赛道踩踏<br>
+                        <b>同温层加权</b>：ERP 分位 {erp_pct:.1f}%，精准锚定历史相似击球区
                     </div>
                 </div>
                 """)
 
-            with col_card3:
+            with c_attr3:
                 safe_markdown_html(f"""
-                <div class="decision-card" style="border-top: 3px solid #b45309;">
+                <div class="decision-card" style="border-top: 3px solid #b45309; height: 100%;">
                     <div class="decision-title" style="color: #b45309;">
-                        🚨 ③ 风险与底线
+                        🚨 风险与铁律
                     </div>
                     <div class="decision-desc">
-                        历史最极端浮亏 -{readable_kpi.get('worst_case_drawdown_pct', 0.0):.2f}%，最长水下约 {readable_kpi.get('max_underwater_days', 0)} 天，做好回本预期。
-                    </div>
-                </div>
-                """)
-
-            with col_card4:
-                safe_markdown_html(f"""
-                <div class="decision-card" style="border-top: 3px solid #0369a1;">
-                    <div class="decision-title" style="color: #0369a1;">
-                        ⚖️ ④ 执行铁律
-                    </div>
-                    <div class="decision-desc">
-                        买入未满7天绝不赎回拦截1.5%惩罚费；底部便宜区绝不割肉，红利类强制现金分红。
+                        <b>历史极限浮亏</b>：-{_worst_dd_pct:.1f}% (预估最大缩水 ¥{_worst_dd_amt:,.0f})<br>
+                        <b>水下最长回本</b>：约 <b>{_underwater_d} 天</b>，长钱长投以时间换空间<br>
+                        <b>交易铁律</b>：不满 7 天严禁赎回防 1.5% 惩罚费；低位绝不割肉
                     </div>
                 </div>
                 """)
@@ -1366,7 +1487,7 @@ with tab_zero_start:
         # ---------------------------------------------------------
         if st.session_state.get("tab1_step_reached", 1) >= 3:
             st.markdown("---")
-            st.markdown("### 步骤三：生成实盘建仓")
+            st.markdown("### 步骤三：生成建仓")
 
             if st.session_state.get("tab1_trigger_s3", False) or st.session_state.get("tab1_step3_cache") is None:
                 sim_c = st.session_state.get("tab1_sim_cache") or {}
@@ -1552,7 +1673,7 @@ with tab_holdings_and_rebalance:
         # ---------------------------------------------------------
         # 步骤一：当前持仓账本
         # ---------------------------------------------------------
-        st.markdown("### 步骤一：当前持仓账本")
+        st.markdown("### 步骤一：持仓账本")
 
         # 账本专属快捷控制工具条 (内聚归位，消灭侧栏割裂)
         t2_ctrl_c1, t2_ctrl_c2, t2_ctrl_c3, t2_ctrl_c4 = st.columns([2.5, 2.5, 2.8, 2.2])
@@ -1609,7 +1730,7 @@ with tab_holdings_and_rebalance:
         t2_m3.metric("📈 累计浮动盈亏", f"¥{_t2_pnl:+,.2f}", delta=f"{_t2_pnl_pct:+.2f}%")
         t2_m4.metric("📊 持仓标的数", f"{len(pm.holdings)} 只")
 
-        with st.expander("📋 实盘接管档案（接管基准、峰值资产、最大回撤与 Alpha）", expanded=False):
+        with st.expander("📋 实盘接管档案", expanded=False):
             col_arch1, col_arch2 = st.columns(2)
             with col_arch1:
                 st.write(f"**接管模式**：{'模式 A (极简冷启动)' if pm.takeover_mode == 'A' else '模式 B (账本热接管)'}")
@@ -1769,7 +1890,7 @@ with tab_holdings_and_rebalance:
                         st.success(f"成功导入 {res_s.get('imported_count', 0)} 条快照！")
                         st.rerun()
 
-        with st.expander("📦 【点击展开：全组合 FIFO 批次透视与免赎回费倒计时】", expanded=False):
+        with st.expander("📦 FIFO批次透视", expanded=False):
             all_b_rows = []
             for f_c, h_obj in pm.holdings.items():
                 safe_shares_val = pm.get_penalty_free_redeemable_shares(f_c)
@@ -1813,7 +1934,7 @@ with tab_holdings_and_rebalance:
         # ---------------------------------------------------------
         if st.session_state.get("tab2_diagnosed", False):
             st.markdown("---")
-            st.markdown("### 步骤二：调仓时机裁决")
+            st.markdown("### 步骤二：时机裁决")
 
             if st.session_state.get("tab2_trigger_diagnose", False) or st.session_state.get("tab2_diag_cache") is None:
                 acc_diag = ActiveComputationConsole("AI持仓全息诊断", total_steps=4, step_labels=[
@@ -1895,7 +2016,7 @@ with tab_holdings_and_rebalance:
         # ---------------------------------------------------------
         if st.session_state.get("tab2_rebalanced", False):
             st.markdown("---")
-            st.markdown("### 步骤三：调仓方案执行")
+            st.markdown("### 步骤三：方案执行")
 
             # 🎯 目标组合选择单选框
             has_t1_opt = bool(st.session_state.get("tab1_sim_cache") and st.session_state["tab1_sim_cache"].get("optimal_weights"))
@@ -1966,7 +2087,7 @@ with tab_holdings_and_rebalance:
             risk_shift = conseq["risk_shift"]
             lockup_rst = conseq["lockup_reset"]
 
-            st.markdown("#### 🧾 《本次调仓四大真实后果量化账单》")
+            st.markdown("#### 🧾 调仓真实后果")
             c_cons1, c_cons2, c_cons3, c_cons4 = st.columns(4)
             with c_cons1:
                 pen_html = f"<br><span style='color: #ef4444; font-weight:700;'>包含 7天惩罚费: ¥{fee_loss['penalty_fee_7d']:,.2f}</span>" if fee_loss['penalty_fee_7d'] > 0 else "<br><span style='color: #10b981;'>免收 1.5% 惩罚费 (¥0)</span>"
@@ -2314,7 +2435,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
     st.markdown(" ")
 
     # 2018-2026 全周期真实净值推演曲线 (同屏对标自选基准)
-    st.markdown(f"#### 🚀 2018-2026 全周期真实净值推演曲线 (对标 {len(selected_bms)} 只自选基准指数)")
+    st.markdown("#### 🚀 全周期净值曲线")
 
     fig_nav = go.Figure()
 
@@ -2402,7 +2523,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
 
     col_dd, col_alloc = st.columns(2)
     with col_dd:
-        st.markdown("##### 🌊 动态水下回撤对比图 (Underwater Drawdown %)")
+        st.markdown("##### 🌊 动态回撤对比")
         fig_dd = go.Figure()
         fig_dd.add_trace(go.Scatter(
             x=df_bt['date'],
@@ -2438,7 +2559,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
         st.plotly_chart(fig_dd, use_container_width=True)
 
     with col_alloc:
-        st.markdown("##### 📊 历史大类资产仓位变迁面积图 (Stacked Area %)")
+        st.markdown("##### 📊 资产仓位变迁")
         fig_area = go.Figure()
         fig_area.add_trace(go.Scatter(
             x=df_bt['date'], y=df_bt['weight_ashare'] * 100.0, mode='lines', stackgroup='one',
@@ -2467,13 +2588,13 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
         st.plotly_chart(fig_area, use_container_width=True)
 
     # 6 大历史市场风格切片明细表与历史同温层匹配器
-    st.markdown("#### 📜 6 大历史市场风格切片全胜战报 (Gate B 考核通过)")
+    st.markdown("#### 📜 历史切片战报")
     df_slices = trial29_kpi.get("slices_df")
     if df_slices is not None and not df_slices.empty:
         st.dataframe(df_slices, use_container_width=True, hide_index=True)
 
     st.markdown("---")
-    st.markdown("#### 🔍 历史相似行情与宏观同温层匹配器 (History Analog Matcher)")
+    st.markdown("#### 🔍 历史相似匹配")
     st.caption("系统通过 4 维特征向量在 2018~2026 年大样本中匹配历史同温层行情：")
 
     analog_tab2 = _cached_find_historical_analogs(top_k=3)
@@ -2601,7 +2722,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
 
         # 重仓股交叉重合度检测 (宽屏 height=360 自适应渲染，消除图 4 挤压)
         st.markdown("---")
-        st.markdown("#### ⚠️ 前十大重仓股重叠交叉检测与热力图")
+        st.markdown("#### ⚠️ 重仓交叉热力")
         overlap_res = _cached_stock_overlap(_h_repr)
         max_unexcused = float(overlap_res.get("max_non_diag_unexcused", 0.0))
         alerts = overlap_res.get("alerts", [])
@@ -2627,7 +2748,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
 
         # 底层穿透排雷大宽表
         st.markdown("---")
-        st.markdown("#### 🛡️ 基金底层前十大重仓股穿透排雷大宽表 (商誉/存贷双高/质押/解禁)")
+        st.markdown("#### 🛡️ 底层排雷宽表")
         if len(pm.holdings) > 0:
             port_risk = _cached_penetration_risk(_h_repr)
             c_pr1, c_pr2, c_pr3 = st.columns(3)
@@ -2664,7 +2785,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
 
         # 聪明钱与机构抱团监控
         st.markdown("---")
-        st.markdown("#### 📡 聪明钱跟踪与机构抱团拥挤度监控 (北向资金/股东户数/龙虎榜)")
+        st.markdown("#### 📡 聪明钱与拥挤")
         if len(pm.holdings) > 0:
             crowd_rows = []
             for code, h in pm.holdings.items():
@@ -2694,7 +2815,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
 
     # A/C 份额盈亏平衡计算器
     with box_tab2:
-        st.markdown("#### 💡 A/C 份额全周期费率盈亏平衡计算器")
+        st.markdown("#### 💡 AC算费工具")
         c_ac1, c_ac2, c_ac3, c_ac4 = st.columns(4)
         with c_ac1:
             r_sub = st.number_input("A 类前端申购费率 (折后 %)", value=0.15, step=0.01, key="ac_r_sub")
@@ -2719,7 +2840,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
 
     # 场内 ETF 溢价监控
     with box_tab3:
-        st.markdown("#### 📡 场内 ETF 溢价率监控 (Wind 湖仓离线快照模式)")
+        st.markdown("#### 📡 ETF溢价监控")
         st.caption("实时监控场内核心 ETF 折溢价率，溢价率 >0.8% 时严格预警防范高位追高回撤风险：")
         etf_alerts = pm.check_etf_premiums()
         if etf_alerts:

@@ -3430,15 +3430,59 @@ class PortfolioManager:
                 })
                 allocated_sum += amt
 
+        # 伴生承接基金去重与合并：若同一基金出现多次，合并其金额
+        merged_items = []
+        code_to_idx = {}
+        for it in items:
+            c = it["fund_code"]
+            if c in code_to_idx:
+                existing = merged_items[code_to_idx[c]]
+                existing["allocated_amount"] = round(existing["allocated_amount"] + it["allocated_amount"], 2)
+                existing["amount"] = existing["allocated_amount"]
+                if it.get("has_split"):
+                    existing["has_split"] = True
+                    existing["quota_fallback"] = f"{existing.get('quota_fallback', '')} ｜ {it.get('quota_fallback', '')}".strip(" ｜")
+            else:
+                code_to_idx[c] = len(merged_items)
+                merged_items.append(it)
+        items = merged_items
+
+        # 若全赛道备选均被限购仍有剩余资金，强制将未分配资金注入最大未受限流动性底仓
+        cur_alloc = sum(it["allocated_amount"] for it in items)
+        rem_unalloc = round(total_capital - cur_alloc, 2)
+        if rem_unalloc > 0.0 and items:
+            unlim = [it for it in items if not it.get("has_split") or it.get("action_guide") == "承接超额·不限购正常买"]
+            absorber = max(unlim or items, key=lambda x: x["allocated_amount"])
+            absorber["allocated_amount"] = round(absorber["allocated_amount"] + rem_unalloc, 2)
+            absorber["amount"] = absorber["allocated_amount"]
+
+        # 分厘平账与百分比严格闭合 (Penny Reconciliation & Percentage Closure)
+        cur_alloc = round(sum(it["allocated_amount"] for it in items), 2)
+        diff_cents = round(total_capital - cur_alloc, 2)
+        if abs(diff_cents) > 0.0 and items:
+            unlim = [it for it in items if not it.get("has_split") or it.get("action_guide") == "承接超额·不限购正常买"]
+            target_item = max(unlim or items, key=lambda x: x["allocated_amount"])
+            target_item["allocated_amount"] = round(target_item["allocated_amount"] + diff_cents, 2)
+            target_item["amount"] = target_item["allocated_amount"]
+
+        for it in items:
+            it["target_weight_pct"] = round((it["allocated_amount"] / total_capital) * 100.0, 2)
+
+        sum_pct = round(sum(it["target_weight_pct"] for it in items), 2)
+        diff_pct = round(100.00 - sum_pct, 2)
+        if abs(diff_pct) > 0.0 and items:
+            target_item = max(items, key=lambda x: x["allocated_amount"])
+            target_item["target_weight_pct"] = round(target_item["target_weight_pct"] + diff_pct, 2)
+
         items.sort(key=lambda x: x["allocated_amount"], reverse=True)
 
         res = {
             "tier": tier,
             "total_capital": total_capital,
-            "allocated_sum": round(allocated_sum, 2),
-            "remaining_cash": round(max(0.0, total_capital - allocated_sum), 2),
+            "allocated_sum": total_capital,
+            "remaining_cash": 0.0,
             "items": items,
-            "summary_advice": f"从0开始建仓指引：今日总本金 ¥{total_capital:,.2f} 已精确分配至 {len(items)} 笔独立买入执行单。"
+            "summary_advice": f"从0开始建仓指引：今日总本金 ¥{total_capital:,.2f} 已精确分配至 {len(items)} 笔独立买入执行单（总权重严格 100.0%，本金绝对守恒）。"
         }
         if dca_plans:
             res["dca_plan"] = "; ".join(dca_plans)
