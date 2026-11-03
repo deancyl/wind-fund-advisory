@@ -428,6 +428,10 @@ with st.sidebar:
     with col_demo:
         if st.button("🚀 加载演示组合", use_container_width=True, help="注入包含冷启动、7天锁、待满期、深套基的完整演示组合"):
             demo_res = pm.load_demo_portfolio()
+            st.session_state.tab2_diag_cache = None
+            st.session_state.tab2_rebal_cache = None
+            st.session_state.tab2_diagnosed = False
+            st.session_state.tab2_rebalanced = False
             st.success("演示组合载入成功！")
             st.rerun()
 
@@ -436,6 +440,10 @@ with st.sidebar:
             with st.spinner("↩️ 回滚中..."):
                 _undo_ok = pm.undo()
             if _undo_ok:
+                st.session_state.tab2_diag_cache = None
+                st.session_state.tab2_rebal_cache = None
+                st.session_state.tab2_diagnosed = False
+                st.session_state.tab2_rebalanced = False
                 st.info("✅ 已成功回滚至上一快照！")
                 st.rerun()
             else:
@@ -731,32 +739,106 @@ with tab_zero_start:
                 key="tier_determination_mode"
             )
 
-            col_s1_left, col_s1_right = st.columns([6, 4])
-            with col_s1_left:
-                target_ret_input = st.slider(
-                    "期望年化目标收益率 (%)",
-                    min_value=5.0,
-                    max_value=100.0,
-                    value=float(st.session_state.get("target_return_val", 15.0)),
-                    step=1.0,
-                    format="%.0f%%",
-                    help="拖动滑块即拉即变，C1 至 C5 实时同步切换",
-                    key="slider_target_return"
-                )
-                st.session_state.target_return_val = target_ret_input
-                active_tier = map_slider_to_tier(target_ret_input)
-                st.session_state.active_tier_val = active_tier
+            if tier_mode.startswith("模式 A"):
+                col_s1_left, col_s1_right = st.columns([6, 4])
+                with col_s1_left:
+                    target_ret_input = st.slider(
+                        "期望年化目标收益率 (%)",
+                        min_value=5.0,
+                        max_value=100.0,
+                        value=float(st.session_state.get("target_return_val", 15.0)),
+                        step=1.0,
+                        format="%.0f%%",
+                        help="拖动滑块即拉即变，C1 至 C5 实时同步切换",
+                        key="slider_target_return"
+                    )
+                    st.session_state.target_return_val = target_ret_input
+                    active_tier = map_slider_to_tier(target_ret_input)
+                    st.session_state.active_tier_val = active_tier
 
-            with col_s1_right:
-                plan_capital = st.number_input(
-                    "💵 拟投资总本金 (元)",
-                    min_value=1000.0,
-                    max_value=100000000.0,
-                    value=100000.0,
-                    step=10000.0,
-                    format="%.0f",
-                    key="plan_capital_input"
-                )
+                with col_s1_right:
+                    plan_capital = st.number_input(
+                        "💵 拟投资总本金 (元)",
+                        min_value=1000.0,
+                        max_value=100000000.0,
+                        value=100000.0,
+                        step=10000.0,
+                        format="%.0f",
+                        key="plan_capital_input"
+                    )
+
+                cur_tier_meta = RISK_TIERS_CONFIG.get(active_tier, RISK_TIERS_CONFIG["C3"])
+                if target_ret_input > 25.0:
+                    st.caption(f"⚡ 高收益提示：目标年化 {target_ret_input:.0f}% 对应【{active_tier} {cur_tier_meta['name']}】，历史最大回撤约 {abs(cur_tier_meta['historical_mdd']):.1f}%，解套需 {cur_tier_meta['max_tolerated_months']} 个月，建议长钱长投。")
+                else:
+                    st.caption(f"💡 目标收益 {target_ret_input:.0f}% ➔ 当前档位：【{active_tier} {cur_tier_meta['name']}】（权益上限 {cur_tier_meta['equity_range'][1]}% ｜ 预期年化 {cur_tier_meta['target_cagr']} ｜ 核心：{cur_tier_meta['core_assets']}）")
+            else:
+                col_q1, col_q2, col_q3 = st.columns(3)
+                with col_q1:
+                    q1_ans = st.selectbox(
+                        "1. 最大能忍受浮亏多深？",
+                        [
+                            "A. 极度厌恶亏损，超过 3% 睡不着 (0分)",
+                            "B. 最多接受 5%~10% 回撤，希望稳健 (1分)",
+                            "C. 可承受 10%~18% 波动，跑赢通胀 (2分)",
+                            "D. 可承受 18%~28% 震荡，主打弹性 (3分)",
+                            "E. 哪怕腰斩 -30% 也无所谓，求翻倍 (4分)"
+                        ],
+                        index=2,
+                        key="q1_risk_test"
+                    )
+                with col_q2:
+                    q2_ans = st.selectbox(
+                        "2. 拟投资期限是多久？",
+                        [
+                            "A. 随时用，1~3个月内 (0分)",
+                            "B. 6个月到1年左右 (1分)",
+                            "C. 1~3年闲钱 (2分)",
+                            "D. 3~5年长期闲钱 (3分)",
+                            "E. 5年以上闲钱 (4分)"
+                        ],
+                        index=2,
+                        key="q2_risk_test"
+                    )
+                with col_q3:
+                    q3_ans = st.selectbox(
+                        "3. 阶段性浮亏 -15% 时的反应？",
+                        [
+                            "A. 惊慌失措，立刻割肉 (0分)",
+                            "B. 焦虑不安，暂停投入 (1分)",
+                            "C. 情绪平静，按兵不动 (2分)",
+                            "D. 估值击球区，分批补仓 (3分)",
+                            "E. 兴奋狂喜，大举逆势加仓 (4分)"
+                        ],
+                        index=2,
+                        key="q3_risk_test"
+                    )
+
+                s1 = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}[q1_ans[0]]
+                s2 = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}[q2_ans[0]]
+                s3 = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}[q3_ans[0]]
+                total_q_score = s1 + s2 + s3
+                tested_tier = evaluate_questionnaire_risk_tier(total_q_score)
+                st.session_state.tested_tier_val = tested_tier
+                st.session_state.active_tier_val = tested_tier
+                active_tier = tested_tier
+                cur_tier_meta = RISK_TIERS_CONFIG.get(active_tier, RISK_TIERS_CONFIG["C3"])
+                target_ret_input = float(cur_tier_meta.get("default_target", 15.0))
+                st.session_state.target_return_val = target_ret_input
+
+                col_cap_b, _ = st.columns([6, 4])
+                with col_cap_b:
+                    plan_capital = st.number_input(
+                        "💵 拟投资总本金 (元)",
+                        min_value=1000.0,
+                        max_value=100000000.0,
+                        value=100000.0,
+                        step=10000.0,
+                        format="%.0f",
+                        key="plan_capital_input_b"
+                    )
+
+                st.caption(f"📝 问卷总分：`{total_q_score} 分` ➔ 评定承受档位：**【{active_tier} {cur_tier_meta['name']}】**（默认目标年化 {target_ret_input:.0f}% ｜ 建议年化 {cur_tier_meta['target_cagr']} ｜ 容忍回撤 {cur_tier_meta['max_drawdown_limit']}）")
 
             col_h, col_nf, col_mod = st.columns([3.5, 3.5, 3.0])
             with col_h:
@@ -840,7 +922,8 @@ with tab_zero_start:
                 "tier": str(active_tier),
                 "num_funds": int(num_funds_input),
                 "model_type": str(sel_model_type),
-                "horizon": str(horizon_choice)
+                "horizon": str(horizon_choice),
+                "overrides": tuple(sorted(st.session_state.get("custom_fund_overrides", {}).items()))
             }
             _last_p = st.session_state.get("tab1_last_calc_params")
             if st.session_state.get("tab1_step_reached", 1) >= 2 and _last_p is not None and _last_p != cur_tab1_params:
@@ -851,7 +934,8 @@ with tab_zero_start:
             col_s1_step, col_s1_all = st.columns([1, 1])
             with col_s1_step:
                 if st.button("▶️ 确认目标参数，进入步骤二：开始现场推演", type="primary", use_container_width=True, key="btn_run_simulation_now"):
-                    st.session_state.tab1_step_reached = max(st.session_state.get("tab1_step_reached", 1), 2)
+                    st.session_state.tab1_step_reached = 2
+                    st.session_state.tab1_step3_cache = None
                     st.session_state.tab1_trigger_sim = True
                     st.session_state.tab1_last_calc_params = cur_tab1_params
                     st.rerun()
@@ -1061,12 +1145,29 @@ with tab_zero_start:
                                 index=s_idx,
                                 key=f"slot_sel_{slot_k}_{num_funds_input}"
                             )
+                            old_ovr = st.session_state.custom_fund_overrides.get(s_champ)
+                            new_ovr = None
                             if not chosen.startswith("🏆"):
                                 sel_c = chosen.split()[1]
+                                new_ovr = sel_c
                                 st.session_state.custom_fund_overrides[s_champ] = sel_c
                             else:
                                 if s_champ in st.session_state.custom_fund_overrides:
                                     del st.session_state.custom_fund_overrides[s_champ]
+                            
+                            if old_ovr != new_ovr:
+                                st.session_state.tab1_step3_cache = None
+                                st.session_state.tab1_trigger_s3 = True
+                                if st.session_state.get("tab1_sim_cache"):
+                                    opt_w = dict(st.session_state["tab1_sim_cache"].get("optimal_weights", {}))
+                                    if s_champ in opt_w and new_ovr:
+                                        val = opt_w.pop(s_champ)
+                                        opt_w[new_ovr] = val
+                                        st.session_state["tab1_sim_cache"]["optimal_weights"] = opt_w
+                                    elif old_ovr in opt_w and not new_ovr:
+                                        val = opt_w.pop(old_ovr)
+                                        opt_w[s_champ] = val
+                                        st.session_state["tab1_sim_cache"]["optimal_weights"] = opt_w
 
             # 白盒折叠框 2: 宏观信号
             with st.expander("🧭 【点击展开白盒推演详情】：宏观流动性、风格动量与衍生品四维因果决策信号", expanded=False):
@@ -1436,6 +1537,10 @@ with tab_holdings_and_rebalance:
                     for exist_c in list(pm.holdings.keys()):
                         if exist_c not in valid_codes:
                             pm.delete_holding(exist_c)
+                    st.session_state.tab2_diag_cache = None
+                    st.session_state.tab2_rebal_cache = None
+                    st.session_state.tab2_diagnosed = False
+                    st.session_state.tab2_rebalanced = False
                     st.success("已成功保存并同步！")
                     st.rerun()
 
@@ -1444,6 +1549,10 @@ with tab_holdings_and_rebalance:
                 if del_sel != "-- 请选择 --":
                     if st.button(f"🗑️ 彻底删除 {del_sel}", use_container_width=True, key="btn_del_hold_tab2"):
                         pm.delete_holding(del_sel)
+                        st.session_state.tab2_diag_cache = None
+                        st.session_state.tab2_rebal_cache = None
+                        st.session_state.tab2_diagnosed = False
+                        st.session_state.tab2_rebalanced = False
                         st.success(f"已删除 {del_sel}")
                         st.rerun()
 
@@ -1478,6 +1587,10 @@ with tab_holdings_and_rebalance:
                         parsed_items = pm.parse_smart_text_holdings(smart_text_in)
                         if parsed_items:
                             pm.import_from_smart_text(parsed_items, available_cash=smart_cash_in)
+                            st.session_state.tab2_diag_cache = None
+                            st.session_state.tab2_rebal_cache = None
+                            st.session_state.tab2_diagnosed = False
+                            st.session_state.tab2_rebalanced = False
                             st.balloons()
                             st.success(f"成功接管 {len(parsed_items)} 只基金！")
                             st.rerun()
@@ -1497,6 +1610,10 @@ with tab_holdings_and_rebalance:
                         add_amt = st.number_input("持仓金额 (元)", value=10000.0, step=1000.0, key="search_amt_input")
                     if st.button("➕ 添加至持仓", type="primary", key="btn_add_search_holding"):
                         pm.add_or_update_holding(fund_code=sel_c, amount=add_amt, holding_tag=">=30d", append_batch=True)
+                        st.session_state.tab2_diag_cache = None
+                        st.session_state.tab2_rebal_cache = None
+                        st.session_state.tab2_diagnosed = False
+                        st.session_state.tab2_rebalanced = False
                         st.success(f"已添加 {sel_c}！")
                         st.rerun()
 
@@ -1506,6 +1623,10 @@ with tab_holdings_and_rebalance:
                     df_u = pd.read_csv(up_file) if up_file.name.endswith(".csv") else pd.read_excel(up_file)
                     if st.button("📥 确认导入快照", type="primary", key="btn_imp_snap_csv"):
                         res_s = pm.import_snapshot_df(df_u)
+                        st.session_state.tab2_diag_cache = None
+                        st.session_state.tab2_rebal_cache = None
+                        st.session_state.tab2_diagnosed = False
+                        st.session_state.tab2_rebalanced = False
                         st.success(f"成功导入 {res_s.get('imported_count', 0)} 条快照！")
                         st.rerun()
 
@@ -1637,6 +1758,41 @@ with tab_holdings_and_rebalance:
             st.markdown("---")
             st.markdown("### 步骤三：调仓方案执行")
 
+            # 🎯 目标组合选择单选框
+            has_t1_opt = bool(st.session_state.get("tab1_sim_cache") and st.session_state["tab1_sim_cache"].get("optimal_weights"))
+            target_pool_options = [
+                "🌱 对齐我在【新资建仓】生成的最新优选组合",
+                "🛡️ 核心指数全天候策略池（按当前档位自动配比）"
+            ]
+            chosen_target_pool = st.radio(
+                "🎯 选择调仓目标组合：",
+                target_pool_options,
+                index=0 if has_t1_opt else 1,
+                horizontal=True,
+                key="rad_tab2_target_pool"
+            )
+
+            if chosen_target_pool.startswith("🌱") and has_t1_opt:
+                tier_target_w = dict(st.session_state["tab1_sim_cache"]["optimal_weights"])
+                st.caption(f"已选用【新资建仓】生成的 {len(tier_target_w)} 只优选组合配比作为调仓目标。")
+            else:
+                snapshot = StrategyBridge.get_latest_market_snapshot()
+                base_w = StrategyBridge.compute_dynamic_tier_weights(tier=active_tier, market_snapshot=snapshot)
+                overrides = st.session_state.get("custom_fund_overrides", {})
+                tier_target_w = {}
+                for c, w in base_w.items():
+                    target_c = overrides.get(c, c)
+                    tier_target_w[target_c] = tier_target_w.get(target_c, 0.0) + w
+                if chosen_target_pool.startswith("🌱") and not has_t1_opt:
+                    st.info("提示：尚未在【新资建仓】运行推演，已自动退回使用当前档位【核心指数全天候策略池】。")
+                else:
+                    st.caption(f"已选用【核心指数全天候策略池】（{active_tier}档位，已应用自定义备选替换）作为调仓目标。")
+
+            cur_pool_sig = (chosen_target_pool, tuple(sorted(tier_target_w.items())))
+            if st.session_state.get("tab2_last_pool_sig") != cur_pool_sig:
+                st.session_state.tab2_rebal_cache = None
+                st.session_state.tab2_last_pool_sig = cur_pool_sig
+
             if st.session_state.get("tab2_trigger_rebalance", False) or st.session_state.get("tab2_rebal_cache") is None:
                 acc_reb = ActiveComputationConsole("智能调仓模拟精算", total_steps=4, step_labels=[
                     "步骤 1: 锁定期与 <7天 惩罚费防线核算",
@@ -1645,7 +1801,11 @@ with tab_holdings_and_rebalance:
                     "步骤 4: 四大真实后果量化账单精算"
                 ])
                 acc_reb.update_step(0, "核算先进先出锁定期与 7 天 1.5% 惩罚费防线...", progress_pct=25)
-                sim_res = StrategyBridge.simulate_rebalance_modes_and_consequences(pm, active_tier=active_tier)
+                sim_res = StrategyBridge.simulate_rebalance_modes_and_consequences(
+                    pm,
+                    active_tier=active_tier,
+                    target_weights=tier_target_w
+                )
                 acc_reb.update_step(3, "调仓路径与账单精算完成！", progress_pct=100)
                 acc_reb.complete("调仓模拟完成")
                 st.session_state.tab2_rebal_cache = sim_res
@@ -1719,7 +1879,9 @@ with tab_holdings_and_rebalance:
                 """, unsafe_allow_html=True)
 
             # 调仓执行单
-            tier_target_w = dict(snapshot.get("target_weights_funds", {}))
+            # tier_target_w 已在上方目标组合选择器中动态精准确定
+            if "tier_target_w" not in locals():
+                tier_target_w = dict(snapshot.get("target_weights_funds", {}))
             rebal_mode_param = "forced" if sel_mode_key == "mode_forced" else "gentle"
 
             ai_orders_res = StrategyBridge.generate_ai_rebalance_orders(
@@ -1814,8 +1976,8 @@ with tab_holdings_and_rebalance:
                             st.balloons()
                             st.success(f"已成功将本次调仓方案保存为【明日 14:30 盯盘待办预案】（{p_id}）！")
                             st.rerun()
-                    else:
-                        if st.button("✅ 【立即执行调仓】", type="primary", use_container_width=True, key="btn_exec_gold_tab2"):
+                    elif guidance["stage"] == "GOLDEN_WINDOW":
+                        if st.button("✅ 【立即按今日盘中估值执行调仓】", type="primary", use_container_width=True, key="btn_exec_gold_tab2"):
                             rebal_plan = pm.generate_rebalance_plan(tier_target_w, min_buffer_pct=(0.0 if sel_mode_key == "mode_forced" else 3.0))
                             routes_to_run = rebal_plan.get("routes", [])
                             if routes_to_run:
@@ -1825,6 +1987,27 @@ with tab_holdings_and_rebalance:
                                 st.rerun()
                             else:
                                 st.info("持仓偏离均在 3% 缓冲阈值内，无需额外调仓。")
+                    elif guidance["stage"] == "OBSERVATION":
+                        allow_early = st.checkbox(
+                            "⚠️ 我已了解盘中冲高/跳水风险，仍希望在 14:30 前提前执行",
+                            value=False,
+                            key="chk_allow_early_rebalance"
+                        )
+                        if allow_early:
+                            if st.button("⚡ 【提前执行盘中调仓 (已确认波动风险)】", type="primary", use_container_width=True, key="btn_exec_early_tab2"):
+                                rebal_plan = pm.generate_rebalance_plan(tier_target_w, min_buffer_pct=(0.0 if sel_mode_key == "mode_forced" else 3.0))
+                                routes_to_run = rebal_plan.get("routes", [])
+                                if routes_to_run:
+                                    oids = pm.submit_rebalance_orders(routes_to_run)
+                                    st.balloons()
+                                    st.success(f"✅ 已成功提前执行调仓，生成 {len(oids)} 笔指令！")
+                                    st.rerun()
+                                else:
+                                    st.info("持仓偏离均在 3% 缓冲阈值内，无需额外调仓。")
+                        else:
+                            st.button("⏳ 盘中观察中 (等待 14:30 尾盘趋势锁定解锁)", disabled=True, use_container_width=True, key="btn_obs_disabled_tab2")
+                    else:
+                        st.button("⏳ 盘前非交易时段 (请等待开盘)", disabled=True, use_container_width=True, key="btn_pre_disabled_tab2")
 
                 with col_send_bt:
                     if st.button("📈 【将调仓前vs调仓后送入回测对比】", type="secondary", use_container_width=True, key="btn_send_rebal_to_bt"):

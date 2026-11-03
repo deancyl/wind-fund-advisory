@@ -5426,7 +5426,9 @@ class StrategyBridge:
     def evaluate_today_rebalance_suitability(
         cls,
         pm: Any,
-        active_tier: str = "C3"
+        active_tier: str = "C3",
+        target_weights: Optional[Dict[str, float]] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         今日调仓适宜度裁决器 (R4 核心引擎)
@@ -5585,7 +5587,9 @@ class StrategyBridge:
     def simulate_rebalance_modes_and_consequences(
         cls,
         pm: Any,
-        active_tier: str = "C3"
+        active_tier: str = "C3",
+        target_weights: Optional[Dict[str, float]] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         双模式调仓推演与四大后果精算引擎 (R4 核心引擎)
@@ -5610,8 +5614,9 @@ class StrategyBridge:
             total_equity = float(sum(getattr(h, 'market_value', 0.0) for h in holdings.values()) + getattr(pm, 'available_cash', 0.0) + getattr(pm, 'in_transit_cash', 0.0))
         available_cash = float(getattr(pm, 'available_cash', 0.0))
 
-        snapshot = cls.get_latest_market_snapshot()
-        target_weights = cls.compute_dynamic_tier_weights(tier=active_tier, market_snapshot=snapshot)
+        if target_weights is None or not isinstance(target_weights, dict) or len(target_weights) == 0:
+            snapshot = cls.get_latest_market_snapshot()
+            target_weights = cls.compute_dynamic_tier_weights(tier=active_tier, market_snapshot=snapshot)
 
         # 映射与股息基准
         code_to_col = {
