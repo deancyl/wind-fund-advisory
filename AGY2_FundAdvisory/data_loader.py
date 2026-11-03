@@ -301,8 +301,8 @@ class DataLoader:
                 'H00300': 'sh000300',
                 'H00905': 'sh000905',
                 'H00852': 'sh000852',
-                'H00922': 'sh000015',
-                'H30269': 'sh000015',
+                'H00922': 'sh000922',
+                'H30269': 'sh000922',
                 '930609': 'sh511010',
                 'H11009': 'sh511010'
             }
@@ -314,7 +314,7 @@ class DataLoader:
             try:
                 import urllib.request
                 import re
-                url_sina = "https://hq.sinajs.cn/list=sh000300,sh000905,sh000852,sh000015,sh511010,sh000688,sh518880,gb_inx,fx_susdcny,sh513500"
+                url_sina = "https://hq.sinajs.cn/list=sh000300,sh000905,sh000852,sh000922,sh511010,sh000688,sh518880,gb_inx,fx_susdcny,sh513500"
                 req_sina = urllib.request.Request(url_sina, headers={"Referer": "https://finance.sina.com.cn"})
                 with urllib.request.urlopen(req_sina, timeout=3.0) as resp_s:
                     content_s = resp_s.read().decode("gbk", errors="ignore")
@@ -332,7 +332,7 @@ class DataLoader:
                         return (float(p[3]) / float(p[2]) - 1.0)
                     return 0.0
 
-                for s_code in ["sh000300", "sh000905", "sh000852", "sh000015", "sh511010", "sh000688"]:
+                for s_code in ["sh000300", "sh000905", "sh000852", "sh000922", "sh511010", "sh000688"]:
                     sina_price_ret[s_code] = _extract_chg(s_code)
 
                 gold_price_ret = _extract_chg("sh518880")

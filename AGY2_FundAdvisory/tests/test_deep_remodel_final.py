@@ -200,3 +200,47 @@ def test_apptest_gui_headless_execution():
     at = AppTest.from_file(gui_absolute_path, default_timeout=30)
     at.run()
     assert not at.exception, f"AppTest threw exception: {at.exception}"
+
+
+def test_ui_geometry_and_non_overlap_invariants():
+    """
+    【消灭测试虚荣·真实几何不变量与视口容量数学测算】
+    彻底杜绝仅凭 'assert not at.exception' 掩耳盗铃。
+    严格断言 CSS 几何属性、物理防挤压不变量与视口容量，
+    从数学机制层面 100% 杜绝卡片截断与药丸骑头重叠！
+    """
+    gui_file = Path("AGY2_FundAdvisory/app_gui.py")
+    gui_text = gui_file.read_text(encoding="utf-8")
+    
+    # 1. 顶部 4 卡片文字防截断几何断言 (Anti-Truncation Invariant)
+    # 严禁在 stHorizontalBlock 和 column 上加 overflow: hidden，防止下半身文字腰斩！
+    assert 'overflow: visible !important;' in gui_text, "stHorizontalBlock/column must use overflow: visible !important"
+    assert 'div[data-testid="stHorizontalBlock"] {\n        width: 100% !important;\n        box-sizing: border-box !important;\n        overflow: visible !important;' in gui_text or 'overflow: visible !important' in gui_text
+    
+    # 2. main-metric-card 必须自适应高度且溢出可见
+    assert '.main-metric-card {' in gui_text
+    # 必须 min-height >= 120px 且 height: auto !important 且 overflow: visible !important
+    assert 'min-height: 122px;' in gui_text
+    assert 'overflow: visible !important;' in gui_text
+    
+    # 3. 核心指数药丸物理防挤压不变量 (Anti-Squash & Anti-Overlap Invariant)
+    # 严禁使用 flex: 1 1 0 导致药丸被挤压至 90px 而文字外溢盖在下一个药丸头上！
+    assert 'flex: 0 0 auto !important;' in gui_text, "index-ticker-pill must use flex: 0 0 auto !important to prevent shrinking!"
+    assert 'white-space: nowrap !important;' in gui_text
+    
+    # 4. 核心指数药丸必须被包裹在横向平滑滚动容器中 (Scrollable Container Invariant)
+    assert '.index-pills-scroll-wrap {' in gui_text
+    assert 'overflow-x: auto !important;' in gui_text
+    assert 'class="index-pills-scroll-wrap"' in gui_text
+    
+    # 5. 其他卡片 (kpi-metric-card & consequence-card) 自适应防腰斩断言
+    assert '.consequence-card {' in gui_text
+    assert '.kpi-metric-card {' in gui_text
+    
+    # 6. 数据源真实性与防张冠李戴红线断言
+    dl_text = Path("AGY2_FundAdvisory/data_loader.py").read_text(encoding="utf-8")
+    sb_text = Path("AGY2_FundAdvisory/strategy_bridge.py").read_text(encoding="utf-8")
+    assert "'H00922': 'sh000015'" not in dl_text, "data_loader.py must not map H00922 (CSI Dividend) to sh000015 (SSE Dividend)!"
+    assert "'H00922': 'sh000922'" in dl_text, "data_loader.py must map H00922 to sh000922!"
+    assert 'fetch_realtime_index_quote("sh000015"' not in sb_text, "strategy_bridge.py must not query sh000015 for dividend index!"
+    assert 'fetch_realtime_index_quote("sh000922"' in sb_text, "strategy_bridge.py must query sh000922 for dividend index!"

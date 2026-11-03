@@ -2215,7 +2215,7 @@ class StrategyBridge:
             q_500 = fetch_realtime_index_quote("sh000905", use_cache=True)
             q_1000 = fetch_realtime_index_quote("sh000852", use_cache=True)
             q_star = fetch_realtime_index_quote("sh000688", use_cache=True)
-            q_div = fetch_realtime_index_quote("sh000015", use_cache=True)
+            q_div = fetch_realtime_index_quote("sh000922", use_cache=True)
             q_gold = fetch_realtime_index_quote("sh518880", use_cache=True)
             q_bond = fetch_realtime_index_quote("sh511010", use_cache=True)
 

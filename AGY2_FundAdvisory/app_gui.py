@@ -266,16 +266,16 @@ st.markdown("""
         opacity: 1 !important;
         filter: none !important;
     }
-    /* 物理消除侧边栏展开时多列网格溢出导致的右侧重叠 */
+    /* 侧边栏展开时自适应多列网格，确保宽度受约束且高度自适应，绝不截断内容 */
     div[data-testid="stHorizontalBlock"] {
         width: 100% !important;
         box-sizing: border-box !important;
-        overflow: hidden !important;
+        overflow: visible !important;
     }
     div[data-testid="column"] {
         min-width: 0 !important;
         box-sizing: border-box !important;
-        overflow: hidden !important;
+        overflow: visible !important;
     }
     .main .block-container, [data-testid="stMainBlockContainer"] {
         max-width: 100% !important;
@@ -288,16 +288,17 @@ st.markdown("""
         background: #ffffff;
         border: 1px solid #cbd5e1;
         border-radius: 8px;
-        padding: 10px 12px;
+        padding: 10px 12px 12px 12px;
         color: #0f172a;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        min-height: 114px;
-        height: auto;
+        min-height: 122px;
+        height: auto !important;
         display: flex;
         flex-direction: column;
-        justify-content: space-between;
+        justify-content: flex-start;
+        gap: 4px;
         box-sizing: border-box;
-        overflow: hidden;
+        overflow: visible !important;
     }
     .index-ticker-strip {
         display: flex;
@@ -307,7 +308,7 @@ st.markdown("""
         background: #ffffff;
         border: 1px solid #cbd5e1;
         border-radius: 8px;
-        padding: 6px 12px;
+        padding: 5px 10px;
         margin-top: 4px;
         margin-bottom: 10px;
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
@@ -315,46 +316,66 @@ st.markdown("""
         box-sizing: border-box;
         overflow: hidden;
     }
+    .index-pills-scroll-wrap {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow-x: auto !important;
+        overflow-y: hidden;
+        scrollbar-width: thin;
+        -webkit-overflow-scrolling: touch;
+        padding: 2px 0;
+    }
+    .index-pills-scroll-wrap::-webkit-scrollbar {
+        height: 3px;
+    }
+    .index-pills-scroll-wrap::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 3px;
+    }
     .index-ticker-pill {
         display: inline-flex;
         align-items: center;
-        justify-content: space-between;
+        justify-content: flex-start;
         gap: 6px;
         background: #f8fafc;
         border: 1px solid #e2e8f0;
         border-radius: 6px;
-        padding: 4px 8px;
-        flex: 1 1 0;
-        min-width: 90px;
+        padding: 3px 8px;
+        flex: 0 0 auto !important;
         box-sizing: border-box;
+        white-space: nowrap !important;
     }
     .index-pill-name {
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 600;
         color: #334155;
         white-space: nowrap;
     }
     .index-pill-point {
-        font-size: 15px;
+        font-size: 13px;
         font-weight: 700;
         color: #0f172a;
         white-space: nowrap;
     }
     .index-pill-chg-up {
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
         color: #dc2626;
         background: #fee2e2;
-        padding: 1px 6px;
+        padding: 1px 5px;
         border-radius: 4px;
         white-space: nowrap;
     }
     .index-pill-chg-down {
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
         color: #16a34a;
         background: #dcfce7;
-        padding: 1px 6px;
+        padding: 1px 5px;
         border-radius: 4px;
         white-space: nowrap;
     }
@@ -387,11 +408,14 @@ st.markdown("""
         border: 1px solid #cbd5e1;
         border-radius: 8px;
         padding: 12px 14px;
-        min-height: 115px;
+        min-height: 120px;
+        height: auto !important;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         display: flex;
         flex-direction: column;
-        justify-content: space-between;
+        justify-content: flex-start;
+        gap: 6px;
+        overflow: visible !important;
     }
     .kpi-metric-card {
         background: #ffffff;
@@ -400,11 +424,14 @@ st.markdown("""
         padding: 10px 12px;
         color: #0f172a;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        min-height: 108px;
+        min-height: 110px;
+        height: auto !important;
         display: flex;
         flex-direction: column;
-        justify-content: space-between;
+        justify-content: flex-start;
+        gap: 4px;
         box-sizing: border-box;
+        overflow: visible !important;
     }
     .kpi-card-title {
         font-size: 12px;
@@ -681,8 +708,8 @@ with top_c1:
         <div class="metric-value-huge" style="color: {clock_color};">
             {clock_title}
         </div>
-        <div class="metric-card-sub">
-            倒计时 {market_status.countdown_str} ｜ 距下次常规网格日 {days_to_next} 天
+        <div class="metric-card-sub" style="font-size: 11px; color: #64748b; margin-top: 2px;">
+            倒计时 {market_status.countdown_str} ｜ 距网格日 {days_to_next}天
         </div>
     </div>
     """)
@@ -720,13 +747,13 @@ with top_c2:
         <div class="metric-value-huge" style="color: {st_color};">
             {vernacular_state}
         </div>
-        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; color: #475569;">
+        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; color: #475569; font-size: 11px;">
             <span>📈破 {surge_line:,.0f} 进攻</span>
             <span>🛡️跌 {breakdown_line:,.0f} 防守</span>
         </div>
-        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; color: #0284c7; font-weight: 500; margin-top: 2px;">
-            <span>📡信噪比: {snr:.2f}</span>
-            <span>⚡加速度: {accel:+.1f}%</span>
+        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; color: #0284c7; font-weight: 500; font-size: 11px;">
+            <span>📡信噪比 {snr:.2f}</span>
+            <span>⚡加速度 {accel:+.1f}%</span>
         </div>
         {exhaustion_badge}
     </div>
@@ -741,11 +768,11 @@ with top_c3:
             <span>🌡️ 估值与资金面温度</span>
             <span title="{c3_tip}" style="cursor:help; color:#94a3b8; font-size:12px;">ⓘ</span>
         </div>
-        <div class="metric-value-huge" style="color: #16a34a;">
+        <div class="metric-value-huge" style="color: #16a34a; font-size: 16px;">
             {val_status}
         </div>
-        <div class="metric-card-sub">
-            股票性价比高 ｜ 央妈呵护
+        <div class="metric-card-sub" style="font-size: 11px; color: #64748b; margin-top: 2px;">
+            股票高性价比 ｜ 央妈呵护
         </div>
     </div>
     """)
@@ -761,11 +788,11 @@ with top_c4:
         <div class="metric-value-huge" style="color: #0f172a;">
             ¥{total_cur_equity:,.2f}
         </div>
-        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px;">
+        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; font-size: 11px;">
             <span>盘中预估: <b style="color: {pnl_color};">¥{est_pnl:+,.2f}</b></span>
             <span>涨跌: <b style="color: {pnl_color};">{est_pnl_pct:+.2f}%</b></span>
         </div>
-        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; margin-top: 2px;">
+        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; font-size: 11px;">
             <span>持仓浮盈: <b style="color: {tot_pnl_color};">¥{_t2_pnl:+,.2f}</b></span>
             <span>现金: <b>¥{pm.available_cash:,.0f}</b></span>
         </div>
@@ -790,7 +817,7 @@ for idx_item in live_indices_list:
     """)
 
 ticker_inner_html = "\n".join(pill_html_parts)
-strip_col_ticker, strip_col_btn = st.columns([8.2, 1.8])
+strip_col_ticker, strip_col_btn = st.columns([8.4, 1.6])
 
 with strip_col_ticker:
     safe_markdown_html(f"""
@@ -798,7 +825,7 @@ with strip_col_ticker:
         <span style="font-size: 13px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 4px; flex-shrink: 0; white-space: nowrap;">
             📊 核心指数
         </span>
-        <div style="display: flex; flex-direction: row; align-items: center; gap: 6px; flex: 1 1 auto; overflow-x: auto; scrollbar-width: none;">
+        <div class="index-pills-scroll-wrap">
             {ticker_inner_html}
         </div>
     </div>
