@@ -4258,7 +4258,9 @@ class StrategyBridge:
         horizon_label: str = "中期(1~2年)",
         capital: float = 100000.0,
         custom_overrides: Optional[Dict[str, str]] = None,
+        purchase_limit_filter: Optional[str] = None,
         progress_cb: Optional[Callable] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         真全市场 28,177 只基金漏斗 + 用户自由调节 3~15 只基金 + 四大机构级模型定权引擎。
@@ -4370,6 +4372,18 @@ class StrategyBridge:
                 rep_code = overrides.get(k_code, k_code)
                 new_w[rep_code] = round(new_w.get(rep_code, 0.0) + w_val, 4)
             opt_weights = new_w
+
+        # ── 🛡️ 实盘交易风控护栏：单日限购过滤自动替换 ──
+        _limit_th = 0.0
+        if purchase_limit_filter:
+            if "1,000" in purchase_limit_filter or "1000" in purchase_limit_filter:
+                _limit_th = 1000.0
+            elif "5,000" in purchase_limit_filter or "5000" in purchase_limit_filter:
+                _limit_th = 5000.0
+
+        if _limit_th > 0:
+            from portfolio_manager import replace_restricted_funds_with_alternatives
+            opt_weights, _ = replace_restricted_funds_with_alternatives(opt_weights, min_limit=_limit_th)
 
         # 归一化权重确保总和严格 1.0000
         w_sum = sum(opt_weights.values())
@@ -5195,6 +5209,40 @@ class StrategyBridge:
             split_info = None
             quota_fallback_display = rule["quota_note"]
 
+            # ── 🛡️ 实盘交易风控护栏：单日限购过滤自动替换 ──
+            _f_str = str(kwargs.get("purchase_limit_filter", ""))
+            _min_p_limit = kwargs.get("min_purchase_limit")
+            if _min_p_limit is None:
+                if "1,000" in _f_str or "1000" in _f_str:
+                    _min_p_limit = 1000.0
+                elif "5,000" in _f_str or "5000" in _f_str:
+                    _min_p_limit = 5000.0
+                else:
+                    _min_p_limit = 0.0
+            _min_p_limit = float(_min_p_limit or 0.0)
+
+            if _min_p_limit > 0 and daily_lim < _min_p_limit:
+                fb_code = rule.get("fallback_code", "001071")
+                fb_name = rule.get("fallback_name") or fund_rules.get(fb_code, {}).get("name", "摩根标普500指数(QDII)人民币A")
+                items.append({
+                    "fund_code": fb_code,
+                    "fund_name": fb_name,
+                    "share_class": "A",
+                    "target_weight_pct": round((amt / total_capital) * 100.0, 2),
+                    "allocated_amount": amt,
+                    "amount": amt,
+                    "role_desc": f"{rule['role_desc']} (限额过滤·同赛道备选)",
+                    "why_share_class": "大额通道顺畅，全额买入免拆单",
+                    "require_cash_dividend": False,
+                    "dividend_advice": "默认红利再投资",
+                    "quota_fallback": f"🛡️【风控限额替代】原标的 {code} 日限额 ¥{daily_lim:,.0f} < 门槛 ¥{_min_p_limit:,.0f}，已自动替换为同赛道备选",
+                    "action_guide": "不限购正常买",
+                    "has_split": False,
+                    "split_info": None
+                })
+                allocated_sum += amt
+                continue
+
             if amt > daily_lim:
                 today_amt = daily_lim
                 excess_amt = round(amt - daily_lim, 2)
@@ -5784,6 +5832,7 @@ class StrategyBridge:
         pm: Any,
         active_tier: str = "C3",
         target_weights: Optional[Dict[str, float]] = None,
+        min_buffer_pct: float = 0.03,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -5883,10 +5932,13 @@ class StrategyBridge:
             clock_window_reason = f"当前已过 15:00 申赎生死线 (或处于非交易日)，今日提交将延至下一交易日 ({eff_date}) 收盘净值成交，面临隔夜波动风险。"
 
         # 3. deviation_utility_reason
+        b_ratio = (float(min_buffer_pct) / 100.0) if float(min_buffer_pct) > 0.5 else float(min_buffer_pct)
+        b_disp = b_ratio * 100.0
+
         if total_equity <= 0:
             deviation_utility_reason = "当前账户为空仓或无有效总资产，暂无持仓偏离度。"
-        elif d_max < 0.03:
-            deviation_utility_reason = f"当前组合持仓与目标配置高度贴合 (最大标的偏离仅 {d_max*100:.1f}%)，处于 3% 免折腾缓冲区内，微幅换仓的摩擦成本将吞噬潜在收益。"
+        elif d_max < b_ratio:
+            deviation_utility_reason = f"当前组合持仓与目标配置高度贴合 (最大标的偏离仅 {d_max*100:.1f}%)，处于 {b_disp:.1f}% 免折腾缓冲区内，微幅换仓的摩擦成本将吞噬潜在收益。"
         else:
             deviation_utility_reason = f"持仓偏离显著 (最大标的偏离达 {d_max*100:.1f}%)，具备再平衡价值，预期调仓超额收益足以覆盖摩擦成本。"
 
@@ -5913,12 +5965,12 @@ class StrategyBridge:
         if has_forbidden_penalty_sell:
             verdict_level = "FORBIDDEN"
             verdict_title = "🔴 今日不宜调仓·高损预警：持仓包含未满7天份额，强行卖出将触发1.5%惩罚费"
-        elif (-1.5 <= bias_20 <= 1.2) or (d_max < 0.03) or (w_type in ["POST_MARKET_DELAYED", "NON_TRADING_DAY"]) or has_approaching_cliff:
+        elif (-1.5 <= bias_20 <= 1.2) or (d_max < b_ratio) or (w_type in ["POST_MARKET_DELAYED", "NON_TRADING_DAY"]) or has_approaching_cliff:
             verdict_level = "HOLD_ON"
-            if -1.5 <= bias_20 <= 1.2 and d_max < 0.03:
+            if -1.5 <= bias_20 <= 1.2 and d_max < b_ratio:
                 verdict_title = f"🟡 今日建议按兵不动：大盘处于均线震荡噪音带，且您的持仓最大偏离仅 {d_max*100:.1f}%"
-            elif d_max < 0.03:
-                verdict_title = f"🟡 今日建议按兵不动：持仓最大偏离仅 {d_max*100:.1f}%，处于 3% 免折腾缓冲区内"
+            elif d_max < b_ratio:
+                verdict_title = f"🟡 今日建议按兵不动：持仓最大偏离仅 {d_max*100:.1f}%，处于 {b_disp:.1f}% 免折腾缓冲区内"
             elif -1.5 <= bias_20 <= 1.2:
                 verdict_title = f"🟡 今日建议按兵不动：大盘处于均线震荡噪音带 (乖离率 {bias_20:+.1f}%)，建议锁定仓位不折腾"
             elif w_type in ["POST_MARKET_DELAYED", "NON_TRADING_DAY"]:
@@ -5945,6 +5997,7 @@ class StrategyBridge:
         pm: Any,
         active_tier: str = "C3",
         target_weights: Optional[Dict[str, float]] = None,
+        min_buffer_pct: float = 0.03,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -6024,8 +6077,10 @@ class StrategyBridge:
         mdd_before = round(abs(float(dd_before.min())) * 100.0, 1) if not dd_before.empty and cur_w else 14.8
         div_yield_before = round(sum(cur_w.get(c, 0.0) * dividend_yield_map.get(c, 1.8) for c in cur_w), 2) if cur_w else 2.10
 
+        b_ratio = (float(min_buffer_pct) / 100.0) if float(min_buffer_pct) > 0.5 else float(min_buffer_pct)
+
         def _simulate_single_mode(is_gentle: bool) -> Dict[str, Any]:
-            min_buffer = 0.03 if is_gentle else 0.0
+            min_buffer = b_ratio if is_gentle else 0.0
             sell_actions = []
             buy_actions = []
 

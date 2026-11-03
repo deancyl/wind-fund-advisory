@@ -2324,6 +2324,90 @@ def _get_sector_alternatives(code: str, meta: Optional[Dict[str, Any]] = None) -
     return alts
 
 
+def replace_restricted_funds_with_alternatives(
+    weights: Dict[str, float],
+    min_limit: float = 1000.0,
+    fund_catalog: Optional[Dict[str, Any]] = None
+) -> Tuple[Dict[str, float], Dict[str, str]]:
+    """
+    遍历权重字典，当标的实时单日申购限额 < min_limit 时，
+    自动调用 _get_sector_alternatives 与 fetch_realtime_fund_quota
+    将其平滑替换为同赛道无限制（或限额 >= min_limit）备选标的。
+    返回: (new_weights, replaced_map)
+    """
+    if min_limit <= 0 or not weights:
+        return dict(weights), {}
+
+    new_weights = dict(weights)
+    replaced_map = {}
+
+    for code, w in list(weights.items()):
+        if w <= 1e-4:
+            continue
+        try:
+            quota = fetch_realtime_fund_quota(code)
+            status = str(quota.get("status", "开放申购"))
+            d_lim = float(quota.get("daily_limit", 1e11))
+            if "暂停" in status or "封闭" in status:
+                d_lim = 0.0
+        except Exception:
+            d_lim = 1e11
+
+        if d_lim < min_limit:
+            meta = (fund_catalog or CORE_STRATEGY_POOL).get(code, {})
+            alts = _get_sector_alternatives(code, meta)
+            chosen_alt = None
+            # 优先选择当前组合中未持有的同赛道合规备选，保持标的只数
+            for alt_code in alts:
+                if alt_code == code:
+                    continue
+                try:
+                    alt_q = fetch_realtime_fund_quota(alt_code)
+                    alt_st = str(alt_q.get("status", "开放申购"))
+                    alt_lim = float(alt_q.get("daily_limit", 1e11))
+                    if "暂停" in alt_st or "封闭" in alt_st:
+                        alt_lim = 0.0
+                except Exception:
+                    alt_lim = 1e11
+                if alt_lim >= min_limit and alt_code not in new_weights:
+                    chosen_alt = alt_code
+                    break
+
+            # 若所有备选已在组合中，退而选择第一个满足限额门槛的备选合并权重
+            if not chosen_alt:
+                for alt_code in alts:
+                    if alt_code == code:
+                        continue
+                    try:
+                        alt_q = fetch_realtime_fund_quota(alt_code)
+                        alt_st = str(alt_q.get("status", "开放申购"))
+                        alt_lim = float(alt_q.get("daily_limit", 1e11))
+                        if "暂停" in alt_st or "封闭" in alt_st:
+                            alt_lim = 0.0
+                    except Exception:
+                        alt_lim = 1e11
+                    if alt_lim >= min_limit:
+                        chosen_alt = alt_code
+                        break
+
+            if chosen_alt:
+                replaced_map[code] = chosen_alt
+                new_weights[chosen_alt] = round(new_weights.get(chosen_alt, 0.0) + w, 4)
+                if code in new_weights:
+                    del new_weights[code]
+
+    # 重新归一化权重以确保严格 1.0000
+    tot_w = sum(new_weights.values())
+    if tot_w > 0:
+        new_weights = {k: round(v / tot_w, 4) for k, v in new_weights.items()}
+        diff = round(1.0 - sum(new_weights.values()), 4)
+        if abs(diff) > 1e-4 and new_weights:
+            max_k = max(new_weights.keys(), key=lambda k: new_weights[k])
+            new_weights[max_k] = round(new_weights[max_k] + diff, 4)
+
+    return new_weights, replaced_map
+
+
 # =====================================================================
 # 核心业务引擎 (PortfolioManager)
 # =====================================================================
@@ -2332,6 +2416,7 @@ class PortfolioManager:
     """实盘基金投资组合接管与智能投顾管理核心引擎"""
 
     _get_sector_alternatives = staticmethod(_get_sector_alternatives)
+    replace_restricted_funds_with_alternatives = staticmethod(replace_restricted_funds_with_alternatives)
 
     def __init__(
         self,
@@ -3322,7 +3407,9 @@ class PortfolioManager:
         total_capital: float = 100000.0,
         target_weights_funds: Optional[Dict[str, float]] = None,
         tier: str = "C3",
-        custom_fund_overrides: Optional[Dict[str, str]] = None
+        custom_fund_overrides: Optional[Dict[str, str]] = None,
+        min_purchase_limit: Optional[float] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         根据风险档位生成《从 0 起步标准建仓清单》
@@ -3337,6 +3424,16 @@ class PortfolioManager:
         """
         tier = tier.upper() if tier else "C3"
         total_capital = float(total_capital)
+
+        if min_purchase_limit is None:
+            _f_str = str(kwargs.get("purchase_limit_filter", ""))
+            if "1,000" in _f_str or "1000" in _f_str:
+                min_purchase_limit = 1000.0
+            elif "5,000" in _f_str or "5000" in _f_str:
+                min_purchase_limit = 5000.0
+            else:
+                min_purchase_limit = 0.0
+        min_purchase_limit = float(min_purchase_limit or 0.0)
 
         if target_weights_funds is None:
             baseline_tier_weights = {
@@ -3376,6 +3473,42 @@ class PortfolioManager:
             daily_lim = float(quota.get("daily_limit", 1e11))
             if quota_status == "暂停申购":
                 daily_lim = 0.0
+
+            # ── 🛡️ 实盘交易风控护栏：单日限购过滤自动替换 ──
+            if min_purchase_limit > 0 and daily_lim < min_purchase_limit:
+                alts = _get_sector_alternatives(code, meta)
+                chosen_alt = None
+                chosen_alt_meta = None
+                for alt_c in alts:
+                    alt_q = fetch_realtime_fund_quota(alt_c)
+                    alt_st = str(alt_q.get("status", "开放申购"))
+                    alt_lim = float(alt_q.get("daily_limit", 1e11))
+                    if "暂停" not in alt_st and "封闭" not in alt_st and alt_lim >= min_purchase_limit:
+                        chosen_alt = alt_c
+                        chosen_alt_meta = CORE_STRATEGY_POOL.get(alt_c, {})
+                        break
+
+                if chosen_alt:
+                    alt_name = chosen_alt_meta.get("fund_name", f"备选基金_{chosen_alt}")
+                    alt_sc = chosen_alt_meta.get("share_class", "A")
+                    items.append({
+                        "fund_code": chosen_alt,
+                        "fund_name": alt_name,
+                        "share_class": alt_sc,
+                        "target_weight_pct": round(weight * 100.0, 2),
+                        "allocated_amount": amt,
+                        "amount": amt,
+                        "role_desc": f"{role_desc} (限额过滤·同赛道备选)",
+                        "why_share_class": "大额通道顺畅，全额买入免拆单",
+                        "require_cash_dividend": False,
+                        "dividend_advice": "默认红利再投资",
+                        "quota_fallback": f"🛡️【风控限额替代】原标的 {code} 日限额 ¥{daily_lim:,.0f} < 门槛 ¥{min_purchase_limit:,.0f}，已自动替换为同赛道备选",
+                        "action_guide": "不限购正常买",
+                        "has_split": False,
+                        "split_info": None
+                    })
+                    allocated_sum += amt
+                    continue
 
             if amt > daily_lim:
                 # 触发多级瀑布流拆单
@@ -5724,6 +5857,9 @@ class PortfolioManager:
         self._recalculate_totals()
         total_equity = sum(h.market_value for h in self.holdings.values()) + self.available_cash + self.in_transit_cash
 
+        # 兼容自适应小数比例 (如 0.03) 与百分比数值 (如 3.0)
+        norm_buffer = (float(min_buffer_pct) * 100.0) if (0.0 < float(min_buffer_pct) < 0.5) else float(min_buffer_pct)
+
         current_weights: Dict[str, float] = {}
         for code, h in self.holdings.items():
             current_weights[code] = h.market_value / total_equity if total_equity > 0 else 0.0
@@ -5737,12 +5873,12 @@ class PortfolioManager:
             c_w = current_weights.get(code, 0.0)
             t_w = target_weights.get(code, 0.0)
 
-            # 3% 最小调仓过滤
+            # 调仓缓冲阈值偏离度过滤
             actionable_res = FeeMatrixCalculator.is_rebalance_actionable(
                 current_weight=c_w,
                 target_weight=t_w,
                 portfolio_equity=total_equity,
-                min_buffer_pct=min_buffer_pct
+                min_buffer_pct=norm_buffer
             )
 
             diff_val = (t_w - c_w) * total_equity

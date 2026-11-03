@@ -244,3 +244,110 @@ def test_ui_geometry_and_non_overlap_invariants():
     assert "'H00922': 'sh000922'" in dl_text, "data_loader.py must map H00922 to sh000922!"
     assert 'fetch_realtime_index_quote("sh000015"' not in sb_text, "strategy_bridge.py must not query sh000015 for dividend index!"
     assert 'fetch_realtime_index_quote("sh000922"' in sb_text, "strategy_bridge.py must query sh000922 for dividend index!"
+
+
+def test_sidebar_guardrails_propagation():
+    """
+    断言侧边栏实盘交易风控护栏（限购过滤阈值、调仓缓冲带）真实生效：
+    1. 限购过滤阈值有效替换低于限额的标的（博时标普500被摩根标普500A替换）；
+    2. 调仓缓冲带 min_buffer_pct 控制调仓裁决。
+    """
+    from AGY2_FundAdvisory.strategy_bridge import StrategyBridge
+    from AGY2_FundAdvisory.portfolio_manager import PortfolioManager
+    
+    # 1. 限购过滤测试：包含博时标普500 (050025，日限额500元)
+    w = {"005561": 0.4, "100032": 0.3, "050025": 0.3}
+    bp_no_filter = StrategyBridge.generate_zero_start_blueprint(
+        total_capital=100000.0,
+        target_weights_funds=w,
+        tier="C3",
+        purchase_limit_filter="不限 (自动拆单承接)"
+    )
+    codes_no_filter = [it["fund_code"] for it in bp_no_filter["items"]]
+    assert "050025" in codes_no_filter
+    
+    bp_filtered = StrategyBridge.generate_zero_start_blueprint(
+        total_capital=100000.0,
+        target_weights_funds=w,
+        tier="C3",
+        purchase_limit_filter="过滤日限额 < ¥1,000 标的"
+    )
+    codes_filtered = [it["fund_code"] for it in bp_filtered["items"]]
+    # 050025 日限额 500 < 1000，必须被自动替换为 001071 (摩根标普500A)
+    assert "050025" not in codes_filtered, "Restricted fund 050025 was not filtered!"
+    assert "001071" in codes_filtered, "Fallback fund 001071 not used as alternative!"
+    
+    # 2. 调仓缓冲带测试 (完全隔离沙箱)
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_ledger = Path(tmp_dir) / "temp_ledger.json"
+        pm = PortfolioManager(db_path=":memory:", ledger_json_path=tmp_ledger)
+        pm.available_cash = 0.0
+        pm.in_transit_cash = 0.0
+        pm.pending_orders = []
+        pm.add_or_update_holding("005561", shares=10000.0, nav=1.0)
+        # 当前 005561 市值 10000，占比 100.0%，目标权重 98.5% (偏离 1.5% < 3.0% 缓冲带)
+        target_close = {"005561": 0.985, "100032": 0.015}
+        plan_buffered = pm.generate_rebalance_plan(target_close, min_buffer_pct=3.0)
+        assert len(plan_buffered.get("routes", [])) == 0, f"Buffer 3.0% failed to filter small deviations! Routes: {plan_buffered.get('routes')}"
+
+
+def test_tab2_direct_market_value_editing_and_shares_recalculation():
+    """
+    断言 Tab 2 持仓表直接修改「当前市值(元)」保存后，
+    后台按当前净值精确反算持仓份额，总市值正确同步更新。
+    """
+    import tempfile
+    from AGY2_FundAdvisory.portfolio_manager import PortfolioManager
+    
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_ledger = Path(tmp_dir) / "temp_ledger.json"
+        pm = PortfolioManager(db_path=":memory:", ledger_json_path=tmp_ledger)
+        pm.available_cash = 10000.0
+        # 初始持仓：华泰柏瑞红利低波 10,000 份，净值 1.2500，初始市值 12,500 元
+        pm.add_or_update_holding("005561", shares=10000.0, nav=1.25, cost_price=1.20, holding_days=45)
+        assert abs(pm.holdings["005561"].market_value - 12500.0) < 1e-2
+        
+        # 模拟用户在表格中直接将当前市值修改为 25,000.00 元（份额未动或用户不知道份额）
+        new_mkt = 25000.0
+        nav = pm.holdings["005561"].current_nav  # 1.25
+        recalculated_shares = round(new_mkt / nav, 2)  # 应为 20,000.00 份
+        
+        pm.add_or_update_holding(
+            fund_code="005561",
+            shares=recalculated_shares,
+            nav=nav,
+            cost_price=1.20,
+            holding_days=45,
+            notes="市值反算更新"
+        )
+        
+        assert abs(pm.holdings["005561"].shares - 20000.0) < 1e-2
+        assert abs(pm.holdings["005561"].market_value - 25000.0) < 1e-2
+
+
+def test_tab2_step1_layout_and_dock_integrity():
+    """
+    断言 Tab 2 步骤一包含：
+    1. 4 张资产概览卡 (💼 持仓总市值、💵 可用现金池、📈 累计浮动盈亏、🔒 锁仓与超额概览)；
+    2. 锁仓与免罚只数动态统计；
+    3. 表格操作栏等高对齐并包含删除 popover；
+    4. 单一整合的「🛠️ 账本工具坞」（包含快速录入、FIFO 批次透视、实盘接管档案 3 个子 tab）。
+    """
+    gui_file = Path("AGY2_FundAdvisory/app_gui.py")
+    gui_text = gui_file.read_text(encoding="utf-8")
+    
+    assert "💼 持仓总市值" in gui_text
+    assert "💵 可用现金池" in gui_text
+    assert "📈 累计浮动盈亏" in gui_text
+    assert "🔒 锁仓与超额概览" in gui_text
+    assert "safe_redeem_count" in gui_text
+    assert "penalty_locked_count" in gui_text
+    
+    assert "🛠️ 账本工具坞（快速录入 / FIFO批次透视 / 实盘接管档案）" in gui_text
+    assert "✨ 快速录入/导入持仓" in gui_text
+    assert "📦 FIFO批次解锁透视" in gui_text
+    assert "📋 实盘接管基准档案" in gui_text
+    
+    assert "pop_edit_cash_pool" in gui_text
+    assert "pop_del_sel_tab2" in gui_text
