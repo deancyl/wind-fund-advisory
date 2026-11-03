@@ -193,6 +193,12 @@ st.set_page_config(
 # 自定义 CSS 强化桌面客户端质感（含彻底隐藏 Stop / Deploy / 汉堡菜单）
 st.markdown("""
 <style>
+    /* 彻底隐藏侧边栏与展开控制箭头，实现 100% 满宽沉浸式体验 */
+    [data-testid="stSidebar"], [data-testid="collapsedControl"], section[data-testid="stSidebar"] {
+        display: none !important;
+        visibility: hidden !important;
+        width: 0 !important;
+    }
     header[data-testid="stHeader"], [data-testid="stHeader"], .stAppHeader {
         visibility: hidden !important;
         display: none !important;
@@ -209,8 +215,8 @@ st.markdown("""
         padding: 10px 14px;
         color: #0f172a;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        height: 112px;
-        max-height: 112px;
+        min-height: 118px;
+        height: auto;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
@@ -231,17 +237,21 @@ st.markdown("""
         margin-top: 8px;
         margin-bottom: 12px;
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        width: 100%;
+        box-sizing: border-box;
     }
     .index-ticker-pill {
         display: inline-flex;
         align-items: center;
+        justify-content: space-between;
         gap: 6px;
         background: #f8fafc;
         border: 1px solid #e2e8f0;
         border-radius: 6px;
         padding: 4px 10px;
         font-size: 12px;
-        flex-shrink: 0;
+        flex: 1 1 0;
+        min-width: 120px;
     }
     .index-pill-name {
         font-weight: 600;
@@ -458,7 +468,7 @@ def render_workflow_step_indicator(steps: List[str], current_step: int, help_tex
             parts.append(f"<span style='color: #94a3b8; font-weight: 500;'>【⚪ 步骤{idx}：{name} (待解锁)】</span>")
 
     flow_html = " ───> ".join(parts)
-    st.markdown(f"""
+    safe_markdown_html(f"""
     <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;">
         <div style="font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 4px;">
             🧭 工作流导引：{flow_html}
@@ -481,66 +491,6 @@ calc = pm.calculator
 # 实时拉取最新策略大脑快照 (首屏 auto_sync=False 纯本地秒级直开)
 snapshot = StrategyBridge.get_latest_market_snapshot(force_reload=False, auto_sync=False)
 
-# -------------------------------------------------------------
-# 侧边栏：组合基准信息与全局快捷动作
-# -------------------------------------------------------------
-with st.sidebar:
-    st.title("🧭 AGY2 策略助手")
-    st.caption("A股跨风格高胜率策略大脑 ｜ 全局双轨方案快照")
-    st.markdown("---")
-
-    st.subheader("⚡ 组合快捷控制")
-    col_sb_demo, col_sb_undo = st.columns(2)
-    with col_sb_demo:
-        if st.button("🚀 加载演示组合", use_container_width=True, key="btn_side_load_demo"):
-            demo_res = pm.load_demo_portfolio()
-            st.session_state.tab2_diag_cache = None
-            st.session_state.tab2_rebal_cache = None
-            st.session_state.tab2_diagnosed = False
-            st.session_state.tab2_rebalanced = False
-            st.success("✅ 演示组合载入成功！")
-            st.rerun()
-    with col_sb_undo:
-        if st.button("↩️ 一键撤销", use_container_width=True, key="btn_side_undo"):
-            _undo_ok = pm.undo()
-            if _undo_ok:
-                st.session_state.tab2_diag_cache = None
-                st.session_state.tab2_rebal_cache = None
-                st.session_state.tab2_diagnosed = False
-                st.session_state.tab2_rebalanced = False
-                st.info("✅ 已成功回滚至上一快照！")
-                st.rerun()
-            else:
-                st.warning("暂无更早快照可撤销")
-
-    st.markdown("---")
-    st.subheader("📋 实盘接管档案")
-    st.write(f"**接管模式**：{'模式 A (极简冷启动)' if pm.takeover_mode == 'A' else '模式 B (账本热接管)'}")
-    st.write(f"**基准确立日**：`{pm.baseline_date}`")
-    st.write(f"**接管基准总资产**：¥{pm.baseline_equity:,.2f}")
-
-    total_market_val = sum(h.market_value for h in pm.holdings.values())
-    total_cur_equity = total_market_val + pm.available_cash + pm.in_transit_cash
-    abs_gain = total_cur_equity - pm.baseline_equity
-    abs_gain_pct = (abs_gain / pm.baseline_equity * 100.0) if pm.baseline_equity > 0 else 0.0
-
-    st.metric(
-        label="接管后绝对收益",
-        value=f"¥{total_cur_equity:,.2f}",
-        delta=f"{abs_gain:+,.2f} ({abs_gain_pct:+.2f}%)",
-        delta_color="inverse"
-    )
-
-    st.write(f"**峰值总资产**：¥{pm.peak_equity:,.2f}")
-    st.write(f"**接管期最大回撤**：`{pm.max_drawdown_pct:.2f}%`")
-    st.write(f"**基准超额 (Alpha)**：`{pm.alpha_return_pct:+.2f}%` (vs {pm.benchmark_code})")
-
-    st.markdown("---")
-    st.subheader("🎯 当前推演方案快照")
-    _act_t = st.session_state.get("active_tier_val", "C3")
-    _act_r = float(st.session_state.get("target_return_val", 15.0))
-    _info_str = f"**新资建仓目标**：【{_act_t} 档位】目标年化 {_act_r:.1f}% ｜ **实盘持仓状态**：共 {len(pm.holdings)} 只标的，可用现金 ¥{pm.available_cash:,.2f}"
-    st.info(_info_str)
 
 
 
@@ -675,7 +625,10 @@ with top_c4:
             ¥{total_cur_equity:,.2f}
         </div>
         <div class="metric-card-sub">
-            今日预估 <span style="color: {pnl_color}; font-weight: 600;">¥{est_pnl:+,.2f} ({est_pnl_pct:+.2f}%)</span> ｜ 累计浮盈 <span style="color: {tot_pnl_color}; font-weight: 600;">¥{_t2_pnl:+,.2f} ({_t2_pnl_pct:+.2f}%)</span>
+            盘中预估：<span style="color: {pnl_color}; font-weight: 600;">¥{est_pnl:+,.2f} ({est_pnl_pct:+.2f}%)</span> ｜ 实时估值：¥{total_cur_equity + est_pnl:,.2f}
+        </div>
+        <div class="metric-card-sub" style="margin-top: 2px;">
+            持仓浮盈：<span style="color: {tot_pnl_color}; font-weight: 600;">¥{_t2_pnl:+,.2f} ({_t2_pnl_pct:+.2f}%)</span> ｜ 可用现金：¥{pm.available_cash:,.0f}
         </div>
     </div>
     """)
@@ -714,6 +667,7 @@ with strip_col_btn:
     safe_markdown_html("<div style='height: 8px;'></div>")
     if st.button("🔄 刷新实时行情与估值", help="单次批量重新拉取 6 大核心指数点位与全组合最新真实净值", use_container_width=True, type="primary", key="btn_refresh_all_live_quotes"):
         clear_realtime_cache()
+        fetch_batch_realtime_indices(use_cache=False)
         pm.sync_holdings_live_nav(use_intraday_gsz=True)
         StrategyBridge._cached_snapshot = None
         StrategyBridge._cached_matrix = None
@@ -1551,6 +1505,7 @@ with tab_zero_start:
                 if st.button("📈 【一键将此建仓组合送入穿透回测】", type="secondary", use_container_width=True, key="btn_send_bp_to_bt"):
                     st.session_state.selected_backtest_weights = dict(_cache_s3.get("cur_opt_w", {}))
                     st.session_state.selected_backtest_target = "新建仓组合"
+                    st.session_state.tab3_backtest_activated = True
                     st.success("✅ 已成功将此组合送入【📈 组合回测】！请切换至第三个 Tab 检视。")
 
     except Exception as e:
@@ -1653,6 +1608,17 @@ with tab_holdings_and_rebalance:
         t2_m2.metric("💵 可用现金", f"¥{pm.available_cash:,.2f}")
         t2_m3.metric("📈 累计浮动盈亏", f"¥{_t2_pnl:+,.2f}", delta=f"{_t2_pnl_pct:+.2f}%")
         t2_m4.metric("📊 持仓标的数", f"{len(pm.holdings)} 只")
+
+        with st.expander("📋 实盘接管档案（接管基准、峰值资产、最大回撤与 Alpha）", expanded=False):
+            col_arch1, col_arch2 = st.columns(2)
+            with col_arch1:
+                st.write(f"**接管模式**：{'模式 A (极简冷启动)' if pm.takeover_mode == 'A' else '模式 B (账本热接管)'}")
+                st.write(f"**基准确立日**：`{pm.baseline_date}`")
+                st.write(f"**接管基准总资产**：¥{pm.baseline_equity:,.2f}")
+            with col_arch2:
+                st.write(f"**峰值总资产**：¥{pm.peak_equity:,.2f}")
+                st.write(f"**接管期最大回撤**：`{pm.max_drawdown_pct:.2f}%`")
+                st.write(f"**基准超额 (Alpha)**：`{pm.alpha_return_pct:+.2f}%` (vs {pm.benchmark_code})")
 
         if len(pm.holdings) == 0:
             st.info("💡 **当前账本暂无持仓**！您可以点击下方按钮一键载入演示组合（包含深套基与在途单），或者在下方向导录入您的真实持仓。")
@@ -2186,6 +2152,7 @@ with tab_holdings_and_rebalance:
                     if st.button("📈 【将调仓前vs调仓后送入回测对比】", type="secondary", use_container_width=True, key="btn_send_rebal_to_bt"):
                         st.session_state.selected_backtest_target = "调仓前后对比"
                         st.session_state.selected_secondary_weights = tier_target_w
+                        st.session_state.tab3_backtest_activated = True
                         st.success("✅ 已成功将调仓前后组合送入【📈 组合回测】！请切换至第三个 Tab 查看双曲线对比。")
 
     except Exception as e:
@@ -2197,6 +2164,7 @@ with tab_holdings_and_rebalance:
 # =============================================================
 def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
     trial29_kpi = StrategyBridge.load_trial29_metrics()
+    c_bt_obj, c_bt_bench = st.columns([4, 6])
     with c_bt_obj:
         def_target = st.session_state.get("selected_backtest_target", "新建仓组合")
         target_options = ["新建仓组合", "当前实盘持仓", "调仓后组合", "调仓前后对比", "策略基准档"]
@@ -2532,6 +2500,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
 
 
 def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
+    total_cur_equity = sum(h.market_value for h in pm.holdings.values()) + pm.available_cash + pm.in_transit_cash
     box_tab1, box_tab2, box_tab3 = st.tabs([
         "📊 资产穿透",
         "💡 A/C算费",

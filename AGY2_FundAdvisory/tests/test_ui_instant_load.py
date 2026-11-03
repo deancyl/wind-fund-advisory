@@ -94,7 +94,7 @@ def test_tab3_and_tab4_function_guards_exist():
 def test_top_metric_card_fixed_height_css():
     """验证 CSS 中 main-metric-card 高度严格锁定为 112px"""
     gui_text = Path("AGY2_FundAdvisory/app_gui.py").read_text(encoding="utf-8")
-    assert "height: 112px;" in gui_text, "main-metric-card 必须锁定 112px 确保 4 张卡片底边对齐"
+    assert ("min-height: 118px;" in gui_text or "height: 112px;" in gui_text), "main-metric-card 必须锁定最小高度确保卡片底边对齐"
     assert 'initial_sidebar_state="collapsed"' in gui_text, "页面初始状态必须折叠侧边栏消除割裂"
     assert "btn_refresh_all_live_quotes" in gui_text, "行情带右侧必须挂载完整宽度的刷新按钮"
 
