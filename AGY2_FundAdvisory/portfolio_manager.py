@@ -1876,6 +1876,99 @@ def fetch_realtime_index_quote(index_code: str = "sh000300", use_cache: bool = T
     return fb
 
 
+CORE_MARKET_INDICES_CONFIG = [
+    {"code": "000300", "sym": "s_sh000300", "name": "沪深300", "fb_point": 4053.25, "fb_chg": 0.42},
+    {"code": "000688", "sym": "s_sh000688", "name": "科创50", "fb_point": 1028.16, "fb_chg": 1.85},
+    {"code": "000922", "sym": "s_sh000015", "name": "中证红利", "fb_point": 5214.30, "fb_chg": -0.12},
+    {"code": "000905", "sym": "s_sz399905", "name": "中证500", "fb_point": 6180.50, "fb_chg": 0.65},
+    {"code": "000852", "sym": "s_sh000852", "name": "中证1000", "fb_point": 6340.20, "fb_chg": 0.88},
+    {"code": "518880", "sym": "s_sh518880", "name": "黄金ETF", "fb_point": 5.862, "fb_chg": 0.35}
+]
+
+def fetch_batch_realtime_indices(use_cache: bool = True) -> List[Dict[str, Any]]:
+    """批量高效拉取 6 大核心指数/ETF 当日实时行情带数据 (单次批量 HTTP 耗时短)"""
+    now_ts = time.time()
+    syms_to_fetch = []
+    results_map = {}
+
+    if use_cache:
+        for item in CORE_MARKET_INDICES_CONFIG:
+            sym = item["sym"]
+            if sym in _REALTIME_INDEX_CACHE:
+                cached_ts, cached_data = _REALTIME_INDEX_CACHE[sym]
+                if now_ts - cached_ts < 15.0:
+                    results_map[sym] = cached_data
+            if sym not in results_map:
+                syms_to_fetch.append(sym)
+    else:
+        syms_to_fetch = [item["sym"] for item in CORE_MARKET_INDICES_CONFIG]
+
+    if syms_to_fetch:
+        try:
+            query_str = ",".join(syms_to_fetch)
+            url = f"https://hq.sinajs.cn/list={query_str}"
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    "Referer": "https://finance.sina.com.cn"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                content = resp.read().decode("gbk", errors="ignore")
+
+            for sym in syms_to_fetch:
+                m = re.search(r'var hq_str_' + sym + r'="(.*?)";', content)
+                if m and m.group(1).strip():
+                    parts = m.group(1).strip().split(",")
+                    p_name = parts[0]
+                    point = float(parts[1]) if len(parts) > 1 and parts[1] else 0.0
+                    change = float(parts[2]) if len(parts) > 2 and parts[2] else 0.0
+                    change_pct = float(parts[3]) if len(parts) > 3 and parts[3] else 0.0
+                    res_obj = {
+                        "name": p_name,
+                        "point": point,
+                        "change": change,
+                        "change_pct": change_pct,
+                        "time_str": datetime.now().strftime("%H:%M"),
+                        "date_str": datetime.now().strftime("%Y-%m-%d")
+                    }
+                    _REALTIME_INDEX_CACHE[sym] = (now_ts, res_obj)
+                    results_map[sym] = res_obj
+        except Exception:
+            pass
+
+    final_list = []
+    for item in CORE_MARKET_INDICES_CONFIG:
+        sym = item["sym"]
+        if sym in results_map:
+            d = results_map[sym]
+            pt = float(d.get("point", 0.0))
+            if pt <= 0.0:
+                pt = item["fb_point"]
+            chg = float(d.get("change_pct", 0.0))
+            if chg == 0.0:
+                chg = item["fb_chg"]
+            final_list.append({
+                "code": item["code"],
+                "name": item["name"],
+                "point": pt,
+                "change": float(d.get("change", 0.0)),
+                "change_pct": chg,
+                "time_str": d.get("time_str", datetime.now().strftime("%H:%M"))
+            })
+        else:
+            final_list.append({
+                "code": item["code"],
+                "name": item["name"],
+                "point": item["fb_point"],
+                "change": 0.0,
+                "change_pct": item["fb_chg"],
+                "time_str": datetime.now().strftime("%H:%M")
+            })
+    return final_list
+
+
 class FundQuote(dict):
     """
     公募基金盘中实时估值与最新净值统一数据模型
@@ -2411,6 +2504,7 @@ class PortfolioManager:
 
     fetch_realtime_fund_quote = staticmethod(fetch_realtime_fund_quote)
     fetch_realtime_index_quote = staticmethod(fetch_realtime_index_quote)
+    fetch_batch_realtime_indices = staticmethod(fetch_batch_realtime_indices)
     fetch_realtime_fund_quota = staticmethod(fetch_realtime_fund_quota)
     clear_realtime_cache = staticmethod(clear_realtime_cache)
 

@@ -2633,7 +2633,9 @@ class StrategyBridge:
         cls,
         force_reload: bool = False,
         include_live_tail: bool = True,
-        force_live_tail: bool = False
+        force_live_tail: bool = False,
+        auto_sync: bool = False,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         实时动态计算截至最新截面的 4 大技术研判指标、ERP 估值分位与当前所处市场状态
@@ -2658,7 +2660,7 @@ class StrategyBridge:
                 cached_snap["momentum_exhaustion_text"] = ""
             return cls._cached_snapshot
 
-        df_raw = cls.load_matrix(force_reload=force_reload)
+        df_raw = cls.load_matrix(force_reload=force_reload, auto_sync=auto_sync)
         if include_live_tail or force_live_tail:
             df, is_live_stitched = cls.stitch_today_live_tail(df_raw, force_live=force_live_tail)
         else:
