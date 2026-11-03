@@ -193,23 +193,71 @@ st.set_page_config(
 # 自定义 CSS 强化桌面客户端质感（含彻底隐藏 Stop / Deploy / 汉堡菜单）
 st.markdown("""
 <style>
-    /* 侧边栏自然展开收起，同时彻底隐藏 Stop / Deploy / 汉堡菜单等 Demo 痕迹 */
-    .stDeployButton, [data-testid="stStatusWidget"], #MainMenu, footer, [data-testid="stHeaderActionElements"], [data-testid="stToolbar"] {
+    /* 彻底隐藏 Stop / Deploy / 汉堡菜单等 Demo 痕迹，绝不隐藏 Toolbar 容器与展开按钮 */
+    .stDeployButton,
+    [data-testid="stAppDeployButton"],
+    [data-testid="stStatusWidget"],
+    #MainMenu,
+    [data-testid="stMainMenu"],
+    [data-testid="stHeaderActionElements"],
+    [data-testid="stToolbarActions"],
+    [data-testid="stConnectionStatus"],
+    footer {
         visibility: hidden !important;
         display: none !important;
     }
     header[data-testid="stHeader"], .stAppHeader {
         background: transparent !important;
         z-index: 99 !important;
+        height: 2.8rem !important;
+        pointer-events: none !important;
     }
-    [data-testid="collapsedControl"] {
+    [data-testid="stToolbar"] {
+        background: transparent !important;
+        pointer-events: none !important;
         display: flex !important;
         visibility: visible !important;
-        top: 10px !important;
-        left: 10px !important;
-        z-index: 100 !important;
     }
-    /* 禁用 Streamlit 在重新计算时的 stale 半透明重影 (解决调参时按钮重影) */
+    /* 侧边栏展开按钮 (收起时在左上角)：fixed 常驻高亮胶囊，100% 永远可点击恢复 */
+    [data-testid="stExpandSidebarButton"],
+    button[aria-label="Expand sidebar"],
+    [data-testid="collapsedControl"] {
+        display: inline-flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        cursor: pointer !important;
+        position: fixed !important;
+        top: 10px !important;
+        left: 12px !important;
+        z-index: 999999 !important;
+        background: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 8px !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12) !important;
+        padding: 4px 8px !important;
+        color: #1e293b !important;
+        transition: all 0.2s ease !important;
+    }
+    [data-testid="stExpandSidebarButton"]:hover,
+    button[aria-label="Expand sidebar"]:hover,
+    [data-testid="collapsedControl"]:hover {
+        background: #eff6ff !important;
+        border-color: #3b82f6 !important;
+        color: #2563eb !important;
+        transform: scale(1.05) !important;
+    }
+    /* 侧边栏收起按钮 (展开时在侧边栏右上角) */
+    [data-testid="stSidebarCollapseButton"],
+    button[aria-label="Collapse sidebar"] {
+        display: inline-flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        cursor: pointer !important;
+        z-index: 999999 !important;
+    }
+    /* 禁用 Streamlit 在重新计算时的 stale 半透明重影 */
     .stApp [data-testid="stVerticalBlock"] > div[style*="opacity"] {
         opacity: 1 !important;
         transition: none !important;
@@ -218,14 +266,32 @@ st.markdown("""
         opacity: 1 !important;
         filter: none !important;
     }
+    /* 物理消除侧边栏展开时多列网格溢出导致的右侧重叠 */
+    div[data-testid="stHorizontalBlock"] {
+        width: 100% !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+    }
+    div[data-testid="column"] {
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+    }
+    .main .block-container, [data-testid="stMainBlockContainer"] {
+        max-width: 100% !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+        box-sizing: border-box !important;
+        overflow-x: hidden !important;
+    }
     .main-metric-card {
         background: #ffffff;
         border: 1px solid #cbd5e1;
         border-radius: 8px;
-        padding: 10px 14px;
+        padding: 10px 12px;
         color: #0f172a;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        min-height: 118px;
+        min-height: 114px;
         height: auto;
         display: flex;
         flex-direction: column;
@@ -241,26 +307,26 @@ st.markdown("""
         background: #ffffff;
         border: 1px solid #cbd5e1;
         border-radius: 8px;
-        padding: 8px 12px;
-        overflow-x: auto;
-        white-space: nowrap;
-        margin-top: 8px;
-        margin-bottom: 12px;
+        padding: 6px 12px;
+        margin-top: 4px;
+        margin-bottom: 10px;
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
         width: 100%;
         box-sizing: border-box;
+        overflow: hidden;
     }
     .index-ticker-pill {
         display: inline-flex;
         align-items: center;
         justify-content: space-between;
-        gap: 8px;
+        gap: 6px;
         background: #f8fafc;
         border: 1px solid #e2e8f0;
         border-radius: 6px;
-        padding: 5px 10px;
+        padding: 4px 8px;
         flex: 1 1 0;
-        min-width: 0;
+        min-width: 90px;
+        box-sizing: border-box;
     }
     .index-pill-name {
         font-size: 13px;
@@ -654,11 +720,13 @@ with top_c2:
         <div class="metric-value-huge" style="color: {st_color};">
             {vernacular_state}
         </div>
-        <div class="metric-card-sub" style="color: #475569;">
-            📈破 {surge_line:,.0f} 进攻 ｜ 🛡️跌 {breakdown_line:,.0f} 防守
+        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; color: #475569;">
+            <span>📈破 {surge_line:,.0f} 进攻</span>
+            <span>🛡️跌 {breakdown_line:,.0f} 防守</span>
         </div>
-        <div class="metric-card-sub" style="color: #0284c7; font-weight: 500;">
-            📡信噪比 ER: {snr:.2f} ｜ ⚡动量加速度: {accel:+.1f}%
+        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; color: #0284c7; font-weight: 500; margin-top: 2px;">
+            <span>📡信噪比: {snr:.2f}</span>
+            <span>⚡加速度: {accel:+.1f}%</span>
         </div>
         {exhaustion_badge}
     </div>
@@ -687,17 +755,19 @@ with top_c4:
     safe_markdown_html(f"""
     <div class="main-metric-card">
         <div class="metric-card-title">
-            <span>💰 我的总资产与今日预估</span>
+            <span>💰 总资产与今日预估</span>
             <span title="{c4_tip}" style="cursor:help; color:#94a3b8; font-size:12px;">ⓘ</span>
         </div>
         <div class="metric-value-huge" style="color: #0f172a;">
             ¥{total_cur_equity:,.2f}
         </div>
-        <div class="metric-card-sub">
-            盘中预估：<span style="color: {pnl_color}; font-weight: 600;">¥{est_pnl:+,.2f} ({est_pnl_pct:+.2f}%)</span> ｜ 实时估值：¥{total_cur_equity + est_pnl:,.2f}
+        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px;">
+            <span>盘中预估: <b style="color: {pnl_color};">¥{est_pnl:+,.2f}</b></span>
+            <span>涨跌: <b style="color: {pnl_color};">{est_pnl_pct:+.2f}%</b></span>
         </div>
-        <div class="metric-card-sub" style="margin-top: 2px;">
-            持仓浮盈：<span style="color: {tot_pnl_color}; font-weight: 600;">¥{_t2_pnl:+,.2f} ({_t2_pnl_pct:+.2f}%)</span> ｜ 可用现金：¥{pm.available_cash:,.0f}
+        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; margin-top: 2px;">
+            <span>持仓浮盈: <b style="color: {tot_pnl_color};">¥{_t2_pnl:+,.2f}</b></span>
+            <span>现金: <b>¥{pm.available_cash:,.0f}</b></span>
         </div>
     </div>
     """)
@@ -720,20 +790,22 @@ for idx_item in live_indices_list:
     """)
 
 ticker_inner_html = "\n".join(pill_html_parts)
-strip_col_ticker, strip_col_btn = st.columns([8.6, 1.4])
+strip_col_ticker, strip_col_btn = st.columns([8.2, 1.8])
 
 with strip_col_ticker:
     safe_markdown_html(f"""
     <div class="index-ticker-strip">
-        <span style="font-size: 13px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+        <span style="font-size: 13px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 4px; flex-shrink: 0; white-space: nowrap;">
             📊 核心指数
         </span>
-        {ticker_inner_html}
+        <div style="display: flex; flex-direction: row; align-items: center; gap: 6px; flex: 1 1 auto; overflow-x: auto; scrollbar-width: none;">
+            {ticker_inner_html}
+        </div>
     </div>
     """)
 
 with strip_col_btn:
-    safe_markdown_html("<div style='height: 6px;'></div>")
+    safe_markdown_html("<div style='height: 4px;'></div>")
     if st.button("🔄 刷新行情", help="单次批量重新拉取 6 大核心指数点位与全组合最新真实净值", use_container_width=True, type="primary", key="btn_refresh_all_live_quotes"):
         clear_realtime_cache()
         fetch_batch_realtime_indices(use_cache=False)

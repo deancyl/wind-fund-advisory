@@ -114,28 +114,34 @@ def test_ui_cleanliness_and_title_length():
     """
     红线扫描：
     1. app_gui.py 中绝对无裸露在 HTML 外的 </div>；
-    2. Streamlit Demo 工具栏被 display: none 彻底隐藏；
-    3. 侧边栏展开箭头恢复；
+    2. Streamlit Demo 工具栏被 display: none 彻底隐藏，展开收起按钮放行并增强；
+    3. 侧边栏展开箭头恢复且带有 fixed 悬浮保护；
     4. 核心工作流与步骤标题严格 <= 7 个汉字。
     """
     gui_file = Path("AGY2_FundAdvisory/app_gui.py")
     text = gui_file.read_text(encoding="utf-8")
     
     # 1. 检查 Demo 工具栏隐藏
-    assert '.stDeployButton, [data-testid="stStatusWidget"], #MainMenu, footer' in text
+    assert '.stDeployButton' in text
+    assert '[data-testid="stStatusWidget"]' in text
+    assert '#MainMenu' in text
+    
+    # 2. 检查侧边栏展开/收起按钮放行（Streamlit 1.66 属性）
+    assert '[data-testid="stExpandSidebarButton"]' in text
+    assert '[data-testid="stSidebarCollapseButton"]' in text
     assert '[data-testid="collapsedControl"]' in text
     
-    # 2. 检查侧边栏全局领航台已挂载
+    # 3. 检查侧边栏全局领航台已挂载
     assert 'with st.sidebar:' in text
     assert 'st.subheader("🧭 全局领航台")' in text
     
-    # 3. 检查 3 栏深度归因大卡片
+    # 4. 检查 3 栏深度归因大卡片
     assert '#### 🎯 方案核心归因' in text
     assert '💰 怎么赚钱？' in text
     assert '🏆 为什么能赢？' in text
     assert '🚨 风险与铁律' in text
     
-    # 4. 标题长度断言 (主步骤和二级步骤 <= 7 汉字)
+    # 5. 标题长度断言 (主步骤和二级步骤 <= 7 汉字)
     key_titles = [
         "步骤一：设定目标",
         "步骤二：现场推演",
