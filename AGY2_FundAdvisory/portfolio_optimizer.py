@@ -28,6 +28,7 @@ if str(_THIS_DIR) not in sys.path:
 
 from winrate_engine import WinRateEngine, HOLDING_PERIODS
 from cache_manager import SmartCacheManager
+from data_loader import denoise_covariance_matrix
 
 __all__ = [
     "WinRateOptimizer",
@@ -686,6 +687,7 @@ class WinRateOptimizer:
         corr = ret_df.corr().fillna(0.0).to_numpy(copy=True)
         np.fill_diagonal(corr, 1.0)
         corr = np.clip(corr, -1.0, 1.0)
+        corr = denoise_covariance_matrix(corr, n_obs=len(ret_df), shrink_alpha=0.15)
 
         dist = np.sqrt(np.clip(0.5 * (1.0 - corr), 0.0, 1.0))
         np.fill_diagonal(dist, 0.0)
@@ -698,6 +700,7 @@ class WinRateOptimizer:
 
         ordered_codes = [codes[i] for i in sort_ix]
         cov = ret_df[ordered_codes].cov().values * 250.0
+        cov = denoise_covariance_matrix(cov, n_obs=len(ret_df), shrink_alpha=0.15)
 
         def _get_cluster_var(cov_mat: np.ndarray, c_items: List[int]) -> float:
             cov_slice = cov_mat[np.ix_(c_items, c_items)]

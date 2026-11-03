@@ -1785,8 +1785,161 @@ _SIX_DIM_SCORE_CACHE: Dict[Tuple[str, str, str], Tuple[float, Dict[str, Any]]] =
 _CACHED_TIER_SECTOR_SELECTIONS: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 
+def compute_market_snr_and_kalman_state(
+    price_series: Any,
+    window: int = 20,
+    q_process: float = 1e-4
+) -> Dict[str, Any]:
+    """
+    R1: 计算考夫曼效率系数 (ER 信噪比代理指标) 与一维动态自适应卡尔曼滤波净值/斜率
+    1. Kaufman Efficiency Ratio: ER_t = |P_t - P_{t-w}| / sum_{i=0}^{w-1} |P_{t-i} - P_{t-i-1}| in [0, 1]
+    2. 1D Kalman Filter: 观测噪声 R 随 (1 - ER_t) 动态放大，剥离白噪音提取趋势与斜率
+    3. 自适应动量变速窗口: W_eff = int(np.clip(round(60 - 40 * er_t), 20, 60)) in [20, 60]
+    """
+    if price_series is None:
+        p = np.array([], dtype=float)
+    elif hasattr(price_series, "dropna"):
+        p = price_series.dropna().to_numpy(dtype=float)
+    elif isinstance(price_series, (list, tuple)):
+        p = np.array([x for x in price_series if x is not None and not (isinstance(x, float) and math.isnan(x))], dtype=float)
+    else:
+        p = np.asarray(price_series, dtype=float)
+    p = p[np.isfinite(p)]
+    n = len(p)
+
+    if n == 0:
+        return {
+            "er_snr": 0.5,
+            "effective_window": 40,
+            "effective_momentum_window": 40,
+            "kalman_trend": 0.0,
+            "kalman_slope": 0.0,
+            "filtered_series": np.array([], dtype=float)
+        }
+    if n == 1:
+        return {
+            "er_snr": 0.5,
+            "effective_window": 40,
+            "effective_momentum_window": 40,
+            "kalman_trend": float(p[0]),
+            "kalman_slope": 0.0,
+            "filtered_series": np.array([float(p[0])], dtype=float)
+        }
+
+    # 1. 考夫曼效率比率 ER_t 序列计算
+    er_arr = np.zeros(n, dtype=float)
+    er_arr[0] = 0.5
+    for t in range(1, n):
+        w_t = min(window, t)
+        net = abs(p[t] - p[t - w_t])
+        diffs = np.abs(np.diff(p[t - w_t : t + 1]))
+        path = np.sum(diffs)
+        if path < 1e-12:
+            er_arr[t] = 0.0  # 平盘无波动，信噪比设为 0.0
+        else:
+            er_arr[t] = float(np.clip(net / path, 0.0, 1.0))
+
+    er_snr = float(er_arr[-1])
+    # 动态自适应动量回看窗口: 单边主升浪缩短至 20 日，震荡杂波拉长至 60 日
+    w_eff = int(np.clip(round(60.0 - 40.0 * er_snr), 20, 60))
+
+    # 2. 一维卡尔曼滤波：归一化处理以保证尺度无关性 (Scale-Invariance)
+    p_base = float(p[0]) if abs(p[0]) > 1e-8 else (float(np.mean(np.abs(p))) if float(np.mean(np.abs(p))) > 1e-8 else 1.0)
+    y = p / p_base
+    dy = np.diff(y)
+    var_dy = float(np.var(dy)) if len(dy) >= 2 else 1e-4
+    r_base = max(var_dy, 1e-4)
+    q = float(q_process)
+
+    filtered_y = np.zeros(n, dtype=float)
+    filtered_y[0] = y[0]
+    x_curr = float(y[0])
+    p_curr = r_base
+
+    for t in range(1, n):
+        er = er_arr[t]
+        # 观测噪声 R 随 (1 - ER_t) 动态放大：单边趋势时 R_t 极小追踪极速，震荡白噪音时 R_t 放大深度滤波
+        r_t = r_base * max(1.0 - er, 1e-4)
+        x_pred = x_curr
+        p_pred = p_curr + q
+        k_t = p_pred / (p_pred + r_t)
+        x_curr = x_pred + k_t * (y[t] - x_pred)
+        p_curr = (1.0 - k_t) * p_pred
+        filtered_y[t] = x_curr
+
+    filtered = filtered_y * p_base
+    trend = float(filtered[-1])
+    slope = float((filtered[-1] / filtered[-2] - 1.0) * 100.0) if (n >= 2 and abs(filtered[-2]) > 1e-12) else 0.0
+
+    return {
+        "er_snr": round(er_snr, 4),
+        "effective_window": w_eff,
+        "effective_momentum_window": w_eff,
+        "kalman_trend": round(trend, 4),
+        "kalman_slope": round(slope, 4),
+        "filtered_series": filtered
+    }
+
+
+def compute_momentum_acceleration(
+    price_series: Any,
+    fast_window: int = 15,
+    slow_window: int = 60
+) -> float:
+    """
+    R2: 动量加速度 (二阶导数) 测算算子
+    Accel = Mom_15 - (15 / 60) * Mom_60 = Mom_15 - 0.25 * Mom_60
+    > 0: 短期动能加速爆发
+    < 0: 动能减速滞涨
+    <= -2.0%: 动量二阶导严重衰竭
+    """
+    if price_series is None:
+        return 0.0
+    if hasattr(price_series, "dropna"):
+        p = price_series.dropna().to_numpy(dtype=float)
+    elif isinstance(price_series, (list, tuple)):
+        p = np.array([x for x in price_series if x is not None and not (isinstance(x, float) and math.isnan(x))], dtype=float)
+    else:
+        p = np.asarray(price_series, dtype=float)
+    p = p[np.isfinite(p)]
+    n = len(p)
+    if n < 2:
+        return 0.0
+
+    if n >= slow_window + 1:
+        p_curr = float(p[-1])
+        p_fast = float(p[-1 - fast_window])
+        p_slow = float(p[-1 - slow_window])
+        if p_fast <= 0 or p_slow <= 0:
+            return 0.0
+        mom_fast = (p_curr / p_fast - 1.0) * 100.0
+        mom_slow = (p_curr / p_slow - 1.0) * 100.0
+        ratio = float(fast_window) / float(slow_window)
+        accel = mom_fast - ratio * mom_slow
+    elif n >= fast_window + 1:
+        p_curr = float(p[-1])
+        p_fast = float(p[-1 - fast_window])
+        p_slow = float(p[0])
+        if p_fast <= 0 or p_slow <= 0:
+            return 0.0
+        mom_fast = (p_curr / p_fast - 1.0) * 100.0
+        mom_slow = (p_curr / p_slow - 1.0) * 100.0
+        ratio = float(fast_window) / float(n - 1)
+        accel = mom_fast - ratio * mom_slow
+    else:
+        p_curr = float(p[-1])
+        p_slow = float(p[0])
+        if p_slow <= 0:
+            return 0.0
+        accel = 0.0
+    return float(round(accel, 4))
+
+
 class StrategyBridge:
     """Trial 29 策略大脑实时桥接引擎"""
+
+    compute_market_snr_and_kalman_state = staticmethod(compute_market_snr_and_kalman_state)
+    compute_momentum_acceleration = staticmethod(compute_momentum_acceleration)
 
     _cached_matrix: Optional[pd.DataFrame] = None
     _cached_backtest_df: Optional[pd.DataFrame] = None
@@ -2434,13 +2587,28 @@ class StrategyBridge:
             derivatives_sentiment = "中性平稳"
             derivatives_radar_tip = f"期指与期权定价平稳 (IV:{option_iv:.1f}%, IC贴水:{ic_basis:.1f}%)，宏观尾部风险低"
 
+        delta_ivix = 0.0
+        if df_ov is not None and not df_ov.empty:
+            try:
+                opt_300 = df_ov[df_ov["underlying_symbol"].astype(str).str.contains("510300")]
+                if len(opt_300) >= 2:
+                    ivix_curr = float(opt_300.iloc[-1].get("ivix_index", opt_300.iloc[-1]["iv_pct"]))
+                    ivix_prev = float(opt_300.iloc[-2].get("ivix_index", opt_300.iloc[-2]["iv_pct"]))
+                    delta_ivix = float(ivix_curr - ivix_prev)
+            except Exception:
+                pass
+        if delta_ivix == 0.0 and "delta_ivix" in snapshot:
+            delta_ivix = float(snapshot["delta_ivix"])
+
         snapshot["ic_annualized_basis_rate"] = round(ic_basis, 2)
         snapshot["im_annualized_basis_rate"] = round(im_basis, 2)
         snapshot["if_annualized_basis_rate"] = round(if_basis, 2)
         snapshot["ih_annualized_basis_rate"] = round(ih_basis, 2)
         snapshot["option_iv_pct"] = round(option_iv, 2)
+        snapshot["option_iv"] = round(option_iv, 2)
         snapshot["option_iv_star_pct"] = round(option_iv_star, 2)
         snapshot["ivix_index"] = round(ivix_index, 2)
+        snapshot["delta_ivix"] = round(delta_ivix, 2)
         snapshot["derivatives_sentiment"] = derivatives_sentiment
         snapshot["derivatives_radar_tip"] = derivatives_radar_tip
 
@@ -2473,6 +2641,21 @@ class StrategyBridge:
         if cls._cached_snapshot is not None and not force_reload:
             cls._refresh_liquidity_thermometer(cls._cached_snapshot)
             cls._refresh_derivatives_data(cls._cached_snapshot)
+            cached_snap = cls._cached_snapshot
+            m_code = cached_snap.get("market_state_code", "")
+            is_off = (m_code in ["GROWTH_BULL", "STRUCTURAL_500"]) or (cached_snap.get("dual_track_radar", {}).get("trend_stance") == "BULL")
+            is_crd = bool(cached_snap.get("crowding_warning", False)) or (cached_snap.get("crowding_degree") == "极度拥挤") or (float(cached_snap.get("crowding_score", 90.0)) < 60.0)
+            is_acc = (float(cached_snap.get("mom_accel", 0.0)) <= -2.0)
+            cur_ivix = float(cached_snap.get("ivix_index", 19.5))
+            cur_opt_iv = float(cached_snap.get("option_iv_pct", cached_snap.get("option_iv", 19.4)))
+            cur_delta_ivix = float(cached_snap.get("delta_ivix", 0.0))
+            is_iv_jump = (cur_ivix >= 24.0) or (cur_delta_ivix >= 1.5) or (cur_opt_iv >= 26.0)
+            if is_off and is_crd and is_acc and is_iv_jump:
+                cached_snap["momentum_exhaustion_warning"] = True
+                cached_snap["momentum_exhaustion_text"] = "⚡ 动量衰竭预警：暂停追高进攻标的，新增资金转入红利/纯债缓冲"
+            else:
+                cached_snap["momentum_exhaustion_warning"] = False
+                cached_snap["momentum_exhaustion_text"] = ""
             return cls._cached_snapshot
 
         df_raw = cls.load_matrix(force_reload=force_reload)
@@ -2532,25 +2715,47 @@ class StrategyBridge:
             m20_status_desc = f"站上 MA20 生命线 (+{dist_to_m20_breakout:.2f}%)，处于多头趋势保护"
             m20_color = "#ef4444" # 红 (多头/站上)
 
-        # 2. 风格动量比拼：科创50 vs 中证红利 (60日)
+        # 2. 风格动量比拼与考夫曼卡尔曼自适应变速器 (R1 & R2)
         cstar = float(df['STAR50_STITCH'].iloc[-1])
         cdiv = float(df['H00922'].iloc[-1])
         c500 = float(df['H00905'].iloc[-1])
 
-        mom60_300 = float((c300 / df['H00300'].iloc[-60] - 1.0) * 100.0)
-        mom60_star = float((cstar / df['STAR50_STITCH'].iloc[-60] - 1.0) * 100.0)
-        mom60_div = float((cdiv / df['H00922'].iloc[-60] - 1.0) * 100.0)
-        mom60_500 = float((c500 / df['H00905'].iloc[-60] - 1.0) * 100.0)
+        mom60_300 = float((c300 / df['H00300'].iloc[-60] - 1.0) * 100.0) if n >= 60 else 0.0
+        mom60_star = float((cstar / df['STAR50_STITCH'].iloc[-60] - 1.0) * 100.0) if n >= 60 else 0.0
+        mom60_div = float((cdiv / df['H00922'].iloc[-60] - 1.0) * 100.0) if n >= 60 else 0.0
+        mom60_500 = float((c500 / df['H00905'].iloc[-60] - 1.0) * 100.0) if n >= 60 else 0.0
         mom20_300 = float((c300 / df['H00300'].iloc[-20] - 1.0) * 100.0) if n >= 20 else 0.0
 
+        # R1: 考夫曼信噪比 (ER) 与 1D 卡尔曼滤波自适应变速 (使用基准 H00300)
+        c300_series = df['H00300']
+        snr_res = compute_market_snr_and_kalman_state(c300_series, window=20)
+        er_snr = float(snr_res["er_snr"])
+        effective_momentum_window = int(snr_res["effective_momentum_window"])
+        kalman_trend = float(snr_res["kalman_trend"])
+        kalman_slope = float(snr_res["kalman_slope"])
+        w_eff = min(effective_momentum_window, n - 1) if n > 1 else effective_momentum_window
+
+        # 动态自适应动量回看窗口比拼风格
+        mom_eff_300 = float((c300 / df['H00300'].iloc[-w_eff] - 1.0) * 100.0) if n > w_eff else mom60_300
+        mom_eff_star = float((cstar / df['STAR50_STITCH'].iloc[-w_eff] - 1.0) * 100.0) if n > w_eff else mom60_star
+        mom_eff_div = float((cdiv / df['H00922'].iloc[-w_eff] - 1.0) * 100.0) if n > w_eff else mom60_div
+        diff_star_div_eff = float(mom_eff_star - mom_eff_div)
+
+        # 严格保留原有 diff_star_div (60日) 供下游系统兼容
         diff_star_div = float(mom60_star - mom60_div)
-        if diff_star_div > 0:
+
+        # R2: 动量加速度 (二阶导 Accel = Mom_15 - 0.25 * Mom_60)
+        mom_accel_300 = compute_momentum_acceleration(c300_series)
+        mom_accel_star = compute_momentum_acceleration(df['STAR50_STITCH'])
+        mom_accel = mom_accel_300
+
+        if diff_star_div_eff > 0:
             momentum_style = "科技成长占优"
-            momentum_desc = f"科创50 (+{mom60_star:.1f}%) 跑赢中证红利 (+{mom60_div:.1f}%) 差值 +{diff_star_div:.1f}%"
+            momentum_desc = f"科创50 (+{mom_eff_star:.1f}%) 跑赢中证红利 (+{mom_eff_div:.1f}%) [自适应{w_eff}日] 差值 +{diff_star_div_eff:.1f}%"
             momentum_color = "#38bdf8"
         else:
             momentum_style = "高股息红利占优"
-            momentum_desc = f"中证红利 ({mom60_div:+.1f}%) 领先科创50 ({mom60_star:+.1f}%) 动量差 {diff_star_div:.1f}%"
+            momentum_desc = f"中证红利 ({mom_eff_div:+.1f}%) 领先科创50 ({mom_eff_star:+.1f}%) [自适应{w_eff}日] 动量差 {diff_star_div_eff:.1f}%"
             momentum_color = "#34d399"
 
         # 3. 大小盘结构温度：中证500 vs 沪深300
@@ -2695,6 +2900,52 @@ class StrategyBridge:
         # 6. 计算当前状态持续天数
         state_streak = cls._calculate_state_streak(df, current_state_code=market_state_code)
 
+        # 聪明钱与机构抱团拥挤度排查
+        crowding_warning = False
+        crowding_degree = "相对分散"
+        crowding_score = 90.0
+        try:
+            from portfolio_manager import PortfolioManager
+            _pm = PortfolioManager()
+            for _fc in ["011613", "001053", "007339"]:
+                _crd = _pm.get_fund_smart_money_crowding(_fc)
+                if _crd.get("crowding_warning"):
+                    crowding_warning = True
+                    crowding_degree = str(_crd.get("crowding_degree", "极度拥挤"))
+                    crowding_score = float(_crd.get("anti_crowding_score", _crd.get("crowding_score", 50.0)))
+                    break
+                elif str(_crd.get("crowding_degree")) == "极度拥挤":
+                    crowding_warning = True
+                    crowding_degree = "极度拥挤"
+                    crowding_score = float(_crd.get("anti_crowding_score", _crd.get("crowding_score", 50.0)))
+                    break
+        except Exception:
+            pass
+
+        # 预先获取衍生品期权与波指数据
+        deriv_probe: Dict[str, Any] = {}
+        cls._refresh_derivatives_data(deriv_probe)
+        ivix_val = float(deriv_probe.get("ivix_index", 19.50))
+        opt_iv_val = float(deriv_probe.get("option_iv_pct", 19.40))
+        delta_ivix_val = float(deriv_probe.get("delta_ivix", 0.0))
+
+        # R2 三联动量衰竭监控判定:
+        # 1. 处于进攻状态 (regime == "BULL" 或 market_state_code in ["GROWTH_BULL", "STRUCTURAL_500"])
+        is_offensive = (market_state_code in ["GROWTH_BULL", "STRUCTURAL_500"]) or (is_growth_lead)
+        # 2. 高拥挤度 (crowding_warning is True 或 crowding_degree == "极度拥挤" 或 crowding_score < 60.0)
+        is_high_crowding = (crowding_warning is True) or (crowding_degree == "极度拥挤") or (crowding_score < 60.0)
+        # 3. 动量加速度衰竭 (Accel <= -2.0%)
+        is_accel_exhaustion = (mom_accel <= -2.0) or (mom_accel_star <= -2.0)
+        # 4. 期权 iVIX 跳升 (ivix_index >= 24.0 或 delta iVIX >= 1.5 或 option_iv >= 26.0)
+        is_ivix_jumping = (ivix_val >= 24.0) or (delta_ivix_val >= 1.5) or (opt_iv_val >= 26.0)
+
+        if is_offensive and is_high_crowding and is_accel_exhaustion and is_ivix_jumping:
+            momentum_exhaustion_warning = True
+            momentum_exhaustion_text = "⚡ 动量衰竭预警：暂停追高进攻标的，新增资金转入红利/纯债缓冲"
+        else:
+            momentum_exhaustion_warning = False
+            momentum_exhaustion_text = ""
+
         # 7. 目标权重推演：确保顶部第 2 张卡与底部步骤三建仓/调仓单 100% 逻辑自洽
         # 废除静态硬编码劫持，目标基金配比 100% 由 compute_dynamic_tier_weights 动态计算
         pre_snap = {
@@ -2708,6 +2959,20 @@ class StrategyBridge:
             "m20_price": round(m20_price, 1),
             "m60_price": round(m60_price, 1),
             "m120_price": round(m120_price, 1),
+            "er_snr": er_snr,
+            "effective_momentum_window": effective_momentum_window,
+            "effective_window": effective_momentum_window,
+            "mom_accel": mom_accel,
+            "mom_accel_star": mom_accel_star,
+            "crowding_warning": crowding_warning,
+            "crowding_degree": crowding_degree,
+            "crowding_score": crowding_score,
+            "ivix_index": ivix_val,
+            "option_iv": opt_iv_val,
+            "option_iv_pct": opt_iv_val,
+            "delta_ivix": delta_ivix_val,
+            "momentum_exhaustion_warning": momentum_exhaustion_warning,
+            "momentum_exhaustion_text": momentum_exhaustion_text,
         }
         target_weights_funds = cls.compute_dynamic_tier_weights(df, tier="C3", market_snapshot=pre_snap)
         target_weights_index = {}
@@ -2799,6 +3064,9 @@ class StrategyBridge:
             f"核心操作策略：**{core_action_advice}**"
         )
 
+        if momentum_exhaustion_warning:
+            ai_summary_text += f"\n\n> **{momentum_exhaustion_text}**"
+
         online_expert_res = cls.get_online_expert_weights(df, force_reload=force_reload, return_details=True)
 
         snapshot = {
@@ -2827,10 +3095,27 @@ class StrategyBridge:
             "m20_status_desc": m20_status_desc,
             "m20_color": m20_color,
             "mom60_300": mom60_300,
+            "mom20_300": mom20_300,
             "mom60_star": mom60_star,
             "mom60_div": mom60_div,
             "mom60_500": mom60_500,
             "diff_star_div": diff_star_div,
+            "mom_eff_star": mom_eff_star,
+            "mom_eff_div": mom_eff_div,
+            "diff_star_div_eff": diff_star_div_eff,
+            "er_snr": er_snr,
+            "effective_momentum_window": effective_momentum_window,
+            "effective_window": effective_momentum_window,
+            "kalman_trend": kalman_trend,
+            "kalman_slope": kalman_slope,
+            "mom_accel": mom_accel,
+            "mom_accel_300": mom_accel,
+            "mom_accel_star": mom_accel_star,
+            "crowding_warning": crowding_warning,
+            "crowding_degree": crowding_degree,
+            "crowding_score": crowding_score,
+            "momentum_exhaustion_warning": momentum_exhaustion_warning,
+            "momentum_exhaustion_text": momentum_exhaustion_text,
             "momentum_style": momentum_style,
             "momentum_desc": momentum_desc,
             "momentum_color": momentum_color,
@@ -3530,12 +3815,26 @@ class StrategyBridge:
         bias_20 = 0.0
         bias_20_star = 0.0
         crowding_warning = False
+        momentum_exhaustion_warning = False
+        crowding_degree = "相对分散"
+        crowding_score = 90.0
+        mom_accel = 0.0
+        ivix_val = 19.5
+        delta_ivix = 0.0
+        opt_iv = 19.4
 
         if market_snapshot is not None and isinstance(market_snapshot, dict):
             erp_percentile = float(market_snapshot.get("erp_percentile", 50.0))
             bias_20 = float(market_snapshot.get("bias_20", 0.0))
             bias_20_star = float(market_snapshot.get("bias_20_star", bias_20))
             crowding_warning = bool(market_snapshot.get("crowding_warning", False))
+            crowding_degree = str(market_snapshot.get("crowding_degree", "相对分散"))
+            crowding_score = float(market_snapshot.get("crowding_score", 90.0))
+            mom_accel = float(market_snapshot.get("mom_accel", market_snapshot.get("accel", 0.0)))
+            ivix_val = float(market_snapshot.get("ivix_index", market_snapshot.get("ivix", 19.5)))
+            delta_ivix = float(market_snapshot.get("delta_ivix", 0.0))
+            opt_iv = float(market_snapshot.get("option_iv_pct", market_snapshot.get("option_iv", 19.4)))
+            momentum_exhaustion_warning = bool(market_snapshot.get("momentum_exhaustion_warning", False))
 
             m_code = str(market_snapshot.get("market_state_code") or market_snapshot.get("regime_code") or "").upper()
             m_name = str(market_snapshot.get("market_state") or market_snapshot.get("regime_name") or "")
@@ -3565,6 +3864,15 @@ class StrategyBridge:
                             regime = "OSCILLATING"
                     except Exception:
                         regime = "OSCILLATING"
+
+            # 若未显式传入预警标记，按三联条件动态判别
+            if not momentum_exhaustion_warning:
+                is_off = (regime == "BULL") or (m_code in ["GROWTH_BULL", "STRUCTURAL_500"]) or any(k in m_code for k in ["GROWTH", "BULL", "ATTACK"]) or any(k in m_name for k in ["进攻", "牛市", "主升浪"])
+                is_crd = crowding_warning or (crowding_degree == "极度拥挤") or (crowding_score < 60.0)
+                is_acc = (mom_accel <= -2.0)
+                is_iv_jump = (ivix_val >= 24.0) or (delta_ivix >= 1.5) or (opt_iv >= 26.0)
+                if is_off and is_crd and is_acc and is_iv_jump:
+                    momentum_exhaustion_warning = True
 
         elif history_df is not None and hasattr(history_df, "__len__") and len(history_df) >= 60:
             try:
@@ -3815,9 +4123,10 @@ class StrategyBridge:
                 adjusted_weights["011613"] = round(adjusted_weights.get("011613", 0.0) + w_star, 4)
                 adjusted_weights["001053"] = round(adjusted_weights.get("001053", 0.0) + w_500, 4)
 
-        # 闭环 3：右侧极端超买阶梯止盈 (Right-Side Extreme Overbought Profit-Taking)
-        # 当进攻标的出现 bias_20 >= +6.5% (短期暴涨严重超买) 或触发 crowding_warning == True 时，
-        # 不等跌破均线，主动将高波动成长仓位削减 30% ~ 35% 并落袋转入纯债 (002351) 与红利低波 (005561)
+        # 闭环 3：右侧极端超买与动量衰竭阶梯止盈 (Right-Side Profit-Taking & Momentum Exhaustion Defense)
+        # 1. 当进攻标的出现 bias_20 >= +6.5% 或触发 crowding_warning == True 时，执行右侧阶梯止盈；
+        # 2. 当触发 momentum_exhaustion_warning == True (三联动量衰竭) 时，执行右侧止盈防追高防线；
+        # 主动将高波动成长仓位削减 35% 并落袋转入纯债 (002351/000086) 与红利低波 (005561)
         growth_codes = ["011613", "001053", "016634", "013841", "007339"]
         has_extreme_overbought = (bias_20 >= 6.5) or (bias_20_star >= 6.5)
         if market_snapshot:
@@ -3826,11 +4135,16 @@ class StrategyBridge:
                     has_extreme_overbought = True
                     break
 
-        is_right_profit_taking = has_extreme_overbought or crowding_warning
+        is_right_profit_taking = has_extreme_overbought or crowding_warning or momentum_exhaustion_warning
 
         if is_right_profit_taking:
             trimmed_growth = 0.0
-            for gc in growth_codes:
+            candidate_growth = [c for c in growth_codes if c in adjusted_weights]
+            if not candidate_growth:
+                idx_growth = ["STAR50_STITCH", "H00905", "H00852", "H00300"]
+                candidate_growth = [c for c in idx_growth if c in adjusted_weights]
+
+            for gc in candidate_growth:
                 if gc in adjusted_weights and adjusted_weights[gc] > 1e-4:
                     cut_w = round(adjusted_weights[gc] * 0.35, 4)
                     adjusted_weights[gc] = round(adjusted_weights[gc] - cut_w, 4)
@@ -3839,8 +4153,9 @@ class StrategyBridge:
             if trimmed_growth > 0:
                 half_profit = round(trimmed_growth * 0.50, 4)
                 rem_profit = round(trimmed_growth - half_profit, 4)
+                bond_code = "002351" if "002351" in adjusted_weights else ("000086" if "000086" in adjusted_weights else ("H11009" if "H11009" in adjusted_weights else "002351"))
                 adjusted_weights[bond_code] = round(adjusted_weights.get(bond_code, 0.0) + half_profit, 4)
-                div_low_vol = "005561"
+                div_low_vol = "005561" if "005561" in adjusted_weights else ("H30269" if "H30269" in adjusted_weights else "005561")
                 adjusted_weights[div_low_vol] = round(adjusted_weights.get(div_low_vol, 0.0) + rem_profit, 4)
 
         # 6. C1-C5 风险单调性与边界投影 (Monotonicity Theorem & Deleveraging Safety)
@@ -6018,4 +6333,7 @@ get_latest_market_snapshot = StrategyBridge.get_latest_market_snapshot
 rebalance_portfolio = StrategyBridge.rebalance_portfolio
 evaluate_today_rebalance_suitability = StrategyBridge.evaluate_today_rebalance_suitability
 simulate_rebalance_modes_and_consequences = StrategyBridge.simulate_rebalance_modes_and_consequences
+compute_market_snr_and_kalman_state = StrategyBridge.compute_market_snr_and_kalman_state
+compute_momentum_acceleration = StrategyBridge.compute_momentum_acceleration
+
 

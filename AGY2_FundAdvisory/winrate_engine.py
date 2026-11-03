@@ -436,32 +436,29 @@ class WinRateEngine:
     # ─── ③ Block Bootstrap Monte Carlo ────────────────────────
 
     @staticmethod
-    def monte_carlo_simulation(
+    def monte_carlo_winrate(
         nav_series: pd.Series,
         holding_days: int,
         target_annual_return: float,
         n_paths: int = 10000,
-        block_size: int = 20,
+        block_size: int = 10,
         include_friction: bool = True,
         fund_type: str = "A",
         seed: int = 42,
     ) -> Dict[str, Any]:
         """
-        Block Bootstrap Monte Carlo 模拟。
-
-        算法：
-        1. 计算日收益率 r = nav[1:] / nav[:-1] - 1
-        2. 随机抽取 block_size 长的连续块拼接成 holding_days 长的路径
-        3. 重复 n_paths 次
-        4. 计算每条路径的年化收益（含摩擦成本）
-        5. 统计达标概率和置信区间
-
-        全程 NumPy 矩阵运算。
+        [R4 核心算子] 升级版跳跃扩散 (Jump-Diffusion) 与循环分块自助法 (Circular Block Bootstrap) 压力测试
+        1. 70% 路径采用 Circular Block Bootstrap (block_size=10, 模运算环状闭合 (st + d) % n_returns),
+           严格保留 A 股短周期真实波动率聚集 (Volatility Clustering) 与自相关特性；
+        2. 30% 路径采用自由度 nu=5 的 Student-t 厚尾分布 (归一化方差 sqrt(5/3), 尺度匹配历史 mu 与 sigma),
+           模拟极端黑天鹅与脉冲跳跃扩散压力场景；
+        3. 聚合 100% 路径并计入交易摩擦 (申购费率、A/C份额梯度赎回费及销售服务费);
+        4. 准确测算 95% 条件在险价值 (CVaR 95%, 尾部最差 5% 年化收益均值) 及全部分布分位数。
         """
         nav = np.asarray(nav_series, dtype=np.float64)
         n = len(nav)
 
-        if n < block_size + 2 or holding_days <= 0:
+        if n < 5 or holding_days <= 0 or n_paths <= 0:
             return {
                 "prob_reach_target": 0.0,
                 "prob_no_loss": 0.0,
@@ -470,55 +467,86 @@ class WinRateEngine:
                 "mean_return": 0.0,
                 "median_return": 0.0,
                 "distribution_percentiles": {},
+                "cvar_95": 0.0,
+                "cvar_95_annualized": 0.0,
             }
 
-        # 日收益率
+        # 计算日收益率
         daily_returns = nav[1:] / nav[:-1] - 1.0
         n_returns = len(daily_returns)
+        if n_returns <= 0:
+            return {
+                "prob_reach_target": 0.0,
+                "prob_no_loss": 0.0,
+                "ci_90": (0.0, 0.0),
+                "ci_95": (0.0, 0.0),
+                "mean_return": 0.0,
+                "median_return": 0.0,
+                "distribution_percentiles": {},
+                "cvar_95": 0.0,
+                "cvar_95_annualized": 0.0,
+            }
 
         rng = np.random.default_rng(seed)
 
-        # 需要多少个块才能拼满 holding_days
-        n_blocks = int(np.ceil(holding_days / block_size))
-        actual_path_len = n_blocks * block_size
+        # 路径分配：70% Circular Block Bootstrap, 30% Student-t (nu=5) Jump-Diffusion
+        n_cbb = int(0.70 * n_paths)
+        n_student = n_paths - n_cbb
 
-        # 随机抽取块的起始索引 (n_paths × n_blocks)
-        max_start = n_returns - block_size
-        if max_start <= 0:
-            max_start = 1
-        block_starts = rng.integers(0, max_start, size=(n_paths, n_blocks))
+        # 1. Circular Block Bootstrap (70%)
+        eff_block_size = max(1, min(block_size, n_returns))
+        n_blocks = int(np.ceil(holding_days / eff_block_size))
+        actual_path_len = n_blocks * eff_block_size
 
-        # 构建收益率路径矩阵 (n_paths × actual_path_len)
-        path_returns = np.empty((n_paths, actual_path_len), dtype=np.float64)
-        for b in range(n_blocks):
-            starts = block_starts[:, b]
-            for d in range(block_size):
-                idx = np.clip(starts + d, 0, n_returns - 1)
-                path_returns[:, b * block_size + d] = daily_returns[idx]
+        if n_cbb > 0:
+            block_starts = rng.integers(0, n_returns, size=(n_cbb, n_blocks))
+            d_indices = np.arange(eff_block_size)
+            # (n_cbb, n_blocks, eff_block_size) 循环模运算
+            cbb_idx = (block_starts[:, :, None] + d_indices[None, None, :]) % n_returns
+            cbb_idx_flat = cbb_idx.reshape(n_cbb, actual_path_len)[:, :holding_days]
+            cbb_paths = daily_returns[cbb_idx_flat]
+        else:
+            cbb_paths = np.empty((0, holding_days), dtype=np.float64)
 
-        # 截取到 holding_days
-        path_returns = path_returns[:, :holding_days]
+        # 2. Student-t Jump-Diffusion (30%, nu=5)
+        if n_student > 0:
+            mu = float(np.mean(daily_returns))
+            sigma = float(np.std(daily_returns, ddof=1)) if n_returns > 1 else float(np.std(daily_returns))
+            if sigma < 1e-8:
+                sigma = 1e-8
+            t_raw = rng.standard_t(df=5, size=(n_student, holding_days))
+            t_unit = t_raw / np.sqrt(5.0 / 3.0)  # Var(t_5) = 5/3, 归一化为单位方差
+            student_paths = mu + sigma * t_unit
+        else:
+            student_paths = np.empty((0, holding_days), dtype=np.float64)
 
-        # 累积收益 = prod(1 + r) - 1
+        # 3. 堆叠全部模拟路径
+        if n_cbb > 0 and n_student > 0:
+            path_returns = np.vstack([cbb_paths, student_paths])
+        elif n_cbb > 0:
+            path_returns = cbb_paths
+        else:
+            path_returns = student_paths
+
+        # 4. 累积收益与交易摩擦
         cum_returns = np.prod(1.0 + path_returns, axis=1) - 1.0
 
-        # 扣除摩擦成本
         if include_friction:
             purchase_fee = A_PURCHASE_FEE if fund_type == "A" else C_PURCHASE_FEE
             redeem_fee = _get_redemption_fee(holding_days, fund_type)
-            # 调整总收益率
             friction_mult = (1.0 - redeem_fee) / (1.0 + purchase_fee)
             if fund_type == "C":
                 service_fee = C_ANNUAL_SERVICE_FEE * (holding_days / 365.0)
                 friction_mult *= (1.0 - service_fee)
             cum_returns = (1.0 + cum_returns) * friction_mult - 1.0
 
-        # 年化
+        # 5. 年化收益率
         years = holding_days / 250.0
         ann_returns = np.sign(cum_returns + 1.0) * (
             np.abs(cum_returns + 1.0) ** (1.0 / years)
         ) - 1.0
 
+        # 6. 统计胜率与置信区间
         prob_target = float(np.mean(ann_returns >= target_annual_return))
         prob_no_loss = float(np.mean(cum_returns >= 0))
 
@@ -528,6 +556,11 @@ class WinRateEngine:
             f"p{k}": float(v) for k, v in zip(percentiles_keys, percentiles_vals)
         }
 
+        # 7. 95% CVaR (最差 5% 分位数以下年化收益率均值)
+        p5 = float(np.percentile(ann_returns, 5))
+        tail_5 = ann_returns[ann_returns <= p5]
+        cvar_95_val = float(np.mean(tail_5)) if len(tail_5) > 0 else p5
+
         return {
             "prob_reach_target": prob_target,
             "prob_no_loss": prob_no_loss,
@@ -536,7 +569,12 @@ class WinRateEngine:
             "mean_return": float(np.mean(ann_returns)),
             "median_return": float(np.median(ann_returns)),
             "distribution_percentiles": distribution_percentiles,
+            "cvar_95": cvar_95_val,
+            "cvar_95_annualized": cvar_95_val,
         }
+
+    # 向后兼容别名
+    monte_carlo_simulation = monte_carlo_winrate
 
     # ─── 组合级综合胜率 ─────────────────────────────────────────
 
@@ -607,7 +645,7 @@ class WinRateEngine:
             market_snapshot=market_snapshot,
         )
 
-        mc = WinRateEngine.monte_carlo_simulation(
+        mc = WinRateEngine.monte_carlo_winrate(
             portfolio_nav, holding_days, target_annual_return,
             include_friction=include_friction, fund_type=dominant_type,
         )

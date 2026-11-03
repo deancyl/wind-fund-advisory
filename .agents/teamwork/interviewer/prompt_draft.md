@@ -1,62 +1,57 @@
-由 4 个专家角色协作完成：Agent-1（核密度条件胜率与存量调仓胜率增益专家）、Agent-2（全市场选基排雷、实时限购拆单与缓存修复专家）、Agent-3（UI 大一统合龙设计师）、Agent-4（红队数学性质与端到端交互验证员）。启动“全市场胜率引擎大一统合龙与当下时点(T_now)核密度条件胜率升级”任务，全面解决当前 market_screener.py、winrate_engine.py、portfolio_optimizer.py、portfolio_manager.py、cache_manager.py、data_loader.py 与 app_gui.py 中的 6 处架构断层与金融逻辑缺陷，并完成自动化测试与服务重启。
+启动“量化引擎抗白噪音与市场节奏自适应升级 + UI逻辑收官修复”任务，在核心算法中引入考夫曼信噪比卡尔曼滤波、动量加速度防追高、随机矩阵理论(RMT)去噪与跳跃扩散分块自助法，并同步落实 app_gui.py 的交互收官修复与测试验证。
 
 Working directory: d:\Google\Workspace\Wind
-Integrity mode: [OPEN: 团队行为限制模式]
-物理安全红线：严禁触碰只读裁判文件（judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py）
+Integrity mode: development
+
+物理安全红线：严禁触碰只读裁判文件（judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py）。所有新增算子集中在 data_loader.py、winrate_engine.py、portfolio_optimizer.py、strategy_bridge.py 与 app_gui.py 中实现。
 
 ## Verification Resources
-- 现有测试套件位于 `tests/` 目录。
+- 现有测试套件位于 `tests/` 目录（包含 `test_interactive_continuity.py`、`test_ui_and_logic_refinements.py` 等）。
 - 物理安全红线裁判文件：`judge_engine.py`、`holdout_vault.py`、`AGENT_SPEC.md`、`tests/test_infra.py`（只读，严禁修改）。
-- [OPEN: 是否有额外的基准数据集、特定行情切片用例或外部参考实现？]
+- 团队依据任务需求新建针对性单元测试与 AppTest 验证。
 
 ## Requirements
 
-### R1. 升级为当下时点 ($T_{\text{now}}$) 高斯核同温层条件胜率体系
-- 提取截至 `as_of_date (T_now)` 每一天 $t$ 的 5 维市场特征向量 $\mathbf{x}_t = [\text{ERP历史分位}_t, \text{Bias20均线乖离}_t, \text{Mom60动量}_t, \text{EWMA波动率}_t, \text{DR007利差}_t]$。
-- 计算每个历史滚动窗口起点 $t \in [1, M]$ 的特征向量 $\mathbf{x}_t$ 与当下时点特征向量 $\mathbf{x}_{T_{\text{now}}}$ 的标准化马氏/欧氏距离 $d_t$，以距离分布的 30% 分位数作为自适应带宽 $h$，计算高斯核权重向量 $\kappa_t = \exp(-d_t^2 / (2h^2)) / \sum_\tau \exp(-d_\tau^2 / (2h^2))$。
-- 同时向量化计算并输出两个胜率指标：
-  1. 当下时点条件胜率（`conditional_win_rate`，作为优化器核心最大化目标）：$\sum_{t=1}^M \kappa_t \cdot \mathbb{I}(r_{\text{net}, t}(\mathbf{w}) \ge r^*)$；
-  2. 历史全周期无条件胜率（`unconditional_win_rate`，作为对照参考）：$\frac{1}{M} \sum_{t=1}^M \mathbb{I}(r_{\text{net}, t}(\mathbf{w}) \ge r^*)$。
-- 当用户在当下时点设定的目标年化过高导致最高条件胜率 `< 40%` 时，自动计算并在结果中返回 `feasible_recommendation`（提示在当前市场位置下，将目标年化调整为 X% 或持有期调整为 Y，条件胜率可提升至 75%+）。
+### R1. 引入考夫曼效率系数（ER 信噪比）与卡尔曼滤波自适应变速器（strategy_bridge.py）
+- 实现 `compute_market_snr_and_kalman_state(price_series, window=20)`：
+  - 计算考夫曼效率系数（信噪比代理指标）$ER_t = \frac{|P_t - P_{t-w}|}{\sum_{i=0}^{w-1} |P_{t-i} - P_{t-i-1}|} \in [0, 1]$（$ER \to 1$ 代表高信噪比单边趋势，$ER \to 0$ 代表纯白噪音震荡）；
+  - 使用一维卡尔曼滤波（观测噪声方差 $R$ 随 $1 - ER_t$ 动态放大）提取剥离日度白噪音后的真实趋势净值与斜率。
+- 动态自适应动量窗口：根据实时信噪比 $ER_t$，将风格比拼的动量回看窗口从死板的 `60日` 升级为动态无级变速窗口 $W_{\text{eff}} = \text{int}(60 - 40 \times ER_t) \in [20, 60]$（趋势越强、信噪比越高，回看窗口自动缩短至 20 日极速跟进主升浪；震荡白噪音越大，窗口自动拉长至 60 日稳守红利底仓）。
 
-### R2. 修正专家精选池基准对比与存量持仓调仓胜率增益算子
-- 修正“双轨双池对比”中专家池等权基准错误：专家精选池对比基准必须调用 `StrategyBridge` 在当前对应档位 `mo_tier` 下生成的真实动态策略目标权重（即实际推荐的核心基金及其精确配比），与全市场 AI 选基组合进行同口径公平对比（同时对比两者的当下时点条件胜率、历史全周期胜率、不亏损率与最大回撤）。
-- 在存量持仓评估中新增调仓胜率增益算子：实时计算维持当前持仓不动的未来目标条件胜率 `win_rate_keep`，以及按建议调仓后（严格扣除真实赎回费、申购费与 T+2 在途踏空损耗）的净条件胜率 `win_rate_rebal` 与净胜率提升幅度 `delta_win_rate`。
+### R2. 引入动量二阶导（加速度衰竭）与期权 iVIX 脉冲防追高与提前止盈算子（strategy_bridge.py）
+- 同时监控快周期动量（15日）与慢周期动量（60日），计算动量加速度（二阶导数）$\text{Accel} = \text{Mom}_{15} - \frac{15}{60}\text{Mom}_{60}$。
+- 当处于进攻状态但检测到“高拥挤度 + 动量加速度大幅转负（高位滞涨衰竭）+ 期权 iVIX 单日跳升”时（判定阈值与参数由团队结合现有代码常模与量化实践合理设定），自动在状态机中触发「⚡ 动量衰竭预警：暂停追高进攻标的，新增资金转入红利/纯债缓冲」，并在顶部看板与步骤二白盒面板中展示实时市场信噪比（SNR）与动量加速度。
 
-### R3. 全市场最优组合接入排雷反拥挤、实时限购瀑布流拆单与建仓小抄
-- 在 `MarketScreener` 评分阶段接入 `screen_fund_look_through_risk()` 与 `get_fund_smart_money_crowding()` 过滤暴雷与极度拥挤标的。
-- 对 `WinRateOptimizer` 输出的最优组合强制调用 `fetch_realtime_fund_quota()` 执行多级限购拆单：入选基金分配金额超过其实时 `daily_limit` 时，自动裁剪至 `daily_limit`，超额资金顺延分配给同类型桶排名紧随其后的不限购备选基金（或生成分批定投计划 `dca_plan`）。
-- 完整提供《📱 手机银行/天天基金下单一键复制小抄》折叠框与【🚀 一键将此全市场最优组合设为我的初始持仓】按钮（调用 `pm.apply_zero_start_blueprint()` 直接写入持仓账本并重置回撤基准）。
-- 在 Tab 1 选择“模式 C：AI全市场胜率最优选基”时内联执行并渲染完整结果与建仓按钮，消除与 Tab 5 的割裂（布局形式：[OPEN: 是否彻底合并为四大核心 Tab，或 Tab 1 与 Tab 5 共用组件]）。
+### R3. 实装随机矩阵理论（RMT Marchenko-Pastur）与 Ledoit-Wolf 收缩协方差去噪算子（data_loader.py & portfolio_optimizer.py）
+- 在 `DataLoader.compute_ewma_volatility_and_correlation` 及 `WinRateOptimizer` 构建协方差/相关性矩阵时，加入 `denoise_covariance_matrix(corr_matrix, n_obs=60, shrink_alpha=0.15)`。
+- 计算 Marchenko-Pastur 理论白噪音特征值上限 $\lambda_+ = (1 + \sqrt{N / T})^2$；将所有 $\le \lambda_+$ 的随机白噪音特征值替换为它们的均值（保持矩阵迹不变），重构去噪后的相关性矩阵并叠加 `shrink_alpha=0.15` 的对角收缩（Ledoit-Wolf Shrinkage），确保矩阵严格正定且彻底滤除伪相关白噪音。
 
-### R4. 重构 Tab 2 调仓建议：接入胜率增益对比并彻底修复双模式联动 Bug
-- 在 Tab 2 第一层上方加入【📅 计划持有期（短期 3~6月 / 中期 1~2年 / 长期 3~5年）× 🎚️ 期望年化收益率】控制条，展示维持持仓不动 vs 调仓后扣费净胜率对比结论。
-- 彻底修复切换温和/强行调仓模式时表格与执行按钮不变的 Bug：删除调仓表格处对 `generate_ai_rebalance_orders()` 的冗余调用，直接绑定并渲染选定模式的 `cur_sim["items"]`（或 `cur_sim["orders"]`），确保温和模式呈现缓冲保护、强行模式呈现一步到位对齐的买卖金额；【立即按今日盘中估值执行调仓】与【保存为明日盯盘待办预案】按钮严格执行选定模式的调仓路由。
+### R4. 升级厚尾跳跃扩散（Jump-Diffusion）与分块自助法（Block Bootstrap）压力测试（winrate_engine.py）
+- 在 `WinRateEngine.monte_carlo_winrate` 中，废除纯正态独立同分布抽样，改为 70% 历史分块自助抽样（Circular Block Bootstrap, block_size=10，完整保留 A 股真实的波动率聚集与自相关） + 30% Student-t（自由度 $\nu=5$）厚尾白噪音扰动，使蒙特卡洛达标概率与 95% CVaR 尾部底线真实反映 A 股极端行情。
 
-### R5. 修复底层缓存与数据识别缺陷及遵守裁判红线
-- 在 `cache_manager.py` 的 `make_winrate_key()` 与 `make_optimizer_key()` 中加入 `as_of_date: str = ""` 参数并拼入 MD5 原串。
-- 将 `cache_manager.py` 中 `should_invalidate_winrate()` 的慢速接口替换为 `portfolio_manager.fetch_realtime_index_quote("sh000300")`。
-- 修复 `data_loader.py` 中判断纯数字基金代码 A/C 份额类别的逻辑，通过基金简称或 `fund_catalog` 准确识别。
-- 严禁触碰只读裁判文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）。
+### R5. 同步确认并保护 app_gui.py 的交互收官修复与指标展示
+- 保持 Tab 1 步骤一「模式 B：30秒风险承受力测评定档」的 3 道测评问卷分支正常可用。
+- 保持 Tab 1 修改参数重新推演步骤二时自动收起旧步骤三（`tab1_step_reached = 2` 并清空 `tab1_step3_cache`），且切换赛道备选基金时同步刷新缓存。
+- 在 Tab 2 步骤三保持「🎯 选择调仓目标组合」切换（支持对齐 Tab 1 最新优选组合 vs 核心指数全天候池），并在持仓发生增删改时自动失效 `tab2_diag_cache` 与 `tab2_rebal_cache`。
+- 保持 Tab 2 盘中观察期（09:30~14:30）的防冲动执行勾选确认锁正常生效。
+- 在顶部看板或步骤二白盒面板中清晰展示实时【市场信噪比 (ER / SNR)】与【动量加速度 (Momentum Accel)】指标。
 
 ## Acceptance Criteria
 
-### 条件胜率数学性质与优化器
-- [ ] 从历史矩阵中选取 ERP 极高截面与极低超买截面，同一组合在底部时点的 `conditional_win_rate` 显著高于顶部超买时点，且与 `unconditional_win_rate` 区分清晰。
-- [ ] 当目标收益率过高导致条件胜率 `< 40%` 时，能正确返回可行的调优建议 `feasible_recommendation`。
-- [ ] 专家精选池对比基准使用 `StrategyBridge` 真实动态目标权重，而非全部基金简单等权。
+### 算法去噪与自适应变速
+- [ ] 实现 `denoise_covariance_matrix`，经 RMT 去噪后相关性矩阵的条件数（Condition Number）显著下降且矩阵严格对称正定。
+- [ ] 实现 `compute_market_snr_and_kalman_state`，考夫曼信噪比 $ER_t$ 在单边趋势下自动将动量窗口缩短至近 20 日，在纯白噪音震荡序列下自动拉长窗口至近 60 日。
+- [ ] 动量二阶导 $\text{Accel}$ 在快慢动量出现分歧时准确反映加速度衰竭，并在触发衰竭条件时输出预警状态。
+- [ ] 蒙特卡洛抽样采用 70% Circular Block Bootstrap (block_size=10) + 30% Student-t ($\nu=5$) 混合抽样，保留波动率聚集特性。
 
-### 限购拆单与组合落盘
-- [ ] 全市场选基经过重仓排雷与反拥挤过滤，且输出组合自动完成实时限购拆单。
-- [ ] 全市场选基结果可一键调用 `pm.apply_zero_start_blueprint()` 成功落盘写入持仓账本。
-- [ ] 提供手机下单小抄，且在 Tab 1 模式 C 内联呈现，无跨页面割裂。
+### UI 交互与白盒展示
+- [ ] Tab 1 模式 B 的 3 道风险测评问卷分支交互与定档计算完全正常。
+- [ ] Tab 1 重算步骤二时步骤三自动折叠收起且清空旧缓存；切换备选基金时缓存同步刷新。
+- [ ] Tab 2 调仓目标组合支持在 Tab 1 最新优选组合与核心指数池之间平滑切换，持仓变动时诊断与调仓缓存正确失效。
+- [ ] Tab 2 盘中观察期（09:30~14:30）具备防冲动确认勾选机制，未勾选时禁止执行。
+- [ ] 顶部看板或步骤二白盒面板实时渲染市场信噪比（ER / SNR）与动量加速度数值。
 
-### Tab 2 交互联动与胜率对比
-- [ ] Tab 2 顶部展示持有期与期望年化控制条，并正确计算维持持仓不动 vs 调仓扣费后的净胜率及增益值。
-- [ ] 切换温和免伤与强行调仓模式时，下方调仓建议表格与执行按钮严格随选定模式实时动态联动变化。
-
-### 底层修复与系统测试
-- [ ] `cache_manager.py` 的缓存键包含 `as_of_date`，且行情检查接口使用快速网关报价。
-- [ ] `data_loader.py` 准确识别 A/C 份额类别。
-- [ ] 只读裁判文件完全未被修改。
-- [ ] 全量 pytest 测试套件与 Streamlit AppTest 渲染测试 100% 通过，8501 端口服务成功重启可用。
+### 红线守卫与系统验证
+- [ ] 只读裁判文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）未被任何改动（MD5/Git 校验一致）。
+- [ ] 全量针对性 pytest 测试与 Streamlit AppTest（含 `test_interactive_continuity.py`、`test_ui_and_logic_refinements.py`）0 异常 100% 通过。
+- [ ] 8501 端口 Streamlit 服务平滑重启可用。

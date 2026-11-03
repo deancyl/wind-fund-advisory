@@ -545,6 +545,12 @@ with top_c1:
     """, unsafe_allow_html=True)
 
 with top_c2:
+    snr = float(snapshot.get("er_snr", 0.65))
+    accel = float(snapshot.get("mom_accel", 0.0))
+    eff_w = snapshot.get("effective_momentum_window", 60)
+    mom_exhaustion = bool(snapshot.get("momentum_exhaustion_warning", False))
+    exhaustion_text = snapshot.get("momentum_exhaustion_text") or "「⚡ 动量衰竭预警：暂停追高进攻标的，新增资金转入红利/纯债缓冲」"
+
     raw_mkt_state = str(snapshot.get('market_state', '震荡收息期'))
     if any(k in raw_mkt_state for k in ["震荡", "收息", "慢牛"]):
         vernacular_state = "🟢 震荡收息期"
@@ -556,7 +562,12 @@ with top_c2:
         vernacular_state = f"🟢 {raw_mkt_state[:6]}"
 
     st_color = snapshot.get('state_color', '#16a34a')
-    c2_tip = f"沪深300现价: {c300_disp:,.1f}\nMA20生命线: {m20_disp:,.0f} (偏离 {bias_disp:+.1f}%)\nMA60中线: {m60_disp:,.0f}\n突破进攻线: 突破 {surge_line:,.0f} 后增配科技成长(科创50/中证1000)\n跌破防守线: 跌破 {breakdown_line:,.0f} 后减仓避险至纯债压舱石"
+    c2_tip = f"沪深300现价: {c300_disp:,.1f}\nMA20生命线: {m20_disp:,.0f} (偏离 {bias_disp:+.1f}%)\nMA60中线: {m60_disp:,.0f}\n考夫曼信噪比(ER): {snr:.2f} (自适应窗口 {eff_w}日)\n动量加速度: {accel:+.2f}%\n突破进攻线: 突破 {surge_line:,.0f} 后增配科技成长(科创50/中证1000)\n跌破防守线: 跌破 {breakdown_line:,.0f} 后减仓避险至纯债压舱石"
+
+    exhaustion_badge = ""
+    if mom_exhaustion:
+        exhaustion_badge = f'<div style="background-color: #fee2e2; color: #b91c1c; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; margin-top: 3px; border: 1px solid #f87171; line-height: 1.2;">{exhaustion_text}</div>'
+
     st.markdown(f"""
     <div class="main-metric-card">
         <div class="metric-card-title">
@@ -569,6 +580,10 @@ with top_c2:
         <div class="metric-card-sub" style="color: #475569;">
             📈破 {surge_line:,.0f} 进攻 ｜ 🛡️跌 {breakdown_line:,.0f} 防守
         </div>
+        <div class="metric-card-sub" style="color: #0284c7; font-weight: 500; margin-top: 2px;">
+            📡信噪比 ER: {snr:.2f} ｜ ⚡动量加速度: {accel:+.1f}%
+        </div>
+        {exhaustion_badge}
     </div>
     """, unsafe_allow_html=True)
 
@@ -1184,13 +1199,25 @@ with tab_zero_start:
                     </div>
                     """, unsafe_allow_html=True)
                 with c_sig2:
+                    sig_snr = float(snapshot.get("er_snr", 0.65))
+                    sig_eff_window = snapshot.get('effective_momentum_window', 60)
+                    sig_accel = float(snapshot.get("mom_accel", 0.0))
+                    sig_exhaustion = bool(snapshot.get("momentum_exhaustion_warning", False))
+                    sig_warn_text = snapshot.get("momentum_exhaustion_text") or "「⚡ 动量衰竭预警：暂停追高进攻标的，新增资金转入红利/纯债缓冲」"
+                    sig_warn_block = ""
+                    if sig_exhaustion:
+                        sig_warn_block = f'<div style="color: #b91c1c; font-size: 11px; font-weight: 600; margin-top: 4px; padding: 3px 6px; background: #fee2e2; border-radius: 4px; border: 1px solid #f87171; line-height: 1.3;">{sig_warn_text}</div>'
+
                     st.markdown(f"""
                     <div class="decision-card">
                         <div class="decision-title">② 均线动量状态 (MA20)</div>
                         <div class="decision-val" style="color: #0284c7;">{snapshot.get('m20_status_desc', '站上均线')}</div>
                         <div class="decision-desc">
                             MA20 乖离率: <b>{snapshot.get('bias_20', 1.2):+.2f}%</b><br>
+                            考夫曼信噪比 (ER / SNR): <b>{sig_snr:.2f}</b> (自适应变速窗口: {sig_eff_window}日)<br>
+                            动量加速度 (Mom Accel): <b>{sig_accel:+.2f}%</b><br>
                             技术研判: 右侧趋势形成，顺势跟进红利与成长动量。
+                            {sig_warn_block}
                         </div>
                     </div>
                     """, unsafe_allow_html=True)

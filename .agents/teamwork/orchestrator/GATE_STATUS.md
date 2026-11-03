@@ -1,64 +1,50 @@
 # Gate Status
 
-## Gate — Iteration 1 (Milestone 1)
+## Gate — Round 5 Iteration 1 (Milestone 1: R1 & R2 in strategy_bridge.py)
 | Agent | Role | Verdict | Source |
 |-------|------|---------|--------|
-| worker_agent1_m1_gen2 | teamwork_worker | DONE (24/24 unit tests passed) | worker_agent1_m1_gen2/handoff.md |
-| reviewer_m1_1 | teamwork_reviewer | APPROVE | reviewer_m1_1/handoff.md |
-| reviewer_m1_2 | teamwork_reviewer | APPROVE | reviewer_m1_2/handoff.md |
-| challenger_m1_1 | teamwork_challenger | APPROVE | challenger_m1_1/handoff.md |
-| challenger_m1_2 | teamwork_challenger | APPROVE | challenger_m1_2/handoff.md |
-| auditor_m1 | teamwork_auditor | CLEAN | auditor_m1/handoff.md |
+| worker_m1_r5 | teamwork_worker | DONE (R1/R2 implemented, tests 100% passed) | worker_m1_r5/handoff.md |
+| reviewer_m1_1_r5 | teamwork_reviewer | APPROVE | reviewer_m1_1_r5/handoff.md |
+| reviewer_m1_2_r5 | teamwork_reviewer | APPROVE | reviewer_m1_2_r5/handoff.md |
+| challenger_m1_1_r5 | teamwork_challenger | APPROVE | challenger_m1_1_r5/handoff.md |
+| challenger_m1_2_r5 | teamwork_challenger | APPROVE | challenger_m1_2_r5/handoff.md |
+| auditor_m1_r5 | teamwork_auditor | CLEAN | auditor_m1_r5/handoff.md |
 
-Gate Result: **PASS**
+Gate Result: **PASS** (Auditor CLEAN, Reviewers APPROVE, Challengers APPROVE, 0 referee modifications)
 
 ---
 
-## Gate — Iteration 2 (Milestone 2)
+## Gate — Round 5 Iteration 2 (Milestone 2: R3 RMT Denoising & R4 Bootstrap Stress)
 | Agent | Role | Verdict | Source |
 |-------|------|---------|--------|
-| worker_agent2_m2 | teamwork_worker | DONE (94/94 tests passed) | worker_agent2_m2/handoff.md |
-| reviewer_m2_1 | teamwork_reviewer | APPROVE | reviewer_m2_1/handoff.md |
-| reviewer_m2_2 | teamwork_reviewer | APPROVE | reviewer_m2_2/handoff.md |
-| challenger_m2_1 | teamwork_challenger | APPROVE | challenger_m2_1/handoff.md |
-| challenger_m2_2 | teamwork_challenger | APPROVE | challenger_m2_2/handoff.md |
-| auditor_m2 | teamwork_auditor | CLEAN | auditor_m2/handoff.md |
+| worker_m2_r5 | teamwork_worker | DONE (R3/R4 implemented, 56 tests 100% passed) | worker_m2_r5/handoff.md |
+| reviewer_m2_1_r5 | teamwork_reviewer | APPROVE | reviewer_m2_1_r5/handoff.md |
+| reviewer_m2_2_r5 | teamwork_reviewer | APPROVE | reviewer_m2_2_r5/handoff.md |
+| challenger_m2_1_r5 | teamwork_challenger | APPROVE | challenger_m2_1_r5/handoff.md |
+| challenger_m2_2_r5 | teamwork_challenger | APPROVE | challenger_m2_2_r5/handoff.md |
+| auditor_m2_r5 | teamwork_auditor | CLEAN | auditor_m2_r5/handoff.md |
 
-Gate Result: **PASS**
-
-
-## Gate — Iteration 3 (Milestone 3)
-| Agent | Role | Verdict | Source |
-|-------|------|---------|--------|
-| worker_agent3_m3 | teamwork_worker | DONE (GUI & white-box completed) | worker_agent3_m3/handoff.md |
-| reviewer_m3_1 | teamwork_reviewer | APPROVE | reviewer_m3_1/handoff.md |
-| reviewer_m3_2 | teamwork_reviewer | REQUEST_CHANGES | reviewer_m3_2/handoff.md |
-| challenger_m3_1 | teamwork_challenger | APPROVE | challenger_m3_1/handoff.md |
-| challenger_m3_2 | teamwork_challenger | APPROVE | challenger_m3_2/handoff.md |
-| auditor_m3 | teamwork_auditor | CLEAN | auditor_m3/handoff.md |
-
-Gate Result: **FAIL** (reviewer_m3_2 REQUEST_CHANGES: CUSUM front-end integration missing, meltdown candidate exclusion missing, test_slider_realtime_linkage_mode_a assertion compatibility)
+Gate Result: **PASS** (Auditor CLEAN, Reviewers APPROVE, Challengers APPROVE, Condition number < 2.5, 0 referee modifications)
 
 ---
 
-## Gate — Iteration 4 (Milestone 3 Fix)
+## Gate — Round 5 Iteration 3 (Milestone 3: R5 UI Indicators & Interaction Defense)
 | Agent | Role | Verdict | Source |
 |-------|------|---------|--------|
-| worker_m3_fix | teamwork_worker | DONE (All tests 100% passed) | worker_m3_fix/handoff.md |
-| reviewer_m3_fix1 | teamwork_reviewer | APPROVE | reviewer_m3_fix1/handoff.md |
-| reviewer_m3_fix2 | teamwork_reviewer | APPROVE | reviewer_m3_fix2/handoff.md |
-| challenger_m3_fix1 | teamwork_challenger | APPROVE | challenger_m3_fix1/handoff.md |
-| auditor_m3_fix | teamwork_auditor | CLEAN | auditor_m3_fix/handoff.md |
+| worker_m3_r5 | teamwork_worker | DONE (R5 UI implemented, 42 tests 100% passed) | worker_m3_r5/handoff.md |
+| reviewer_m3_1_r5 | teamwork_reviewer | APPROVE | reviewer_m3_1_r5/handoff.md |
+| reviewer_m3_2_r5 | teamwork_reviewer | APPROVE | reviewer_m3_2_r5/handoff.md |
+| challenger_m3_1_r5 | teamwork_challenger | APPROVE | challenger_m3_1_r5/handoff.md |
+| challenger_m3_2_r5 | teamwork_challenger | APPROVE | challenger_m3_2_r5/handoff.md |
+| auditor_m3_r5 | teamwork_auditor | CLEAN | auditor_m3_r5/handoff.md |
 
-Gate Result: **PASS**
+Gate Result: **PASS** (Auditor CLEAN, Reviewers APPROVE, Challengers APPROVE, 5/5 mechanisms intact, 0 referee modifications)
 
 ---
 
-## Gate — Iteration 5 (Milestone 4 Final E2E, Red Team, Health)
+## Gate — Round 5 Iteration 4 (Milestone 4: Full E2E Regression, Hash Audit & Service 8501 Health)
 | Agent | Role | Verdict | Source |
 |-------|------|---------|--------|
-| worker_agent4_m4 | teamwork_worker | DONE (523/523 passed, 4 SHA256 matched, 8501 OK) | worker_m4_final/handoff.md |
-| reviewer_m4_final | teamwork_reviewer | APPROVE | reviewer_m4_final/handoff.md |
-| auditor_m4_final | teamwork_auditor | CLEAN | auditor_m4_final/handoff.md |
+| worker_m4_r5 | teamwork_worker | DONE (167/167 tests passed, 4 SHA256 matched, Streamlit 8501 HTTP 200 OK) | worker_m4_r5/handoff.md |
 
-Gate Result: **PASS**
+Gate Result: **PASS** (167/167 tests passed, 100% referee integrity, service healthy)

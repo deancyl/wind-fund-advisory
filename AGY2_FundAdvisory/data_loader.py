@@ -44,10 +44,135 @@ else:
 MATRIX_CACHE_FILE = CACHE_DIR / "aligned_matrix_total_return.parquet"
 
 
+def denoise_covariance_matrix(
+    corr_matrix: Any,
+    n_obs: int = 60,
+    shrink_alpha: float = 0.15,
+) -> Any:
+    """
+    [R3 核心算子] 随机矩阵理论 (RMT Marchenko-Pastur) 去噪与 Ledoit-Wolf 收缩
+    1. 自适应处理相关矩阵与协方差矩阵（提取对角元标准差，归一化到相关矩阵再恢复）
+    2. 保持输入类型 (pd.DataFrame / np.ndarray) 及索引/列名不变
+    3. 特征分解 np.linalg.eigh(C)
+    4. 计算 Marchenko-Pastur 理论白噪音特征值上限: lambda_+ = (1 + sqrt(N / T))**2, T = max(n_obs, N + 1)
+    5. 将所有 <= lambda_+ 的随机噪音特征值替换为它们的均值（严格保证迹守恒）
+    6. 重构去噪矩阵并对称化、对角归一化为 1.0
+    7. 实施 Ledoit-Wolf 对角收缩: C_final = (1 - shrink_alpha) * C + shrink_alpha * I (shrink_alpha=0.15)
+    8. 优雅处理边界情况: N <= 1, 单位矩阵 (恒等返回), 近奇异/病态矩阵 (正定下界 >= shrink_alpha)
+    """
+    is_df = isinstance(corr_matrix, pd.DataFrame)
+    if is_df:
+        mat = corr_matrix.to_numpy(copy=True, dtype=np.float64)
+        idx = corr_matrix.index
+        cols = corr_matrix.columns
+    else:
+        mat = np.array(corr_matrix, copy=True, dtype=np.float64)
+        idx = None
+        cols = None
+
+    if mat.ndim != 2 or mat.shape[0] != mat.shape[1]:
+        return corr_matrix
+
+    n = mat.shape[0]
+    if n <= 1:
+        if is_df:
+            return pd.DataFrame(mat, index=idx, columns=cols)
+        return mat
+
+    # 边界检测：若输入已是单位矩阵，直接返回恒等矩阵
+    if np.allclose(mat, np.eye(n)):
+        if is_df:
+            return pd.DataFrame(mat, index=idx, columns=cols)
+        return mat
+
+    # 自适应识别协方差 vs 相关性矩阵
+    diag_vals = np.diag(mat)
+    is_cov = not np.allclose(diag_vals, 1.0, atol=1e-4)
+
+    if is_cov:
+        diag_var = np.clip(diag_vals, 1e-12, None)
+        sigma = np.sqrt(diag_var)
+        outer_sigma = np.outer(sigma, sigma)
+        c_mat = mat / outer_sigma
+        np.fill_diagonal(c_mat, 1.0)
+        c_mat = np.clip(c_mat, -1.0, 1.0)
+    else:
+        c_mat = mat.copy()
+        np.fill_diagonal(c_mat, 1.0)
+        c_mat = np.clip(c_mat, -1.0, 1.0)
+        outer_sigma = None
+
+    # 对称化保证
+    c_mat = 0.5 * (c_mat + c_mat.T)
+
+    # 谱分解
+    try:
+        e_vals, e_vecs = np.linalg.eigh(c_mat)
+    except Exception:
+        # 特征分解失败兜底
+        c_final = (1.0 - shrink_alpha) * c_mat + shrink_alpha * np.eye(n)
+        if is_cov and outer_sigma is not None:
+            c_final = c_final * outer_sigma
+        return pd.DataFrame(c_final, index=idx, columns=cols) if is_df else c_final
+
+    # Marchenko-Pastur 理论噪音上界
+    t_obs = max(int(n_obs), n + 1)
+    q = float(n) / float(t_obs)
+    lambda_plus = (1.0 + np.sqrt(q)) ** 2
+
+    # 识别白噪音带特征值
+    noise_mask = e_vals <= lambda_plus
+    k_noise = np.sum(noise_mask)
+
+    if 0 < k_noise < n:
+        noise_mean = float(np.mean(e_vals[noise_mask]))
+        e_vals_new = e_vals.copy()
+        e_vals_new[noise_mask] = noise_mean
+    elif k_noise == n:
+        # 全量特征值落在噪音带，替换为均值保持迹守恒
+        e_vals_new = np.full_like(e_vals, np.mean(e_vals))
+    else:
+        e_vals_new = e_vals.copy()
+
+    # 确保特征值非负（数值精度保护）
+    e_vals_new = np.clip(e_vals_new, 1e-12, None)
+
+    # 重构矩阵: V * diag(e_vals_new) * V^T
+    tilde_c = (e_vecs * e_vals_new) @ e_vecs.T
+    tilde_c = 0.5 * (tilde_c + tilde_c.T)
+
+    # 规范化对角元为 1.0
+    diag_c = np.clip(np.diag(tilde_c), 1e-12, None)
+    d_inv_sqrt = 1.0 / np.sqrt(diag_c)
+    tilde_c = tilde_c * np.outer(d_inv_sqrt, d_inv_sqrt)
+    np.fill_diagonal(tilde_c, 1.0)
+    tilde_c = np.clip(tilde_c, -1.0, 1.0)
+    tilde_c = 0.5 * (tilde_c + tilde_c.T)
+
+    # Ledoit-Wolf 对角收缩: (1 - alpha) * C + alpha * I
+    alpha = float(np.clip(shrink_alpha, 0.0, 1.0))
+    c_final = (1.0 - alpha) * tilde_c + alpha * np.eye(n)
+    np.fill_diagonal(c_final, 1.0)
+    c_final = 0.5 * (c_final + c_final.T)
+
+    # 若原输入为协方差矩阵，恢复尺度
+    if is_cov and outer_sigma is not None:
+        res_mat = c_final * outer_sigma
+        res_mat = 0.5 * (res_mat + res_mat.T)
+    else:
+        res_mat = c_final
+
+    if is_df:
+        return pd.DataFrame(res_mat, index=idx, columns=cols)
+    return res_mat
+
+
 class DataLoader:
     """
     全收益标准化对齐数据加载器与交易算子引擎
     """
+
+    denoise_covariance_matrix = staticmethod(denoise_covariance_matrix)
 
     # 6 大 A 股经典风格切片 (2018 ~ 2025.06) 与盲测区间
     STYLE_SLICES = {
@@ -480,6 +605,7 @@ class DataLoader:
         ewma_var = ewma_var.clip(lower=1e-8)
         ewma_vol_ann = np.sqrt(ewma_var * 252.0)
         corr_matrix = ret_df.corr().fillna(0.0)
+        corr_matrix = denoise_covariance_matrix(corr_matrix, n_obs=len(ret_df), shrink_alpha=0.15)
 
         return ewma_vol_ann, corr_matrix
 
