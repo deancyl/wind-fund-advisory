@@ -66,5 +66,17 @@
 - **严禁向全局溢出**：严禁将本工作区的量化业务、前端框架或特定测试逻辑写入全局 `c:\Users\deanc\.gemini\GEMINI.md`；
 - **全会话透明继承**：本工作区所有后续会话与子任务自动继承本规范，保持工作区自治与纯净闭环。
 
+## 14. 前端空间几何不变量与反“测试虚荣”铁律 (Geometry Invariants & Anti-Testing Vanity Rule)
+- **拒绝后端无异常假象**：严禁将 Streamlit `assert not at.exception` 单独作为涉及 UI 布局、CSS 调整或视口自适应任务的交付充分条件（规避“Python 没报错但界面文字已被腰斩”的掩耳盗铃）；
+- **父级展开与安全呼吸区保护**：全局原生多列布局（如 `stHorizontalBlock` 与 `column`）严禁盲目追加破坏性的 `overflow: hidden !important`。卡片容器必须声明 `min-height`、`height: auto !important` 与 `overflow: visible !important`，且卡片内边距底部必须预留 $\ge 10$px 的安全呼吸空间，确保文字折行时自然撑大高度而不被底线切除；
+- **真实几何约束与容量测算断言**：UI 测试必须注入 CSS 几何属性核验与视口容量数学测算，确保在极限窄视口（如侧边栏展开后 600px~750px 宽度）下，各组件相邻间距严格 $\ge 8$px，在数学机制上实现 0 碰撞、0 截断。
 
+## 15. Flexbox 物理防挤压与横向滚动容器规范 (Flexbox Anti-Squash & Scroll Container Standard)
+- **富信息胶囊物理防压扁**：凡包含“名称 + 数值 + 涨跌幅胶囊”的多字段横向组件（如行情药丸），其容器强制锁死 `flex: 0 0 auto !important; white-space: nowrap !important;`，从 DOM 盒模型物理层面彻底剥夺浏览器 Flexbox 压缩药丸宽度的权力；
+- **独立平滑横向滚动容器标配**：多子项药丸横向排列总宽度超过视口或存在窄屏风险时，外层必须包裹专属横向滚动容器（配置 `overflow-x: auto !important; overflow-y: hidden; scrollbar-width: thin;`）；
+- **严禁用隐藏代替滚动**：严禁用 `overflow: hidden` 粗暴隐藏超宽内容，必须保证用户在任意屏幕宽度下都能通过平滑横向滚动完整阅读全部信息。
+
+## 16. 基准指数行情映射真实性与防张冠李戴红线 (Index Identity Integrity & No-Substitution Defense)
+- **代码与基准绝对对齐**：指数、ETF 与量化基准的抓取字典（如 `price_index_map`）必须严格对照官方标准代码，严禁将全市场/宽基指数与特定市场板块指数混淆（如中证红利必须且仅允许映射为 `000922` / `sh000922`，严禁偷换为上证红利 `sh000015`）；
+- **点位合理性范围核验**：数据抓取与大屏渲染必须配备点位基线校验（如中证红利必须处于 $5000 \sim 6500$ 点区间，若拉取到 3300 点必须触发报警熔断与源切换），杜绝向用户展示失真点位。
 
