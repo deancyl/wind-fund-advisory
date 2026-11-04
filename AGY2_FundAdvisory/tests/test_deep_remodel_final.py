@@ -226,15 +226,17 @@ def test_ui_geometry_and_non_overlap_invariants():
     assert 'min-height: 122px;' in gui_text
     assert 'overflow: visible !important;' in gui_text
     
-    # 3. 核心指数药丸物理防挤压不变量 (Anti-Squash & Anti-Overlap Invariant)
-    # 严禁使用 flex: 1 1 0 导致药丸被挤压至 90px 而文字外溢盖在下一个药丸头上！
-    assert 'flex: 0 0 auto !important;' in gui_text, "index-ticker-pill must use flex: 0 0 auto !important to prevent shrinking!"
-    assert 'white-space: nowrap !important;' in gui_text
+    # 3. 核心指数升级为侧边栏微型行情卡（专业行情终端质感与全自选能力）
+    assert '.sb-index-card {' in gui_text
+    assert '.sb-index-point {' in gui_text
+    assert '.sb-index-badge-up {' in gui_text
+    assert 'fetch_custom_realtime_indices' in gui_text
     
-    # 4. 核心指数药丸必须被包裹在横向平滑滚动容器中 (Scrollable Container Invariant)
-    assert '.index-pills-scroll-wrap {' in gui_text
-    assert 'overflow-x: auto !important;' in gui_text
-    assert 'class="index-pills-scroll-wrap"' in gui_text
+    # 4. 侧边栏结构完整性（全局领航台、市场状态与底座、行情走廊）
+    assert 'st.subheader("🧭 全局领航台")' in gui_text
+    assert '##### 🕒 市场状态与底座' in gui_text
+    assert '##### 📊 行情走廊' in gui_text
+    assert '⚙️ 定制' in gui_text
     
     # 5. 其他卡片 (kpi-metric-card & consequence-card) 自适应防腰斩断言
     assert '.consequence-card {' in gui_text
