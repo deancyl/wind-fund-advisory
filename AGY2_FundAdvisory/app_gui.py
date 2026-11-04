@@ -2100,7 +2100,7 @@ with tab_holdings_and_rebalance:
                     "当前净值": st.column_config.NumberColumn(format="%.4f", disabled=True),
                     "今日实时估值涨跌(%)": st.column_config.NumberColumn(format="%+.2f%%", disabled=True),
                     "盘中预估盈亏(元)": st.column_config.NumberColumn(format="¥%+.2f", disabled=True),
-                    "持仓占比(%)": st.column_config.ProgressColumn(min_value=0, max_value=50, format="%.2f%%", disabled=True),
+                    "持仓占比(%)": st.column_config.ProgressColumn(min_value=0, max_value=50, format="%.2f%%"),
                     "最短持有天数": st.column_config.NumberColumn(format="%d 天", help="修改持有天数自动刷新赎回费梯级"),
                     "赎回费状态": st.column_config.TextColumn(disabled=True),
                     "分红方式": st.column_config.SelectboxColumn(options=["cash", "reinvest"], required=True),

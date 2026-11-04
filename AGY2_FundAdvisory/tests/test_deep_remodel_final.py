@@ -200,6 +200,9 @@ def test_apptest_gui_headless_execution():
     at = AppTest.from_file(gui_absolute_path, default_timeout=30)
     at.run()
     assert not at.exception, f"AppTest threw exception: {at.exception}"
+    # 彻底杜绝 Tab 内部 try-except 掩盖错误导致的测试虚荣 (Anti-Error-Masking Invariant)
+    errors = [e.value for e in at.error]
+    assert len(errors) == 0, f"AppTest reported errors in tabs: {errors}"
 
 
 def test_ui_geometry_and_non_overlap_invariants():
