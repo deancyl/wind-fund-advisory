@@ -2088,24 +2088,75 @@ with tab_holdings_and_rebalance:
             df_table = df_disp[cols_clean]
 
             safe_markdown_html("<div style='height: 4px;'></div>")
-            st.caption("实时持仓资产明细（支持直接双击修改「当前市值(元)」或「持仓份额」，后台自动反算更新）：")
+            st.caption("实时持仓资产明细（💡 仅需修改/录入 **「基金代码」** 与 **「当前市值(元)」** 或 **「持仓份额」**，保存时后台自动联网补齐真实名称、最新净值与盘中估值，其余指标全自动跳出）：")
 
             edited_table = st.data_editor(
                 df_table,
                 column_config={
-                    "基金代码": st.column_config.TextColumn(disabled=True),
-                    "基金名称": st.column_config.TextColumn(disabled=True),
-                    "当前市值(元)": st.column_config.NumberColumn(format="¥%.2f", help="可直接修改持有总市值，系统自动按净值反算份额！"),
-                    "持仓份额": st.column_config.NumberColumn(format="%.2f", help="修改份额将自动根据净值重算市值"),
-                    "当前净值": st.column_config.NumberColumn(format="%.4f", disabled=True),
-                    "今日实时估值涨跌(%)": st.column_config.NumberColumn(format="%+.2f%%", disabled=True),
-                    "盘中预估盈亏(元)": st.column_config.NumberColumn(format="¥%+.2f", disabled=True),
-                    "持仓占比(%)": st.column_config.ProgressColumn(min_value=0, max_value=50, format="%.2f%%"),
-                    "最短持有天数": st.column_config.NumberColumn(format="%d 天", help="修改持有天数自动刷新赎回费梯级"),
-                    "赎回费状态": st.column_config.TextColumn(disabled=True),
-                    "分红方式": st.column_config.SelectboxColumn(options=["cash", "reinvest"], required=True),
+                    "基金代码": st.column_config.TextColumn(
+                        "基金代码",
+                        help="双击修改或输入 6 位公募基金代码，保存时系统自动联网补齐名称与最新净值！",
+                        max_chars=6,
+                        validate=r"^\d{6}$",
+                        required=True
+                    ),
+                    "基金名称": st.column_config.TextColumn(
+                        "基金名称",
+                        help="根据代码自动联网匹配跳出，只读无需手动输入",
+                        disabled=True
+                    ),
+                    "当前市值(元)": st.column_config.NumberColumn(
+                        "当前市值(元)",
+                        format="¥%.2f",
+                        help="可直接修改持有总市值，系统自动按净值反算份额！"
+                    ),
+                    "持仓份额": st.column_config.NumberColumn(
+                        "持仓份额",
+                        format="%.2f",
+                        help="修改份额将自动根据净值重算市值"
+                    ),
+                    "当前净值": st.column_config.NumberColumn(
+                        "当前净值",
+                        format="%.4f",
+                        disabled=True,
+                        help="联网拉取的最新单位净值，自动跳出"
+                    ),
+                    "今日实时估值涨跌(%)": st.column_config.NumberColumn(
+                        "今日实时估值涨跌(%)",
+                        format="%+.2f%%",
+                        disabled=True,
+                        help="联网盘中实时估算涨跌幅，自动跳出"
+                    ),
+                    "盘中预估盈亏(元)": st.column_config.NumberColumn(
+                        "盘中预估盈亏(元)",
+                        format="¥%+.2f",
+                        disabled=True,
+                        help="基于盘中估算的今日预估盈亏，自动跳出"
+                    ),
+                    "持仓占比(%)": st.column_config.ProgressColumn(
+                        "持仓占比(%)",
+                        min_value=0,
+                        max_value=50,
+                        format="%.2f%%",
+                        help="根据全组合总资产自动计算占比进度条"
+                    ),
+                    "最短持有天数": st.column_config.NumberColumn(
+                        "最短持有天数",
+                        format="%d 天",
+                        help="修改持有天数自动刷新赎回费梯级"
+                    ),
+                    "赎回费状态": st.column_config.TextColumn(
+                        "赎回费状态",
+                        disabled=True,
+                        help="根据持有天数与产品规则自动判定"
+                    ),
+                    "分红方式": st.column_config.SelectboxColumn(
+                        "分红方式",
+                        options=["cash", "reinvest"],
+                        required=True
+                    ),
                 },
-                disabled=["基金代码", "基金名称", "当前净值", "今日实时估值涨跌(%)", "盘中预估盈亏(元)", "持仓占比(%)", "赎回费状态"],
+                disabled=["基金名称", "当前净值", "今日实时估值涨跌(%)", "盘中预估盈亏(元)", "持仓占比(%)", "赎回费状态"],
                 use_container_width=True,
                 num_rows="dynamic",
                 key="main_holdings_editor_tab2"
@@ -2116,54 +2167,75 @@ with tab_holdings_and_rebalance:
             with col_op1:
                 if st.button("💾 保存修改并入库", type="primary", use_container_width=True, key="btn_save_holdings_tab2"):
                     valid_codes = set()
-                    for _, row in edited_table.iterrows():
-                        code_s = str(row["基金代码"]).strip().zfill(6)
-                        valid_codes.add(code_s)
-                        old_h = pm.holdings.get(code_s)
-                        new_mkt = float(row.get("当前市值(元)", 0.0))
-                        new_shares = float(row.get("持仓份额", 0.0))
-                        nav = float(row.get("当前净值", 1.0))
-                        if nav <= 0:
-                            nav = 1.0
-                        h_days = int(row.get("最短持有天数", 30))
-                        div_m = str(row.get("分红方式", "cash"))
-                        cost = float(old_h.cost_price if old_h else nav)
+                    error_msgs = []
+                    success_codes = []
+                    with st.spinner("🔄 正在智能补齐基金名称、最新净值与盘中估值..."):
+                        for _, row in edited_table.iterrows():
+                            raw_code = str(row.get("基金代码", "")).strip()
+                            if not raw_code or raw_code.lower() in ("nan", "none", ""):
+                                continue
+                            code_s = raw_code.zfill(6)
+                            if not code_s.isdigit() or len(code_s) != 6:
+                                error_msgs.append(f"标的代码 [{raw_code}] 格式不合法（必须为6位纯数字），已跳过")
+                                continue
 
-                        # 双向反算核心逻辑：优先检测是否修改了当前市值
-                        if old_h:
-                            old_mkt = float(old_h.market_value)
-                            old_shares = float(old_h.shares)
-                            if abs(new_mkt - old_mkt) > 1.0 and abs(new_shares - old_shares) <= 0.01:
-                                final_shares = round(new_mkt / nav, 2)
-                            elif abs(new_shares - old_shares) > 0.01:
-                                final_shares = new_shares
+                            valid_codes.add(code_s)
+                            old_h = pm.holdings.get(code_s)
+                            new_mkt = float(row.get("当前市值(元)", 0.0) or 0.0)
+                            new_shares = float(row.get("持仓份额", 0.0) or 0.0)
+
+                            # 核心联动：若代码变动或新加入标的，自动联网拉取真实净值与元数据
+                            quote = fetch_realtime_fund_quote(code_s)
+                            real_nav = float(quote.dwjz if (quote and quote.dwjz > 0) else (float(row.get("当前净值", 1.0) or 1.0)))
+                            if real_nav <= 0:
+                                real_nav = 1.0
+
+                            h_days = int(row.get("最短持有天数", 30) or 30)
+                            div_m = str(row.get("分红方式", "cash") or "cash")
+                            cost = float(old_h.cost_price if (old_h and old_h.cost_price > 0) else real_nav)
+
+                            # 双向自适应反算：改市值算份额，改份额算市值
+                            if old_h:
+                                old_mkt = float(old_h.market_value)
+                                old_shares = float(old_h.shares)
+                                if abs(new_mkt - old_mkt) > 1.0 and abs(new_shares - old_shares) <= 0.01:
+                                    final_shares = round(new_mkt / real_nav, 2)
+                                elif abs(new_shares - old_shares) > 0.01:
+                                    final_shares = new_shares
+                                else:
+                                    final_shares = new_shares
                             else:
-                                final_shares = new_shares
-                        else:
-                            if new_mkt > 0 and new_shares <= 0:
-                                final_shares = round(new_mkt / nav, 2)
-                            else:
-                                final_shares = new_shares
+                                if new_mkt > 0 and new_shares <= 0:
+                                    final_shares = round(new_mkt / real_nav, 2)
+                                elif new_shares > 0:
+                                    final_shares = new_shares
+                                else:
+                                    final_shares = round(new_mkt / real_nav, 2) if new_mkt > 0 else 1000.0
 
-                        pm.add_or_update_holding(
-                            fund_code=code_s,
-                            shares=final_shares,
-                            nav=nav,
-                            cost_price=cost,
-                            holding_days=h_days,
-                            dividend_method=div_m,
-                            notes="表格直接编辑与市值反算同步"
-                        )
+                            pm.add_or_update_holding(
+                                fund_code=code_s,
+                                shares=final_shares,
+                                nav=real_nav,
+                                cost_price=cost,
+                                holding_days=h_days,
+                                dividend_method=div_m,
+                                notes="代码智能联动与市值反算入库"
+                            )
+                            success_codes.append(code_s)
 
-                    for exist_c in list(pm.holdings.keys()):
-                        if exist_c not in valid_codes:
-                            pm.delete_holding(exist_c)
+                        for exist_c in list(pm.holdings.keys()):
+                            if exist_c not in valid_codes:
+                                pm.delete_holding(exist_c)
 
-                    st.session_state.tab2_diag_cache = None
-                    st.session_state.tab2_rebal_cache = None
-                    st.session_state.tab2_diagnosed = False
-                    st.session_state.tab2_rebalanced = False
-                    st.success("✅ 持仓与市值已成功保存入库！")
+                        st.session_state.tab2_diag_cache = None
+                        st.session_state.tab2_rebal_cache = None
+                        st.session_state.tab2_diagnosed = False
+                        st.session_state.tab2_rebalanced = False
+
+                    if error_msgs:
+                        for em in error_msgs:
+                            st.warning(f"⚠️ {em}")
+                    st.success(f"✅ 持仓账本已更新！成功识别入库 {len(success_codes)} 只标的，真实名称、净值与估值已自动补齐。")
                     st.rerun()
 
             with col_op2:
