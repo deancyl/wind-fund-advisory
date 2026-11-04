@@ -195,16 +195,17 @@ st.set_page_config(
 # 🎨 全局多配色与 CSS 变量系统架构 (Light Slate / Dark Terminal / Nordic Paper + 双轨涨跌色)
 # -------------------------------------------------------------
 if "app_theme_mode" not in st.session_state:
-    st.session_state.app_theme_mode = "light_slate"
+    st.session_state.app_theme_mode = "institutional_slate"
 if "app_color_mode" not in st.session_state:
     st.session_state.app_color_mode = "cn"
 
 cur_theme_mode = st.session_state.app_theme_mode
 cur_color_mode = st.session_state.app_color_mode
 
-# 主题变量字典
+# 5套专业级金融终端主题字典
 THEME_PRESETS = {
-    "light_slate": {
+    "institutional_slate": {
+        "name": "🏛️ 机构冷灰 (Institutional Slate)",
         "bg_canvas": "#f8fafc",
         "bg_surface": "#ffffff",
         "bg_elevated": "#f1f5f9",
@@ -213,52 +214,87 @@ THEME_PRESETS = {
         "text_primary": "#0f172a",
         "text_secondary": "#475569",
         "text_muted": "#94a3b8",
-        "accent_primary": "#2563eb",
-        "shadow_card": "0 1px 3px rgba(0, 0, 0, 0.04)"
+        "accent_primary": "#1d4ed8",
+        "shadow_card": "0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03)"
     },
-    "dark_terminal": {
-        "bg_canvas": "#0b0f19",
-        "bg_surface": "#131b2e",
-        "bg_elevated": "#1c2842",
-        "border_subtle": "#24324f",
-        "border_hover": "#3b4d75",
+    "bloomberg_carbon": {
+        "name": "🌑 彭博暗黑 (Bloomberg Carbon)",
+        "bg_canvas": "#0b0f17",
+        "bg_surface": "#111827",
+        "bg_elevated": "#1f2937",
+        "border_subtle": "#1f2937",
+        "border_hover": "#374151",
+        "text_primary": "#f9fafb",
+        "text_secondary": "#d1d5db",
+        "text_muted": "#6b7280",
+        "accent_primary": "#38bdf8",
+        "shadow_card": "0 2px 6px rgba(0, 0, 0, 0.4)"
+    },
+    "ft_warm_paper": {
+        "name": "📜 金融暖卷 (FT Warm Paper)",
+        "bg_canvas": "#f6f4f0",
+        "bg_surface": "#fcfbf9",
+        "bg_elevated": "#f0ede6",
+        "border_subtle": "#e5e0d8",
+        "border_hover": "#d6cfc3",
+        "text_primary": "#2d2b28",
+        "text_secondary": "#5c5852",
+        "text_muted": "#8c867d",
+        "accent_primary": "#0f766e",
+        "shadow_card": "0 1px 3px rgba(45, 43, 40, 0.04)"
+    },
+    "deep_titanium": {
+        "name": "🌌 深海钛金 (Deep Titanium)",
+        "bg_canvas": "#0f172a",
+        "bg_surface": "#1e293b",
+        "bg_elevated": "#334155",
+        "border_subtle": "#334155",
+        "border_hover": "#475569",
         "text_primary": "#f8fafc",
         "text_secondary": "#cbd5e1",
         "text_muted": "#64748b",
-        "accent_primary": "#38bdf8",
-        "shadow_card": "0 2px 6px rgba(0, 0, 0, 0.35)"
+        "accent_primary": "#f59e0b",
+        "shadow_card": "0 2px 8px rgba(0, 0, 0, 0.3)"
     },
-    "nordic_paper": {
-        "bg_canvas": "#f4f3ef",
-        "bg_surface": "#faf9f6",
-        "bg_elevated": "#eceae3",
-        "border_subtle": "#dfdcd4",
-        "border_hover": "#c9c6bd",
-        "text_primary": "#2d2d2a",
-        "text_secondary": "#55544f",
-        "text_muted": "#88867e",
-        "accent_primary": "#0f766e",
-        "shadow_card": "0 1px 2px rgba(45, 45, 42, 0.04)"
+    "nordic_frost": {
+        "name": "❄️ 极昼纯白 (Nordic Frost)",
+        "bg_canvas": "#ffffff",
+        "bg_surface": "#f4f6f8",
+        "bg_elevated": "#e5e7eb",
+        "border_subtle": "#e4e4e7",
+        "border_hover": "#d4d4d8",
+        "text_primary": "#18181b",
+        "text_secondary": "#3f3f46",
+        "text_muted": "#71717a",
+        "accent_primary": "#18181b",
+        "shadow_card": "0 1px 2px rgba(0, 0, 0, 0.04)"
     }
 }
 
+# 兼容历史别名
+THEME_PRESETS["light_slate"] = THEME_PRESETS["institutional_slate"]
+THEME_PRESETS["dark_terminal"] = THEME_PRESETS["bloomberg_carbon"]
+THEME_PRESETS["nordic_paper"] = THEME_PRESETS["ft_warm_paper"]
+
 COLOR_PRESETS = {
     "cn": {
+        "name": "🇨🇳 A股红涨绿跌 (默认)",
         "color_up": "#dc2626",
-        "bg_up": "#fef2f2",
-        "border_up": "#fecaca",
+        "bg_up": "rgba(220, 38, 38, 0.08)",
+        "border_up": "rgba(220, 38, 38, 0.25)",
         "color_down": "#16a34a",
-        "bg_down": "#f0fdf4",
-        "border_down": "#bbf7d0",
+        "bg_down": "rgba(22, 163, 74, 0.08)",
+        "border_down": "rgba(22, 163, 74, 0.25)",
         "color_flat": "#64748b"
     },
     "global": {
+        "name": "🌐 国际绿涨红跌",
         "color_up": "#16a34a",
-        "bg_up": "#f0fdf4",
-        "border_up": "#bbf7d0",
+        "bg_up": "rgba(22, 163, 74, 0.08)",
+        "border_up": "rgba(22, 163, 74, 0.25)",
         "color_down": "#dc2626",
-        "bg_down": "#fef2f2",
-        "border_down": "#fecaca",
+        "bg_down": "rgba(220, 38, 38, 0.08)",
+        "border_down": "rgba(220, 38, 38, 0.25)",
         "color_flat": "#64748b"
     }
 }
@@ -425,15 +461,15 @@ st.markdown(f"""
         font-family: 'SF Pro Display', -apple-system, monospace;
         letter-spacing: -0.4px;
         line-height: 1.1;
+        color: var(--text-primary);
     }}
-    .consequence-card {{
-        background: var(--bg-surface) !important;
-        border: 1px solid var(--border-subtle) !important;
-        color: var(--text-primary) !important;
-        border-radius: 8px;
-        padding: 10px 12px;
-        box-shadow: var(--shadow-card) !important;
+    .metric-card-sub {{
+        font-size: 11px;
+        color: var(--text-secondary) !important;
+        margin-top: 2px;
     }}
+
+    /* KPI 人话卡片系统 */
     .kpi-metric-card {{
         background: var(--bg-surface) !important;
         border: 1px solid var(--border-subtle) !important;
@@ -441,218 +477,271 @@ st.markdown(f"""
         border-radius: 8px;
         padding: 10px 12px;
         box-shadow: var(--shadow-card) !important;
-    }}
-
-    /* 侧边栏晴雨表与 Pro 卡片 */
-    .sb-market-barometer {{
-        background: var(--bg-surface) !important;
-        border: 1px solid var(--border-subtle) !important;
-        border-radius: 8px;
-        padding: 9px 12px;
-        margin-bottom: 10px;
-        box-shadow: var(--shadow-card) !important;
-    }}
-    .sb-baro-header {{
+        min-height: 108px;
+        height: auto !important;
+        overflow: visible !important;
         display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 5px;
+        flex-direction: column;
+        justify-content: flex-start;
+        gap: 2px;
+        box-sizing: border-box;
+        transition: all 0.2s ease;
     }}
-    .sb-baro-title {{
+    .kpi-metric-card:hover {{
+        border-color: var(--border-hover) !important;
+    }}
+    .kpi-card-title {{
         font-size: 11px;
         font-weight: 700;
-        color: var(--text-secondary);
-        display: flex;
-        align-items: center;
-        gap: 4px;
+        color: var(--text-secondary) !important;
+        margin-bottom: 2px;
     }}
-    .sb-baro-turnover {{
-        font-size: 13px;
-        font-weight: 700;
-        font-family: 'SF Pro Display', -apple-system, monospace;
-        color: var(--text-primary);
+    .kpi-card-sub {{
+        font-size: 11px;
+        color: var(--text-muted) !important;
+        margin-top: 2px;
     }}
-    .sb-baro-tag {{
-        font-size: 10px;
-        font-weight: 600;
-        padding: 1px 4px;
-        border-radius: 3px;
-    }}
-    .sb-baro-tag-up {{
-        background: var(--bg-up);
-        color: var(--color-up);
-        border: 1px solid var(--border-up);
-    }}
-    .sb-baro-tag-down {{
-        background: var(--bg-down);
-        color: var(--color-down);
-        border: 1px solid var(--border-down);
-    }}
-    .sb-ratio-bar-wrap {{
-        display: flex;
-        width: 100%;
-        height: 5px;
-        border-radius: 3px;
-        overflow: hidden;
-        background: var(--border-subtle);
+    .kpi-card-desc {{
+        font-size: 11px;
+        color: var(--text-secondary) !important;
+        line-height: 1.4;
         margin-top: 4px;
+    }}
+
+    /* 决策卡与后果账单卡 */
+    .decision-card {{
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
+        color: var(--text-primary) !important;
+        border-radius: 8px;
+        padding: 12px 14px;
+        box-shadow: var(--shadow-card) !important;
+        min-height: 108px;
+        height: auto !important;
+        overflow: visible !important;
+        transition: all 0.2s ease;
+    }}
+    .decision-card:hover {{
+        border-color: var(--border-hover) !important;
+    }}
+    .decision-title {{
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text-primary) !important;
         margin-bottom: 4px;
     }}
-    .sb-ratio-bar-up {{ background: var(--color-up); height: 100%; }}
-    .sb-ratio-bar-down {{ background: var(--color-down); height: 100%; }}
-    .sb-baro-counts {{
-        display: flex;
-        justify-content: space-between;
-        font-size: 10px;
-        color: var(--text-muted);
+    .decision-val {{
+        font-size: 18px;
+        font-weight: 700;
         font-family: monospace;
+        color: var(--text-primary) !important;
+        margin-bottom: 4px;
     }}
-    .sb-baro-count-up {{ color: var(--color-up); font-weight: 600; }}
-    .sb-baro-count-down {{ color: var(--color-down); font-weight: 600; }}
+    .decision-desc {{
+        font-size: 11px;
+        color: var(--text-secondary) !important;
+        line-height: 1.5;
+    }}
 
-    /* Bloomberg / 富途 Pro 行情卡 */
-    .sb-pro-index-card {{
+    .consequence-card {{
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
+        color: var(--text-primary) !important;
+        border-radius: 8px;
+        padding: 12px 14px;
+        box-shadow: var(--shadow-card) !important;
+        min-height: 108px;
+        height: auto !important;
+        overflow: visible !important;
+    }}
+
+    /* 中央实时计算控制台 */
+    .active-computation-console {{
+        background: var(--bg-elevated) !important;
+        border: 1px solid var(--border-subtle) !important;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin: 10px 0;
+        color: var(--text-primary) !important;
+        box-shadow: var(--shadow-card) !important;
+    }}
+    .console-header-banner {{
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--accent-primary) !important;
+        margin-bottom: 4px;
+    }}
+    .console-timer-text {{
+        font-size: 11px;
+        color: var(--text-secondary) !important;
+    }}
+
+    /* 现代 Flex 胶囊步进条 (Modern Capsule Stepper) */
+    .step-indicator-bar {{
         background: var(--bg-surface) !important;
         border: 1px solid var(--border-subtle) !important;
         border-radius: 8px;
-        padding: 8px 10px;
-        margin-bottom: 8px;
+        padding: 8px 14px;
+        margin-bottom: 12px;
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
         box-shadow: var(--shadow-card) !important;
+    }}
+    .step-capsules-container {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }}
+    .step-capsule {{
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        box-sizing: border-box;
         transition: all 0.2s ease;
-        position: relative;
+    }}
+    .step-capsule-done {{
+        background: var(--bg-elevated) !important;
+        color: var(--text-secondary) !important;
+        border: 1px solid var(--border-subtle) !important;
+    }}
+    .step-capsule-active {{
+        background: var(--accent-primary) !important;
+        color: #ffffff !important;
+        border: 1px solid var(--accent-primary) !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15) !important;
+    }}
+    .step-capsule-idle {{
+        background: transparent !important;
+        color: var(--text-muted) !important;
+        border: 1px dashed var(--border-subtle) !important;
+    }}
+    .step-indicator-status {{
+        font-size: 12px;
+        color: var(--text-secondary) !important;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }}
+
+    /* 顶部 6 大核心指数等宽胶囊条 (Index Ticker Strip) */
+    .index-ticker-strip {{
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 10px;
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
+        border-radius: 8px;
+        padding: 6px 12px;
+        margin-top: 4px;
+        margin-bottom: 10px;
+        box-shadow: var(--shadow-card) !important;
+        width: 100%;
+        min-height: 48px;
+        box-sizing: border-box;
         overflow: hidden;
     }}
-    .sb-pro-index-card:hover {{
+    .index-pills-scroll-wrap {{
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 10px;
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow-x: auto !important;
+        overflow-y: hidden;
+        scrollbar-width: thin;
+        -webkit-overflow-scrolling: touch;
+        padding: 3px 0;
+    }}
+    .index-pills-scroll-wrap::-webkit-scrollbar {{
+        height: 4px;
+    }}
+    .index-pills-scroll-wrap::-webkit-scrollbar-thumb {{
+        background: var(--border-subtle);
+        border-radius: 4px;
+    }}
+    .index-ticker-pill {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 8px;
+        background: var(--bg-elevated) !important;
+        border: 1px solid var(--border-subtle) !important;
+        border-radius: 6px;
+        padding: 4px 10px;
+        flex: 0 0 auto !important;
+        box-sizing: border-box;
+        white-space: nowrap !important;
+        min-height: 32px;
+        transition: all 0.2s ease;
+    }}
+    .index-ticker-pill:hover {{
         border-color: var(--border-hover) !important;
-        transform: translateY(-1px);
     }}
-    .sb-card-left {{
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 3px;
-        width: 82px;
-        flex-shrink: 0;
+    .index-pill-name {{
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary) !important;
     }}
-    .sb-card-name-row {{
-        display: flex;
-        align-items: baseline;
-        gap: 4px;
-    }}
-    .sb-card-name {{
+    .index-pill-point {{
         font-size: 13px;
         font-weight: 700;
-        color: var(--text-primary);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }}
-    .sb-card-code {{
-        font-size: 10px;
         font-family: monospace;
-        color: var(--text-muted);
+        color: var(--text-primary) !important;
     }}
-    .sb-card-pe-badge {{
-        font-size: 9px;
-        font-weight: 600;
-        padding: 1px 4px;
+    .index-pill-chg-up {{
+        font-size: 12px;
+        font-weight: 700;
+        font-family: monospace;
+        color: var(--color-up) !important;
+        background: var(--bg-up) !important;
+        border: 1px solid var(--border-up) !important;
         border-radius: 3px;
-        white-space: nowrap;
-        width: fit-content;
-        line-height: 1.2;
-    }}
-    .pe-low {{
-        background: var(--bg-elevated);
-        color: var(--accent-primary);
-        border: 1px solid var(--border-subtle);
-    }}
-    .pe-very-low {{
-        background: var(--bg-elevated);
-        color: #7c3aed;
-        border: 1px solid var(--border-subtle);
-    }}
-    .pe-mid {{
-        background: var(--bg-elevated);
-        color: var(--text-secondary);
-        border: 1px solid var(--border-subtle);
-    }}
-    .pe-high {{
-        background: var(--bg-elevated);
-        color: #ea580c;
-        border: 1px solid var(--border-subtle);
-    }}
-    .pe-com {{
-        background: var(--bg-elevated);
-        color: #ca8a04;
-        border: 1px solid var(--border-subtle);
-    }}
-
-    .sb-card-mid-sparkline {{
-        width: 76px;
-        height: 26px;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }}
-    .sb-card-right {{
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        justify-content: center;
-        gap: 2px;
-        flex-shrink: 0;
-    }}
-    .sb-card-point {{
-        font-size: 14px;
-        font-weight: 700;
-        font-family: 'SF Pro Display', -apple-system, 'Roboto Mono', monospace;
-        color: var(--text-primary);
-        letter-spacing: -0.3px;
-        line-height: 1.1;
-    }}
-    .sb-card-chg-row {{
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }}
-    .sb-card-diff {{
-        font-size: 11px;
-        font-family: monospace;
-        font-weight: 600;
-    }}
-    .sb-card-diff.up {{ color: var(--color-up); }}
-    .sb-card-diff.down {{ color: var(--color-down); }}
-    .sb-card-diff.flat {{ color: var(--color-flat); }}
-    .sb-card-badge {{
-        font-size: 11px;
-        font-weight: 700;
-        font-family: monospace;
         padding: 0 4px;
-        border-radius: 3px;
-        white-space: nowrap;
         line-height: 1.3;
     }}
-    .sb-card-badge.up {{
-        color: var(--color-up);
-        background: var(--bg-up);
-        border: 1px solid var(--border-up);
+    .index-pill-chg-down {{
+        font-size: 12px;
+        font-weight: 700;
+        font-family: monospace;
+        color: var(--color-down) !important;
+        background: var(--bg-down) !important;
+        border: 1px solid var(--border-down) !important;
+        border-radius: 3px;
+        padding: 0 4px;
+        line-height: 1.3;
     }}
-    .sb-card-badge.down {{
-        color: var(--color-down);
-        background: var(--bg-down);
-        border: 1px solid var(--border-down);
-    }}
-    .sb-card-badge.flat {{
-        color: var(--color-flat);
-        background: var(--bg-elevated);
-        border: 1px solid var(--border-subtle);
+    .index-pill-chg-flat {{
+        font-size: 12px;
+        font-weight: 600;
+        font-family: monospace;
+        color: var(--color-flat) !important;
+        background: var(--bg-elevated) !important;
+        border: 1px solid var(--border-subtle) !important;
+        border-radius: 3px;
+        padding: 0 4px;
+        line-height: 1.3;
     }}
 
-    /* Streamlit 原生组件变量覆盖 (Tab/Input/Button/Popover) */
+    /* Streamlit 原生组件深度变量穿透 (Tab/Input/Button/Popover/Expander/Alert) */
+    div[data-testid="stExpander"] {{
+        background-color: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
+        border-radius: 8px !important;
+        color: var(--text-primary) !important;
+    }}
+    div[data-testid="stExpander"] summary {{
+        color: var(--text-primary) !important;
+    }}
     [data-testid="stTabs"] button {{
         color: var(--text-secondary) !important;
         border-bottom-color: transparent !important;
@@ -673,6 +762,12 @@ st.markdown(f"""
         border: 1px solid var(--border-subtle) !important;
         color: var(--text-primary) !important;
         box-shadow: var(--shadow-card) !important;
+    }}
+    div[data-testid="stAlert"] {{
+        background-color: var(--bg-elevated) !important;
+        border: 1px solid var(--border-subtle) !important;
+        color: var(--text-primary) !important;
+        border-radius: 8px !important;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -736,24 +831,40 @@ class ActiveComputationConsole:
 
 
 def render_workflow_step_indicator(steps: List[str], current_step: int, help_text: str = ""):
-    """渲染《🧭 工作流步骤与系统状态指示器》"""
-    parts = []
+    """现代 Flex 胶囊分步导航条 (Modern Capsule Stepper)"""
+    capsules = []
     for idx, name in enumerate(steps, 1):
         if idx < current_step:
-            parts.append(f"<span style='color: #16a34a; font-weight: 700;'>【✅ 步骤{idx}：{name} (已完成)】</span>")
+            capsules.append(
+                f'<div class="step-capsule step-capsule-done">'
+                f'<span style="color: var(--color-down); font-weight: 700;">✓</span>'
+                f'<span>步骤 {idx}: {name}</span>'
+                f'</div>'
+            )
         elif idx == current_step:
-            parts.append(f"<span style='color: #2563eb; font-weight: 700; background: rgba(37, 99, 235, 0.1); padding: 2px 6px; border-radius: 4px; border: 1px solid #3b82f6;'>【🟢 步骤{idx}：{name} (当前步骤)】</span>")
+            capsules.append(
+                f'<div class="step-capsule step-capsule-active">'
+                f'<span>●</span>'
+                f'<span>步骤 {idx}: {name}</span>'
+                f'</div>'
+            )
         else:
-            parts.append(f"<span style='color: #94a3b8; font-weight: 500;'>【⚪ 步骤{idx}：{name} (待解锁)】</span>")
+            capsules.append(
+                f'<div class="step-capsule step-capsule-idle">'
+                f'<span>○</span>'
+                f'<span>步骤 {idx}: {name}</span>'
+                f'</div>'
+            )
 
-    flow_html = " ───> ".join(parts)
+    capsules_html = "".join(capsules)
+    status_msg = help_text or "请在当前步骤完成参数确认后点击下方按钮进入下一步"
     safe_markdown_html(f"""
-    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;">
-        <div style="font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 4px;">
-            🧭 工作流导引：{flow_html}
+    <div class="step-indicator-bar">
+        <div class="step-capsules-container">
+            {capsules_html}
         </div>
-        <div style="font-size: 12px; color: #64748b;">
-            🟢 <b>系统状态</b>：就绪 ｜ {help_text or '请在当前步骤完成参数确认后点击下方按钮进入下一步'}
+        <div class="step-indicator-status">
+            <span>🟢 <b>系统状态</b>：就绪 ｜ {status_msg}</span>
         </div>
     </div>
     """)
@@ -763,70 +874,14 @@ def render_workflow_step_indicator(steps: List[str], current_step: int, help_tex
 
 
 # =============================================================
-# 全市场自选行情指数池、PE分位字典与 Sparkline 矢量生成器
+# 全生态 Plotly 穿透回测图表自适应换肤
 # =============================================================
-ALL_MARKET_INDEX_CATALOG = {
-    "1.000300": {"name": "沪深300", "code": "000300", "secid": "1.000300", "type": "宽基"},
-    "1.000688": {"name": "科创50", "code": "000688", "secid": "1.000688", "type": "宽基"},
-    "1.000922": {"name": "中证红利", "code": "000922", "secid": "1.000922", "type": "策略红利"},
-    "1.000905": {"name": "中证500", "code": "000905", "secid": "1.000905", "type": "宽基"},
-    "1.000852": {"name": "中证1000", "code": "000852", "secid": "1.000852", "type": "宽基"},
-    "1.000001": {"name": "上证指数", "code": "000001", "secid": "1.000001", "type": "宽基"},
-    "0.399001": {"name": "深证成指", "code": "399001", "secid": "0.399001", "type": "宽基"},
-    "0.399006": {"name": "创业板指", "code": "399006", "secid": "0.399006", "type": "宽基"},
-    "1.000016": {"name": "上证50", "code": "000016", "secid": "1.000016", "type": "宽基"},
-    "1.932000": {"name": "中证2000", "code": "932000", "secid": "1.932000", "type": "微盘成长"},
-    "1.513180": {"name": "恒生科技", "code": "513180", "secid": "1.513180", "type": "港股科技"},
-    "0.399997": {"name": "中证白酒", "code": "399997", "secid": "0.399997", "type": "消费白酒"},
-    "0.399396": {"name": "国证芯片", "code": "399396", "secid": "0.399396", "type": "芯片半导体"},
-    "0.399989": {"name": "中证医疗", "code": "399989", "secid": "0.399989", "type": "医药医疗"},
-    "0.399975": {"name": "证券公司", "code": "399975", "secid": "0.399975", "type": "大金融"},
-    "0.399986": {"name": "中证银行", "code": "399986", "secid": "0.399986", "type": "高股息"},
-    "1.518880": {"name": "黄金ETF", "code": "518880", "secid": "1.518880", "type": "避险商品"},
-    "1.513100": {"name": "纳指ETF", "code": "513100", "secid": "1.513100", "type": "美股QDII"},
-    "1.513500": {"name": "标普500", "code": "513500", "secid": "1.513500", "type": "美股QDII"}
-}
-
-INDEX_PE_METAS = {
-    "1.000300": {"pe": 12.8, "pct": 32.5, "label": "PE 12.8 (33%低估)", "status": "low"},
-    "1.000688": {"pe": 48.2, "pct": 68.0, "label": "PE 48.2 (68%高弹)", "status": "mid"},
-    "1.000922": {"pe": 6.9,  "pct": 12.5, "label": "PE 6.9 (13%极低)", "status": "very_low"},
-    "1.000905": {"pe": 24.1, "pct": 28.0, "label": "PE 24.1 (28%低估)", "status": "low"},
-    "1.000852": {"pe": 36.5, "pct": 42.0, "label": "PE 36.5 (42%适中)", "status": "mid"},
-    "1.000001": {"pe": 13.5, "pct": 36.0, "label": "PE 13.5 (36%低估)", "status": "low"},
-    "0.399001": {"pe": 25.2, "pct": 45.0, "label": "PE 25.2 (45%适中)", "status": "mid"},
-    "0.399006": {"pe": 31.0, "pct": 35.0, "label": "PE 31.0 (35%低位)", "status": "low"},
-    "1.000016": {"pe": 11.2, "pct": 29.0, "label": "PE 11.2 (29%低估)", "status": "low"},
-    "1.932000": {"pe": 45.0, "pct": 55.0, "label": "PE 45.0 (55%适中)", "status": "mid"},
-    "1.513180": {"pe": 21.0, "pct": 25.0, "label": "PE 21.0 (25%底部)", "status": "low"},
-    "0.399997": {"pe": 22.4, "pct": 18.0, "label": "PE 22.4 (18%低位)", "status": "low"},
-    "0.399396": {"pe": 56.0, "pct": 62.0, "label": "PE 56.0 (62%高弹)", "status": "mid"},
-    "0.399989": {"pe": 28.0, "pct": 15.0, "label": "PE 28.0 (15%超跌)", "status": "very_low"},
-    "0.399975": {"pe": 16.5, "pct": 48.0, "label": "PE 16.5 (48%适中)", "status": "mid"},
-    "0.399986": {"pe": 5.8,  "pct": 10.0, "label": "PE 5.8 (10%极低)", "status": "very_low"},
-    "1.518880": {"pe": 0.0,  "pct": 0.0,  "label": "大宗避险 · 抗通胀", "status": "com"},
-    "1.513100": {"pe": 34.0, "pct": 75.0, "label": "PE 34.0 (75%成长)", "status": "high"},
-    "1.513500": {"pe": 26.5, "pct": 72.0, "label": "PE 26.5 (72%稳健)", "status": "mid"},
-}
-
-PRESET_INDEX_STYLES = {
-    "🏛️ 核心宽基": ["1.000300", "1.000688", "1.000905", "1.000852", "1.000001", "0.399006"],
-    "💎 红利低波": ["1.000922", "0.399986", "1.000300", "1.518880"],
-    "🚀 科技成长": ["1.000688", "1.513180", "0.399396", "0.399006"],
-    "🌐 均衡宏观": ["1.000300", "1.000688", "1.000922", "1.518880", "1.513100", "1.000905"]
-}
-
-DEFAULT_SELECTED_SECIDS = ["1.000300", "1.000688", "1.000922", "1.000905", "1.000852", "1.518880"]
-
-_SPARKLINE_CACHE = {}
-
-
 def apply_theme_to_plotly_figure(fig: go.Figure, theme_mode: Optional[str] = None, color_mode: Optional[str] = None) -> go.Figure:
-    """让 Plotly 图表深度自适应当前主题与涨跌配色 (Dark Terminal/Nordic Paper/Light Slate)"""
-    th_key = theme_mode or st.session_state.get("app_theme_mode", "light_slate")
+    """让 Plotly 图表深度自适应当前主题与涨跌配色 (5套主题自适应)"""
+    th_key = theme_mode or st.session_state.get("app_theme_mode", "institutional_slate")
     co_key = color_mode or st.session_state.get("app_color_mode", "cn")
     
-    th = THEME_PRESETS.get(th_key, THEME_PRESETS["light_slate"])
+    th = THEME_PRESETS.get(th_key, THEME_PRESETS["institutional_slate"])
     co = COLOR_PRESETS.get(co_key, COLOR_PRESETS["cn"])
     
     fig.update_layout(
@@ -853,186 +908,6 @@ def apply_theme_to_plotly_figure(fig: go.Figure, theme_mode: Optional[str] = Non
         margin=dict(l=10, r=10, t=30, b=10)
     )
     return fig
-
-def fetch_market_turnover_and_sentiment() -> Dict[str, Any]:
-    """拉取沪深两市总成交额与全市场情绪指标"""
-    import urllib.request
-    import json
-    
-    res = {
-        "turnover_str": "20,376 亿",
-        "turnover_num": 20376.0,
-        "is_expanding": True,
-        "vol_text": "放量 +1,250亿",
-        "vol_class": "sb-baro-tag-up",
-        "up_count": 3210,
-        "down_count": 1780,
-        "flat_count": 198,
-        "up_pct": 62.0
-    }
-    try:
-        url = "https://push2.eastmoney.com/api/qt/ulist.np/get?secids=1.000001,0.399001&fields=f12,f14,f2,f3,f4,f6"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=1.8) as resp:
-            d = json.loads(resp.read().decode("utf-8"))
-        diff = d.get("data", {}).get("diff", [])
-        tot_amt = sum(float(x.get("f6", 0) or 0) for x in diff)
-        if tot_amt > 1e10:
-            yi = tot_amt / 1e8
-            res["turnover_num"] = round(yi, 1)
-            res["turnover_str"] = f"{yi:,.0f} 亿"
-            # 较基准放量判断
-            if yi >= 18000:
-                res["is_expanding"] = True
-                res["vol_text"] = "放量活跃"
-                res["vol_class"] = "sb-baro-tag-up"
-            else:
-                res["is_expanding"] = False
-                res["vol_text"] = "温和蓄势"
-                res["vol_class"] = "sb-baro-tag-down"
-    except Exception:
-        pass
-    return res
-
-def fetch_intraday_sparkline_svg(secid: str, change_pct: float, width: int = 76, height: int = 26) -> str:
-    """拉取真实日内分时点并生成平滑贝塞尔渐变矢量微图 (毫秒级响应+智能回退)"""
-    import urllib.request
-    import json
-    from datetime import datetime
-    
-    now_ts = datetime.now().timestamp()
-    cached = _SPARKLINE_CACHE.get(secid)
-    if cached and (now_ts - cached["ts"]) < 60:
-        return cached["svg"]
-    
-    prices = []
-    try:
-        url = f"https://push2.eastmoney.com/api/qt/stock/trends2/get?secid={secid}&fields1=f1,f2,f3,f4&fields2=f51,f53"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=1.2) as resp:
-            d = json.loads(resp.read().decode("utf-8"))
-        trends = d.get("data", {}).get("trends", [])
-        if trends:
-            # 抽样 24 个点
-            step = max(1, len(trends) // 24)
-            for t_str in trends[::step]:
-                parts = t_str.split(",")
-                if len(parts) >= 2:
-                    p = float(parts[1])
-                    if p > 0:
-                        prices.append(p)
-    except Exception:
-        pass
-    
-    # 若网络不可达或离线，根据 change_pct 生成平滑拟合走势
-    if len(prices) < 4:
-        base = 1000.0
-        n_pts = 20
-        delta = change_pct / 100.0
-        prices = [base * (1.0 + (delta * (i / (n_pts - 1)) + 0.003 * np.sin(i * 0.8))) for i in range(n_pts)]
-    
-    # 坐标归一化
-    n = len(prices)
-    min_p, max_p = min(prices), max(prices)
-    rng = max_p - min_p if max_p > min_p else 1.0
-    pad = 2.0
-    h_eff = height - 2 * pad
-    
-    pts = []
-    for i, p in enumerate(prices):
-        x = round(i * (width / (n - 1)), 1)
-        y = round(height - pad - ((p - min_p) / rng) * h_eff, 1)
-        pts.append((x, y))
-    
-    path_d = f"M {pts[0][0]} {pts[0][1]}"
-    for i in range(1, len(pts)):
-        path_d += f" L {pts[i][0]} {pts[i][1]}"
-    fill_d = f"{path_d} L {pts[-1][0]} {height} L {pts[0][0]} {height} Z"
-    
-    is_up = (change_pct > 0)
-    stroke_c = "#dc2626" if is_up else ("#16a34a" if change_pct < 0 else "#64748b")
-    grad_c = "#dc2626" if is_up else ("#16a34a" if change_pct < 0 else "#64748b")
-    gid = f"sp_{secid.replace('.', '_')}"
-    
-    svg = f"""<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" style="overflow:visible; display:block;">
-<defs>
-<linearGradient id="{gid}" x1="0%" y1="0%" x2="0%" y2="100%">
-<stop offset="0%" stop-color="{grad_c}" stop-opacity="0.25"/>
-<stop offset="100%" stop-color="{grad_c}" stop-opacity="0.0"/>
-</linearGradient>
-</defs>
-<path d="{fill_d}" fill="url(#{gid})"/>
-<path d="{path_d}" fill="none" stroke="{stroke_c}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>"""
-    
-    _SPARKLINE_CACHE[secid] = {"ts": now_ts, "svg": svg}
-    return svg
-
-
-def fetch_custom_realtime_indices(secids_list: List[str], use_cache: bool = True) -> List[Dict[str, Any]]:
-    import urllib.request
-    import json
-    if not secids_list:
-        secids_list = DEFAULT_SELECTED_SECIDS
-    
-    results = []
-    secids_str = ",".join(secids_list)
-    try:
-        em_url = f"https://push2.eastmoney.com/api/qt/ulist.np/get?secids={secids_str}&fields=f12,f14,f2,f3,f4"
-        req = urllib.request.Request(em_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=3.0) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        diff = data.get("data", {}).get("diff", [])
-        diff_map = {str(it.get("f12", "")).strip().zfill(6): it for it in diff}
-        
-        for sid in secids_list:
-            c = sid.split(".")[-1].zfill(6)
-            it = diff_map.get(c)
-            meta = ALL_MARKET_INDEX_CATALOG.get(sid, {})
-            name = meta.get("name", (it.get("f14", f"标的_{c}") if it else f"标的_{c}"))
-            
-            if it:
-                is_etf = (c.startswith("51") or c.startswith("15"))
-                raw_pt = float(it.get("f2", 0) or 0)
-                raw_chg = float(it.get("f4", 0) or 0)
-                raw_pct = float(it.get("f3", 0) or 0)
-                pt = round(raw_pt / 1000.0 if (is_etf and raw_pt > 500) else (raw_pt / 100.0 if raw_pt > 200 else raw_pt), 3 if is_etf else 2)
-                chg = round(raw_chg / 1000.0 if (is_etf and raw_chg > 500) else (raw_chg / 100.0 if abs(raw_chg) > 200 else raw_chg), 3 if is_etf else 2)
-                chg_pct = round(raw_pct / 100.0 if abs(raw_pct) > 30 else raw_pct, 2)
-                
-                results.append({
-                    "secid": sid,
-                    "code": c,
-                    "name": name,
-                    "point": pt if pt > 0 else 1000.0,
-                    "change": chg,
-                    "change_pct": chg_pct,
-                    "time_str": datetime.now().strftime("%H:%M")
-                })
-            else:
-                results.append({
-                    "secid": sid,
-                    "code": c,
-                    "name": name,
-                    "point": 1000.0,
-                    "change": 0.0,
-                    "change_pct": 0.0,
-                    "time_str": datetime.now().strftime("%H:%M")
-                })
-        return results
-    except Exception:
-        return [
-            {
-                "secid": sid,
-                "code": sid.split(".")[-1].zfill(6),
-                "name": ALL_MARKET_INDEX_CATALOG.get(sid, {}).get("name", "指数"),
-                "point": 4050.0 if "000300" in sid else (5580.0 if "000922" in sid else 1250.0),
-                "change": 0.0,
-                "change_pct": 0.0,
-                "time_str": datetime.now().strftime("%H:%M")
-            }
-            for sid in secids_list
-        ]
 
 if "pm" not in st.session_state:
     st.session_state.pm = PortfolioManager()
@@ -1064,215 +939,240 @@ if "rebalance_buffer_pct" not in st.session_state:
 # 侧边栏：【🧭 全局领航台】（无局部操作，纯粹跨 Tab 领航仪表盘）
 # -------------------------------------------------------------
 with st.sidebar:
-    # 0. 🎨 全局视觉与多配色中枢 (经典浅色 / 彭博暗黑 / 柔和护眼 + 双轨涨跌色)
+    st.subheader("🧭 全局领航台")
+    st.caption("全局控盘中枢与实盘风控护栏")
+    st.markdown("---")
+
+    # 1. 🎨 外观与色彩 (5 大高定主题 + 2 套涨跌模式)
     col_th_title, col_th_reset = st.columns([7, 3])
     with col_th_title:
-        st.markdown("##### 🎨 视觉与色彩中枢")
+        st.markdown("##### 🎨 外观与色彩")
     with col_th_reset:
-        if st.button("↺ 重置", help="恢复经典浅色与A股涨跌惯例", use_container_width=True, key="btn_reset_theme_all"):
-            st.session_state.app_theme_mode = "light_slate"
+        if st.button("↺ 重置", help="恢复机构冷灰与A股红涨绿跌", use_container_width=True, key="btn_reset_theme_all"):
+            st.session_state.app_theme_mode = "institutional_slate"
             st.session_state.app_color_mode = "cn"
             st.rerun()
 
-    th_names = ["经典浅色 (Light Slate)", "彭博暗黑 (Dark Terminal)", "柔和护眼 (Nordic Paper)"]
-    th_keys = ["light_slate", "dark_terminal", "nordic_paper"]
-    cur_th_k = st.session_state.get("app_theme_mode", "light_slate")
+    th_display_names = [
+        "🏛️ 机构冷灰 (Institutional Slate)",
+        "🌑 彭博暗黑 (Bloomberg Carbon)",
+        "📜 金融暖卷 (FT Warm Paper)",
+        "🌌 深海钛金 (Deep Titanium)",
+        "❄️ 极昼纯白 (Nordic Frost)"
+    ]
+    th_keys = ["institutional_slate", "bloomberg_carbon", "ft_warm_paper", "deep_titanium", "nordic_frost"]
+    cur_th_k = st.session_state.get("app_theme_mode", "institutional_slate")
+    old_key_map = {
+        "light_slate": "institutional_slate",
+        "dark_terminal": "bloomberg_carbon",
+        "nordic_paper": "ft_warm_paper"
+    }
+    cur_th_k = old_key_map.get(cur_th_k, cur_th_k)
     cur_th_idx = th_keys.index(cur_th_k) if cur_th_k in th_keys else 0
 
     def _sync_theme_mode_change():
         sel_name = st.session_state.sb_theme_selector
-        st.session_state.app_theme_mode = th_keys[th_names.index(sel_name)]
+        st.session_state.app_theme_mode = th_keys[th_display_names.index(sel_name)]
 
     st.selectbox(
         "界面主题风格",
-        th_names,
+        th_display_names,
         index=cur_th_idx,
         key="sb_theme_selector",
         on_change=_sync_theme_mode_change,
-        help="全站毫秒级无感换肤：支持冷灰浅色、彭博暗黑沉浸式终端及护眼米灰纸质风格"
+        help="5套专业级金融终端主题：机构冷灰、彭博暗黑、金融暖卷、深海钛金、极昼纯白"
     )
 
-    co_names = ["A股惯例 (红涨绿跌·首选)", "国际惯例 (绿涨红跌)"]
+    co_display_names = ["🇨🇳 A股惯例 (红涨绿跌·默认)", "🌐 国际惯例 (绿涨红跌)"]
     co_keys = ["cn", "global"]
     cur_co_k = st.session_state.get("app_color_mode", "cn")
     cur_co_idx = co_keys.index(cur_co_k) if cur_co_k in co_keys else 0
 
     def _sync_color_mode_change():
         sel_c = st.session_state.sb_color_selector
-        st.session_state.app_color_mode = co_keys[co_names.index(sel_c)]
+        st.session_state.app_color_mode = co_keys[co_display_names.index(sel_c)]
 
     st.selectbox(
         "涨跌色彩体系",
-        co_names,
+        co_display_names,
         index=cur_co_idx,
         key="sb_color_selector",
         on_change=_sync_color_mode_change,
-        help="自适应联动行情走廊、持仓盈亏、分时微图与穿透图表颜色"
+        help="自适应联动全站所有数字、行情带、持仓盈亏与穿透图表颜色"
     )
 
     st.markdown("---")
-    st.subheader("🧭 全局领航台")
-    st.caption("实时市场时钟与全自选核心行情走廊")
-    st.markdown("---")
+    # 2. 🎯 全局目标联动 (风险策略档位 + 期望年化收益率滑块，与 Tab 1 双向实时同步)
+    st.markdown("##### 🎯 全局目标联动")
+    tier_labels = ["C1 安稳保守型", "C2 稳健固收+型", "C3 平衡进取型", "C4 成长进攻型", "C5 极限高Beta追击型"]
+    tier_code_to_idx = {"C1": 0, "C2": 1, "C3": 2, "C4": 3, "C5": 4}
 
-    # 1. 🕒 市场状态与底座 (R1 攻防红线同源对齐 + 湖仓底座日期)
-    _c_stat = clock.get_market_window_status(datetime.now())
-    _c_color = '#16a34a' if _c_stat.is_golden_window else ('#dc2626' if _c_stat.is_after_market else '#0284c7')
-    _c_txt = "🟢 14:30黄金窗口" if _c_stat.is_golden_window else ("🟡 盘后已关账" if _c_stat.is_after_market else "🔵 盘中观察期")
-    _mat_date = snapshot.get('latest_date', '2026-11-03')
+    cur_tier = str(st.session_state.get("active_tier_val", "C3")).upper()
+    cur_ret = float(st.session_state.get("target_return_val", 15.0))
+    cur_idx = tier_code_to_idx.get(cur_tier, 2)
 
-    st.markdown("##### 🕒 市场状态与底座")
-    st.write(f"**交易时钟**：{_c_txt}（倒计时 {_c_stat.countdown_str}）")
-    st.write(f"**市场定调**：{snapshot.get('market_state', '震荡收息期')[:6]} ｜ **信噪比**：`{float(snapshot.get('er_snr', 0.65)):.2f}`")
-    st.write(f"**攻防红线**：破 `{surge_line:,.0f}` 进攻 ｜ 跌 `{breakdown_line:,.0f}` 防守")
-    st.write(f"**湖仓底座**：`{_mat_date}`（2,142 交易日跨牛熊）")
+    def _sync_sidebar_tier_change():
+        sel_label = st.session_state.sb_tier_selector
+        new_tier = sel_label[:2]
+        st.session_state.active_tier_val = new_tier
+        def_ret = float(RISK_TIERS_CONFIG.get(new_tier, {}).get("default_target", 15.0))
+        st.session_state.target_return_val = def_ret
+        st.session_state.sb_target_return_slider = def_ret
+        st.session_state.slider_target_return = def_ret
+        # 物理失效关联缓存
+        st.session_state.tab2_diag_cache = None
+        st.session_state.tab2_rebal_cache = None
+        st.session_state.tab1_sim_cache = None
+        st.session_state.tab1_step3_cache = None
 
-    st.markdown("---")
-    # 2. 🌡️ 全市场流动性与情绪晴雨表 (Bloomberg 宏观全景看板)
-    mkt_baro = fetch_market_turnover_and_sentiment()
+    def _sync_sidebar_return_change():
+        new_ret = float(st.session_state.sb_target_return_slider)
+        st.session_state.target_return_val = new_ret
+        new_tier = map_slider_to_tier(new_ret)
+        st.session_state.active_tier_val = new_tier
+        st.session_state.sb_tier_selector = tier_labels[tier_code_to_idx.get(new_tier, 2)]
+        st.session_state.slider_target_return = new_ret
+        # 物理失效关联缓存
+        st.session_state.tab2_diag_cache = None
+        st.session_state.tab2_rebal_cache = None
+        st.session_state.tab1_sim_cache = None
+        st.session_state.tab1_step3_cache = None
+
+    if "sb_tier_selector" not in st.session_state or not st.session_state.sb_tier_selector.startswith(cur_tier):
+        st.session_state.sb_tier_selector = tier_labels[cur_idx]
+    if "sb_target_return_slider" not in st.session_state or abs(float(st.session_state.sb_target_return_slider) - cur_ret) > 1e-4:
+        st.session_state.sb_target_return_slider = cur_ret
+
+    st.selectbox(
+        "风险策略档位",
+        tier_labels,
+        key="sb_tier_selector",
+        on_change=_sync_sidebar_tier_change,
+        help="快速切换 C1~C5 风险策略档位，自动联动调整预期年化收益率与策略定权模型"
+    )
+
+    st.slider(
+        "期望年化目标收益率 (%)",
+        min_value=5.0,
+        max_value=100.0,
+        step=1.0,
+        format="%.0f%%",
+        key="sb_target_return_slider",
+        on_change=_sync_sidebar_return_change,
+        help="拖动微调预期年化收益率，与档位及跨 Tab 实时双向联动"
+    )
+
+    cur_tier_meta = RISK_TIERS_CONFIG.get(cur_tier, RISK_TIERS_CONFIG["C3"])
+    _num_f = int(st.session_state.get("tab1_num_funds", 6))
+    _m_type = st.session_state.get("tab1_model_type", "hrp_cvar")
+    _m_name = QUANT_MODELS_CATALOG.get(_m_type, {}).get("name", "鲁棒双核HRP")
+
     safe_markdown_html(f"""
-    <div class="sb-market-barometer">
-        <div class="sb-baro-header">
-            <span class="sb-baro-title">🌡️ 两市全天成交额</span>
-            <span class="{mkt_baro['vol_class']} sb-baro-tag">{mkt_baro['vol_text']}</span>
-        </div>
-        <div class="sb-baro-turnover">¥{mkt_baro['turnover_str']}</div>
-        <div class="sb-ratio-bar-wrap">
-            <div class="sb-ratio-bar-up" style="width: {mkt_baro['up_pct']}%;"></div>
-            <div class="sb-ratio-bar-down" style="width: {100.0 - mkt_baro['up_pct']}%;"></div>
-        </div>
-        <div class="sb-baro-counts">
-            <span class="sb-baro-count-up">▲ 涨 {mkt_baro['up_count']:,}</span>
-            <span>平 {mkt_baro['flat_count']}</span>
-            <span class="sb-baro-count-down">▼ 跌 {mkt_baro['down_count']:,}</span>
-        </div>
+    <div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 8px 10px; margin-top: 6px; margin-bottom: 8px; font-size: 11px; line-height: 1.5; color: var(--text-secondary);">
+        <div><b>定权模型</b>：{_m_name}（{_num_f}只优选配置）</div>
+        <div><b>资产锚点</b>：{cur_tier_meta['core_assets']}</div>
+        <div><b>权益中枢</b>：{cur_tier_meta['equity_range_str']} ｜ <b>回撤上限</b>：{cur_tier_meta['max_drawdown_limit']}</div>
     </div>
     """)
 
-    # 3. 📊 核心行情走廊 (沉浸式幽灵操作栏 + Bloomberg/富途高阶质感卡片)
-    if "custom_ticker_indices" not in st.session_state or not st.session_state.custom_ticker_indices:
-        st.session_state.custom_ticker_indices = list(DEFAULT_SELECTED_SECIDS)
+    st.markdown("---")
+    # 3. 🛡️ 交易风控护栏
+    st.markdown("##### 🛡️ 交易风控护栏")
 
-    col_t_title, col_t_opt, col_t_ref = st.columns([5.6, 2.2, 2.2])
-    with col_t_title:
-        st.markdown("##### 📊 行情走廊")
-    with col_t_opt:
-        with st.popover("⚙️", use_container_width=True, help="定制自选指数池与一键预设风格"):
-            st.markdown("###### ⚙️ 定制行情走廊")
-            st.caption("一键应用专业预设风格，或自由增删任意指数标的：")
-            
-            # 4 套专业风格一键秒切
-            col_pre1, col_pre2 = st.columns(2)
-            with col_pre1:
-                if st.button("🏛️ 核心宽基", use_container_width=True, key="btn_pre_core"):
-                    st.session_state.custom_ticker_indices = PRESET_INDEX_STYLES["🏛️ 核心宽基"]
-                    clear_realtime_cache()
-                    st.rerun()
-                if st.button("🚀 科技成长", use_container_width=True, key="btn_pre_tech"):
-                    st.session_state.custom_ticker_indices = PRESET_INDEX_STYLES["🚀 科技成长"]
-                    clear_realtime_cache()
-                    st.rerun()
-            with col_pre2:
-                if st.button("💎 红利低波", use_container_width=True, key="btn_pre_div"):
-                    st.session_state.custom_ticker_indices = PRESET_INDEX_STYLES["💎 红利低波"]
-                    clear_realtime_cache()
-                    st.rerun()
-                if st.button("🌐 均衡宏观", use_container_width=True, key="btn_pre_macro"):
-                    st.session_state.custom_ticker_indices = PRESET_INDEX_STYLES["🌐 均衡宏观"]
-                    clear_realtime_cache()
-                    st.rerun()
-            
-            st.markdown("---")
-            cur_selected = st.session_state.get("custom_ticker_indices", DEFAULT_SELECTED_SECIDS)
-            all_opts = list(ALL_MARKET_INDEX_CATALOG.keys())
-            for s in cur_selected:
-                if s not in all_opts:
-                    all_opts.append(s)
-            
-            new_selection = st.multiselect(
-                "自由勾选标的 (支持拼音/代码搜索)",
-                options=all_opts,
-                default=[s for s in cur_selected if s in all_opts],
-                format_func=lambda s: f"{ALL_MARKET_INDEX_CATALOG.get(s, {}).get('name', s)} ({ALL_MARKET_INDEX_CATALOG.get(s, {}).get('code', s)}) - {ALL_MARKET_INDEX_CATALOG.get(s, {}).get('type', '自选')}",
-                key="ms_sidebar_custom_indices"
-            )
-            
-            col_add_in, col_add_btn = st.columns([7, 3])
-            with col_add_in:
-                add_code_raw = st.text_input("新增代码 (如 159915/000001)", value="", max_chars=8, key="txt_add_custom_idx")
-            with col_add_btn:
-                st.write(" ")
-                st.write(" ")
-                if st.button("添加", use_container_width=True, key="btn_confirm_add_idx"):
-                    c_clean = add_code_raw.strip()
-                    if len(c_clean) >= 6:
-                        sid_cand = f"1.{c_clean}" if (c_clean.startswith("6") or c_clean.startswith("51") or c_clean.startswith("0000")) else f"0.{c_clean}"
-                        if sid_cand not in new_selection:
-                            new_selection.append(sid_cand)
-                            ALL_MARKET_INDEX_CATALOG[sid_cand] = {"name": f"标的_{c_clean}", "code": c_clean, "secid": sid_cand, "type": "自选"}
-            
-            if st.button("💾 保存自选设置", type="primary", use_container_width=True, key="btn_apply_custom_indices"):
-                st.session_state.custom_ticker_indices = new_selection if new_selection else list(DEFAULT_SELECTED_SECIDS)
-                clear_realtime_cache()
-                st.rerun()
-            if st.button("↺ 恢复默认6大核心基准", use_container_width=True, key="btn_reset_default_indices"):
-                st.session_state.custom_ticker_indices = list(DEFAULT_SELECTED_SECIDS)
-                clear_realtime_cache()
-                st.rerun()
+    quota_options = [
+        "不限 (自动拆单承接)",
+        "过滤日限额 < ¥1,000 标的",
+        "过滤日限额 < ¥5,000 标的"
+    ]
+    cur_quota_val = st.session_state.get("purchase_limit_filter", quota_options[0])
+    cur_q_idx = quota_options.index(cur_quota_val) if cur_quota_val in quota_options else 0
 
-    with col_t_ref:
-        if st.button("🔄", help="立即刷新分时点位与微图", use_container_width=True, key="btn_sb_quick_ref"):
-            clear_realtime_cache()
-            fetch_batch_realtime_indices(use_cache=False)
+    def _sync_quota_filter_change():
+        st.session_state.purchase_limit_filter = st.session_state.sb_purchase_limit_filter
+        st.session_state.tab1_sim_cache = None
+        st.session_state.tab1_step3_cache = None
+
+    if "sb_purchase_limit_filter" not in st.session_state or st.session_state.sb_purchase_limit_filter != cur_quota_val:
+        st.session_state.sb_purchase_limit_filter = cur_quota_val
+
+    st.selectbox(
+        "单日限购过滤阈值",
+        quota_options,
+        index=cur_q_idx,
+        key="sb_purchase_limit_filter",
+        on_change=_sync_quota_filter_change,
+        help="开启过滤后，选基与建仓单将自动用同赛道不限购备选基金替换受限标的"
+    )
+
+    def _sync_rebal_buffer_change():
+        st.session_state.rebalance_buffer_pct = float(st.session_state.sb_rebalance_buffer_slider)
+        st.session_state.tab2_diag_cache = None
+        st.session_state.tab2_rebal_cache = None
+
+    cur_buf_val = float(st.session_state.get("rebalance_buffer_pct", 3.0))
+    if "sb_rebalance_buffer_slider" not in st.session_state or abs(float(st.session_state.sb_rebalance_buffer_slider) - cur_buf_val) > 1e-4:
+        st.session_state.sb_rebalance_buffer_slider = cur_buf_val
+
+    st.slider(
+        "免折腾调仓缓冲带 (%)",
+        min_value=1.0,
+        max_value=5.0,
+        step=0.5,
+        format="%.1f%%",
+        key="sb_rebalance_buffer_slider",
+        on_change=_sync_rebal_buffer_change,
+        help="控制 Tab 2 调仓裁决与温和调仓过滤的最小偏离阈值。低于此阈值的微小偏离将自动维持现状，杜绝无效换仓摩擦"
+    )
+
+    st.markdown("---")
+    # 4. 🗄️ 账本环境管理
+    st.markdown("##### 🗄️ 账本环境管理")
+
+    col_sb_env1, col_sb_env2 = st.columns(2)
+    with col_sb_env1:
+        if st.button("🚀 载入演示组合", use_container_width=True, help="注入包含冷启动、7天锁、待满期、深套基的完整演示组合", key="btn_sb_load_demo"):
+            demo_res = pm.load_demo_portfolio()
+            st.session_state.tab2_diag_cache = None
+            st.session_state.tab2_rebal_cache = None
+            st.session_state.tab2_diagnosed = False
+            st.session_state.tab2_rebalanced = False
+            st.session_state.tab2_trigger_diagnose = False
+            st.session_state.tab2_trigger_rebalance = False
+            st.success("演示组合已载入")
             st.rerun()
 
-    # 拉取行情与渲染 Pro 卡片
-    current_secids = st.session_state.get("custom_ticker_indices", DEFAULT_SELECTED_SECIDS)
-    sidebar_indices = fetch_custom_realtime_indices(current_secids, use_cache=True)
-    
-    for idx_item in sidebar_indices:
-        sid = idx_item["secid"]
-        c_pct = idx_item["change_pct"]
-        c_chg = idx_item["change"]
-        c_sign = "+" if c_pct > 0 else ""
-        diff_cls = "up" if c_pct > 0 else ("down" if c_pct < 0 else "flat")
-        
-        # 估值分位解析
-        pe_meta = INDEX_PE_METAS.get(sid, {})
-        pe_label = pe_meta.get("label", "估值跟踪中")
-        pe_status = pe_meta.get("status", "mid")
-        pe_cls = f"pe-{pe_status}"
-        
-        # 矢量 Sparkline 生成
-        spark_svg = fetch_intraday_sparkline_svg(sid, c_pct, width=76, height=26)
-        
-        safe_markdown_html(f"""
-        <div class="sb-pro-index-card">
-            <div class="sb-card-left">
-                <div class="sb-card-name-row">
-                    <span class="sb-card-name">{idx_item['name']}</span>
-                    <span class="sb-card-code">{idx_item['code']}</span>
-                </div>
-                <div class="sb-card-pe-badge {pe_cls}">{pe_label}</div>
-            </div>
-            <div class="sb-card-mid-sparkline">
-                {spark_svg}
-            </div>
-            <div class="sb-card-right">
-                <div class="sb-card-point">{idx_item['point']:,.2f}</div>
-                <div class="sb-card-chg-row">
-                    <span class="sb-card-diff {diff_cls}">{c_sign}{c_chg:,.2f}</span>
-                    <span class="sb-card-badge {diff_cls}">{c_sign}{c_pct:.2f}%</span>
-                </div>
-            </div>
-        </div>
-        """)
+    with col_sb_env2:
+        if st.button("↩️ 撤销上次修改", use_container_width=True, help="撤销上一步操作并回滚快照", key="btn_sb_undo"):
+            _undo_ok = pm.undo()
+            if _undo_ok:
+                st.session_state.tab2_diag_cache = None
+                st.session_state.tab2_rebal_cache = None
+                st.session_state.tab2_diagnosed = False
+                st.session_state.tab2_rebalanced = False
+                st.session_state.tab2_trigger_diagnose = False
+                st.session_state.tab2_trigger_rebalance = False
+                st.info("已成功回滚至上一快照")
+                st.rerun()
+            else:
+                st.warning("暂无更早快照可撤销")
 
-    st.caption(f"💡 点击右上角 ⚙️ 可切换风格或增删指数。共展示 {len(sidebar_indices)} 只标的。")
+    if st.button("🔄 全局同步估值", use_container_width=True, type="primary", key="btn_sidebar_refresh_all"):
+        clear_realtime_cache()
+        fetch_batch_realtime_indices(use_cache=False)
+        pm.sync_holdings_live_nav(use_intraday_gsz=True)
+        StrategyBridge._cached_snapshot = None
+        StrategyBridge._cached_matrix = None
+        StrategyBridge.get_latest_market_snapshot(force_reload=True, auto_sync=False)
+        st.success("全局行情与估值已刷新")
+        st.rerun()
 
-
-
-
+    # 资产基线与底座披露
+    _tot_eq = sum(h.market_value for h in pm.holdings.values()) + pm.available_cash + pm.in_transit_cash
+    _mat_date = snapshot.get('latest_date', '2026-11-03')
+    st.caption(
+        f"💼 **资产基线**：¥{_tot_eq:,.2f} ｜ **持仓**：{len(pm.holdings)} 只 ｜ **底座**：{_mat_date} \n"
+        f"🛡️ **风控防线**：7天惩罚费拦截 ｜ 悲观持有天数"
+    )
 
 # -------------------------------------------------------------
 # 顶部全局看板：1 行 4 宽卡 + 1 个紧凑刷新按钮 (彻底消灭省略号)
@@ -1403,7 +1303,7 @@ with top_c4:
             <span>💰 总资产与今日预估</span>
             <span title="{c4_tip}" style="cursor:help; color:#94a3b8; font-size:12px;">ⓘ</span>
         </div>
-        <div class="metric-value-huge" style="color: #0f172a;">
+        <div class="metric-value-huge" style="color: var(--text-primary);">
             ¥{total_cur_equity:,.2f}
         </div>
         <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; font-size: 11px;">
@@ -1417,7 +1317,49 @@ with top_c4:
     </div>
     """)
 
-# 核心市场指数已升级移入左侧【📊 核心行情走廊】，主看板空间已清爽释放
+# -------------------------------------------------------------
+# 核心市场指数当日实时行情带 (Live Index Ticker Strip)
+# -------------------------------------------------------------
+live_indices_list = fetch_batch_realtime_indices(use_cache=True)
+pill_html_parts = []
+for idx_item in live_indices_list:
+    c_pct = idx_item["change_pct"]
+    c_cls = "index-pill-chg-up" if c_pct > 0 else ("index-pill-chg-down" if c_pct < 0 else "index-pill-chg-flat")
+    c_sign = "+" if c_pct > 0 else ""
+    pt_fmt = f"{idx_item['point']:,.3f}" if (idx_item['code'] == '518880') else f"{idx_item['point']:,.2f}"
+    pill_html_parts.append(f"""
+        <div class="index-ticker-pill">
+            <span class="index-pill-name">{idx_item['name']}</span>
+            <span class="index-pill-point">{pt_fmt}</span>
+            <span class="{c_cls}">{c_sign}{c_pct:.2f}%</span>
+        </div>
+    """)
+
+ticker_inner_html = "\n".join(pill_html_parts)
+strip_col_ticker, strip_col_btn = st.columns([8.4, 1.6])
+
+with strip_col_ticker:
+    safe_markdown_html(f"""
+    <div class="index-ticker-strip">
+        <span style="font-size: 13px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 4px; flex-shrink: 0; white-space: nowrap;">
+            📊 核心指数
+        </span>
+        <div class="index-pills-scroll-wrap">
+            {ticker_inner_html}
+        </div>
+    </div>
+    """)
+
+with strip_col_btn:
+    safe_markdown_html("<div style='height: 4px;'></div>")
+    if st.button("🔄 刷新行情", help="单次批量重新拉取 6 大核心指数点位与全组合最新真实净值", use_container_width=True, type="primary", key="btn_refresh_all_live_quotes"):
+        clear_realtime_cache()
+        fetch_batch_realtime_indices(use_cache=False)
+        pm.sync_holdings_live_nav(use_intraday_gsz=True)
+        StrategyBridge._cached_snapshot = None
+        StrategyBridge._cached_matrix = None
+        StrategyBridge.get_latest_market_snapshot(force_reload=True, auto_sync=False)
+        st.rerun()
 
 # 盘后预案提醒
 latest_plan = pm.get_latest_next_day_plan()
@@ -1495,7 +1437,7 @@ with tab_zero_start:
         active_tier = st.session_state.get("active_tier_val", "C3")
         cur_tier_meta = RISK_TIERS_CONFIG.get(active_tier, RISK_TIERS_CONFIG["C3"])
         st.subheader("🌱 新资建仓")
-        st.caption("全市场 2.8 万只基金智能漏斗！支持 3~15 只基金自由调节，四大机构级模型自适应定权，现场生成清晰账单。")
+        st.caption("基于全市场公募基金六维筛查与风险预算模型，构建跨周期资产配置方案。")
 
         # 初始化状态机
         if "tab1_step_reached" not in st.session_state:
@@ -1524,8 +1466,8 @@ with tab_zero_start:
         render_workflow_step_indicator(
             ["设定目标与测风险", "量化推演看好坏", "生成实盘建仓单"],
             current_step=step_now,
-            help_text="请在步骤一设定目标参数并点击【▶️ 确认目标参数，进入步骤二】开始现场推演" if step_now == 1 else (
-                "步骤二已生成全周期推演与人话指标，请点击【▶️ 确认推演方案，进入步骤三】生成建仓单" if step_now == 2 else
+            help_text="请在步骤一设定目标参数并点击【▶️ 开始量化推演】开始现场推演" if step_now == 1 else (
+                "步骤二已生成全周期推演与人话指标，请点击【▶️ 生成实盘建仓单】生成建仓单" if step_now == 2 else
                 "步骤三已生成实盘建仓执行单与下单小抄，可点击一键设为初始持仓"
             )
         )
@@ -1752,7 +1694,7 @@ with tab_zero_start:
                 </div>
                 <div style="font-size: 12px; color: #334155; line-height: 1.5;">
                     {regime_rec['reason']}<br>
-                    <span style="color: #64748b;">实时四维指标：ERP估值分位 {regime_rec['erp_percentile']:.1f}% ｜ MA20偏离 {regime_rec['bias_20']:+.2f}% ｜ DR007利率 {regime_rec['dr007']:.2f}% ｜ 期权iVIX {regime_rec['ivix']:.1f}%</span>
+                    <span style="color: var(--text-muted);">实时四维指标：ERP估值分位 {regime_rec['erp_percentile']:.1f}% ｜ MA20偏离 {regime_rec['bias_20']:+.2f}% ｜ DR007利率 {regime_rec['dr007']:.2f}% ｜ 期权iVIX {regime_rec['ivix']:.1f}%</span>
                 </div>
             </div>
             """)
@@ -1768,7 +1710,7 @@ with tab_zero_start:
                 for col, m_nm, m_tag, m_prob, m_alloc, m_scen in model_cards:
                     with col:
                         safe_markdown_html(f"""
-                        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; height: 100%; box-sizing: border-box;">
+                        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px; height: 100%; box-sizing: border-box;">
                             <div style="font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 2px;">{m_nm}</div>
                             <div style="font-size: 11px; color: #2563eb; font-weight: 600; margin-bottom: 6px;">{m_tag}</div>
                             <div style="font-size: 11px; color: #475569; margin-bottom: 4px;"><b>【解决什么】</b><br>{m_prob}</div>
@@ -1790,20 +1732,20 @@ with tab_zero_start:
             }
             _last_p = st.session_state.get("tab1_last_calc_params")
             if st.session_state.get("tab1_step_reached", 1) >= 2 and _last_p is not None and _last_p != cur_tab1_params:
-                st.warning("⚠️ 检测到您已调整目标参数（当前未同步至下方结果），请点击【▶️ 确认目标参数，进入步骤二】或【🚀 一键全流程计算】更新结果。")
+                st.warning("⚠️ 检测到您已调整目标参数（当前未同步至下方结果），请点击【▶️ 开始量化推演】或【⚡ 一键生成全案】更新结果。")
 
             safe_markdown_html("<div style='height: 4px;'></div>")
             # 单排固定容器按钮，彻底根除图 1 双排残影
             col_s1_step, col_s1_all = st.columns([1, 1])
             with col_s1_step:
-                if st.button("▶️ 确认目标参数，进入步骤二：开始现场推演", type="primary", use_container_width=True, key="btn_run_simulation_now"):
+                if st.button("▶️ 开始量化推演", type="primary", use_container_width=True, key="btn_run_simulation_now"):
                     st.session_state.tab1_step_reached = 2
                     st.session_state.tab1_step3_cache = None
                     st.session_state.tab1_trigger_sim = True
                     st.session_state.tab1_last_calc_params = cur_tab1_params
                     st.rerun()
             with col_s1_all:
-                if st.button("🚀 一键全流程计算 (现场推演 + 建仓交割单)", type="secondary", use_container_width=True, key="btn_t1_run_all"):
+                if st.button("⚡ 一键生成全案", type="secondary", use_container_width=True, key="btn_t1_run_all"):
                     st.session_state.tab1_step_reached = 3
                     st.session_state.tab1_trigger_sim = True
                     st.session_state.tab1_trigger_s3 = True
@@ -1865,7 +1807,7 @@ with tab_zero_start:
                     _beat_cash = float(_wv.get("beat_cash_rate", _no_loss * 0.95)) * 100.0
                     _tot_w = int(_wv.get("total_windows", 0))
                     safe_markdown_html(f"""
-                    <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                    <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
                         <div style="font-size: 13px; font-weight: 600; color: #475569; display: flex; justify-content: space-between;">
                             <span>{_wv['label']} 达标胜率</span>
                             <span style="font-size: 11px; color: #0284c7; background: #e0f2fe; padding: 1px 6px; border-radius: 4px;">{_tot_w:,} 期样本</span>
@@ -1892,7 +1834,7 @@ with tab_zero_start:
             k_col1, k_col2, k_col3, k_col4, k_col5 = st.columns(5)
             with k_col1:
                 safe_markdown_html(f"""
-                <div class="kpi-metric-card" style="border-top: 3px solid #ef4444;">
+                <div class="kpi-metric-card" >
                     <div class="kpi-card-title">① 最好情况</div>
                     <div class="metric-value-huge" style="color: #dc2626;">
                         +{readable_kpi.get('best_case_return_pct', 0.0):.2f}%
@@ -1906,7 +1848,7 @@ with tab_zero_start:
 
             with k_col2:
                 safe_markdown_html(f"""
-                <div class="kpi-metric-card" style="border-top: 3px solid #10b981;">
+                <div class="kpi-metric-card" >
                     <div class="kpi-card-title">② 最坏情况</div>
                     <div class="metric-value-huge" style="color: #15803d;">
                         -{readable_kpi.get('worst_case_drawdown_pct', 0.0):.2f}%
@@ -1920,7 +1862,7 @@ with tab_zero_start:
 
             with k_col3:
                 safe_markdown_html(f"""
-                <div class="kpi-metric-card" style="border-top: 3px solid #3b82f6;">
+                <div class="kpi-metric-card" >
                     <div class="kpi-card-title">③ 水下回本</div>
                     <div class="metric-value-huge" style="color: #1d4ed8;">
                         {readable_kpi.get('max_underwater_days', 0)} <span style="font-size:16px;">天</span>
@@ -1934,7 +1876,7 @@ with tab_zero_start:
 
             with k_col4:
                 safe_markdown_html(f"""
-                <div class="kpi-metric-card" style="border-top: 3px solid #8b5cf6;">
+                <div class="kpi-metric-card" >
                     <div class="kpi-card-title">④ 目标胜率</div>
                     <div class="metric-value-huge" style="color: #6d28d9;">
                         {readable_kpi.get('win_rate_1y', 0.0):.1f}%
@@ -1948,7 +1890,7 @@ with tab_zero_start:
 
             with k_col5:
                 safe_markdown_html(f"""
-                <div class="kpi-metric-card" style="border-top: 3px solid #f59e0b;">
+                <div class="kpi-metric-card" >
                     <div class="kpi-card-title">⑤ 适合资金</div>
                     <div class="metric-value-huge" style="color: #b45309; font-size: 20px; line-height: 1.4;">
                         {active_tier} {cur_tier_meta['name']}
@@ -2161,7 +2103,7 @@ with tab_zero_start:
             c_attr1, c_attr2, c_attr3 = st.columns(3)
             with c_attr1:
                 safe_markdown_html(f"""
-                <div class="decision-card" style="border-top: 3px solid #b91c1c; height: 100%;">
+                <div class="decision-card" style="height: 100%;">
                     <div class="decision-title" style="color: #b91c1c;">
                         💰 怎么赚钱？
                     </div>
@@ -2175,7 +2117,7 @@ with tab_zero_start:
 
             with c_attr2:
                 safe_markdown_html(f"""
-                <div class="decision-card" style="border-top: 3px solid #15803d; height: 100%;">
+                <div class="decision-card" style="height: 100%;">
                     <div class="decision-title" style="color: #15803d;">
                         🏆 为什么能赢？
                     </div>
@@ -2189,7 +2131,7 @@ with tab_zero_start:
 
             with c_attr3:
                 safe_markdown_html(f"""
-                <div class="decision-card" style="border-top: 3px solid #b45309; height: 100%;">
+                <div class="decision-card" style="height: 100%;">
                     <div class="decision-title" style="color: #b45309;">
                         🚨 风险与铁律
                     </div>
@@ -2205,7 +2147,7 @@ with tab_zero_start:
             safe_markdown_html("<div style='height: 10px;'></div>")
             col_b_step3, _ = st.columns([1, 1])
             with col_b_step3:
-                step3_btn_label = "▶️ 确认推演方案，进入步骤三：生成实盘建仓单" if st.session_state.get("tab1_step_reached", 1) == 2 else "🔄 重新生成步骤三建仓单（按当前推演方案更新）"
+                step3_btn_label = "▶️ 生成实盘建仓单" if st.session_state.get("tab1_step_reached", 1) == 2 else "🔄 重新生成步骤三建仓单（按当前推演方案更新）"
                 if st.button(step3_btn_label, type="primary", use_container_width=True, key="btn_t1_step_to_s3"):
                     st.session_state.tab1_step_reached = 3
                     st.session_state.tab1_trigger_s3 = True
@@ -2346,14 +2288,14 @@ with tab_zero_start:
 
             col_btn_set_hold, col_btn_to_bt = st.columns([5, 5])
             with col_btn_set_hold:
-                if st.button("🚀 【一键将此方案设为我的初始持仓】", type="primary", use_container_width=True, key="btn_apply_bp_tier"):
+                if st.button("🚀 设为初始持仓", type="primary", use_container_width=True, key="btn_apply_bp_tier"):
                     res_apply = pm.apply_zero_start_blueprint(blueprint)
                     st.balloons()
                     st.success(f"已成功将 ¥{res_apply['total_capital']:,.2f} 建仓方案写入为初始持仓！已配置 {res_apply['funds_count']} 只基金及对应分红方式。")
                     st.rerun()
 
             with col_btn_to_bt:
-                if st.button("📈 【一键将此建仓组合送入穿透回测】", type="secondary", use_container_width=True, key="btn_send_bp_to_bt"):
+                if st.button("📈 送入穿透回测", type="secondary", use_container_width=True, key="btn_send_bp_to_bt"):
                     st.session_state.selected_backtest_weights = dict(_cache_s3.get("cur_opt_w", {}))
                     st.session_state.selected_backtest_target = "新建仓组合"
                     st.session_state.tab3_backtest_activated = True
@@ -2397,7 +2339,7 @@ with tab_holdings_and_rebalance:
         active_tier = st.session_state.get("active_tier_val", "C3")
         cur_tier_meta = RISK_TIERS_CONFIG.get(active_tier, RISK_TIERS_CONFIG["C3"])
         st.subheader("💼 持仓调仓")
-        st.caption("自然三步工作流：查验账本资产 ➔ AI五维裁决今日调仓时机 ➔ 模拟温和/强行后果并生成执行清单。")
+        st.caption("穿透分析实盘持仓账本，研判五维调仓时机，精算调仓后果与生成执行清单。")
 
         # 状态机初始化
         if "tab2_diagnosed" not in st.session_state:
@@ -2420,8 +2362,8 @@ with tab_holdings_and_rebalance:
         render_workflow_step_indicator(
             ["查看当前持仓与启动AI诊断", "AI综合裁决与调仓时机", "模拟调仓后果与生成执行单"],
             current_step=step_tab2,
-            help_text="请点击下方【🔍 第一步：启动 AI 今日调仓时机全息诊断】" if step_tab2 == 1 else (
-                "诊断已就绪，请点击下方【⚖️ 第二步：继续模拟调仓后果并生成今日执行单】" if step_tab2 == 2 else
+            help_text="请点击下方【🔍 诊断今日调仓时机】" if step_tab2 == 1 else (
+                "诊断已就绪，请点击下方【⚖️ 模拟调仓方案与成本】" if step_tab2 == 2 else
                 "今日调仓方案与四大真实后果账单已就绪，可查看下方执行单"
             )
         )
@@ -2459,7 +2401,7 @@ with tab_holdings_and_rebalance:
                     <span>💼 持仓总市值</span>
                     <span style="color: #64748b; font-size: 11px;">仓位 {_pos_pct:.1f}%</span>
                 </div>
-                <div class="metric-value-huge" style="color: #0f172a;">
+                <div class="metric-value-huge" style="color: var(--text-primary);">
                     ¥{_t2_mkt:,.2f}
                 </div>
                 <div class="metric-card-sub" style="font-size: 11px;">
@@ -2860,7 +2802,7 @@ with tab_holdings_and_rebalance:
                 # 资产基线与风控防线卡片
                 _tot_eq = sum(h.market_value for h in pm.holdings.values()) + pm.available_cash + pm.in_transit_cash
                 safe_markdown_html(f"""
-                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; color: #334155;">
+                <div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; color: #334155;">
                     💼 <b>资产基线</b>：¥{_tot_eq:,.2f} ｜ <b>持仓标的</b>：`{len(pm.holdings)} 只` ｜ <b>在途现金</b>：¥{pm.in_transit_cash:,.2f}<br>
                     🛡️ <b>风控防线</b>：7天惩罚费拦截 (1.50%惩罚扣除硬阻断) ｜ 悲观持有天数梯级守护
                 </div>
@@ -2920,7 +2862,7 @@ with tab_holdings_and_rebalance:
         safe_markdown_html("<div style='height: 8px;'></div>")
         col_t2_btn1, col_t2_btn2 = st.columns([1, 1])
         with col_t2_btn1:
-            if st.button("🔍 第一步：启动 AI 今日调仓时机全息诊断", type="primary", use_container_width=True, key="btn_tab2_diagnose"):
+            if st.button("🔍 诊断今日调仓时机", type="primary", use_container_width=True, key="btn_tab2_diagnose"):
                 st.session_state.tab2_diagnosed = True
                 st.session_state.tab2_trigger_diagnose = True
                 st.rerun()
@@ -3011,7 +2953,7 @@ with tab_holdings_and_rebalance:
 
             if not st.session_state.get("tab2_rebalanced", False):
                 safe_markdown_html("<div style='height: 8px;'></div>")
-                if st.button("⚖️ 第二步：继续模拟调仓方案与四大后果量化账单", type="primary", use_container_width=True, key="btn_t2_step_to_reb"):
+                if st.button("⚖️ 模拟调仓方案与成本", type="primary", use_container_width=True, key="btn_t2_step_to_reb"):
                     st.session_state.tab2_rebalanced = True
                     st.session_state.tab2_trigger_rebalance = True
                     st.rerun()
@@ -3120,7 +3062,7 @@ with tab_holdings_and_rebalance:
             with c_cons1:
                 pen_html = f"<br><span style='color: #ef4444; font-weight:700;'>包含 7天惩罚费: ¥{fee_loss['penalty_fee_7d']:,.2f}</span>" if fee_loss['penalty_fee_7d'] > 0 else "<br><span style='color: #10b981;'>免收 1.5% 惩罚费 (¥0)</span>"
                 safe_markdown_html(f"""
-                <div class="decision-card consequence-card" style="border-top: 3px solid #ef4444;">
+                <div class="decision-card consequence-card" >
                     <div class="decision-title" style="color: #b91c1c;">💸 ① 手续费直接损耗</div>
                     <div class="decision-val" style="color: #b91c1c; font-size: 18px;">¥{fee_loss['total_fee']:,.2f}</div>
                     <div class="decision-desc">
@@ -3131,7 +3073,7 @@ with tab_holdings_and_rebalance:
                 """)
             with c_cons2:
                 safe_markdown_html(f"""
-                <div class="decision-card consequence-card" style="border-top: 3px solid #f59e0b;">
+                <div class="decision-card consequence-card" >
                     <div class="decision-title" style="color: #b45309;">⏳ ② T+2在途踏空风险</div>
                     <div class="decision-val" style="color: #b45309; font-size: 18px;">¥{in_transit['in_transit_amount']:,.2f} ({in_transit['in_transit_pct']:.1f}%)</div>
                     <div class="decision-desc">
@@ -3143,7 +3085,7 @@ with tab_holdings_and_rebalance:
                 """)
             with c_cons3:
                 safe_markdown_html(f"""
-                <div class="decision-card consequence-card" style="border-top: 3px solid #3b82f6;">
+                <div class="decision-card consequence-card" >
                     <div class="decision-title" style="color: #1d4ed8;">🛡️ ③ 组合攻防与回撤变化</div>
                     <div class="decision-val" style="color: #1d4ed8; font-size: 16px;">
                         波动率 {risk_shift['vol_before']:.1f}% ➔ {risk_shift['vol_after']:.1f}%
@@ -3157,7 +3099,7 @@ with tab_holdings_and_rebalance:
                 """)
             with c_cons4:
                 safe_markdown_html(f"""
-                <div class="decision-card consequence-card" style="border-top: 3px solid #8b5cf6;">
+                <div class="decision-card consequence-card" >
                     <div class="decision-title" style="color: #6d28d9;">🔄 ④ 持有期清零重算后果</div>
                     <div class="decision-val" style="color: #6d28d9; font-size: 18px;">¥{lockup_rst['new_buy_amount']:,.2f} 新增锁仓</div>
                     <div class="decision-desc">
@@ -3900,7 +3842,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
 with tab_backtest:
     try:
         st.subheader("📈 组合回测")
-        st.caption("真实穿透回测：支持新建仓组合、当前实盘、调仓前后全周期穿透，9大基准指数自由多选同屏对比。")
+        st.caption("穿透回测新建仓组合、当前实盘与调仓前后全周期表现，支持9大基准指数对比。")
         if not st.session_state.get("tab3_backtest_activated", False):
             st.info("💡 **全周期穿透回测尚未启动**：包含 2018-2026 跨牛熊 2,140 天日度回测、样本外金库盲测与 6 大历史切片胜率。\n点击下方按钮立即现场秒级推演：")
             col_act_bt, _ = st.columns([4, 6])
