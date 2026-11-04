@@ -191,9 +191,120 @@ st.set_page_config(
 )
 
 # 自定义 CSS 强化桌面客户端质感（含彻底隐藏 Stop / Deploy / 汉堡菜单）
-st.markdown("""
+# -------------------------------------------------------------
+# 🎨 全局多配色与 CSS 变量系统架构 (Light Slate / Dark Terminal / Nordic Paper + 双轨涨跌色)
+# -------------------------------------------------------------
+if "app_theme_mode" not in st.session_state:
+    st.session_state.app_theme_mode = "light_slate"
+if "app_color_mode" not in st.session_state:
+    st.session_state.app_color_mode = "cn"
+
+cur_theme_mode = st.session_state.app_theme_mode
+cur_color_mode = st.session_state.app_color_mode
+
+# 主题变量字典
+THEME_PRESETS = {
+    "light_slate": {
+        "bg_canvas": "#f8fafc",
+        "bg_surface": "#ffffff",
+        "bg_elevated": "#f1f5f9",
+        "border_subtle": "#e2e8f0",
+        "border_hover": "#cbd5e1",
+        "text_primary": "#0f172a",
+        "text_secondary": "#475569",
+        "text_muted": "#94a3b8",
+        "accent_primary": "#2563eb",
+        "shadow_card": "0 1px 3px rgba(0, 0, 0, 0.04)"
+    },
+    "dark_terminal": {
+        "bg_canvas": "#0b0f19",
+        "bg_surface": "#131b2e",
+        "bg_elevated": "#1c2842",
+        "border_subtle": "#24324f",
+        "border_hover": "#3b4d75",
+        "text_primary": "#f8fafc",
+        "text_secondary": "#cbd5e1",
+        "text_muted": "#64748b",
+        "accent_primary": "#38bdf8",
+        "shadow_card": "0 2px 6px rgba(0, 0, 0, 0.35)"
+    },
+    "nordic_paper": {
+        "bg_canvas": "#f4f3ef",
+        "bg_surface": "#faf9f6",
+        "bg_elevated": "#eceae3",
+        "border_subtle": "#dfdcd4",
+        "border_hover": "#c9c6bd",
+        "text_primary": "#2d2d2a",
+        "text_secondary": "#55544f",
+        "text_muted": "#88867e",
+        "accent_primary": "#0f766e",
+        "shadow_card": "0 1px 2px rgba(45, 45, 42, 0.04)"
+    }
+}
+
+COLOR_PRESETS = {
+    "cn": {
+        "color_up": "#dc2626",
+        "bg_up": "#fef2f2",
+        "border_up": "#fecaca",
+        "color_down": "#16a34a",
+        "bg_down": "#f0fdf4",
+        "border_down": "#bbf7d0",
+        "color_flat": "#64748b"
+    },
+    "global": {
+        "color_up": "#16a34a",
+        "bg_up": "#f0fdf4",
+        "border_up": "#bbf7d0",
+        "color_down": "#dc2626",
+        "bg_down": "#fef2f2",
+        "border_down": "#fecaca",
+        "color_flat": "#64748b"
+    }
+}
+
+active_th = THEME_PRESETS.get(cur_theme_mode, THEME_PRESETS["light_slate"])
+active_co = COLOR_PRESETS.get(cur_color_mode, COLOR_PRESETS["cn"])
+
+st.markdown(f"""
 <style>
-    /* 彻底隐藏 Stop / Deploy / 汉堡菜单等 Demo 痕迹，绝不隐藏 Toolbar 容器与展开按钮 */
+    :root {{
+        --bg-canvas: {active_th['bg_canvas']};
+        --bg-surface: {active_th['bg_surface']};
+        --bg-elevated: {active_th['bg_elevated']};
+        --border-subtle: {active_th['border_subtle']};
+        --border-hover: {active_th['border_hover']};
+        --text-primary: {active_th['text_primary']};
+        --text-secondary: {active_th['text_secondary']};
+        --text-muted: {active_th['text_muted']};
+        --accent-primary: {active_th['accent_primary']};
+        --shadow-card: {active_th['shadow_card']};
+        --color-up: {active_co['color_up']};
+        --bg-up: {active_co['bg_up']};
+        --border-up: {active_co['border_up']};
+        --color-down: {active_co['color_down']};
+        --bg-down: {active_co['bg_down']};
+        --border-down: {active_co['border_down']};
+        --color-flat: {active_co['color_flat']};
+    }}
+
+    /* 全局画板与侧边栏底色穿透 */
+    .stApp, [data-testid="stAppViewContainer"], .main {{
+        background-color: var(--bg-canvas) !important;
+        color: var(--text-primary) !important;
+    }}
+    [data-testid="stSidebar"] {{
+        background-color: var(--bg-surface) !important;
+        border-right: 1px solid var(--border-subtle) !important;
+    }}
+    [data-testid="stSidebar"] * {{
+        color: var(--text-primary);
+    }}
+    [data-testid="stSidebar"] .stCaption, [data-testid="stSidebar"] small {{
+        color: var(--text-secondary) !important;
+    }}
+
+    /* 彻底隐藏 Stop / Deploy / 汉堡菜单等 Demo 痕迹 */
     .stDeployButton,
     [data-testid="stAppDeployButton"],
     [data-testid="stStatusWidget"],
@@ -202,26 +313,27 @@ st.markdown("""
     [data-testid="stHeaderActionElements"],
     [data-testid="stToolbarActions"],
     [data-testid="stConnectionStatus"],
-    footer {
+    footer {{
         visibility: hidden !important;
         display: none !important;
-    }
-    header[data-testid="stHeader"], .stAppHeader {
+    }}
+    header[data-testid="stHeader"], .stAppHeader {{
         background: transparent !important;
         z-index: 99 !important;
         height: 2.8rem !important;
         pointer-events: none !important;
-    }
-    [data-testid="stToolbar"] {
+    }}
+    [data-testid="stToolbar"] {{
         background: transparent !important;
         pointer-events: none !important;
         display: flex !important;
         visibility: visible !important;
-    }
-    /* 侧边栏展开按钮 (收起时在左上角)：fixed 常驻高亮胶囊，100% 永远可点击恢复 */
+    }}
+
+    /* 侧边栏展开/收起按钮 */
     [data-testid="stExpandSidebarButton"],
     button[aria-label="Expand sidebar"],
-    [data-testid="collapsedControl"] {
+    [data-testid="collapsedControl"] {{
         display: inline-flex !important;
         visibility: visible !important;
         opacity: 1 !important;
@@ -231,66 +343,60 @@ st.markdown("""
         top: 10px !important;
         left: 12px !important;
         z-index: 999999 !important;
-        background: #ffffff !important;
-        border: 1px solid #cbd5e1 !important;
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
         border-radius: 8px !important;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12) !important;
         padding: 4px 8px !important;
-        color: #1e293b !important;
+        color: var(--text-primary) !important;
         transition: all 0.2s ease !important;
-    }
+    }}
     [data-testid="stExpandSidebarButton"]:hover,
     button[aria-label="Expand sidebar"]:hover,
-    [data-testid="collapsedControl"]:hover {
-        background: #eff6ff !important;
-        border-color: #3b82f6 !important;
-        color: #2563eb !important;
+    [data-testid="collapsedControl"]:hover {{
+        background: var(--bg-elevated) !important;
+        border-color: var(--accent-primary) !important;
+        color: var(--accent-primary) !important;
         transform: scale(1.05) !important;
-    }
-    /* 侧边栏收起按钮 (展开时在侧边栏右上角) */
+    }}
     [data-testid="stSidebarCollapseButton"],
-    button[aria-label="Collapse sidebar"] {
+    button[aria-label="Collapse sidebar"] {{
         display: inline-flex !important;
         visibility: visible !important;
         opacity: 1 !important;
         pointer-events: auto !important;
         cursor: pointer !important;
         z-index: 999999 !important;
-    }
-    /* 禁用 Streamlit 在重新计算时的 stale 半透明重影 */
-    .stApp [data-testid="stVerticalBlock"] > div[style*="opacity"] {
-        opacity: 1 !important;
-        transition: none !important;
-    }
-    div.stElementContainer[data-stale="true"] {
-        opacity: 1 !important;
-        filter: none !important;
-    }
-    /* 侧边栏展开时自适应多列网格，确保宽度受约束且高度自适应，绝不截断内容 */
-    div[data-testid="stHorizontalBlock"] {
+        color: var(--text-primary) !important;
+    }}
+
+    /* 多列网格防截断与平滑撑开 (Anti-Truncation Invariant) */
+    div[data-testid="stHorizontalBlock"] {{
         width: 100% !important;
         box-sizing: border-box !important;
         overflow: visible !important;
-    }
-    div[data-testid="column"] {
+    }}
+    div[data-testid="column"] {{
         min-width: 0 !important;
         box-sizing: border-box !important;
         overflow: visible !important;
-    }
-    .main .block-container, [data-testid="stMainBlockContainer"] {
+    }}
+    .main .block-container, [data-testid="stMainBlockContainer"] {{
         max-width: 100% !important;
         padding-left: 2rem !important;
         padding-right: 2rem !important;
         box-sizing: border-box !important;
         overflow-x: hidden !important;
-    }
-    .main-metric-card {
-        background: #ffffff;
-        border: 1px solid #cbd5e1;
+    }}
+
+    /* 全局标准 KPI 卡片与衍生卡片统一模数 */
+    .main-metric-card {{
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
         border-radius: 8px;
         padding: 10px 12px 12px 12px;
-        color: #0f172a;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        color: var(--text-primary) !important;
+        box-shadow: var(--shadow-card) !important;
         min-height: 122px;
         height: auto !important;
         display: flex;
@@ -299,128 +405,157 @@ st.markdown("""
         gap: 4px;
         box-sizing: border-box;
         overflow: visible !important;
-    }
+        transition: all 0.2s ease;
+    }}
+    .main-metric-card:hover {{
+        border-color: var(--border-hover) !important;
+    }}
+    .metric-card-title {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--text-secondary) !important;
+        margin-bottom: 2px;
+    }}
+    .metric-value-huge {{
+        font-size: 20px;
+        font-weight: 700;
+        font-family: 'SF Pro Display', -apple-system, monospace;
+        letter-spacing: -0.4px;
+        line-height: 1.1;
+    }}
+    .consequence-card {{
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
+        color: var(--text-primary) !important;
+        border-radius: 8px;
+        padding: 10px 12px;
+        box-shadow: var(--shadow-card) !important;
+    }}
+    .kpi-metric-card {{
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
+        color: var(--text-primary) !important;
+        border-radius: 8px;
+        padding: 10px 12px;
+        box-shadow: var(--shadow-card) !important;
+    }}
 
-        /* 侧边栏 Bloomberg / 富途高阶金融质感样式 */
-    .sb-market-barometer {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
+    /* 侧边栏晴雨表与 Pro 卡片 */
+    .sb-market-barometer {{
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
         border-radius: 8px;
         padding: 9px 12px;
         margin-bottom: 10px;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
-    }
-    .sb-baro-header {
+        box-shadow: var(--shadow-card) !important;
+    }}
+    .sb-baro-header {{
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 5px;
-    }
-    .sb-baro-title {
+    }}
+    .sb-baro-title {{
         font-size: 11px;
         font-weight: 700;
-        color: #475569;
+        color: var(--text-secondary);
         display: flex;
         align-items: center;
         gap: 4px;
-    }
-    .sb-baro-turnover {
+    }}
+    .sb-baro-turnover {{
         font-size: 13px;
         font-weight: 700;
         font-family: 'SF Pro Display', -apple-system, monospace;
-        color: #0f172a;
-    }
-    .sb-baro-tag {
+        color: var(--text-primary);
+    }}
+    .sb-baro-tag {{
         font-size: 10px;
         font-weight: 600;
         padding: 1px 4px;
         border-radius: 3px;
-    }
-    .sb-baro-tag-up {
-        background: #fef2f2;
-        color: #dc2626;
-        border: 1px solid #fecaca;
-    }
-    .sb-baro-tag-down {
-        background: #f0fdf4;
-        color: #16a34a;
-        border: 1px solid #bbf7d0;
-    }
-    .sb-ratio-bar-wrap {
+    }}
+    .sb-baro-tag-up {{
+        background: var(--bg-up);
+        color: var(--color-up);
+        border: 1px solid var(--border-up);
+    }}
+    .sb-baro-tag-down {{
+        background: var(--bg-down);
+        color: var(--color-down);
+        border: 1px solid var(--border-down);
+    }}
+    .sb-ratio-bar-wrap {{
         display: flex;
         width: 100%;
         height: 5px;
         border-radius: 3px;
         overflow: hidden;
-        background: #e2e8f0;
+        background: var(--border-subtle);
         margin-top: 4px;
         margin-bottom: 4px;
-    }
-    .sb-ratio-bar-up {
-        background: #ef4444;
-        height: 100%;
-    }
-    .sb-ratio-bar-down {
-        background: #22c55e;
-        height: 100%;
-    }
-    .sb-baro-counts {
+    }}
+    .sb-ratio-bar-up {{ background: var(--color-up); height: 100%; }}
+    .sb-ratio-bar-down {{ background: var(--color-down); height: 100%; }}
+    .sb-baro-counts {{
         display: flex;
         justify-content: space-between;
         font-size: 10px;
-        color: #64748b;
+        color: var(--text-muted);
         font-family: monospace;
-    }
-    .sb-baro-count-up { color: #dc2626; font-weight: 600; }
-    .sb-baro-count-down { color: #16a34a; font-weight: 600; }
+    }}
+    .sb-baro-count-up {{ color: var(--color-up); font-weight: 600; }}
+    .sb-baro-count-down {{ color: var(--color-down); font-weight: 600; }}
 
-    /* Pro 行情卡 */
-    .sb-pro-index-card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
+    /* Bloomberg / 富途 Pro 行情卡 */
+    .sb-pro-index-card {{
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
         border-radius: 8px;
         padding: 8px 10px;
         margin-bottom: 8px;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+        box-shadow: var(--shadow-card) !important;
         transition: all 0.2s ease;
         position: relative;
         overflow: hidden;
-    }
-    .sb-pro-index-card:hover {
-        border-color: #94a3b8;
-        box-shadow: 0 3px 6px rgba(0,0,0,0.06);
+    }}
+    .sb-pro-index-card:hover {{
+        border-color: var(--border-hover) !important;
         transform: translateY(-1px);
-    }
-    .sb-card-left {
+    }}
+    .sb-card-left {{
         display: flex;
         flex-direction: column;
         justify-content: center;
         gap: 3px;
         width: 82px;
         flex-shrink: 0;
-    }
-    .sb-card-name-row {
+    }}
+    .sb-card-name-row {{
         display: flex;
         align-items: baseline;
         gap: 4px;
-    }
-    .sb-card-name {
+    }}
+    .sb-card-name {{
         font-size: 13px;
         font-weight: 700;
-        color: #0f172a;
+        color: var(--text-primary);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-    }
-    .sb-card-code {
+    }}
+    .sb-card-code {{
         font-size: 10px;
         font-family: monospace;
-        color: #94a3b8;
-    }
-    .sb-card-pe-badge {
+        color: var(--text-muted);
+    }}
+    .sb-card-pe-badge {{
         font-size: 9px;
         font-weight: 600;
         padding: 1px 4px;
@@ -428,71 +563,71 @@ st.markdown("""
         white-space: nowrap;
         width: fit-content;
         line-height: 1.2;
-    }
-    .pe-low {
-        background: #eff6ff;
-        color: #2563eb;
-        border: 1px solid #bfdbfe;
-    }
-    .pe-very-low {
-        background: #f5f3ff;
+    }}
+    .pe-low {{
+        background: var(--bg-elevated);
+        color: var(--accent-primary);
+        border: 1px solid var(--border-subtle);
+    }}
+    .pe-very-low {{
+        background: var(--bg-elevated);
         color: #7c3aed;
-        border: 1px solid #ddd6fe;
-    }
-    .pe-mid {
-        background: #f8fafc;
-        color: #64748b;
-        border: 1px solid #e2e8f0;
-    }
-    .pe-high {
-        background: #fff7ed;
+        border: 1px solid var(--border-subtle);
+    }}
+    .pe-mid {{
+        background: var(--bg-elevated);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-subtle);
+    }}
+    .pe-high {{
+        background: var(--bg-elevated);
         color: #ea580c;
-        border: 1px solid #fed7aa;
-    }
-    .pe-com {
-        background: #fefce8;
+        border: 1px solid var(--border-subtle);
+    }}
+    .pe-com {{
+        background: var(--bg-elevated);
         color: #ca8a04;
-        border: 1px solid #fef08a;
-    }
+        border: 1px solid var(--border-subtle);
+    }}
 
-    .sb-card-mid-sparkline {
+    .sb-card-mid-sparkline {{
         width: 76px;
         height: 26px;
         flex-shrink: 0;
         display: flex;
         align-items: center;
         justify-content: center;
-    }
-    .sb-card-right {
+    }}
+    .sb-card-right {{
         display: flex;
         flex-direction: column;
         align-items: flex-end;
         justify-content: center;
         gap: 2px;
         flex-shrink: 0;
-    }
-    .sb-card-point {
+    }}
+    .sb-card-point {{
         font-size: 14px;
         font-weight: 700;
         font-family: 'SF Pro Display', -apple-system, 'Roboto Mono', monospace;
-        color: #0f172a;
+        color: var(--text-primary);
         letter-spacing: -0.3px;
         line-height: 1.1;
-    }
-    .sb-card-chg-row {
+    }}
+    .sb-card-chg-row {{
         display: flex;
         align-items: center;
         gap: 4px;
-    }
-    .sb-card-diff {
+    }}
+    .sb-card-diff {{
         font-size: 11px;
         font-family: monospace;
         font-weight: 600;
-    }
-    .sb-card-diff.up { color: #dc2626; }
-    .sb-card-diff.down { color: #16a34a; }
-    .sb-card-diff.flat { color: #64748b; }
-    .sb-card-badge {
+    }}
+    .sb-card-diff.up {{ color: var(--color-up); }}
+    .sb-card-diff.down {{ color: var(--color-down); }}
+    .sb-card-diff.flat {{ color: var(--color-flat); }}
+    .sb-card-badge {{
         font-size: 11px;
         font-weight: 700;
         font-family: monospace;
@@ -500,259 +635,48 @@ st.markdown("""
         border-radius: 3px;
         white-space: nowrap;
         line-height: 1.3;
-    }
-    .sb-card-badge.up {
-        color: #dc2626;
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-    }
-    .sb-card-badge.down {
-        color: #16a34a;
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-    }
-    .sb-card-badge.flat {
-        color: #64748b;
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-    }
+    }}
+    .sb-card-badge.up {{
+        color: var(--color-up);
+        background: var(--bg-up);
+        border: 1px solid var(--border-up);
+    }}
+    .sb-card-badge.down {{
+        color: var(--color-down);
+        background: var(--bg-down);
+        border: 1px solid var(--border-down);
+    }}
+    .sb-card-badge.flat {{
+        color: var(--color-flat);
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+    }}
 
-
-
-    .index-ticker-strip {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        gap: 10px;
-        background: #ffffff;
-        border: 1px solid #cbd5e1;
-        border-radius: 8px;
-        padding: 6px 12px;
-        margin-top: 4px;
-        margin-bottom: 10px;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-        width: 100%;
-        min-height: 48px;
-        box-sizing: border-box;
-        overflow: hidden;
-    }
-    .index-pills-scroll-wrap {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        gap: 10px;
-        flex: 1 1 auto;
-        min-width: 0;
-        overflow-x: auto !important;
-        overflow-y: hidden;
-        scrollbar-width: thin;
-        -webkit-overflow-scrolling: touch;
-        padding: 3px 0;
-    }
-    .index-pills-scroll-wrap::-webkit-scrollbar {
-        height: 4px;
-    }
-    .index-pills-scroll-wrap::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 4px;
-    }
-    .index-ticker-pill {
-        display: inline-flex;
-        align-items: center;
-        justify-content: flex-start;
-        gap: 8px;
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        padding: 4px 10px;
-        flex: 0 0 auto !important;
-        box-sizing: border-box;
-        white-space: nowrap !important;
-        min-height: 32px;
-    }
-    .index-pill-name {
-        font-size: 13px;
-        font-weight: 600;
-        color: #334155;
-        white-space: nowrap;
-    }
-    .index-pill-point {
-        font-size: 15px;
-        font-weight: 700;
-        color: #0f172a;
-        font-family: 'SF Pro Text', 'Roboto Mono', 'Consolas', 'Menlo', 'Monaco', monospace;
-        font-feature-settings: 'tnum';
-        letter-spacing: -0.3px;
-        white-space: nowrap;
-    }
-    .index-pill-chg-up {
-        font-size: 13px;
-        font-weight: 700;
-        color: #dc2626;
-        background: #fee2e2;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-family: 'Consolas', 'Menlo', monospace, sans-serif;
-        font-feature-settings: 'tnum';
-        white-space: nowrap;
-    }
-    .index-pill-chg-down {
-        font-size: 13px;
-        font-weight: 700;
-        color: #16a34a;
-        background: #dcfce7;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-family: 'Consolas', 'Menlo', monospace, sans-serif;
-        font-feature-settings: 'tnum';
-        white-space: nowrap;
-    }
-    .index-pill-chg-flat {
-        font-size: 13px;
-        font-weight: 700;
-        color: #64748b;
-        background: #f1f5f9;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-family: 'Consolas', 'Menlo', monospace, sans-serif;
-        font-feature-settings: 'tnum';
-        white-space: nowrap;
-    }
-    .metric-card-title {
-        font-size: 13px;
-        font-weight: 600;
-        color: #475569;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        white-space: nowrap;
-        line-height: 1.2;
-    }
-    .metric-value-huge {
-        font-size: 17px;
-        font-weight: 700;
-        letter-spacing: -0.3px;
-        line-height: 1.2;
-        margin: 3px 0;
-        white-space: nowrap;
-    }
-    .metric-card-sub {
-        font-size: 12px;
-        color: #64748b;
-        white-space: nowrap;
-        line-height: 1.3;
-    }
-    .consequence-card {
-        background: #ffffff;
-        border: 1px solid #cbd5e1;
-        border-radius: 8px;
-        padding: 12px 14px;
-        min-height: 120px;
-        height: auto !important;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-start;
-        gap: 6px;
-        overflow: visible !important;
-    }
-    .kpi-metric-card {
-        background: #ffffff;
-        border: 1px solid #cbd5e1;
-        border-radius: 8px;
-        padding: 10px 12px;
-        color: #0f172a;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        min-height: 110px;
-        height: auto !important;
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-start;
-        gap: 4px;
-        box-sizing: border-box;
-        overflow: visible !important;
-    }
-    .kpi-card-title {
-        font-size: 12px;
-        font-weight: 600;
-        color: #334155;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        line-height: 1.2;
-    }
-    .kpi-card-sub {
-        font-size: 11px;
-        font-weight: 600;
-        margin-top: 2px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        line-height: 1.2;
-    }
-    .kpi-card-desc {
-        font-size: 10px;
-        color: #64748b;
-        margin-top: 3px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        line-height: 1.2;
-    }
-    .decision-card {
-        background: #ffffff;
-        border: 1px solid #cbd5e1;
-        border-radius: 8px;
-        padding: 14px 16px;
-        margin-bottom: 12px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-    }
-    .decision-title {
-        font-size: 13px;
-        font-weight: 600;
-        color: #334155;
-        margin-bottom: 4px;
-    }
-    .decision-val {
-        font-size: 18px;
-        font-weight: 700;
-        margin-bottom: 4px;
-    }
-    .decision-desc {
-        font-size: 12px;
-        color: #1e293b;
-        line-height: 1.4;
-    }
-    .stButton>button {
-        border-radius: 8px;
-        font-weight: 600;
-    }
-    @keyframes console-pulse {
-        0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.45); }
-        70% { box-shadow: 0 0 0 12px rgba(37, 99, 235, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
-    }
-    .active-computation-console {
-        border: 2px solid #2563eb !important;
-        border-radius: 10px !important;
-        padding: 16px 20px !important;
-        margin: 14px 0 !important;
-        background: linear-gradient(135deg, rgba(37, 99, 235, 0.06) 0%, rgba(59, 130, 246, 0.02) 100%) !important;
-        animation: console-pulse 2s infinite !important;
-    }
-    .console-header-banner {
-        font-size: 16px !important;
+    /* Streamlit 原生组件变量覆盖 (Tab/Input/Button/Popover) */
+    [data-testid="stTabs"] button {{
+        color: var(--text-secondary) !important;
+        border-bottom-color: transparent !important;
+        transition: all 0.2s ease !important;
+    }}
+    [data-testid="stTabs"] button[aria-selected="true"] {{
+        color: var(--accent-primary) !important;
+        border-bottom-color: var(--accent-primary) !important;
         font-weight: 700 !important;
-        color: #1d4ed8 !important;
-        margin-bottom: 6px !important;
-    }
-    .console-timer-text {
-        font-size: 12px !important;
-        color: #475569 !important;
-        margin-bottom: 8px !important;
-    }
+    }}
+    input, textarea, select, div[data-baseweb="select"] {{
+        background-color: var(--bg-surface) !important;
+        color: var(--text-primary) !important;
+        border-color: var(--border-subtle) !important;
+    }}
+    div[data-baseweb="popover"], div[data-baseweb="menu"] {{
+        background-color: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
+        color: var(--text-primary) !important;
+        box-shadow: var(--shadow-card) !important;
+    }}
 </style>
 """, unsafe_allow_html=True)
+
 
 
 class ActiveComputationConsole:
@@ -895,6 +819,40 @@ PRESET_INDEX_STYLES = {
 DEFAULT_SELECTED_SECIDS = ["1.000300", "1.000688", "1.000922", "1.000905", "1.000852", "1.518880"]
 
 _SPARKLINE_CACHE = {}
+
+
+def apply_theme_to_plotly_figure(fig: go.Figure, theme_mode: Optional[str] = None, color_mode: Optional[str] = None) -> go.Figure:
+    """让 Plotly 图表深度自适应当前主题与涨跌配色 (Dark Terminal/Nordic Paper/Light Slate)"""
+    th_key = theme_mode or st.session_state.get("app_theme_mode", "light_slate")
+    co_key = color_mode or st.session_state.get("app_color_mode", "cn")
+    
+    th = THEME_PRESETS.get(th_key, THEME_PRESETS["light_slate"])
+    co = COLOR_PRESETS.get(co_key, COLOR_PRESETS["cn"])
+    
+    fig.update_layout(
+        paper_bgcolor=th["bg_surface"],
+        plot_bgcolor=th["bg_surface"],
+        font=dict(color=th["text_primary"], family="-apple-system, 'SF Pro Display', sans-serif"),
+        xaxis=dict(
+            gridcolor=th["border_subtle"],
+            zerolinecolor=th["border_hover"],
+            tickfont=dict(color=th["text_secondary"]),
+            title_font=dict(color=th["text_secondary"])
+        ),
+        yaxis=dict(
+            gridcolor=th["border_subtle"],
+            zerolinecolor=th["border_hover"],
+            tickfont=dict(color=th["text_secondary"]),
+            title_font=dict(color=th["text_secondary"])
+        ),
+        legend=dict(
+            font=dict(color=th["text_primary"]),
+            bgcolor=th["bg_surface"],
+            bordercolor=th["border_subtle"]
+        ),
+        margin=dict(l=10, r=10, t=30, b=10)
+    )
+    return fig
 
 def fetch_market_turnover_and_sentiment() -> Dict[str, Any]:
     """拉取沪深两市总成交额与全市场情绪指标"""
@@ -1106,6 +1064,53 @@ if "rebalance_buffer_pct" not in st.session_state:
 # 侧边栏：【🧭 全局领航台】（无局部操作，纯粹跨 Tab 领航仪表盘）
 # -------------------------------------------------------------
 with st.sidebar:
+    # 0. 🎨 全局视觉与多配色中枢 (经典浅色 / 彭博暗黑 / 柔和护眼 + 双轨涨跌色)
+    col_th_title, col_th_reset = st.columns([7, 3])
+    with col_th_title:
+        st.markdown("##### 🎨 视觉与色彩中枢")
+    with col_th_reset:
+        if st.button("↺ 重置", help="恢复经典浅色与A股涨跌惯例", use_container_width=True, key="btn_reset_theme_all"):
+            st.session_state.app_theme_mode = "light_slate"
+            st.session_state.app_color_mode = "cn"
+            st.rerun()
+
+    th_names = ["经典浅色 (Light Slate)", "彭博暗黑 (Dark Terminal)", "柔和护眼 (Nordic Paper)"]
+    th_keys = ["light_slate", "dark_terminal", "nordic_paper"]
+    cur_th_k = st.session_state.get("app_theme_mode", "light_slate")
+    cur_th_idx = th_keys.index(cur_th_k) if cur_th_k in th_keys else 0
+
+    def _sync_theme_mode_change():
+        sel_name = st.session_state.sb_theme_selector
+        st.session_state.app_theme_mode = th_keys[th_names.index(sel_name)]
+
+    st.selectbox(
+        "界面主题风格",
+        th_names,
+        index=cur_th_idx,
+        key="sb_theme_selector",
+        on_change=_sync_theme_mode_change,
+        help="全站毫秒级无感换肤：支持冷灰浅色、彭博暗黑沉浸式终端及护眼米灰纸质风格"
+    )
+
+    co_names = ["A股惯例 (红涨绿跌·首选)", "国际惯例 (绿涨红跌)"]
+    co_keys = ["cn", "global"]
+    cur_co_k = st.session_state.get("app_color_mode", "cn")
+    cur_co_idx = co_keys.index(cur_co_k) if cur_co_k in co_keys else 0
+
+    def _sync_color_mode_change():
+        sel_c = st.session_state.sb_color_selector
+        st.session_state.app_color_mode = co_keys[co_names.index(sel_c)]
+
+    st.selectbox(
+        "涨跌色彩体系",
+        co_names,
+        index=cur_co_idx,
+        key="sb_color_selector",
+        on_change=_sync_color_mode_change,
+        help="自适应联动行情走廊、持仓盈亏、分时微图与穿透图表颜色"
+    )
+
+    st.markdown("---")
     st.subheader("🧭 全局领航台")
     st.caption("实时市场时钟与全自选核心行情走廊")
     st.markdown("---")
@@ -3546,6 +3551,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
         height=380,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
+    apply_theme_to_plotly_figure(fig_nav)
     st.plotly_chart(fig_nav, use_container_width=True)
 
     col_dd, col_alloc = st.columns(2)
@@ -3583,6 +3589,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
             height=280,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
+        apply_theme_to_plotly_figure(fig_dd)
         st.plotly_chart(fig_dd, use_container_width=True)
 
     with col_alloc:
@@ -3612,6 +3619,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
             height=280,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
+        apply_theme_to_plotly_figure(fig_area)
         st.plotly_chart(fig_area, use_container_width=True)
 
     # 6 大历史市场风格切片明细表与历史同温层匹配器
@@ -3771,6 +3779,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
                 color_continuous_scale="Blues", text_auto=".2f"
             )
             fig_heat.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=360)
+            apply_theme_to_plotly_figure(fig_heat)
             st.plotly_chart(fig_heat, use_container_width=True)
 
         # 底层穿透排雷大宽表

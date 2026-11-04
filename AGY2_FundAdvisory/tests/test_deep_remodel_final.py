@@ -233,7 +233,11 @@ def test_ui_geometry_and_non_overlap_invariants():
     assert 'fetch_custom_realtime_indices' in gui_text
     assert 'INDEX_PE_METAS' in gui_text
     
-    # 4. 侧边栏结构完整性（全局领航台、市场状态与底座、两市成交额晴雨表、行情走廊）
+    # 4. 侧边栏结构完整性与三维双轨多配色系统断言
+    assert '##### 🎨 视觉与色彩中枢' in gui_text
+    assert 'THEME_PRESETS' in gui_text
+    assert 'COLOR_PRESETS' in gui_text
+    assert 'apply_theme_to_plotly_figure' in gui_text
     assert 'st.subheader("🧭 全局领航台")' in gui_text
     assert '##### 🕒 市场状态与底座' in gui_text
     assert '.sb-market-barometer' in gui_text
