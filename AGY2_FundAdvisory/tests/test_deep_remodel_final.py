@@ -226,17 +226,19 @@ def test_ui_geometry_and_non_overlap_invariants():
     assert 'min-height: 122px;' in gui_text
     assert 'overflow: visible !important;' in gui_text
     
-    # 3. 核心指数升级为侧边栏微型行情卡（专业行情终端质感与全自选能力）
-    assert '.sb-index-card {' in gui_text
-    assert '.sb-index-point {' in gui_text
-    assert '.sb-index-badge-up {' in gui_text
+    # 3. 核心指数升级为 Bloomberg / 富途高阶质感行情卡与分时微图
+    assert '.sb-pro-index-card {' in gui_text
+    assert '.sb-card-mid-sparkline {' in gui_text
+    assert 'fetch_intraday_sparkline_svg' in gui_text
     assert 'fetch_custom_realtime_indices' in gui_text
+    assert 'INDEX_PE_METAS' in gui_text
     
-    # 4. 侧边栏结构完整性（全局领航台、市场状态与底座、行情走廊）
+    # 4. 侧边栏结构完整性（全局领航台、市场状态与底座、两市成交额晴雨表、行情走廊）
     assert 'st.subheader("🧭 全局领航台")' in gui_text
     assert '##### 🕒 市场状态与底座' in gui_text
+    assert '.sb-market-barometer' in gui_text
     assert '##### 📊 行情走廊' in gui_text
-    assert '⚙️ 定制' in gui_text
+    assert 'PRESET_INDEX_STYLES' in gui_text
     
     # 5. 其他卡片 (kpi-metric-card & consequence-card) 自适应防腰斩断言
     assert '.consequence-card {' in gui_text
