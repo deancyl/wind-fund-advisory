@@ -1450,6 +1450,14 @@ def execute_market_optimization_flow(
                 _note = f"🟡 限额 ¥{_lim:,.0f}/日，需分 {_days} 个交易日买齐"
             else:
                 _note = f"🔴 限额 ¥{_lim:,.0f}/日，需 {_days} 个交易日，周期过长建议替换"
+        try:
+            from cache_manager import FundMetadataManager
+            _meta = FundMetadataManager.get_fund_metadata(_code)
+            if _meta.get("liquidation_risk", False):
+                _aum = _meta.get("aum", 0.0)
+                _note = f"🚨【清盘预警】规模仅 {_aum:.2f} 亿；" + _note
+        except Exception:
+            pass
         order_sheet.append({
             "基金代码": _code,
             "基金名称": d.get("fund_name", ""),

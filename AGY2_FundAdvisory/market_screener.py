@@ -163,7 +163,13 @@ class MarketScreener:
 
         if "inception_date" in merged.columns:
             merged["inception_date"] = pd.to_datetime(merged["inception_date"], errors="coerce")
-            mask &= merged["inception_date"] <= pd.Timestamp(cutoff_date)
+            has_valid_inception = merged["inception_date"].notna().any()
+            if has_valid_inception:
+                # 核心防误杀：确切知晓成立日期的标的严格要求 <= cutoff_date；
+                # 缺失成立日期的标的进行容错保护，严禁因数据源覆盖不全导致候选池整体清零
+                mask &= (merged["inception_date"].isna()) | (merged["inception_date"] <= pd.Timestamp(cutoff_date))
+            else:
+                warnings.warn("成立日期数据完全缺失（降级模式），跳过成立年限过滤")
 
         if exclude_liquidated and "status" in merged.columns:
             mask &= ~merged["status"].str.contains("清盘|终止|到期", na=False)
@@ -213,86 +219,125 @@ class MarketScreener:
     ) -> pd.DataFrame:
         """
         批量获取基金规模和成立日期。
-        优先使用 akshare 的 fund_name_em() 一次性获取全量。
+        采用多层弹性获取机制：
+        Tier 0: 本地持久化缓存 (fund_info_base.parquet, <5ms)
+        Tier 1: 新浪开放式基金规模与成立日期接口 (fund_scale_open_sina)
+        Tier 2: 本地湖仓降级兜底 (fund_managers + fund_performance_snapshot + fund_trading_rules)
         """
+        cache_file = _WORKSPACE_ROOT / "data" / "cache" / "market_screener" / "fund_info_base.parquet"
+        if cache_file.exists():
+            try:
+                cached = pd.read_parquet(cache_file)
+                if not cached.empty and "inception_date" in cached.columns and cached["inception_date"].notna().any():
+                    if progress_callback:
+                        progress_callback(1, 4, f"从本地缓存加载基金基础信息 ({len(cached):,} 只)...")
+                    return cached
+            except Exception:
+                pass
+
+        if progress_callback:
+            progress_callback(1, 4, "获取基金规模与成立日期数据...")
+
+        # 1. 尝试在线获取新浪基金规模与成立日期
+        sina_info = None
         try:
             import akshare as ak
-
-            if progress_callback:
-                progress_callback(1, 4, "从东方财富获取全市场基金列表...")
-
-            # fund_name_em 一次性返回全市场基金列表（含规模、成立日期等）
-            df_all = ak.fund_name_em()
-
-            # 标准化列名
-            col_map = {}
-            for col in df_all.columns:
-                if "代码" in col or "基金代码" in col:
-                    col_map[col] = "fund_code"
-                elif "成立日期" in col or "成立" in col:
-                    col_map[col] = "inception_date"
-                elif "基金简称" in col or "名称" in col:
-                    col_map[col] = "fund_name_em"
-                elif "类型" in col:
-                    col_map[col] = "fund_type_em"
-
-            df_all = df_all.rename(columns=col_map)
-
-            if "fund_code" not in df_all.columns:
-                # 尝试用第一列作为 fund_code
-                df_all = df_all.rename(columns={df_all.columns[0]: "fund_code"})
-
-            df_all["fund_code"] = df_all["fund_code"].astype(str).str.strip()
-
-            # 获取规模信息
-            aum_data = cls._fetch_aum_data(progress_callback)
-            if aum_data is not None and not aum_data.empty:
-                df_all = df_all.merge(aum_data, on="fund_code", how="left")
-            else:
-                df_all["aum_billion"] = np.nan
-
-            # 状态标注
-            if "status" not in df_all.columns:
-                df_all["status"] = "正常"
-
-            return df_all[["fund_code", "inception_date", "aum_billion", "status"]].drop_duplicates(subset=["fund_code"])
-
+            df_sina = ak.fund_scale_open_sina()
+            if df_sina is not None and not df_sina.empty:
+                sina_info = df_sina[["基金代码", "成立日期", "最近总份额", "单位净值"]].copy()
+                sina_info["fund_code"] = sina_info["基金代码"].astype(str).str.strip().str.zfill(6)
+                sina_info["inception_date"] = pd.to_datetime(sina_info["成立日期"], errors="coerce")
+                shares = pd.to_numeric(sina_info["最近总份额"], errors="coerce")
+                nav = pd.to_numeric(sina_info["单位净值"], errors="coerce")
+                sina_info["aum_billion"] = (shares * nav) / 1e8
+                sina_info["status"] = "正常"
+                sina_info = sina_info[["fund_code", "inception_date", "aum_billion", "status"]].drop_duplicates(subset=["fund_code"])
         except Exception as e:
-            warnings.warn(f"akshare 获取基金信息失败: {e}，使用本地 catalog 降级")
-            # 降级：仅使用本地 catalog 数据
-            result = pd.DataFrame({
-                "fund_code": catalog_df["symbol"].astype(str),
-                "inception_date": pd.NaT,
-                "aum_billion": np.nan,  # 降级：规模未知，由过滤逻辑决定是否跳过
-                "status": "正常",
-            })
-            return result
+            warnings.warn(f"新浪基金信息接口调用异常: {e}，启用本地湖仓兜底")
+
+        # 2. 基础目录对齐
+        base_df = pd.DataFrame({
+            "fund_code": catalog_df["symbol"].astype(str).str.strip().str.zfill(6)
+        })
+
+        if sina_info is not None and not sina_info.empty:
+            base_df = base_df.merge(sina_info, on="fund_code", how="left")
+        else:
+            base_df["inception_date"] = pd.NaT
+            base_df["aum_billion"] = np.nan
+            base_df["status"] = "正常"
+
+        # 3. 湖仓层级 AUM 兜底：data/master/fund_managers.parquet (覆盖 27,850 只基金)
+        mgr_path = _WORKSPACE_ROOT / "data" / "master" / "fund_managers.parquet"
+        if mgr_path.exists():
+            try:
+                mgr_df = pd.read_parquet(mgr_path)
+                mgr_aum = mgr_df.groupby("fund_code")["aum_billion"].max().reset_index()
+                mgr_aum["fund_code"] = mgr_aum["fund_code"].astype(str).str.strip().str.zfill(6)
+                base_df = base_df.merge(mgr_aum, on="fund_code", how="left", suffixes=("", "_mgr"))
+                base_df["aum_billion"] = base_df["aum_billion"].combine_first(base_df["aum_billion_mgr"])
+                base_df = base_df.drop(columns=["aum_billion_mgr"])
+            except Exception:
+                pass
+
+        # 4. 湖仓层级成立年限兜底：data/mart/fund_performance_snapshot.parquet (覆盖 13,568 只具备 3 年业绩的基金)
+        perf_path = _WORKSPACE_ROOT / "data" / "mart" / "fund_performance_snapshot.parquet"
+        if perf_path.exists():
+            try:
+                perf_df = pd.read_parquet(perf_path)
+                perf_sub = perf_df[["symbol", "return_3y"]].copy()
+                perf_sub["fund_code"] = perf_sub["symbol"].astype(str).str.strip().str.zfill(6)
+                base_df = base_df.merge(perf_sub[["fund_code", "return_3y"]], on="fund_code", how="left")
+                has_3y = base_df["return_3y"].notna()
+                three_years_ago = pd.Timestamp.today().normalize() - pd.DateOffset(years=3, days=1)
+                base_df.loc[base_df["inception_date"].isna() & has_3y, "inception_date"] = three_years_ago
+                base_df = base_df.drop(columns=["return_3y"])
+            except Exception:
+                pass
+
+        # 5. 湖仓层级清盘状态兜底：data/master/fund_trading_rules.parquet
+        rules_path = _WORKSPACE_ROOT / "data" / "master" / "fund_trading_rules.parquet"
+        if rules_path.exists():
+            try:
+                rules_df = pd.read_parquet(rules_path)
+                rules_sub = rules_df[["symbol", "purchase_status", "redemption_status"]].copy()
+                rules_sub["fund_code"] = rules_sub["symbol"].astype(str).str.strip().str.zfill(6)
+                base_df = base_df.merge(rules_sub, on="fund_code", how="left")
+                is_liq = (
+                    base_df["purchase_status"].str.contains("清盘|终止|到期", na=False) |
+                    base_df["redemption_status"].str.contains("终止", na=False)
+                )
+                base_df.loc[is_liq, "status"] = "清盘"
+                base_df = base_df.drop(columns=["purchase_status", "redemption_status"])
+            except Exception:
+                pass
+
+        base_df["status"] = base_df["status"].fillna("正常")
+        result = base_df[["fund_code", "inception_date", "aum_billion", "status"]].drop_duplicates(subset=["fund_code"])
+
+        # 6. 异步持久化到缓存
+        try:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            result.to_parquet(cache_file, index=False)
+        except Exception:
+            pass
+
+        return result
 
     @classmethod
     def _fetch_aum_data(
         cls, progress_callback: Optional[Callable] = None
     ) -> Optional[pd.DataFrame]:
-        """获取基金规模数据"""
-        try:
-            import akshare as ak
-            if progress_callback:
-                progress_callback(1, 4, "获取基金规模数据...")
-
-            # 尝试使用 fund_aum_em
-            df_aum = ak.fund_aum_em()
-            col_map = {}
-            for col in df_aum.columns:
-                if "代码" in col:
-                    col_map[col] = "fund_code"
-                elif "规模" in col or "资产" in col:
-                    col_map[col] = "aum"
-            df_aum = df_aum.rename(columns=col_map)
-            if "fund_code" in df_aum.columns and "aum" in df_aum.columns:
-                df_aum["fund_code"] = df_aum["fund_code"].astype(str).str.strip()
-                df_aum["aum_billion"] = pd.to_numeric(df_aum["aum"], errors="coerce") / 1e8
-                return df_aum[["fund_code", "aum_billion"]].drop_duplicates(subset=["fund_code"])
-        except Exception:
-            pass
+        """获取基金规模数据（通过本地湖仓或新浪接口快速提取）"""
+        mgr_path = _WORKSPACE_ROOT / "data" / "master" / "fund_managers.parquet"
+        if mgr_path.exists():
+            try:
+                mgr_df = pd.read_parquet(mgr_path)
+                mgr_aum = mgr_df.groupby("fund_code")["aum_billion"].max().reset_index()
+                mgr_aum["fund_code"] = mgr_aum["fund_code"].astype(str).str.strip().str.zfill(6)
+                return mgr_aum.drop_duplicates(subset=["fund_code"])
+            except Exception:
+                pass
         return None
 
     @staticmethod
