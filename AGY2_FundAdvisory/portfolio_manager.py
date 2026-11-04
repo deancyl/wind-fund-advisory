@@ -3797,13 +3797,22 @@ class PortfolioManager:
         holding_days: Optional[int] = None,
         dividend_method: str = "cash",
         notes: str = "手动新增持仓",
-        append_batch: bool = False
+        append_batch: bool = False,
+        fund_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         在不破坏已有其他持仓的前提下，单只增补或直接修改某只基金持仓
         """
         code = str(fund_code).strip().zfill(6)
         meta = self.resolve_fund_meta(code)
+        
+        # 确定最终真实基金名称（优先使用外部传入的真实联网名称）
+        resolved_name = meta.get("fund_name", f"基金_{code}")
+        if fund_name and str(fund_name).strip() and not str(fund_name).strip().startswith("公募基金_") and not str(fund_name).strip().startswith("基金_"):
+            resolved_name = str(fund_name).strip()
+        elif resolved_name.startswith("公募基金_") or resolved_name.startswith("基金_"):
+            if fund_name and str(fund_name).strip():
+                resolved_name = str(fund_name).strip()
         today_dt = datetime.now().date()
 
         if nav <= 0:
@@ -3856,6 +3865,10 @@ class PortfolioManager:
         if code in self.holdings:
             # 已存在：更新当前净值与分红方式，追加或刷新批次
             h = self.holdings[code]
+            if resolved_name and not resolved_name.startswith("公募基金_") and not resolved_name.startswith("基金_"):
+                h.fund_name = resolved_name
+            elif resolved_name and (h.fund_name.startswith("公募基金_") or h.fund_name.startswith("基金_")):
+                h.fund_name = resolved_name
             h.current_nav = nav
             h.dividend_method = dividend_method
             old_total = sum(b.shares for b in h.batches)
@@ -3881,7 +3894,7 @@ class PortfolioManager:
         else:
             h = FundHolding(
                 fund_code=code,
-                fund_name=meta.get("fund_name", f"基金_{code}"),
+                fund_name=resolved_name,
                 share_class=meta.get("share_class", "A"),
                 shares=total_shares,
                 cost_price=cost_val,

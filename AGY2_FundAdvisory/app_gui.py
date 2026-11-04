@@ -1149,6 +1149,20 @@ with tab_zero_start:
             if tier_mode.startswith("模式 A"):
                 col_s1_left, col_s1_right = st.columns([6, 4])
                 with col_s1_left:
+                    def _sync_tab1_return_change():
+                        val = float(st.session_state.slider_target_return)
+                        st.session_state.target_return_val = val
+                        tier = map_slider_to_tier(val)
+                        st.session_state.active_tier_val = tier
+                        st.session_state.sb_target_return_slider = val
+                        tier_labels_all = ["C1 安稳保守型", "C2 稳健固收+型", "C3 平衡进取型", "C4 成长进攻型", "C5 极限高Beta追击型"]
+                        tier_code_to_idx_all = {"C1": 0, "C2": 1, "C3": 2, "C4": 3, "C5": 4}
+                        st.session_state.sb_tier_selector = tier_labels_all[tier_code_to_idx_all.get(tier, 2)]
+                        st.session_state.tab2_diag_cache = None
+                        st.session_state.tab2_rebal_cache = None
+                        st.session_state.tab1_sim_cache = None
+                        st.session_state.tab1_step3_cache = None
+
                     target_ret_input = st.slider(
                         "期望年化目标收益率 (%)",
                         min_value=5.0,
@@ -1157,19 +1171,12 @@ with tab_zero_start:
                         step=1.0,
                         format="%.0f%%",
                         help="拖动滑块即拉即变，C1 至 C5 实时同步切换",
-                        key="slider_target_return"
+                        key="slider_target_return",
+                        on_change=_sync_tab1_return_change
                     )
-                    _old_ret = float(st.session_state.get("target_return_val", 15.0))
-                    if abs(target_ret_input - _old_ret) > 1e-4:
-                        st.session_state.target_return_val = target_ret_input
-                        active_tier = map_slider_to_tier(target_ret_input)
-                        st.session_state.active_tier_val = active_tier
-                        st.session_state.tab2_diag_cache = None
-                        st.session_state.tab2_rebal_cache = None
-                    else:
-                        st.session_state.target_return_val = target_ret_input
-                        active_tier = map_slider_to_tier(target_ret_input)
-                        st.session_state.active_tier_val = active_tier
+                    st.session_state.target_return_val = target_ret_input
+                    active_tier = map_slider_to_tier(target_ret_input)
+                    st.session_state.active_tier_val = active_tier
 
                 with col_s1_right:
                     plan_capital = st.number_input(
@@ -1235,11 +1242,26 @@ with tab_zero_start:
                 total_q_score = s1 + s2 + s3
                 tested_tier = evaluate_questionnaire_risk_tier(total_q_score)
                 st.session_state.tested_tier_val = tested_tier
-                st.session_state.active_tier_val = tested_tier
-                active_tier = tested_tier
-                cur_tier_meta = RISK_TIERS_CONFIG.get(active_tier, RISK_TIERS_CONFIG["C3"])
+                cur_tier_meta = RISK_TIERS_CONFIG.get(tested_tier, RISK_TIERS_CONFIG["C3"])
                 target_ret_input = float(cur_tier_meta.get("default_target", 15.0))
-                st.session_state.target_return_val = target_ret_input
+
+                old_tier_q = st.session_state.get("active_tier_val")
+                if tested_tier != old_tier_q or abs(float(st.session_state.get("target_return_val", 15.0)) - target_ret_input) > 1e-4:
+                    st.session_state.active_tier_val = tested_tier
+                    st.session_state.target_return_val = target_ret_input
+                    st.session_state.sb_target_return_slider = target_ret_input
+                    st.session_state.slider_target_return = target_ret_input
+                    tier_labels_all = ["C1 安稳保守型", "C2 稳健固收+型", "C3 平衡进取型", "C4 成长进攻型", "C5 极限高Beta追击型"]
+                    tier_code_to_idx_all = {"C1": 0, "C2": 1, "C3": 2, "C4": 3, "C5": 4}
+                    st.session_state.sb_tier_selector = tier_labels_all[tier_code_to_idx_all.get(tested_tier, 2)]
+                    st.session_state.tab2_diag_cache = None
+                    st.session_state.tab2_rebal_cache = None
+                    st.session_state.tab1_sim_cache = None
+                    st.session_state.tab1_step3_cache = None
+                else:
+                    st.session_state.active_tier_val = tested_tier
+                    st.session_state.target_return_val = target_ret_input
+                active_tier = tested_tier
 
                 col_cap_b, _ = st.columns([6, 4])
                 with col_cap_b:
@@ -1927,6 +1949,32 @@ with tab_zero_start:
 # =============================================================
 # Tab 2: 【💼 持仓调仓】（自然三步流：①持仓账本 -> ②AI诊断裁决 -> ③调仓方案与执行单）
 # =============================================================
+def _safe_float(val, default=0.0) -> float:
+    if val is None or pd.isna(val):
+        return float(default)
+    try:
+        f = float(val)
+        return float(default) if pd.isna(f) else f
+    except (ValueError, TypeError):
+        return float(default)
+
+def _safe_int(val, default=30) -> int:
+    if val is None or pd.isna(val):
+        return int(default)
+    try:
+        f = float(val)
+        return int(default) if pd.isna(f) else int(f)
+    except (ValueError, TypeError):
+        return int(default)
+
+def _safe_str(val, default="cash") -> str:
+    if val is None or pd.isna(val):
+        return str(default)
+    s = str(val).strip()
+    if s.lower() in ("", "nan", "none", "null"):
+        return str(default)
+    return s
+
 with tab_holdings_and_rebalance:
     try:
         active_tier = st.session_state.get("active_tier_val", "C3")
@@ -2018,19 +2066,6 @@ with tab_holdings_and_rebalance:
                 </div>
             </div>
             """)
-            with st.popover("💰 修改现金池", use_container_width=True):
-                new_c_val = st.number_input(
-                    "可用现金金额 (元)",
-                    value=float(pm.available_cash),
-                    step=1000.0,
-                    format="%.2f",
-                    key="pop_edit_cash_pool"
-                )
-                if st.button("确认保存现金", type="primary", use_container_width=True, key="btn_confirm_cash_pop"):
-                    pm.available_cash = round(new_c_val, 2)
-                    pm.save_state(record_snapshot=True)
-                    st.success("现金池已更新！")
-                    st.rerun()
 
         with t2_c3:
             pnl_c = "#dc2626" if _t2_pnl >= 0 else "#16a34a"
@@ -2078,9 +2113,10 @@ with tab_holdings_and_rebalance:
                 axis=1
             )
 
-            # 精选 10 列以内
+            # 精选核心列：恢复持仓成本价与浮动盈亏率
             cols_selected = [
                 "基金代码", "基金名称", "当前市值(元)", "持仓份额", "当前净值",
+                "持仓成本价", "浮动盈亏率(%)",
                 "今日实时估值涨跌(%)", "盘中预估盈亏(元)", "持仓占比(%)",
                 "最短持有天数", "赎回费状态", "分红方式"
             ]
@@ -2121,6 +2157,17 @@ with tab_holdings_and_rebalance:
                         disabled=True,
                         help="联网拉取的最新单位净值，自动跳出"
                     ),
+                    "持仓成本价": st.column_config.NumberColumn(
+                        "持仓成本价",
+                        format="%.4f",
+                        help="可双击修改买入成本价，新增行未填时默认等于最新净值"
+                    ),
+                    "浮动盈亏率(%)": st.column_config.NumberColumn(
+                        "浮动盈亏率(%)",
+                        format="%+.2f%%",
+                        disabled=True,
+                        help="单只基金累计浮动盈亏率，自动跳出"
+                    ),
                     "今日实时估值涨跌(%)": st.column_config.NumberColumn(
                         "今日实时估值涨跌(%)",
                         format="%+.2f%%",
@@ -2143,6 +2190,7 @@ with tab_holdings_and_rebalance:
                     "最短持有天数": st.column_config.NumberColumn(
                         "最短持有天数",
                         format="%d 天",
+                        default=30,
                         help="修改持有天数自动刷新赎回费梯级"
                     ),
                     "赎回费状态": st.column_config.TextColumn(
@@ -2153,17 +2201,18 @@ with tab_holdings_and_rebalance:
                     "分红方式": st.column_config.SelectboxColumn(
                         "分红方式",
                         options=["cash", "reinvest"],
+                        default="cash",
                         required=True
                     ),
                 },
-                disabled=["基金名称", "当前净值", "今日实时估值涨跌(%)", "盘中预估盈亏(元)", "持仓占比(%)", "赎回费状态"],
+                disabled=["基金名称", "当前净值", "浮动盈亏率(%)", "今日实时估值涨跌(%)", "盘中预估盈亏(元)", "持仓占比(%)", "赎回费状态"],
                 use_container_width=True,
                 num_rows="dynamic",
                 key="main_holdings_editor_tab2"
             )
 
-            # 拉齐操作栏：等高 4 列
-            col_op1, col_op2, col_op3, col_op4 = st.columns(4)
+            # 拉齐操作栏：等高 5 列工具栏（含现金池修改 Popover）
+            col_op1, col_op2, col_op3, col_op4, col_op5 = st.columns(5)
             with col_op1:
                 if st.button("💾 保存修改并入库", type="primary", use_container_width=True, key="btn_save_holdings_tab2"):
                     valid_codes = set()
@@ -2171,8 +2220,8 @@ with tab_holdings_and_rebalance:
                     success_codes = []
                     with st.spinner("🔄 正在智能补齐基金名称、最新净值与盘中估值..."):
                         for _, row in edited_table.iterrows():
-                            raw_code = str(row.get("基金代码", "")).strip()
-                            if not raw_code or raw_code.lower() in ("nan", "none", ""):
+                            raw_code = _safe_str(row.get("基金代码"), "")
+                            if not raw_code:
                                 continue
                             code_s = raw_code.zfill(6)
                             if not code_s.isdigit() or len(code_s) != 6:
@@ -2181,18 +2230,27 @@ with tab_holdings_and_rebalance:
 
                             valid_codes.add(code_s)
                             old_h = pm.holdings.get(code_s)
-                            new_mkt = float(row.get("当前市值(元)", 0.0) or 0.0)
-                            new_shares = float(row.get("持仓份额", 0.0) or 0.0)
+                            new_mkt = _safe_float(row.get("当前市值(元)"), 0.0)
+                            new_shares = _safe_float(row.get("持仓份额"), 0.0)
 
                             # 核心联动：若代码变动或新加入标的，自动联网拉取真实净值与元数据
                             quote = fetch_realtime_fund_quote(code_s)
-                            real_nav = float(quote.dwjz if (quote and quote.dwjz > 0) else (float(row.get("当前净值", 1.0) or 1.0)))
+                            real_nav = float(quote.dwjz if (quote and quote.dwjz > 0) else _safe_float(row.get("当前净值"), 1.0))
                             if real_nav <= 0:
                                 real_nav = 1.0
 
-                            h_days = int(row.get("最短持有天数", 30) or 30)
-                            div_m = str(row.get("分红方式", "cash") or "cash")
-                            cost = float(old_h.cost_price if (old_h and old_h.cost_price > 0) else real_nav)
+                            # 真实基金名称补齐
+                            real_name = quote.name if (quote and quote.name and not quote.name.startswith("公募基金_")) else None
+
+                            h_days = _safe_int(row.get("最短持有天数"), 30)
+                            div_m = _safe_str(row.get("分红方式"), "cash")
+
+                            # 成本价：若行中输入了有效成本价则采用，否则用老成本价或最新净值
+                            row_cost = _safe_float(row.get("持仓成本价"), 0.0)
+                            if row_cost > 0:
+                                cost = row_cost
+                            else:
+                                cost = float(old_h.cost_price if (old_h and old_h.cost_price > 0) else real_nav)
 
                             # 双向自适应反算：改市值算份额，改份额算市值
                             if old_h:
@@ -2219,6 +2277,7 @@ with tab_holdings_and_rebalance:
                                 cost_price=cost,
                                 holding_days=h_days,
                                 dividend_method=div_m,
+                                fund_name=real_name,
                                 notes="代码智能联动与市值反算入库"
                             )
                             success_codes.append(code_s)
@@ -2239,13 +2298,30 @@ with tab_holdings_and_rebalance:
                     st.rerun()
 
             with col_op2:
+                with st.popover("💰 修改现金池", use_container_width=True):
+                    new_c_val = st.number_input(
+                        "可用现金金额 (元)",
+                        value=float(pm.available_cash),
+                        step=1000.0,
+                        format="%.2f",
+                        key="pop_edit_cash_pool_tb"
+                    )
+                    if st.button("确认保存现金", type="primary", use_container_width=True, key="btn_confirm_cash_pop_tb"):
+                        pm.available_cash = round(new_c_val, 2)
+                        pm.save_state(record_snapshot=True)
+                        st.session_state.tab2_diag_cache = None
+                        st.session_state.tab2_rebal_cache = None
+                        st.success("现金池已更新！")
+                        st.rerun()
+
+            with col_op3:
                 if st.button("🔄 同步真实净值", use_container_width=True, help="拉取最新净值/盘中估值刷新持仓", key="btn_sync_holdings_tab2"):
                     with st.spinner("🔄 同步中..."):
                         s_res = pm.sync_holdings_live_nav(use_intraday_gsz=True)
                     st.success(f"✅ 已同步 {s_res.get('updated_count', 0)} 只标的真实净值！")
                     st.rerun()
 
-            with col_op3:
+            with col_op4:
                 csv_exp = df_disp.to_csv(index=False).encode('utf-8-sig')
                 st.download_button(
                     "📥 导出持仓快照 CSV",
@@ -2256,7 +2332,7 @@ with tab_holdings_and_rebalance:
                     key="btn_dl_csv_tab2"
                 )
 
-            with col_op4:
+            with col_op5:
                 with st.popover("🗑️ 删除指定标的", use_container_width=True):
                     del_sel = st.selectbox("选择要删除的基金代码", ["-- 请选择 --"] + list(pm.holdings.keys()), key="pop_del_sel_tab2")
                     if del_sel != "-- 请选择 --":
@@ -2610,12 +2686,14 @@ with tab_holdings_and_rebalance:
                 tier_target_w = dict(snapshot.get("target_weights_funds", {}))
             rebal_mode_param = "forced" if sel_mode_key == "mode_forced" else "gentle"
 
+            _cur_buf = float(st.session_state.get("rebalance_buffer_pct", 3.0))
             ai_orders_res = StrategyBridge.generate_ai_rebalance_orders(
                 current_holdings=pm.holdings,
                 available_cash=pm.available_cash,
                 target_weights_funds=tier_target_w,
                 pm=pm,
-                mode=rebal_mode_param
+                mode=rebal_mode_param,
+                min_buffer_pct=_cur_buf
             )
             items = ai_orders_res.get("items", [])
 

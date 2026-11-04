@@ -3474,6 +3474,7 @@ class StrategyBridge:
         target_weights_funds: Dict[str, float],
         pm: Optional[Any] = None,
         mode: str = "gentle",
+        min_buffer_pct: float = 3.0,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -3482,9 +3483,16 @@ class StrategyBridge:
         Parameters
         ----------
         mode : 'gentle' (温和免伤) 或 'forced' (强行一步到位)
+        min_buffer_pct : float, 缓冲带偏离度（自适应兼容百分比 3.0 或小数 0.03）
         """
+        # 自适应兼容百分比 (如 3.0) 与小数 (如 0.03)
+        raw_b = float(min_buffer_pct) if min_buffer_pct is not None else 3.0
+        norm_pct = (raw_b * 100.0) if (0.0 < raw_b <= 0.5) else raw_b
+        norm_ratio = (raw_b / 100.0) if raw_b > 0.5 else raw_b
+
         is_forced = (mode == "forced")
-        buffer_pct = 0.0 if is_forced else 3.0  # 强行模式下无缓冲区
+        buffer_pct = 0.0 if is_forced else norm_pct
+        buffer_ratio = 0.0 if is_forced else norm_ratio
         ROUTE_NAME_MAP = {
             "PRIORITY_1_SWITCH": "优先级 1：同公司基金转换 (0在途)",
             "PRIORITY_2_CASH_ADVANCE": "优先级 2：闲置现金垫付买入 (T+1确认)",
@@ -3582,7 +3590,7 @@ class StrategyBridge:
                 h_holding_days = getattr(h, 'holding_days', 0)
 
             # 判定动作与路由
-            if abs(diff_w) < (buffer_pct / 100.0): # 缓冲区（温和3%/强行0%）
+            if abs(diff_w) < buffer_ratio: # 缓冲区（自适应统一 min_buffer_pct）
                 action = "HOLD"
                 action_text = "维持当前仓位"
                 est_fee = 0.0
