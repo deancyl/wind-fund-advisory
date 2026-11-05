@@ -1,31 +1,30 @@
-# BRIEFING — 2026-11-05T07:04:00Z
+# BRIEFING — 2026-11-05T14:09:45Z
 
 ## Mission
-Coordinate dark mode DOM fix, anti-overfitting data loop, and buyer advisory upgrade via project team.
+Coordinate implementation and verification of Multi-Ledger System and fix 6 code audit deficiencies in Wind system.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: d:\Google\Workspace\Wind\.agents\teamwork\
-- Orchestrator: c98181d5-8d61-4839-8d62-5dbcef7c85af
+- Orchestrator: 8849ddae-0421-48b2-aa8f-6d2c7b15dafe
 - Victory Auditor: to be spawned on victory claim
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
 - Victory Audit is MANDATORY before reporting completion
-- 物理安全红线：严禁触碰只读裁判文件（judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py）
-- 严禁向全局溢出，规则就地沉淀于工作区 GEMINI.md
-- 遵守工作区 GEMINI.md 全部规范
-- 必须进行端到端自动化验证（pytest + AppTest）与 8501 端口服务平滑重启
+- 严禁修改只读裁判文件（judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py）
+- 严禁修改 DataLoader.simulate_execution 的默认函数签名与默认扣费逻辑
+- 严禁编写写死数字的假文案、严禁写 pass 空分支、严禁画了前端控件却不传参给后端计算函数
 
 ## User Context
-- **Last user request**: 启动深色模式DOM精准穿透修复、反迎合真数据闭环整改及买方投顾专业能力升级任务。
-- **Pending clarifications**: Task interview dispatched to teamwork_interviewer (`091d0d31-3f3a-4647-a3ef-53863b2ec8a7`), relayed to caller (`1395b6f9-733c-4446-9cdb-f33a19e5f711`).
-- **Delivered results**: Sent initial interview notification to caller; interviewer dispatched.
+- **Last user request**: Multi-Ledger system and 6 audit fixes approved task prompt
+- **Pending clarifications**: none
+- **Delivered results**: none
 
 ## Project Status
-- **Phase**: interview
-- **Interviewer ID**: 091d0d31-3f3a-4647-a3ef-53863b2ec8a7
-- **Awaiting**: Approved task prompt from caller/interviewer
+- **Phase**: in progress
+- **Route**: General (teamwork_orchestrator)
+- **Crons**: Cron 1 (task-17, */8), Cron 2 (task-19, */10)
 
 ## Victory Audit Status
 - **Triggered**: no
@@ -33,5 +32,4 @@ Coordinate dark mode DOM fix, anti-overfitting data loop, and buyer advisory upg
 - **Retry count**: 0
 
 ## Artifact Index
-- d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md — Authoritative record of approved task prompt
-- d:\Google\Workspace\Wind\.agents\teamwork\BRIEFING.md — Sentinel persistent working memory
+- d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md — Authoritative user intent record

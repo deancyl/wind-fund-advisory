@@ -1,0 +1,22 @@
+# Progress — Phase 0 Survey (R3, R4, R7)
+
+- **Status**: Investigation completed, synthesizing survey report
+- **Last visited**: 2026-11-05T14:19:00Z
+- **Progress**:
+  - [x] Investigated R3: Tab 2 四大实盘调仓场景模式前后端实现与断层分析
+    - Traced `simulate_rebalance_modes_and_consequences` in `strategy_bridge.py`: lines 6140-6680. Discovered `scenario_mode` is ignored.
+    - Traced `generate_ai_rebalance_orders` in `strategy_bridge.py`: lines 3470-3885. Discovered `pm_plan` is generated but buy/sell actions are overridden by raw `diff_amount = diff_w * total_equity`.
+    - Traced `app_gui.py`: lines 4362-4600. Discovered scenario selector is rendered AFTER simulation, `tab2_last_pool_sig` lacks scenario parameters, parameters not passed to `simulate_rebalance_modes_and_consequences` or `generate_ai_rebalance_orders`.
+    - Traced `portfolio_manager.py`: lines 6232-6600. `generate_scenario_rebalance_plan` has solid logic for all 4 scenarios and `reserved_batch_cash`.
+  - [x] Investigated R4: Tab 3 历史相似匹配硬编码假文案清除与动态统计
+    - Traced `analog_tab2` in `app_gui.py`: lines 5132-5170.
+    - Verified `find_historical_analogs(top_k=3)` in `strategy_bridge.py`: lines 5736-5866. It accurately computes `strategy_ret_60d`, `h300_ret_60d`, `strategy_mdd_60d`.
+    - Verified empirically: Match 1 is dual positive (+14.33% vs +12.00%), Match 2 is bear market defense (-2.85% vs -10.37%), Match 3 is lagging defense (-1.38% vs +6.20%).
+    - Found hardcoded banner text (100.0%, +8.5%) and card text in `app_gui.py` line 5142 & 5165. Formulated dynamic formulas.
+  - [x] Investigated R7: 双翼看板右翼主动风险预警哨同类预警折叠聚合与紧凑布局
+    - Traced `ActiveRiskSentry` in `advisory_engine.py`: lines 522-950.
+    - Traced rendering in `app_gui.py`: lines 2008-2125.
+    - Designed grouping algorithm by `(dimension, level, action_type)` for >=2 funds, batch lock action for `tab2_locked_funds`, and `st.container(height=320)` scrolling container.
+  - [ ] Write detailed survey report to `report.md`
+  - [ ] Write handoff report to `handoff.md`
+  - [ ] Send coordination message back to parent agent

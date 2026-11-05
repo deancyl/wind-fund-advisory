@@ -1,88 +1,104 @@
 # Original User Request
 
-## Initial Approved Task Prompt — 2026-11-05T01:33:23Z
+## Initial Request — 2026-11-05T14:06:32Z
 
-启动全市场指数自定义走廊、全栈7大机构定权模型、6维主动预警与阶梯止盈引擎、数据同源打通及UI细节修复任务。
-
-物理安全红线：严禁修改只读裁判文件（judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py）。请先在思维链中完成全站估值与动量单源同真架构设计，再分步实施代码。
+批准并升级实施「多账本体系 (Multi-Ledger System)」，同时彻底整改代码审计发现的迎合性假代码与前后端断层任务，作为 Wind 投顾系统的生产级核心功能落地与严格代码审计整改。
 
 Working directory: d:\Google\Workspace\Wind
 Integrity mode: development
 
 ## Reference Materials
-- 图1 (侧边栏行情走廊): C:/Users/deanc/.gemini/antigravity/brain/1395b6f9-733c-4446-9cdb-f33a19e5f711/.user_uploaded/media_1793841840384_2bec28d5.jpg
-- 图2 (双翼看板: 机会雷达 + 风险预警哨): C:/Users/deanc/.gemini/antigravity/brain/1395b6f9-733c-4446-9cdb-f33a19e5f711/.user_uploaded/media_1793841846412_1f368576.png
-- 图3 (机构级量化定权模型下拉框与UI细节): C:/Users/deanc/.gemini/antigravity/brain/1395b6f9-733c-4446-9cdb-f33a19e5f711/.user_uploaded/media_1793841852756_cfc7b87e.jpg
+- 核心代码路径：
+  - Streamlit GUI 主程序：`AGY2_FundAdvisory/app_gui.py` (端口 8501)
+  - 核心策略与模型：`portfolio_manager.py`, `strategy_bridge.py`, `AGY2_FundAdvisory/advisory_engine.py`, `data_loader.py`
+  - 数据湖仓与缓存：`data/ledgers/`, `data/ledgers_index.json`, `data/storage.duckdb`, `data/cache/market_screener/nav_cache/`
+- 只读裁判文件基线：`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`
 
 ## Verification Resources
-- 只读裁判文件与哈希基线：`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`（物理安全红线，运行 `python verify_referee_hashes.py` 验证完整性）
-- 演示组合与特定测试持仓：3天锁仓标的（011612）、28天临近免赎标的（011613）、深套重叠标的（013841）
-- 数据湖仓与持久化文件：`data/aligned_matrix_total_return.parquet`, `data/cache/custom_watchlist.json`
-- 自动化测试工具链：pytest 单元测试与 Streamlit `AppTest`
+- 自动化测试套件：pytest 全量测试（含只读 `tests/test_infra.py`）
+- 专项防作弊测试（测试 A：14赛道真动态检验；测试 B：四大调仓场景真实性检验；测试 C：多账本隔离与全站联动检验；测试 D：Tab 4 跨组合穿透检验）
+- Streamlit `AppTest`（浅色与深色主题全站零报错）及 8501 端口服务健康运行探针
 
 ## Requirements
 
-### R1. 升级侧边栏核心指数行情走廊与全市场自由定制
-- **修复样式与实时点位获取**：在 `app_gui.py` 样式表中同时支持 `.val-very-low`, `.val-very_low` 与 `.val-very-high`, `.val-very_high` 类名，确保极低估与过热徽章边框底色正常呈现；在 `fetch_custom_realtime_indices` 与 `fetch_batch_realtime_indices` 中优先使用东财/新浪批量实时接口获取真实盘中点位、涨跌额与涨跌幅，非交易时段基于本地最新两个交易日收盘价计算真实涨跌幅，杜绝整排 0.00% 假平盘。
-- **丰富卡片 3 层专业指标**：每张侧边栏指数卡片展示 3 层核心信息：第一行展示指数名称、代码、最新点位与涨跌幅胶囊；第二行展示真实 PE/PB 历史分位数标签与近 20 日涨跌幅；第三行展示均线趋势状态（如：站上 MA20 偏离 +1.5% 或跌破 MA20 防守）。
-- **全市场指数/ETF 自由定制**：扩充内置全市场指数与核心 ETF 目录至 30 只以上（覆盖宽基、红利、科技、医药、消费、金融、新能源、军工、港股、美股、黄金、国债等）；在侧边栏右上角设置弹窗中提供展示数量滑块（3 至 15 只）、全市场多选检索列表（支持名称/代码/拼音首字母检索，按勾选顺序排列）以及任意 6 位代码实时接入输入框（自动校验真实名称与行情加入走廊，并持久化保存至 `data/cache/custom_watchlist.json`）。
+### R1. 多账本/组合管理体系（MultiLedgerManager）底层存储与管理实现
+- 主实盘账本默认路径保持为 `portfolio_ledger.json`（`id="main_live"`, `name="主实盘账本"`, `type="live"`），确保所有不传参的 `PortfolioManager()` 调用及现有单元测试 100% 原样通过，主实盘受物理保护禁止删除。
+- 所有新建或克隆的账本存放于 `data/ledgers/<ledger_id>.json`，并在 `data/ledgers_index.json` 中维护账本元数据（包含 `id`, `name`, `type: live|sandbox|family`, `default_tier: C1~C5`, `created_at`, `updated_at`）。
+- 在 `MultiLedgerManager` 中完整实现 `list_ledgers()`, `create_ledger(name, base_cash, ledger_type, default_tier)`, `clone_ledger(src_id, target_name)`, `rename_ledger(ledger_id, new_name)`, `delete_ledger(ledger_id)`, `get_all_ledgers_summary()`（汇总所有账本的总资产、总浮盈与持仓只数）。
 
-### R2. 数据同源单源同真与双翼看板升级（全景机会雷达 + 六维主动风险预警哨）
-- **数据同源（Single Source of Truth）**：彻底废弃 `advisory_engine.py` 中 `RADAR_SECTOR_CATALOG` 硬编码的静态 `base_val_pct`、`er_20`、`bias_20`、`slope_20`；统一由 `data_loader.py` 的 `IndexValuationEngine` 与本地行情矩阵实时计算 14 大赛道的真实 PE/PB 分位数、20 日考夫曼信噪比 ER、MA20 乖离率与动量斜率，确保侧边栏走廊与双翼看板显示的估值分位数 100% 一致。
-- **升级左翼全市场机会雷达**：在展示 Top 3 机会卡片下方，提供可展开的全市场 14 大赛道量化温度计总表（展示赛道名称、估值分位、趋势信噪比、20日乖离率、拥挤度评分、综合得分、状态标签与优选基金）；在双翼看板顶部增加一段 80 字以内的今日市场脉搏晨报（自动串联两市成交额变化、ERP 分位、领涨主线与低估击球区解读）。
-- **补齐右翼六维主动风险预警哨与一键处置**：在 `ActiveRiskSentry.inspect_portfolio` 中全面实装 6 大预警维度：
-  1. 维度1（未满 7 天惩罚锁仓红牌）：持有天数 < 7 天，严禁赎回防 1.50% 惩罚费；
-  2. 维度2（临近免赎期倒计时黄牌保护）：A/C 类持有 4 至 6 天（差 1 至 3 天满 7 天），或 C 类持有 23 至 29 天（差 1 至 7 天满 30 天免赎回费），主动提醒再等几天省下赎回费；
-  3. 维度3（C 类满 30 天零费率置换提醒）：持有 >= 30 天的 C 类份额提醒赎回费已归零，长期持有建议择机置换为低费率 A 类；
-  4. 维度4（个基阶梯止盈与深套诊断）：进攻型基金浮盈 >= +15% 且赛道 Bias20 > +5%（或估值分位 > 75%）触发阶梯止盈建议（赎回 30%~50% 锁定利润转入纯债/红利）；浮亏 <= -12% 结合赛道估值分位给出摊薄或调仓诊断；
-  5. 维度5（组合赛道集中度与重仓股重叠预警）：单一细分赛道持仓占比 > 35% 或重仓股重叠度过高发出集中度预警；
-  6. 维度6（基金本体清盘线与大盘攻防线预警）：排查规模 < 0.5 亿元迷你基及沪深300跌破防守线/突破进攻线信号。
-  每条预警卡片下方提供可交互快捷动作按钮（支持一键跳转 Tab 2 调仓并自动锁定未满 7 天标的或生成阶梯止盈减仓单）。
+### R2. 多账本全站级动态热装配与跨 Tab 贯通
+- 在 `app_gui.py` 初始化时，通过 `st.session_state.active_ledger_id` 绑定当前激活的 `PortfolioManager` 实例（`st.session_state.pm`）。
+- 用户切换账本时：全局 `pm` 实例、顶部第 4 张「总资产与今日预估」大卡片、双翼看板的「主动风险预警哨」、Tab 2 持仓账本与调仓、Tab 3 组合回测的「当前实盘持仓」、Tab 4 穿透工具的「当前实盘持仓」必须 100% 同步指向当前激活账本；同时自动将该账本绑定的 `default_tier` 同步至 `active_tier_val`，并清空 `tab2_diag_cache` 与 `tab2_rebal_cache`。
+- 在 Tab 2「步骤一：持仓账本」顶部放置单行多账本管理吧台：包含【当前账本选择器（带实盘/家庭专项/沙盒标识与总市值）】、【➕ 新建账本】Popover（可设名称、初始资金、账本类型、专属风险档位 C1~C5）、【📋 克隆当前副本】Popover、【⚙️ 账本管理】Popover（重命名、删除、查看全账本家庭资产汇总表）。若当前为沙盒账本，醒目展示「当前为独立沙盒环境，任何调仓与录基演练均隔离存储，绝不影响主实盘」提示条。
+- 打通 Tab 1 到多账本的无损保存：在 Tab 1 步骤三底部「设为初始持仓」区域提供两个选项：「覆盖写入当前激活账本」与「🆕 另存为全新独立账本（输入新账本名称一键创建并写入持仓）」，防止误覆盖主实盘账本。
 
-### R3. 扩充 7 大机构级量化定权模型、历史黑天鹅压力测试与 UI 细节修复
-- **实装 7 大机构定权求解算子**：在 `QUANT_MODELS_CATALOG` 与 `WinRateOptimizer` 中实装真实数学求解算子：
-  1. 模型1：鲁棒双核HRP（层次风险平价 + 极值CVaR约束）；
-  2. 模型2：核心-卫星杠铃模型（Core-Satellite，70%~80%纯债红利核心底仓 + 20%~30%高弹性成长/雷达精选卫星仓）；
-  3. 模型3：全天候风险平价模型（All-Weather，跨A股宽基、红利、纯债、黄金、海外QDII实现等风险贡献度配置）；
-  4. 模型4：BL主客观观点融合模型（Black-Litterman，以市场均衡配置为先验，贝叶斯融合机会雷达Top赛道与自选观点）；
-  5. 模型5：条件胜率最优模型（同温层状态机核密度加权）；
-  6. 模型6：尾部风控CVaR模型（最小化 95% 极端尾部亏损）；
-  7. 模型7：凯利动量增强模型（考夫曼信噪比自适应半凯利公式）。
-  同步更新步骤一模型对比说明卡片与宏观环境推荐逻辑。
-- **历史黑天鹅压力测试器**：在 Tab 1 步骤二与 Tab 3 推演结果中增加历史极端行情压力测试卡片，自动测算当前组合在 2018 贸易摩擦熊市、2022 杀估值熊市、2024 年初微盘流动性危机三个真实历史切片下的最大浮亏金额与回本天数。
-- **UI 细节修复**：
-  1. 修复 Primary 主按钮文字颜色：在 `app_gui.py` 全局样式中为 `button[kind="primary"]` 及其内部 `span/p` 显式强制设置 `color: #ffffff !important`，彻底杜绝深色文字不可读；
-  2. 消除步骤一重复摘要文字：在 Tab 1 步骤一中合并顶部灰框与下方提示语中重复出现的资产锚点与权益上限描述，只保留一处精炼策略锚点卡片。
+### R3. 打通 Tab 2「四大实盘调仓场景模式」的前后端真实计算闭环
+- 将 `scenario_mode`（`standard` / `new_cash_only` / `withdraw_cash_only` / `sweep_tail_and_c_class`）、`new_cash_amount`、`withdraw_cash_amount`、`freeze_reserved_cash`、`core_anchor_code` 完整传入 `simulate_rebalance_modes_and_consequences` 与 `generate_ai_rebalance_orders`，并将这些参数纳入缓存签名以确保切换场景或修改金额时立即重新计算。
+- 选择「新资注入免赎补仓 (`new_cash_only`)」时：调仓单表格中所有现有持仓的卖出金额必须严格为 0（赎回费为 0），仅针对欠配标的生成买入指令，且所有买入指令金额之和严格等于 `new_cash_amount`。
+- 选择「智能低损耗提现 (`withdraw_cash_only`)」时：调仓单表格中买入金额严格为 0，系统按最优顺序（优先满免赎期 C 类/A 类、超配或浮盈标的，严格跳过未满 7 天红线标的）生成赎回减仓指令，且赎回总额严格等于 `withdraw_cash_amount`。
+- 开启「冻结分批建仓预留现金 (`freeze_reserved_chk`)」时：计算可用调仓现金时必须扣除 `pm.reserved_batch_cash`，绝不把预留网格资金当成闲置现金催促买光。
 
-### R4. 物理安全红线与工作区执行规范
-- **物理安全红线**：严禁修改只读裁判文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`），实施前后运行 `verify_referee_hashes.py` 确保 SHA256 完好。
-- **工作区行为准则与架构前置**：在实施代码前先在思维链中完成全站估值与动量单源同真架构设计；全面遵循 `GEMINI.md` 铁律（先进先出与 1.50% 赎回费硬约束、Tab 独立错误隔离、Windows 瞬态端口非破坏性甄别）。
+### R4. 清除 Tab 3「历史相似匹配」硬编码假文案，改为真实动态统计
+- 从 `analog_tab2["matches"]` 列表中真实提取匹配的 3 个历史时期的 `strategy_ret_60d`、`h300_ret_60d`、`strategy_mdd_60d`：真实计算后 60 日「跑赢沪深300的相对超额胜率 (%)」、「平均相对超额收益率 (%)」、「策略平均绝对收益率 (%)」与「平均最大回撤 (%)」，动态填入顶部操作指南横幅中，严禁写死任何常数。
+- 对下方 3 张历史卡片，根据每一期真实的 `strategy_ret_60d` 与 `h300_ret_60d` 关系动态生成各不相同的「历史镜鉴意义」：
+  - 若策略与沪深300双双上涨：显示「右侧顺势共振：底部击球区反弹期紧跟主升浪，兼顾进攻弹性与低回撤（最大回撤仅 X.X%）」；
+  - 若沪深300下跌而策略抗跌少亏：显示「逆势抗跌护盾：大盘阴跌寻底期，凭借红利与纯债底仓大幅跑赢大盘 +X.XX%，守住本金安全垫」；
+  - 若沪深300反弹而策略短期小幅落后：显示「防守底仓代价：急跌反抽期高配纯债避险导致短期弹性收敛，但换取了熊市下半场极高本金安全度」。
+
+### R5. 修复 Tab 4 穿透工具切换组合对象底层读取断层与资产分类精准化
+- 为 `pm.calculate_look_through_industry_exposure`、`calculate_stock_overlap_matrix`、`calculate_portfolio_penetration_risk`、`get_portfolio_look_through_stocks_df` 增加可选参数 `holdings_override: Optional[Dict[str, HoldingItem]] = None`（当传入时使用 `holdings_override` 计算，未传入时默认使用 `self.holdings`）。
+- 在 Tab 4 中将 `active_examine_holdings` 真实传入上述 4 个函数，并将聪明钱循环改为遍历 `active_examine_holdings.items()`，确保切换「当前实盘持仓 / 新建仓组合 / 调仓后组合」时全部图表与宽表 100% 真实联动刷新。
+- 彻底升级 `PortfolioManager.classify_fund_asset_class(self, fund_code, fund_name="")` 本体方法：当名称未传入或未命中时，自动反查 `CORE_STRATEGY_POOL`、`EXTENDED_FUND_CATALOG`、`UNIVERSE_18_CHAMPION_POOL`、`SECTOR_FUND_SELECTION`，补齐对医药（161726等）、消费白酒（161725等）、银行金融（160418等）、恒生港股（013402等）、半导体科创（008888/013841/011612等）、美股QDII（050025/001071等）、红利低波（005561/100032等）、宽基（300/500/1000）、纯债、黄金的精准分类，彻底消灭笼统的“61.5% 其他权益资产”。
+
+### R6. 修复 14 大赛道温度计总表中指标回退兜底常数与空 pass 问题
+- 在 `OpportunityRadarEngine._calc_dynamic_sector_metrics` 中，若某细分赛道的独立 parquet 不存在，必须从本地 DuckDB（`data/storage.duckdb` 中的指数/基金净值表）、`data/cache/market_screener/nav_cache/<top_fund_code>.parquet`（直接读取该赛道代表性冠军基金如 161726 医药、161725 白酒、160418 银行、013402 恒科、008888 半导体的真实历史净值序列）或对齐矩阵中提取真实日度价格序列来计算 20 日信噪比 `er_20`、乖离率 `bias_20`、斜率 `slope_20` 与结合 5日/60日波动率比值的 `crowding_score`，确保 14 个赛道 100% 拥有基于真实历史序列算出的独特动态指标，严禁共享 0.50 / +1.0% / 85.0 默认兜底常数。
+- 删除 `get_sector_valuation_percentile` 中的空 `pass` 和硬编码常数：对纯债、黄金、红利、银行等赛道，基于本地真实利差/均线偏离或历史序列动态计算合理的风险估值分位。
+
+### R7. 落实双翼看板右翼「主动风险预警哨」的同类预警折叠聚合与紧凑布局
+- 在 `ActiveRiskSentry.inspect_portfolio` 或前端渲染中，当同一维度（如「未满7天锁仓」）触发的基金数量 >= 2 只时，自动合并为 1 张聚合预警卡片（标题列出前 2 只名称及总只数，如：`🔴 【未满7天锁仓红牌】富国中证红利(100032)、创金合信红利低波(005561) 等 4 只标的持有未满 7 天`），点击下方按钮可一键批量将这批基金全部加入 `tab2_locked_funds`。
+- 将每条预警卡片与处置按钮改为紧凑布局（或放入固定最大高度 `max-height: 320px; overflow-y: auto` 的滚动容器中），杜绝右侧连排大卡片撑长页面。
+
+### R8. 物理安全红线与开发质量约束
+- 严禁修改只读裁判文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`），保持 SHA256 完好无损。
+- 严禁修改 `DataLoader.simulate_execution` 的默认函数签名与默认扣费逻辑。
+- 严禁编写写死数字的假文案、严禁写 pass 空分支、严禁画了前端控件却不传参给后端计算函数。
 
 ## Acceptance Criteria
 
-### 侧边栏行情走廊与自定义
-- [ ] `app_gui.py` 样式表中 `.val-very-low` / `.val-very_low` 与 `.val-very-high` / `.val-very_high` 样式正常生效，极低估与过热徽章具有清晰边框与背景色。
-- [ ] 侧边栏行情走廊成功获取真实点位与涨跌幅，非交易时段基于最近两个交易日收盘价准确计算涨跌幅，无整排 0.00% 现象。
-- [ ] 指数卡片完整展现 3 层信息（名称代码点位涨跌幅、真实 PE/PB 分位与近 20 日涨跌幅、均线趋势状态）。
-- [ ] 目录内置 30 只以上全市场指数/ETF，设置弹窗支持 3~15 只数量滑动、多选检索排序，以及任意 6 位有效代码实时校验接入，且自选配置成功持久化至 `data/cache/custom_watchlist.json`。
+### 多账本体系与跨 Tab 联动
+- [ ] 主实盘账本默认路径保持为 `portfolio_ledger.json`，受物理保护禁止删除；新建/克隆账本存放于 `data/ledgers/<ledger_id>.json`，元数据索引由 `data/ledgers_index.json` 维护。
+- [ ] `MultiLedgerManager` 完整实现增、删、改、克隆、列表与全账本家庭汇总统计功能。
+- [ ] 切换账本时全局 `pm`、顶部第 4 张卡片、预警哨、Tab 2、Tab 3、Tab 4 100% 同步指向当前激活账本，同步更新 `default_tier` 至 `active_tier_val` 并清空 Tab 2 缓存。
+- [ ] Tab 2 顶部多账本管理吧台功能完整（当前账本选择器、新建 Popover、克隆 Popover、管理 Popover、沙盒提示）；Tab 1 支持覆盖写入当前账本或另存为全新账本。
 
-### 数据同源与双翼看板
-- [ ] `advisory_engine.py` 中 `RADAR_SECTOR_CATALOG` 静态硬编码字段已彻底废弃，统一由 `IndexValuationEngine` 动态计算 14 大赛道指标。
-- [ ] 侧边栏行情走廊与双翼看板对应赛道的估值分位数保持 100% 同源一致。
-- [ ] 双翼机会雷达包含 Top 3 机会卡片、可展开的 14 大赛道量化温度计总表以及顶部 <=80 字的今日市场脉搏晨报。
-- [ ] 主动风险预警哨完整覆盖 6 大实战维度，且每条预警卡片附带可交互快捷动作按钮。
+### 四大实盘调仓场景真实性闭环
+- [ ] `scenario_mode` 及所有场景参数真实传入 `simulate_rebalance_modes_and_consequences` 与 `generate_ai_rebalance_orders` 并纳入缓存签名。
+- [ ] `new_cash_only` 场景下卖出金额为 0，买入金额总和严格等于 `new_cash_amount`。
+- [ ] `withdraw_cash_only` 场景下买入金额为 0，赎回金额总和严格等于 `withdraw_cash_amount`，且严格避开未满 7 天红线标的。
+- [ ] 开启 `freeze_reserved_chk` 时，可用调仓现金严格扣除 `pm.reserved_batch_cash`。
 
-### 7 大量化定权模型与压力测试
-- [ ] `QUANT_MODELS_CATALOG` 与 `WinRateOptimizer` 中实装全部 7 大定权模型数学求解算子，各模型推演计算输出的权重和严格等于 1.0。
-- [ ] 步骤一模型对比说明卡片与宏观推荐逻辑已同步更新。
-- [ ] Tab 1 步骤二与 Tab 3 推演结果中展示历史黑天鹅压力测试卡片，准确呈现 2018、2022、2024 年初三个历史切片下的最大浮亏金额与回本天数。
+### 历史相似匹配动态统计
+- [ ] Tab 3 历史相似匹配指标由 `analog_tab2["matches"]` 真实动态计算相对超额胜率、平均超额收益率、策略平均绝对收益率与平均最大回撤，无写死常数。
+- [ ] 3 张历史卡片底部镜鉴文案根据真实收益关系动态分类生成各自独立的归因文案。
 
-### UI 细节修复与物理安全
-- [ ] `button[kind="primary"]` 按钮文字强制为白色（`#ffffff`），在任何主题下均清晰可读。
-- [ ] Tab 1 步骤一已消除资产锚点与权益上限的重复文案描述。
-- [ ] 4 大裁判文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）哈希未发生变动。
+### Tab 4 穿透工具联动与精准资产分类
+- [ ] 4 个穿透底层函数支持 `holdings_override`，聪明钱分析联动遍历当前选定持仓。
+- [ ] `PortfolioManager.classify_fund_asset_class` 本体方法精准映射各细分赛道与宽基、债券、黄金，无笼统“其他权益资产”。
 
-### 自动化测试与服务运行
-- [ ] pytest 单元测试全部通过（验证 7 大模型权重和严格等于 1.0、6 维风险预警哨准确识别 011612、011613、013841 三类风险、图1与图2估值分位一致）。
-- [ ] Streamlit `AppTest` 确认浅色与深色主题下全站 0 异常。
-- [ ] 8501 端口 Streamlit 服务平滑重启完成且正常响应。
+### 14 赛道真实动态指标
+- [ ] 14 个赛道动态指标全部基于真实历史净值序列计算，没有任何赛道同时等于默认兜底值 (0.50, 1.0, 85.0)，且不同赛道指标具备真实区分度。
+- [ ] `get_sector_valuation_percentile` 无空 `pass` 和硬编码常数返回值。
+
+### 预警哨折叠聚合与界面紧凑化
+- [ ] 同类预警数量 >= 2 时折叠聚合为单张卡片，支持一键批量加入 `tab2_locked_funds`。
+- [ ] 预警区域布局紧凑或采用限定最大高度的滚动容器（`max-height: 320px; overflow-y: auto`）。
+
+### 物理安全红线与自动化防作弊测试
+- [ ] 4 大裁判文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）未被修改，SHA256 完全一致。
+- [ ] `DataLoader.simulate_execution` 默认签名与扣费逻辑保持原样。
+- [ ] 运行 pytest 全量测试（含只读 `tests/test_infra.py`）100% 通过。
+- [ ] 专项防作弊测试 A（14赛道真动态检验）：调用 `OpportunityRadarEngine().scan_all_sectors()`，断言 14 个赛道无一共享兜底值 (0.50, 1.0, 85.0) 且具备真实区分度。
+- [ ] 专项防作弊测试 B（四大调仓场景真实性检验）：以 `new_cash_only` 和 `withdraw_cash_only` 分别调用 `generate_ai_rebalance_orders`，断言指令金额与方向完全符合约束。
+- [ ] 专项防作弊测试 C（多账本隔离与全站联动检验）：使用 MultiLedgerManager 创建沙盒账本、克隆账本、修改沙盒持仓，断言主实盘账本完好无损，且删除保护生效。
+- [ ] 专项防作弊测试 D（Tab 4 跨组合穿透检验）：传入不同组合的 `holdings_override` 调用穿透计算，断言结果动态变化且 `classify_fund_asset_class` 无泛化其他权益资产。
+- [ ] 运行 Streamlit `AppTest` 确认浅色与深色主题全站零报错，8501 端口服务平滑重启。
