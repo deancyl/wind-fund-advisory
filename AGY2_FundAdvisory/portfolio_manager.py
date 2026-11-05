@@ -2344,6 +2344,7 @@ class PortfolioManager:
         self.pending_orders: List[PendingOrder] = []
         self.available_cash: float = 0.0
         self.in_transit_cash: float = 0.0
+        self.staged_batch_plans: List[Dict[str, Any]] = []
         self.baseline_date: str = datetime.now().strftime("%Y-%m-%d")
         self.baseline_equity: float = 0.0
         self.takeover_mode: str = "A" # A (极简冷启动) 或 B (账本热接管)
@@ -2892,6 +2893,7 @@ class PortfolioManager:
             "alpha_return_pct": round(self.alpha_return_pct, 2),
             "holdings": holdings_list,
             "pending_orders": orders_list,
+            "staged_batch_plans": copy.deepcopy(self.staged_batch_plans),
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
@@ -2902,6 +2904,7 @@ class PortfolioManager:
         self.baseline_equity = float(state.get("baseline_equity", 0.0))
         self.available_cash = float(state.get("available_cash", 0.0))
         self.in_transit_cash = float(state.get("in_transit_cash", 0.0))
+        self.staged_batch_plans = copy.deepcopy(state.get("staged_batch_plans", []))
         self.peak_equity = float(state.get("peak_equity", self.baseline_equity))
         self.max_drawdown_pct = float(state.get("max_drawdown_pct", 0.0))
         self.benchmark_code = state.get("benchmark_code", "000300.SH")
@@ -3568,10 +3571,16 @@ class PortfolioManager:
     def apply_zero_start_blueprint(
         self,
         blueprint: Dict[str, Any],
-        baseline_date: Optional[str] = None
+        baseline_date: Optional[str] = None,
+        cap_deployment_mode: str = "once",
+        deployment_plan: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        一键将【从 0 开始一键建仓方案】写入为当前账户的初始持仓账本
+        一键将【从 0 开始一键建仓方案】写入为当前账户的初始持仓账本。
+        支持三种建仓节奏：
+        1. 一次性建仓：100% 部署，available_cash 设为 0
+        2. 稳健三步分批建仓：今日 50% 底仓转化为份额，剩余 50% 严格保留在 available_cash
+        3. 估值自适应智能定投：今日仅按第 1 期实扣金额买入，剩余未扣款保留在 available_cash
         """
         self.holdings.clear()
         self.pending_orders.clear()
@@ -3584,12 +3593,30 @@ class PortfolioManager:
         total_cap = float(blueprint.get("total_capital", 100000.0))
         b_date = baseline_date or datetime.now().strftime("%Y-%m-%d")
 
+        # 判定建仓节奏与首期转化系数
+        if "稳健三步" in cap_deployment_mode or cap_deployment_mode == "three_step":
+            deployment_ratio = 0.50
+            mode_tag = "稳健三步"
+        elif "智能定投" in cap_deployment_mode or cap_deployment_mode == "smart_dca":
+            if deployment_plan and "actual_deduction" in deployment_plan:
+                deployment_ratio = float(deployment_plan["actual_deduction"]) / total_cap if total_cap > 0 else (1.0 / 12.0)
+            else:
+                deployment_ratio = 1.0 / 12.0
+            mode_tag = "智能定投"
+        else:
+            deployment_ratio = 1.0
+            mode_tag = "一次性建仓"
+
         allocated_total = 0.0
         items = blueprint.get("items", [])
 
         for it in items:
             code = str(it.get("fund_code")).strip().zfill(6)
-            amt = float(it.get("allocated_amount", 0.0))
+            base_amt = float(it.get("allocated_amount", 0.0))
+            if base_amt <= 0:
+                continue
+
+            amt = round(base_amt * deployment_ratio, 2)
             if amt <= 0:
                 continue
 
@@ -3597,14 +3624,15 @@ class PortfolioManager:
 
             if it.get("has_split") and it.get("split_info"):
                 s_info = it["split_info"]
-                t_amt = float(s_info.get("today_amount", amt))
-                ex_amt = float(s_info.get("excess_amount", 0.0))
+                t_amt = round(float(s_info.get("today_amount", base_amt)) * deployment_ratio, 2)
+                ex_amt = round(float(s_info.get("excess_amount", 0.0)) * deployment_ratio, 2)
                 fb_code = str(s_info.get("fallback_code", "001071")).strip().zfill(6)
 
                 # 1. 填入限购标的今日首期买入份额
                 q1 = fetch_realtime_fund_quote(code)
                 nav1 = q1.dwjz if q1.dwjz > 0 else 1.0
                 shares1 = round(t_amt / nav1, 4)
+                note_str = f"{mode_tag}({it.get('role_desc', '')}-今日限额内)"
                 self.add_or_update_holding(
                     fund_code=code,
                     shares=shares1,
@@ -3613,7 +3641,7 @@ class PortfolioManager:
                     holding_days=0,
                     holding_tag="<7d",
                     dividend_method=div_method,
-                    notes=f"从0开始建仓({it.get('role_desc', '')}-今日限额内)",
+                    notes=note_str,
                     append_batch=False
                 )
 
@@ -3622,6 +3650,7 @@ class PortfolioManager:
                     q2 = fetch_realtime_fund_quote(fb_code)
                     nav2 = q2.dwjz if q2.dwjz > 0 else 1.0
                     shares2 = round(ex_amt / nav2, 4)
+                    note_fb = f"{mode_tag}({it.get('role_desc', '')}-拆单备选买入)"
                     self.add_or_update_holding(
                         fund_code=fb_code,
                         shares=shares2,
@@ -3630,7 +3659,7 @@ class PortfolioManager:
                         holding_days=0,
                         holding_tag="<7d",
                         dividend_method=div_method,
-                        notes=f"从0开始建仓({it.get('role_desc', '')}-拆单备选买入)",
+                        notes=note_fb,
                         append_batch=False
                     )
                 allocated_total += amt
@@ -3638,6 +3667,7 @@ class PortfolioManager:
                 quote = fetch_realtime_fund_quote(code)
                 nav = quote.dwjz if quote.dwjz > 0 else 1.0
                 shares = round(amt / nav, 4)
+                note_str = f"{mode_tag}({it.get('role_desc', '')})"
 
                 self.add_or_update_holding(
                     fund_code=code,
@@ -3647,7 +3677,7 @@ class PortfolioManager:
                     holding_days=0,
                     holding_tag="<7d",
                     dividend_method=div_method,
-                    notes=f"从0开始建仓({it.get('role_desc', '')})",
+                    notes=note_str,
                     append_batch=False
                 )
                 allocated_total += amt
@@ -3658,7 +3688,17 @@ class PortfolioManager:
             h_obj.transition_tag = "核心策略底仓"
 
         self._recalculate_totals()
-        self.available_cash = round(max(0.0, total_cap - self.total_market_value), 2)
+        if "稳健三步" in cap_deployment_mode or cap_deployment_mode == "three_step":
+            self.available_cash = round(total_cap - self.total_market_value, 2)
+            if deployment_plan and "batches" in deployment_plan:
+                self.staged_batch_plans = deployment_plan.get("batches", [])[1:]
+        elif "智能定投" in cap_deployment_mode or cap_deployment_mode == "smart_dca":
+            self.available_cash = round(total_cap - self.total_market_value, 2)
+            if deployment_plan:
+                self.staged_batch_plans = [deployment_plan]
+        else:
+            self.available_cash = 0.0
+
         self.in_transit_cash = 0.0
         self.baseline_date = b_date
         self.takeover_mode = "A"
@@ -3677,7 +3717,8 @@ class PortfolioManager:
             "total_capital": total_cap,
             "allocated_total": allocated_total,
             "available_cash": self.available_cash,
-            "funds_count": len(self.holdings)
+            "funds_count": len(self.holdings),
+            "cap_deployment_mode": cap_deployment_mode
         }
 
     # =====================================================================

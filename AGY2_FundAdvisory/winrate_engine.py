@@ -783,7 +783,10 @@ def simulate_black_swan_stress(
     精准测算当前组合在 2018 贸易摩擦熊市、2022 核心资产杀估值、2024 年初微盘流动性危机
     三个真实历史切片下的最大账面浮亏、最大回撤、回本交易日与相对沪深300的超额防御。
     """
-    from strategy_bridge import StrategyBridge
+    try:
+        from strategy_bridge import StrategyBridge
+    except ImportError:
+        from AGY2_FundAdvisory.strategy_bridge import StrategyBridge
 
     if df_bt is None:
         # 归一化持仓
@@ -864,12 +867,13 @@ def simulate_black_swan_stress(
         peak_idx = int(np.argmax(nav_s[:trough_idx + 1]))
         peak_val = nav_s[peak_idx]
         peak_dt = sub["dt"].iloc[peak_idx]
+        trough_dt = sub["dt"].iloc[trough_idx]
 
-        # 查找全周期回测中后续回本时间
-        sub_post = df_bt[df_bt["dt"] >= peak_dt]
+        # 查找全周期回测中谷底之后的真实回本时间
+        sub_post = df_bt[df_bt["dt"] >= trough_dt]
         rec_rows = sub_post[sub_post["strategy_nav"] >= peak_val]
-        if len(rec_rows) > 1:
-            rec_dt = rec_rows.iloc[1]["dt"]
+        if not rec_rows.empty:
+            rec_dt = rec_rows.iloc[0]["dt"]
             rec_tdays = len(df_bt[(df_bt["dt"] >= peak_dt) & (df_bt["dt"] <= rec_dt)])
             rec_days = (rec_dt - peak_dt).days
             rec_str = f"{rec_tdays} 交易日 (约 {round(rec_days / 30.4, 1)} 个月)"

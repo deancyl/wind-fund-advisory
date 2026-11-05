@@ -1,0 +1,77 @@
+{
+  "timestamp": "2026-11-05 14:59:55",
+  "all_passed": false,
+  "has_danger": true,
+  "has_warning": true,
+  "alerts": [
+    {
+      "level": "red",
+      "dimension": "未满7天锁仓",
+      "title": "【富国中证红利指数增强A (100032)】持有仅 0 天（≤3天）",
+      "desc": "严禁赎回！未满 7 天赎回将直接触发证监会规定的 1.50% 巨额惩罚性扣款！",
+      "action": "锁定持仓下界，暂缓赎回，待持有满 7 天后再行操作。",
+      "action_type": "lock_shares",
+      "fund_code": "100032",
+      "fund_name": "富国中证红利指数增强A"
+    },
+    {
+      "level": "red",
+      "dimension": "未满7天锁仓",
+      "title": "【创金合信中证红利低波动指数A (005561)】持有仅 0 天（≤3天）",
+      "desc": "严禁赎回！未满 7 天赎回将直接触发证监会规定的 1.50% 巨额惩罚性扣款！",
+      "action": "锁定持仓下界，暂缓赎回，待持有满 7 天后再行操作。",
+      "action_type": "lock_shares",
+      "fund_code": "005561",
+      "fund_name": "创金合信中证红利低波动指数A"
+    },
+    {
+      "level": "red",
+      "dimension": "未满7天锁仓",
+      "title": "【华安黄金ETF联接A (000216)】持有仅 0 天（≤3天）",
+      "desc": "严禁赎回！未满 7 天赎回将直接触发证监会规定的 1.50% 巨额惩罚性扣款！",
+      "action": "锁定持仓下界，暂缓赎回，待持有满 7 天后再行操作。",
+      "action_type": "lock_shares",
+      "fund_code": "000216",
+      "fund_name": "华安黄金ETF联接A"
+    },
+    {
+      "level": "red",
+      "dimension": "未满7天锁仓",
+      "title": "【易方达裕祥回报债券A (002351)】持有仅 0 天（≤3天）",
+      "desc": "严禁赎回！未满 7 天赎回将直接触发证监会规定的 1.50% 巨额惩罚性扣款！",
+      "action": "锁定持仓下界，暂缓赎回，待持有满 7 天后再行操作。",
+      "action_type": "lock_shares",
+      "fund_code": "002351",
+      "fund_name": "易方达裕祥回报债券A"
+    },
+    {
+      "level": "red",
+      "dimension": "未满7天锁仓",
+      "title": "【摩根标普500指数(QDII)人民币A (001071)】持有仅 0 天（≤3天）",
+      "desc": "严禁赎回！未满 7 天赎回将直接触发证监会规定的 1.50% 巨额惩罚性扣款！",
+      "action": "锁定持仓下界，暂缓赎回，待持有满 7 天后再行操作。",
+      "action_type": "lock_shares",
+      "fund_code": "001071",
+      "fund_name": "摩根标普500指数(QDII)人民币A"
+    },
+    {
+      "level": "red",
+      "dimension": "未满7天锁仓",
+      "title": "【博时标普500ETF联接A (050025)】持有仅 0 天（≤3天）",
+      "desc": "严禁赎回！未满 7 天赎回将直接触发证监会规定的 1.50% 巨额惩罚性扣款！",
+      "action": "锁定持仓下界，暂缓赎回，待持有满 7 天后再行操作。",
+      "action_type": "lock_shares",
+      "fund_code": "050025",
+      "fund_name": "博时标普500ETF联接A"
+    },
+    {
+      "level": "yellow",
+      "dimension": "赛道集中度",
+      "title": "【红利高股息赛道】持仓占比达 68.0% (>35%集中度红线)",
+      "desc": "单一细分赛道市值敞口达 68.0%，超过 35% 风险预警阈值，组合弹性暴露过度！",
+      "action": "建议适度均衡配置，增配弱相关红利低波、纯债或海外 QDII 资产。",
+      "action_type": "rebalance_sector"
+    }
+  ],
+  "summary": "发现 7 项风险与提示项"
+}

@@ -249,6 +249,8 @@ class WinRateOptimizer:
         market_snapshot: Optional[Dict[str, Any]] = None,
         target_num_funds: Optional[int] = None,
         model_type: str = "cond_winrate",
+        radar_selected_funds: Optional[List[str]] = None,
+        **kwargs,
     ):
         """
         Parameters
@@ -268,6 +270,7 @@ class WinRateOptimizer:
         self.tier = tier
         self.constraints = {**DEFAULT_CONSTRAINTS, **(constraints or {})}
         self.model_type = model_type if model_type in QUANT_MODELS_CATALOG else "hrp_robust"
+        self.radar_selected_funds = list(radar_selected_funds or [])
         self.target_num_funds = int(max(3, min(15, target_num_funds))) if target_num_funds is not None else None
         if self.target_num_funds is not None:
             n_f = self.target_num_funds
@@ -1030,6 +1033,11 @@ class WinRateOptimizer:
         P = np.eye(n)
         mean_sh = np.mean(sharpes)
         tilt = 0.04 * np.tanh(sharpes - mean_sh) + 0.03 * (winrates - 0.5)
+        # 将 radar_selected_funds 作为主观观点加权增配
+        radar_set = set(getattr(self, "radar_selected_funds", []) or [])
+        for i_code, c_code in enumerate(codes):
+            if c_code in radar_set:
+                tilt[i_code] += 0.05
         Q = pi + tilt
         omega = np.diag(np.diag(P @ (tau * cov) @ P.T)) + 1e-5 * np.eye(n)
 

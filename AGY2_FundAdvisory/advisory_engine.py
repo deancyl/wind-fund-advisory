@@ -110,7 +110,7 @@ RADAR_SECTOR_CATALOG: Dict[str, Dict[str, Any]] = {
         "symbol": "000685",
         "index_code": "980017",
         "cs_code": "000685",
-        "matrix_col": "930609",
+        "matrix_col": "STAR50_STITCH",
         "fallback_parquet": "data/processed/indices/000685.SH.parquet",
         "category": "高弹性科技赛道",
         "top_fund_code": "008888",
@@ -270,29 +270,32 @@ class OpportunityRadarEngine:
 
             for sec_id, meta in RADAR_SECTOR_CATALOG.items():
                 s = None
-                m_col = meta.get("matrix_col")
-                if df_mat is not None and m_col and m_col in cols:
-                    s = df_mat[m_col].dropna().values.astype(float)
-                elif df_mat is not None:
-                    idx_c = meta.get("index_code", "")
-                    sym = meta.get("symbol", "")
-                    for c in cols:
-                        if (idx_c and idx_c in str(c)) or (sym and sym in str(c)):
-                            s = df_mat[c].dropna().values.astype(float)
-                            break
+                # 优先读取细分行业/赛道独立日线 parquet (如 000685 半导体、000933 医药、000932 白酒、399986 银行)
+                fb = meta.get("fallback_parquet")
+                if fb and os.path.exists(fb):
+                    try:
+                        fdf = pd.read_parquet(fb)
+                        if "close" in fdf.columns:
+                            s = fdf["close"].dropna().values.astype(float)
+                        elif "收盘" in fdf.columns:
+                            s = fdf["收盘"].dropna().values.astype(float)
+                    except Exception:
+                        s = None
 
-                if (s is None or len(s) < 25) and meta.get("fallback_parquet"):
-                    fb = meta.get("fallback_parquet")
-                    if os.path.exists(fb):
-                        try:
-                            fdf = pd.read_parquet(fb)
-                            if "close" in fdf.columns:
-                                s = fdf["close"].dropna().values.astype(float)
-                            elif "收盘" in fdf.columns:
-                                s = fdf["收盘"].dropna().values.astype(float)
-                        except Exception:
-                            pass
+                # 若无细分日线或长度不足，从大盘行情对齐矩阵提取
+                if (s is None or len(s) < 25) and df_mat is not None:
+                    m_col = meta.get("matrix_col")
+                    if m_col and m_col in cols:
+                        s = df_mat[m_col].dropna().values.astype(float)
+                    else:
+                        idx_c = meta.get("index_code", "")
+                        sym = meta.get("symbol", "")
+                        for c in cols:
+                            if (idx_c and idx_c in str(c)) or (sym and sym in str(c)):
+                                s = df_mat[c].dropna().values.astype(float)
+                                break
 
+                # 若仍不足，从全球指数表提取
                 if (s is None or len(s) < 25) and global_df is not None:
                     idx_c = meta.get("benchmark_index") or meta.get("index_code")
                     if idx_c and "index_code" in global_df.columns:
@@ -375,11 +378,36 @@ class OpportunityRadarEngine:
         if "base_val_pct" in meta:
             return float(meta["base_val_pct"])
 
-        # 资产大类默认中性分位
-        if sec_id in ["domestic_gold"]:
-            return 50.0
-        if sec_id in ["pure_bond"]:
-            return 40.0
+        # 尝试从大盘对齐矩阵动态精算
+        m_col = meta.get("matrix_col")
+        if m_col:
+            for p in [
+                "data/processed/aligned_matrix_total_return.parquet",
+                "data/processed/aligned_market_matrix.parquet",
+                "data/processed/aligned_matrix.parquet",
+                "data/processed/market_matrix.parquet"
+            ]:
+                if os.path.exists(p):
+                    try:
+                        fdf = pd.read_parquet(p)
+                        if m_col in fdf.columns:
+                            s = fdf[m_col].dropna().values.astype(float)
+                            if len(s) >= 40:
+                                sample = s[-1250:] if len(s) >= 1250 else s
+                                p_cur = float(s[-1])
+                                pct = float(np.mean(sample <= p_cur) * 100.0)
+                                return round(pct, 1)
+                    except Exception:
+                        pass
+
+        # 动态中位数兜底，坚决杜绝静态假常数
+        known_pcts = [
+            float(v["percentile"])
+            for v in (val_map or self.valuation_cache or {}).values()
+            if isinstance(v, dict) and v.get("percentile") is not None
+        ]
+        if known_pcts:
+            return round(float(np.median(known_pcts)), 1)
         return 50.0
 
     def evaluate_sector(self, sec_id: str, meta: Dict[str, Any]) -> Dict[str, Any]:
@@ -486,8 +514,12 @@ class ActiveRiskSentry:
         self,
         holdings: Any,
         market_snapshot: Optional[Dict[str, Any]] = None,
-        fund_metadata: Optional[Dict[str, Dict[str, Any]]] = None
+        fund_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
+        snapshot: Optional[Dict[str, Any]] = None,
+        **kwargs
     ) -> Dict[str, Any]:
+        if market_snapshot is None and snapshot is not None:
+            market_snapshot = snapshot
         """
         全面实装 6 大主动风险巡检维度：
         1. 维度1 (未满7天惩罚锁仓红牌): min_days < 7 严禁赎回防 1.50% 扣款 (保留 ≤3天 标识)
@@ -514,6 +546,13 @@ class ActiveRiskSentry:
         sector_mv_map: Dict[str, float] = {}
         normalized_items: List[Dict[str, Any]] = []
 
+        radar_engine = None
+        try:
+            radar_engine = OpportunityRadarEngine()
+            radar_dynamic = radar_engine.dynamic_metrics or {}
+        except Exception:
+            radar_dynamic = {}
+
         # 遍历提取持仓各项指标
         for h in holding_list:
             if isinstance(h, dict):
@@ -522,20 +561,79 @@ class ActiveRiskSentry:
                 batches = h.get("batches", []) or []
                 holding_days = int(h.get("holding_days", 30))
                 share_class = str(h.get("share_class", "A")).upper()
-                bias_20 = float(h.get("bias_20", 0.0))
-                pnl_pct = float(h.get("floating_pnl_pct", h.get("pnl_pct", 0.0)))
                 mv = float(h.get("market_value", h.get("amount", 0.0)))
                 cat = str(h.get("category", h.get("sector", "")))
+                cost_p = float(h.get("cost_price", h.get("cost_nav", 0.0)) or 0.0)
+                cur_nav = float(h.get("current_nav", 0.0) or 0.0)
+                if cost_p > 0 and cur_nav > 0:
+                    pnl_pct = round((cur_nav - cost_p) / cost_p * 100.0, 2)
+                else:
+                    pnl_pct = float(h.get("floating_pnl_pct") or h.get("pnl_pct") or 0.0)
+                raw_bias = h.get("bias_20")
+                bias_20 = float(raw_bias) if raw_bias is not None else 0.0
             else:
                 code = str(getattr(h, "fund_code", None) or getattr(h, "code", "") or "")
                 name = str(getattr(h, "fund_name", None) or getattr(h, "name", code) or code)
                 batches = getattr(h, "batches", []) or []
                 holding_days = int(getattr(h, "holding_days", 30))
                 share_class = str(getattr(h, "share_class", "A")).upper()
-                bias_20 = float(getattr(h, "bias_20", 0.0))
-                pnl_pct = float(getattr(h, "floating_pnl_pct", getattr(h, "pnl_pct", 0.0)))
-                mv = float(getattr(h, "market_value", 0.0))
+                mv = float(getattr(h, "market_value", 0.0) or 0.0)
                 cat = str(getattr(h, "category", getattr(h, "sector", "")))
+                cost_p = float(getattr(h, "cost_price", None) or getattr(h, "cost_nav", 0.0) or 0.0)
+                cur_nav = float(getattr(h, "current_nav", 0.0) or 0.0)
+                if cost_p > 0 and cur_nav > 0:
+                    pnl_pct = round((cur_nav - cost_p) / cost_p * 100.0, 2)
+                else:
+                    pnl_pct = float(getattr(h, "floating_pnl_pct", None) or getattr(h, "pnl_pct", None) or 0.0)
+                raw_bias = getattr(h, "bias_20", None)
+                bias_20 = float(raw_bias) if raw_bias is not None else 0.0
+
+            # 根据每只持仓基金所属赛道或关联指数，从 OpportunityRadarEngine.dynamic_metrics 动态映射
+            sec_id = None
+            for s_k, s_meta in RADAR_SECTOR_CATALOG.items():
+                if s_meta.get("top_fund_code") == code or (s_meta.get("default_fund", {}).get("code") == code):
+                    sec_id = s_k
+                    break
+            if not sec_id:
+                if any(k in name for k in ["集成电路", "芯片", "半导体"]) or code in ["013841", "008888"]:
+                    sec_id = "semiconductor"
+                elif any(k in name for k in ["科创"]) or code in ["011612", "011613", "000688"]:
+                    sec_id = "star_50"
+                elif any(k in name for k in ["红利低波"]) or code in ["005561"]:
+                    sec_id = "dividend_low_vol"
+                elif any(k in name for k in ["红利", "高股息"]) or code in ["100032"]:
+                    sec_id = "csi_dividend"
+                elif any(k in name for k in ["300"]) or code in ["110020"]:
+                    sec_id = "csi_300"
+                elif any(k in name for k in ["500"]) or code in ["000478"]:
+                    sec_id = "csi_500"
+                elif any(k in name for k in ["1000"]) or code in ["004194"]:
+                    sec_id = "csi_1000"
+                elif any(k in name for k in ["标普", "纳指", "美股", "QDII"]) or code in ["001071", "050025"]:
+                    sec_id = "us_sp500_nasdaq"
+                elif any(k in name for k in ["恒生", "港股"]) or code in ["013402"]:
+                    sec_id = "hstech"
+                elif any(k in name for k in ["黄金"]) or code in ["000216", "518880"]:
+                    sec_id = "domestic_gold"
+                elif any(k in name for k in ["债", "裕祥", "固收"]) or code in ["002351", "018757"]:
+                    sec_id = "pure_bond"
+                elif any(k in name for k in ["医", "药"]):
+                    sec_id = "pharma_health"
+                elif any(k in name for k in ["酒", "白酒"]):
+                    sec_id = "consumer_liquor"
+                elif any(k in name for k in ["银"]):
+                    sec_id = "banking_dividend"
+
+            # 若未显式传入 bias_20，动态从赛道获取
+            if raw_bias is None and sec_id and sec_id in radar_dynamic:
+                bias_20 = float(radar_dynamic[sec_id].get("bias_20", 0.0))
+
+            val_percentile = None
+            if sec_id and radar_engine and sec_id in RADAR_SECTOR_CATALOG:
+                try:
+                    val_percentile = radar_engine.get_sector_valuation_percentile(sec_id, RADAR_SECTOR_CATALOG[sec_id])
+                except Exception:
+                    val_percentile = None
 
             # 悲观批次最小天数
             min_days = holding_days
@@ -581,6 +679,7 @@ class ActiveRiskSentry:
                 "pnl_pct": pnl_pct,
                 "market_value": mv,
                 "category": cat,
+                "val_percentile": val_percentile,
             }
             normalized_items.append(item_dict)
 
@@ -678,15 +777,50 @@ class ActiveRiskSentry:
                     "fund_name": name,
                 })
             elif pnl_pct <= -12.0:
+                # 深套持仓 Beta vs Alpha 病根剥离诊断
+                is_tech_fund = (
+                    sec_id in ["semiconductor", "star_50"]
+                    or any(k in name for k in ["集成电路", "芯片", "半导体", "科创"])
+                    or code in ["013841", "008888", "011612", "011613", "000688"]
+                )
+                has_star50_overlap = is_tech_fund and any(
+                    (str(getattr(other_h, "fund_code", None) or getattr(other_h, "code", "") or (other_h.get("fund_code", other_h.get("code", "")) if isinstance(other_h, dict) else "")) in ["011612", "011613", "000688"]
+                     or "科创" in str(getattr(other_h, "fund_name", None) or getattr(other_h, "name", "") or (other_h.get("fund_name", other_h.get("name", "")) if isinstance(other_h, dict) else "")))
+                    for other_h in holding_list
+                    if str(getattr(other_h, "fund_code", None) or getattr(other_h, "code", "") or (other_h.get("fund_code", other_h.get("code", "")) if isinstance(other_h, dict) else "")) != code
+                )
+                # 检查同赛道重叠
+                has_same_sector_overlap = any(
+                    sec_id and (
+                        str(getattr(other_h, "fund_code", None) or getattr(other_h, "code", "") or (other_h.get("fund_code", other_h.get("code", "")) if isinstance(other_h, dict) else "")) in (
+                            [RADAR_SECTOR_CATALOG.get(sec_id, {}).get("top_fund_code"), RADAR_SECTOR_CATALOG.get(sec_id, {}).get("default_fund", {}).get("code")]
+                        )
+                    )
+                    for other_h in holding_list
+                    if str(getattr(other_h, "fund_code", None) or getattr(other_h, "code", "") or (other_h.get("fund_code", other_h.get("code", "")) if isinstance(other_h, dict) else "")) != code
+                )
+
+                if has_star50_overlap:
+                    diag_action = "存在同质化重叠或超额衰减，建议趁反弹阶梯置换为低费率标杆指数基金。"
+                    diag_desc = f"【Beta vs Alpha 病根诊断】该标的当前浮亏达 {pnl_pct:.1f}%。与组合内科创50等标的高度同质化重叠且超额衰减，建议趁反弹阶梯置换为低费率标杆指数基金。"
+                elif has_same_sector_overlap or (val_percentile is not None and val_percentile > 40.0):
+                    diag_action = "存在同质化重叠或超额衰减，建议趁反弹阶梯置换为低费率标杆指数基金。"
+                    diag_desc = f"【Beta vs Alpha 病根诊断】该标的当前浮亏达 {pnl_pct:.1f}%。基金超额衰减且赛道未处历史极端低估 (估值分位 {val_percentile or 50.0:.1f}%)，建议趁反弹阶梯置换为低费率标杆指数基金。"
+                else:
+                    diag_action = "赛道顺周期磨底，严禁底部割肉，建议逢低定投摊薄。"
+                    diag_desc = f"【Beta vs Alpha 病根诊断】该标的当前浮亏达 {pnl_pct:.1f}%。对应赛道处于历史低估磨底区 (估值分位 {val_percentile or 20.0:.1f}%)，赛道顺周期磨底，严禁底部割肉，建议逢低定投摊薄。"
+
                 alerts.append({
                     "level": "yellow",
                     "dimension": "深套诊断",
                     "title": f"【{name} ({code})】深套诊断预警 (浮亏 {pnl_pct:.1f}%)",
-                    "desc": f"该标的当前浮亏已达 {pnl_pct:.1f}%，落入深度套牢区间。",
-                    "action": "结合赛道估值与 MA20 负乖离率实施阶梯减亏或定投摊薄，严禁地板盲目割肉！",
+                    "desc": diag_desc,
+                    "action": diag_action,
                     "action_type": "deep_loss_rebalance",
                     "fund_code": code,
                     "fund_name": name,
+                    "pnl_pct": pnl_pct,
+                    "val_percentile": val_percentile,
                 })
 
             # -------------------------------------------------------------

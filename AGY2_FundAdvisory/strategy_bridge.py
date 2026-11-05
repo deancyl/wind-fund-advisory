@@ -3501,6 +3501,68 @@ class StrategyBridge:
             "NO_ACTION": "维持现状 (偏离度<3%)"
         }
 
+        locked_funds = kwargs.get("locked_funds")
+        if locked_funds is None:
+            try:
+                import streamlit as st
+                locked_funds = list(st.session_state.get("tab2_locked_funds", []))
+            except Exception:
+                locked_funds = []
+        locked_funds_set = set(locked_funds or [])
+
+        pending_take_profit = kwargs.get("pending_take_profit")
+        if pending_take_profit is None:
+            try:
+                import streamlit as st
+                pending_take_profit = st.session_state.get("tab2_pending_take_profit")
+            except Exception:
+                pending_take_profit = None
+
+        c_replace = kwargs.get("c_replace")
+        if c_replace is None:
+            try:
+                import streamlit as st
+                c_replace = st.session_state.get("tab2_c_replace")
+            except Exception:
+                c_replace = None
+
+        target_weights_funds = dict(target_weights_funds)
+        if pending_take_profit and isinstance(pending_take_profit, dict):
+            tp_code = pending_take_profit.get("fund_code")
+            tp_ratio = float(pending_take_profit.get("ratio", 0.40))
+            if tp_code in target_weights_funds and tp_ratio > 0:
+                orig_tw = target_weights_funds[tp_code]
+                cut_tw = round(orig_tw * tp_ratio, 4)
+                target_weights_funds[tp_code] = max(0.0, round(orig_tw - cut_tw, 4))
+                shield_code = "002351" if "002351" in target_weights_funds else ("005561" if "005561" in target_weights_funds else "100032")
+                if shield_code in target_weights_funds:
+                    target_weights_funds[shield_code] = round(target_weights_funds[shield_code] + cut_tw, 4)
+                else:
+                    target_weights_funds[shield_code] = cut_tw
+
+        a_replace_target = None
+        if c_replace:
+            c_code_clean = str(c_replace).strip().zfill(6)
+            A_C_PAIR_MAP = {
+                "011613": "011612", "011612": "011613",
+                "005562": "005561", "005561": "005562",
+                "002352": "002351", "002351": "002352",
+                "000217": "000216", "000216": "000217",
+                "013841": "008888", "013403": "013402"
+            }
+            a_replace_target = A_C_PAIR_MAP.get(c_code_clean, "011612")
+            c_w = target_weights_funds.pop(c_code_clean, 0.0)
+            if c_w <= 0.0 and c_code_clean in current_holdings:
+                tot_eq_calc = sum(getattr(h, 'market_value', 0.0) for h in current_holdings.values()) + available_cash
+                c_mv = getattr(current_holdings[c_code_clean], 'market_value', 0.0)
+                c_w = round(c_mv / tot_eq_calc, 4) if tot_eq_calc > 0 else 0.0
+                target_weights_funds[a_replace_target] = round(target_weights_funds.get(a_replace_target, 0.0) + c_w, 4)
+                w_tot = sum(target_weights_funds.values())
+                if w_tot > 0:
+                    target_weights_funds = {k: round(v / w_tot, 4) for k, v in target_weights_funds.items()}
+            else:
+                target_weights_funds[a_replace_target] = round(target_weights_funds.get(a_replace_target, 0.0) + c_w, 4)
+
         total_market_val = sum(getattr(h, 'market_value', 0.0) for h in current_holdings.values())
         total_equity = total_market_val + available_cash
 
@@ -3590,7 +3652,35 @@ class StrategyBridge:
                 h_holding_days = getattr(h, 'holding_days', 0)
 
             # 判定动作与路由
-            if abs(diff_w) < buffer_ratio: # 缓冲区（自适应统一 min_buffer_pct）
+            if c_replace and code == c_code_clean and diff_w < 0:
+                action = "SELL"
+                action_text = f"🔄 C转A零费率置换 (-¥{abs(diff_amount):,.2f})"
+                safety_warning = "🔄【C转A零费率置换】高费率C类份额择机置换为A类底仓，节约年化销售服务费！"
+                est_fee = 0.0
+                route_code = "PRIORITY_1_SWITCH"
+            elif c_replace and a_replace_target and code == a_replace_target and diff_w > 0:
+                action = "BUY"
+                action_text = f"🔄 C转A零费率置换 (+¥{abs(diff_amount):,.2f})"
+                safety_warning = "🔄【C转A零费率置换】承接C类置换过来的长线低费率A类份额！"
+                est_fee = 0.0
+                route_code = "PRIORITY_1_SWITCH"
+            elif code in locked_funds_set and diff_w < 0:
+                action = "HOLD"
+                action_text = "已手动锁定禁卖"
+                diff_amount = 0.0
+                est_fee = 0.0
+                route_code = "NO_ACTION"
+                safety_warning = "🔒【已手动锁定禁卖】主动风控哨指令生效，强制锁定持仓下界，禁卖底仓！"
+            elif mode == "gentle" and share_class == "C" and 23 <= h_holding_days < 30 and diff_w < 0:
+                action = "HOLD"
+                days_left = 30 - h_holding_days
+                saved_fee = round(mv * 0.005, 2)
+                diff_amount = 0.0
+                est_fee = 0.0
+                route_code = "NO_ACTION"
+                action_text = f"暂缓赎回 (差{days_left}天立省赎回费¥{saved_fee:,.2f})"
+                safety_warning = f"⏳【温和免伤暂缓】该C类标的已持有 {h_holding_days} 天，差 {days_left} 天即满30天免赎，已自动暂缓赎回，立省 ¥{saved_fee:,.2f} 元！"
+            elif abs(diff_w) < buffer_ratio: # 缓冲区（自适应统一 min_buffer_pct）
                 action = "HOLD"
                 action_text = "维持当前仓位"
                 est_fee = 0.0
@@ -3607,7 +3697,7 @@ class StrategyBridge:
                 action = "SELL"
                 desired_sell_shares = round(abs(diff_amount) / current_nav, 2)
                 # 7天惩罚期红线对两种模式一律生效（工作区铁律 #2）；强行模式仅取消 3% 缓冲区
-                if h and hasattr(h, 'batches'):
+                if h and hasattr(h, 'batches') and h.batches:
                     if safe_shares <= 1e-4:
                         # 全处于惩罚期，阻断卖出
                         action = "HOLD"
@@ -3631,6 +3721,13 @@ class StrategyBridge:
                         else:
                             route_code = "SELL_TO_CASH"
                             est_fee = round(abs(diff_amount) * 0.005, 2)
+                elif h_holding_days < 7:
+                    action = "HOLD"
+                    action_text = "7天安全锁拦截 (暂停卖出)"
+                    diff_amount = 0.0
+                    est_fee = 0.0
+                    route_code = "NO_ACTION"
+                    safety_warning = "🔴【7天安全红线拦截】全部份额未满7天，已强力阻断本次卖出，防止触发1.50%惩罚扣费！"
                 else:
                     action_text = f"建议减仓 -¥{abs(diff_amount):,.2f}"
                     route_code = routes_by_code.get(code, ("SELL_TO_CASH", round(abs(diff_amount) * 0.005, 2)))[0]
@@ -4351,6 +4448,9 @@ class StrategyBridge:
         active_cand_df = cand_df_sorted.head(keep_n).copy()
         active_nav_mat = nav_matrix[active_cand_df["fund_code"].tolist()]
 
+        # ── 🔭 机会雷达精选基金 (radar_selected_funds) 作为主观观点及保底标的 ──
+        radar_funds = kwargs.get("radar_selected_funds") or []
+
         optimizer = WinRateOptimizer(
             nav_matrix=active_nav_mat,
             candidate_info=active_cand_df,
@@ -4360,6 +4460,7 @@ class StrategyBridge:
             market_snapshot=snapshot,
             target_num_funds=n_target,
             model_type=model_type,
+            radar_selected_funds=radar_funds,
         )
         opt_res = optimizer.optimize()
         opt_weights = dict(opt_res.get("optimal_weights", {}))
@@ -4367,11 +4468,19 @@ class StrategyBridge:
         # 若因任何原因数量不等于 n_target，精确对齐到 n_target 只
         if len(opt_weights) != n_target:
             top_codes = active_cand_df["fund_code"].tolist()[:n_target]
-            if model_type == "hrp_cvar":
+            if model_type in ("hrp_cvar", "hrp_robust"):
                 opt_weights = optimizer._compute_hrp_weights(top_codes, nav_matrix)
+            elif model_type == "core_satellite":
+                opt_weights = optimizer._compute_core_satellite_weights(top_codes, nav_matrix)
+            elif model_type == "all_weather":
+                opt_weights = optimizer._compute_all_weather_weights(top_codes, nav_matrix)
+            elif model_type == "black_litterman":
+                opt_weights = optimizer._compute_black_litterman_weights(top_codes, nav_matrix)
             else:
-                eq = round(1.0 / n_target, 4)
-                opt_weights = {c: eq for c in top_codes}
+                opt_weights = optimizer._optimize_by_model_type(top_codes, nav_matrix, None)
+                if not opt_weights:
+                    eq = round(1.0 / n_target, 4)
+                    opt_weights = {c: eq for c in top_codes}
 
         # 应用用户手动替换备选标的 (overrides)
         if overrides:
@@ -4382,7 +4491,6 @@ class StrategyBridge:
             opt_weights = new_w
 
         # ── 🔭 强制纳入机会雷达精选基金 (radar_selected_funds) ──
-        radar_funds = kwargs.get("radar_selected_funds") or []
         if radar_funds:
             for rf_code in radar_funds:
                 if rf_code and rf_code not in opt_weights:
@@ -6047,9 +6155,69 @@ class StrategyBridge:
             total_equity = float(sum(getattr(h, 'market_value', 0.0) for h in holdings.values()) + getattr(pm, 'available_cash', 0.0) + getattr(pm, 'in_transit_cash', 0.0))
         available_cash = float(getattr(pm, 'available_cash', 0.0))
 
+        locked_funds = kwargs.get("locked_funds")
+        if locked_funds is None:
+            try:
+                import streamlit as st
+                locked_funds = list(st.session_state.get("tab2_locked_funds", []))
+            except Exception:
+                locked_funds = []
+        locked_funds_set = set(locked_funds or [])
+
+        pending_take_profit = kwargs.get("pending_take_profit")
+        if pending_take_profit is None:
+            try:
+                import streamlit as st
+                pending_take_profit = st.session_state.get("tab2_pending_take_profit")
+            except Exception:
+                pending_take_profit = None
+
         if target_weights is None or not isinstance(target_weights, dict) or len(target_weights) == 0:
             snapshot = cls.get_latest_market_snapshot()
             target_weights = cls.compute_dynamic_tier_weights(tier=active_tier, market_snapshot=snapshot)
+        target_weights = dict(target_weights)
+
+        if pending_take_profit and isinstance(pending_take_profit, dict):
+            tp_code = pending_take_profit.get("fund_code")
+            tp_ratio = float(pending_take_profit.get("ratio", 0.40))
+            if tp_code in target_weights and tp_ratio > 0:
+                orig_tw = target_weights[tp_code]
+                cut_tw = round(orig_tw * tp_ratio, 4)
+                target_weights[tp_code] = max(0.0, round(orig_tw - cut_tw, 4))
+                shield_code = "002351" if "002351" in target_weights else ("005561" if "005561" in target_weights else "100032")
+                if shield_code in target_weights:
+                    target_weights[shield_code] = round(target_weights[shield_code] + cut_tw, 4)
+                else:
+                    target_weights[shield_code] = cut_tw
+
+        c_replace = kwargs.get("c_replace")
+        if c_replace is None:
+            try:
+                import streamlit as st
+                c_replace = st.session_state.get("tab2_c_replace")
+            except Exception:
+                c_replace = None
+
+        if c_replace:
+            c_code_clean = str(c_replace).strip().zfill(6)
+            A_C_PAIR_MAP = {
+                "011613": "011612", "011612": "011613",
+                "005562": "005561", "005561": "005562",
+                "002352": "002351", "002351": "002352",
+                "000217": "000216", "000216": "000217",
+                "013841": "008888", "013403": "013402"
+            }
+            a_replace_target = A_C_PAIR_MAP.get(c_code_clean, "011612")
+            c_w = target_weights.pop(c_code_clean, 0.0)
+            if c_w <= 0.0 and c_code_clean in holdings:
+                c_mv = getattr(holdings[c_code_clean], 'market_value', 0.0)
+                c_w = round(c_mv / total_equity, 4) if total_equity > 0 else 0.0
+                target_weights[a_replace_target] = round(target_weights.get(a_replace_target, 0.0) + c_w, 4)
+                w_tot = sum(target_weights.values())
+                if w_tot > 0:
+                    target_weights = {k: round(v / w_tot, 4) for k, v in target_weights.items()}
+            else:
+                target_weights[a_replace_target] = round(target_weights.get(a_replace_target, 0.0) + c_w, 4)
 
         # 映射与股息基准
         code_to_col = {
@@ -6126,16 +6294,27 @@ class StrategyBridge:
 
                 if diff_amount < -10.0:
                     desired_shares = min(h_shares, round(abs(diff_amount) / nav, 2))
-                    if is_gentle:
-                        penalty_free_shares = pm.get_penalty_free_redeemable_shares(code) if hasattr(pm, 'get_penalty_free_redeemable_shares') else h_shares
-                        sell_shares = min(penalty_free_shares, desired_shares)
-                        if penalty_free_shares <= 1e-4:
+                    if code in locked_funds_set:
+                        sell_shares = 0.0
+                    elif is_gentle:
+                        h_days = 30
+                        if h and hasattr(h, 'batches') and h.batches:
+                            h_days = min((getattr(b, 'holding_days', 0) for b in h.batches), default=0)
+                        elif h and hasattr(h, 'holding_days'):
+                            h_days = getattr(h, 'holding_days', 0)
+                        s_class = getattr(h, 'share_class', meta.get("share_class", "A"))
+                        if s_class == "C" and 23 <= h_days < 30:
                             sell_shares = 0.0
+                        else:
+                            penalty_free_shares = pm.get_penalty_free_redeemable_shares(code) if hasattr(pm, 'get_penalty_free_redeemable_shares') else h_shares
+                            sell_shares = min(penalty_free_shares, desired_shares)
+                            if penalty_free_shares <= 1e-4:
+                                sell_shares = 0.0
                     else:
                         sell_shares = desired_shares
 
                     sell_amt = round(sell_shares * nav, 2)
-                    if sell_shares > 0 or not is_gentle:
+                    if sell_shares > 0 or (not is_gentle and code not in locked_funds_set):
                         sell_actions.append({
                             "action": "SELL",
                             "fund_code": code,
@@ -6431,9 +6610,47 @@ class StrategyBridge:
                 "consequences": consequences
             }
 
+        # 扫描持仓中临近免赎期（差 1~7 天满 7 天或 C 类差 1~7 天满 30 天）的标的
+        imminent_fee_savings = []
+        for c, h in holdings.items():
+            mv = getattr(h, 'market_value', 0.0)
+            h_days = 30
+            if hasattr(h, 'batches') and h.batches:
+                h_days = min((getattr(b, 'holding_days', 0) for b in h.batches), default=0)
+            elif hasattr(h, 'holding_days'):
+                h_days = getattr(h, 'holding_days', 0)
+            s_class = getattr(h, 'share_class', 'A')
+            f_name = getattr(h, 'fund_name', f"基金_{c}")
+
+            if s_class == "C" and 23 <= h_days < 30:
+                d_left = 30 - h_days
+                s_fee = round(mv * 0.005, 2)
+                imminent_fee_savings.append({
+                    "fund_code": c,
+                    "fund_name": f_name,
+                    "share_class": "C",
+                    "holding_days": h_days,
+                    "days_left": d_left,
+                    "saved_fee": s_fee,
+                    "reason": f"C类标的持有满30天免赎回费，仅差 {d_left} 天即可省去 ¥{s_fee:,.2f} 赎回费！"
+                })
+            elif h_days < 7:
+                d_left = 7 - h_days
+                s_fee = round(mv * 0.015, 2)
+                imminent_fee_savings.append({
+                    "fund_code": c,
+                    "fund_name": f_name,
+                    "share_class": s_class,
+                    "holding_days": h_days,
+                    "days_left": d_left,
+                    "saved_fee": s_fee,
+                    "reason": f"持仓未满7天存在 1.50% 惩罚性费率，仅差 {d_left} 天即可省去 ¥{s_fee:,.2f} 惩罚扣款！"
+                })
+
         return {
             "mode_gentle": _simulate_single_mode(is_gentle=True),
-            "mode_forced": _simulate_single_mode(is_gentle=False)
+            "mode_forced": _simulate_single_mode(is_gentle=False),
+            "imminent_fee_savings": imminent_fee_savings
         }
 
 

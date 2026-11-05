@@ -1977,25 +1977,51 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                                     st.session_state.tab2_locked_funds = []
                                 if fcode and fcode not in st.session_state.tab2_locked_funds:
                                     st.session_state.tab2_locked_funds.append(fcode)
-                                st.session_state.tab2_trigger_diagnose = True
-                                st.toast(f"🔒 已锁定标的【{fcode}】持仓下界，严禁调仓卖出！")
+                                st.session_state.tab2_diagnosed = True
+                                st.session_state.tab2_rebalanced = True
+                                st.session_state.tab2_rebal_cache = None
+                                st.session_state.tab2_trigger_diagnose = False
+                                st.session_state.tab2_trigger_rebalance = False
+                                st.toast(f"🔒 已锁定标的【{fcode}】持仓下界，已在【💼 持仓调仓】生成调仓保护单！")
                                 st.rerun()
                             elif act_type == "take_profit":
                                 st.session_state.tab2_pending_take_profit = {"fund_code": fcode, "ratio": 0.40}
-                                st.session_state.tab2_trigger_rebalance = True
-                                st.toast(f"📉 已生成【{fcode}】阶梯止盈单（建议减持40%），请在【💼 持仓调仓】Tab 执行")
+                                st.session_state.tab2_diagnosed = True
+                                st.session_state.tab2_rebalanced = True
+                                st.session_state.tab2_rebal_cache = None
+                                st.session_state.tab2_trigger_diagnose = False
+                                st.session_state.tab2_trigger_rebalance = False
+                                st.toast(f"📉 已生成【{fcode}】阶梯止盈单（建议减持40%），已在【💼 持仓调仓】更新调仓方案！")
                                 st.rerun()
                             elif act_type == "deep_loss_rebalance":
-                                st.session_state.tab2_trigger_diagnose = True
-                                st.toast(f"💼 正在为深套标的【{fcode}】生成反弹抽均线阶梯减亏诊断...")
+                                st.session_state.tab2_diagnosed = True
+                                st.session_state.tab2_rebalanced = True
+                                st.session_state.tab2_rebal_cache = None
+                                st.session_state.tab2_trigger_diagnose = False
+                                st.session_state.tab2_trigger_rebalance = False
+                                st.toast(f"💼 正在为深套标的【{fcode}】生成反弹抽均线阶梯减亏诊断，已在【💼 持仓调仓】就绪！")
                                 st.rerun()
                             elif act_type == "countdown_hold":
+                                st.session_state.tab2_diagnosed = True
+                                st.session_state.tab2_rebalanced = True
+                                st.session_state.tab2_rebal_cache = None
                                 st.toast(f"⏳ 已为【{fcode}】设置免赎倒计时保护，建议持有满 30 天后再行操作")
+                                st.rerun()
                             elif act_type == "switch_a_class":
-                                st.session_state.tab2_trigger_diagnose = True
-                                st.toast(f"🔄 建议在【💼 持仓调仓】将 C 类【{fcode}】逢高置换为对应 A 类份额")
+                                st.session_state.tab2_c_replace = fcode
+                                st.session_state.tab2_diagnosed = True
+                                st.session_state.tab2_rebalanced = True
+                                st.session_state.tab2_rebal_cache = None
+                                st.session_state.tab2_trigger_diagnose = False
+                                st.session_state.tab2_trigger_rebalance = False
+                                st.toast(f"🔄 已激活【{fcode}】C类零费率置换指令，已在【💼 持仓调仓】更新！")
+                                st.rerun()
                             else:
-                                st.session_state.tab2_trigger_diagnose = True
+                                st.session_state.tab2_diagnosed = True
+                                st.session_state.tab2_rebalanced = True
+                                st.session_state.tab2_rebal_cache = None
+                                st.session_state.tab2_trigger_diagnose = False
+                                st.session_state.tab2_trigger_rebalance = False
                                 st.toast(f"⚡ 请前往【💼 持仓调仓】Tab 查看针对【{fcode}】的调仓建议")
                                 st.rerun()
     except Exception as e:
@@ -2301,6 +2327,9 @@ with tab_zero_start:
             with col_mod:
                 model_options_map = {
                     "鲁棒双核HRP": "hrp_cvar",
+                    "核心-卫星杠铃": "core_satellite",
+                    "全天候风险平价": "all_weather",
+                    "BL主客观观点融合": "black_litterman",
                     "条件胜率最优": "cond_winrate",
                     "尾部风控CVaR": "min_cvar",
                     "凯利动量增强": "kelly_momentum"
@@ -2340,18 +2369,23 @@ with tab_zero_start:
             </div>
             """)
 
-            with st.expander("🔍 四大模型对比", expanded=False):
+            with st.expander("🔍 七大机构定权模型全景对比", expanded=False):
+                st.markdown("<div style='font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;'>全套搭载 7 大华尔街与国内头部券商机构级定权算法，依据当下行情自适应匹配或由您自由切换：</div>", unsafe_allow_html=True)
                 mod_c1, mod_c2, mod_c3, mod_c4 = st.columns(4)
+                mod_c5, mod_c6, mod_c7, mod_c8 = st.columns(4)
                 model_cards = [
                     (mod_c1, "鲁棒双核HRP", "层次聚类 + 极值CVaR", "解决赛道踩踏", "层次聚类隔离风险，低波底仓高波控仓", "结构分化 / 震荡市"),
-                    (mod_c2, "条件胜率最优", "状态机加权 + 贝叶斯核密度", "解决时点错配", "锚定当前估值利率，优配同温层高胜率标的", "估值击球区 / 轮动市"),
-                    (mod_c3, "尾部风控CVaR", "极值下行损失规划", "解决黑天鹅巨亏", "深度压低肥尾亏损，杜绝长期严重套牢", "流动性紧缩 / 避险期"),
-                    (mod_c4, "凯利动量增强", "连续半凯利 + 考夫曼信噪比", "解决踏空主升浪", "高信噪比极速跟进主升浪，衰竭自动减速", "单边趋势 / 顺势行情"),
+                    (mod_c2, "核心-卫星杠铃", "70%~80%核心+20%~30%卫星", "解决攻防失衡", "底仓安心吃息，卫星抓Alpha超额", "稳健增值 / 长期吃息"),
+                    (mod_c3, "全天候风险平价", "跨资产风险边际贡献平价", "解决资产周期崩溃", "四象限全周期均衡，不预测牛熊", "宏观牛熊不确定 / 跨大类"),
+                    (mod_c4, "BL主客观融合", "市场均衡 + 机会雷达先验", "解决过拟合与时点错配", "锚定均衡基准并向高信噪比赛道倾斜", "机会雷达主线明确 / 结构牛"),
+                    (mod_c5, "条件胜率最优", "状态机加权 + 贝叶斯核密度", "解决时点错配", "锚定当前估值利率，优配同温层高胜率", "估值击球区 / 轮动市"),
+                    (mod_c6, "尾部风控CVaR", "极值下行损失规划", "解决黑天鹅巨亏", "深度压低肥尾亏损，杜绝长期严重套牢", "流动性紧缩 / 恐慌避险"),
+                    (mod_c7, "凯利动量增强", "连续半凯利 + 考夫曼信噪比", "解决踏空主升浪", "高信噪比极速跟进，衰竭自动减速", "单边趋势 / 顺势行情"),
                 ]
                 for col, m_nm, m_tag, m_prob, m_alloc, m_scen in model_cards:
                     with col:
                         safe_markdown_html(f"""
-                        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px; height: 100%; box-sizing: border-box;">
+                        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px; height: 100%; box-sizing: border-box; margin-bottom: 6px;">
                             <div style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">{m_nm}</div>
                             <div style="font-size: 11px; color: var(--accent-primary); font-weight: 600; margin-bottom: 6px;">{m_tag}</div>
                             <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;"><b>【解决什么】</b><br>{m_prob}</div>
@@ -2359,6 +2393,14 @@ with tab_zero_start:
                             <div style="font-size: 11px; color: var(--color-down); font-weight: 500;"><b>【适合行情】</b><br>{m_scen}</div>
                         </div>
                         """)
+                with mod_c8:
+                    safe_markdown_html("""
+                    <div style="background: var(--bg-elevated); border: 1px dashed var(--border-hover); border-radius: 8px; padding: 10px; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
+                        <div style="font-size: 20px; margin-bottom: 4px;">⚡</div>
+                        <div style="font-size: 12px; font-weight: 700; color: var(--accent-primary);">宏观环境自适应识别</div>
+                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">系统将根据当前市场状态向量自动在上方推荐最优模型</div>
+                    </div>
+                    """)
 
             # ── 用户掌控权：参数调整与下游重计算解耦 ──
             cur_tab1_params = {
@@ -2543,6 +2585,17 @@ with tab_zero_start:
                     <div class="kpi-card-desc" style="font-size: 11px;">{readable_kpi.get('soul_summary', '')}</div>
                 </div>
                 """)
+
+            # 🌪️ 历史黑天鹅极端承压测试卡片
+            try:
+                stress_data = simulate_black_swan_stress(
+                    holdings=opt_weights,
+                    total_capital=float(plan_capital),
+                    df_bt=bt_df if not bt_df.empty else None
+                )
+                render_black_swan_stress_card(stress_data)
+            except Exception as e:
+                st.caption(f"（黑天鹅承压测试卡片渲染提示: {e}）")
 
             # 白盒折叠框 1: 全市场选基漏斗与评分表
             with st.expander("🔍 选基漏斗与评分", expanded=False):
@@ -3023,9 +3076,14 @@ with tab_zero_start:
             col_btn_set_hold, col_btn_to_bt = st.columns([5, 5])
             with col_btn_set_hold:
                 if st.button("🚀 设为初始持仓", type="primary", use_container_width=True, key="btn_apply_bp_tier"):
-                    res_apply = pm.apply_zero_start_blueprint(blueprint)
+                    plan_data = three_step_plan if "稳健三步" in cap_deployment_mode else (dca_plan if "智能定投" in cap_deployment_mode and 'dca_plan' in locals() else None)
+                    res_apply = pm.apply_zero_start_blueprint(
+                        blueprint,
+                        cap_deployment_mode=cap_deployment_mode,
+                        deployment_plan=plan_data
+                    )
                     st.balloons()
-                    st.success(f"已成功将 ¥{res_apply['total_capital']:,.2f} 建仓方案写入为初始持仓，已配置 {res_apply['funds_count']} 只基金及对应分红方式。")
+                    st.success(f"已成功将 ¥{res_apply['total_capital']:,.2f} 建仓方案（模式：{cap_deployment_mode.split('（')[0]}）写入为初始持仓，配置 {res_apply['funds_count']} 只基金。可用现金池 ¥{pm.available_cash:,.2f}。")
                     st.rerun()
 
             with col_btn_to_bt:
@@ -3101,6 +3159,40 @@ with tab_holdings_and_rebalance:
                 "今日调仓方案与四大真实后果账单已就绪，可查看下方执行单"
             )
         )
+
+        # 顶部主动风控指令横幅（若存在锁仓保护或阶梯止盈指令）
+        has_locked = bool(st.session_state.get("tab2_locked_funds"))
+        has_take_profit = bool(st.session_state.get("tab2_pending_take_profit"))
+        has_c_replace = bool(st.session_state.get("tab2_c_replace"))
+        if has_locked or has_take_profit or has_c_replace:
+            desc_parts = []
+            if has_locked:
+                desc_parts.append(f"锁仓保护标的: <b>{', '.join(st.session_state.tab2_locked_funds)}</b>（强制锁定持仓下界禁卖）")
+            if has_take_profit:
+                tp_info = st.session_state.tab2_pending_take_profit
+                desc_parts.append(f"阶梯止盈标的: <b>{tp_info.get('fund_code')}</b>（下调目标权重 {int(tp_info.get('ratio', 0.4)*100)}%，增配纯债/红利低波）")
+            if has_c_replace:
+                desc_parts.append(f"C类份额置换: <b>{st.session_state.tab2_c_replace}</b>（择机置换为A类份额）")
+            
+            c_bnr1, c_bnr2 = st.columns([8.5, 1.5])
+            with c_bnr1:
+                safe_markdown_html(f"""
+                <div style="background: rgba(234, 179, 8, 0.12); border: 1.5px solid #eab308; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px;">
+                    <div style="font-size: 14px; font-weight: 700; color: #ca8a04; margin-bottom: 4px;">
+                        ⚡ 已激活主动风控指令：包含锁仓保护 / 阶梯止盈减仓方案
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-primary); line-height: 1.5;">
+                        {' ｜ '.join(desc_parts)}
+                    </div>
+                </div>
+                """)
+            with c_bnr2:
+                if st.button("✖️ 清除指令", use_container_width=True, key="btn_clear_tab2_risk_orders", help="清除全部主动锁仓、止盈与C类置换风控指令"):
+                    st.session_state.tab2_locked_funds = []
+                    st.session_state.tab2_pending_take_profit = None
+                    st.session_state.tab2_c_replace = None
+                    st.session_state.tab2_rebal_cache = None
+                    st.rerun()
 
         # ---------------------------------------------------------
         # 步骤一：当前持仓账本
@@ -3773,6 +3865,44 @@ with tab_holdings_and_rebalance:
                 </div>
                 """)
 
+            # 💡 调仓净效用门禁精算 (Net Utility Gate) 提示条
+            imminent_gate_tips = []
+            for _c, _h in pm.holdings.items():
+                _mv = getattr(_h, 'market_value', 0.0)
+                _h_days = 30
+                if hasattr(_h, 'batches') and _h.batches:
+                    _h_days = min((getattr(b, 'holding_days', 0) for b in _h.batches), default=0)
+                elif hasattr(_h, 'holding_days'):
+                    _h_days = getattr(_h, 'holding_days', 0)
+                _sc = getattr(_h, 'share_class', 'A')
+                _fn = getattr(_h, 'fund_name', f"基金_{_c}")
+
+                if _sc == "C" and 23 <= _h_days < 30:
+                    _d_left = 30 - _h_days
+                    _s_fee = round(_mv * 0.005, 2)
+                    imminent_gate_tips.append(
+                        f"标的【{_c} {_fn}】已持有 {_h_days} 天，<b>仅差 {_d_left} 天即可满 30 天免赎回费！等待 {_d_left} 天再调仓可立省赎回费 ¥{_s_fee:,.2f} 元</b>，在【温和免伤调仓】模式下系统已自动为您暂缓该笔赎回。"
+                    )
+                elif _h_days < 7:
+                    _d_left = 7 - _h_days
+                    _s_fee = round(_mv * 0.015, 2)
+                    imminent_gate_tips.append(
+                        f"标的【{_c} {_fn}】持仓仅 {_h_days} 天（未满7天），<b>差 {_d_left} 天即免 1.50% 惩罚费！等待 {_d_left} 天再调仓可立省惩罚扣款 ¥{_s_fee:,.2f} 元</b>，7天安全锁已坚决阻断卖出。"
+                    )
+
+            if imminent_gate_tips:
+                gate_tips_html = "<br>• ".join(imminent_gate_tips)
+                safe_markdown_html(f"""
+                <div style="background: rgba(37, 99, 235, 0.08); border: 1.5px solid var(--accent-primary); border-radius: 8px; padding: 12px 16px; margin: 12px 0 8px 0;">
+                    <div style="font-size: 13px; font-weight: 700; color: var(--accent-primary); margin-bottom: 4px;">
+                        💡 调仓净效用门禁精算 (Net Utility Gate)
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-primary); line-height: 1.6;">
+                        • {gate_tips_html}
+                    </div>
+                </div>
+                """)
+
             if not st.session_state.get("tab2_rebalanced", False):
                 safe_markdown_html("<div style='height: 8px;'></div>")
                 if st.button("⚖️ 模拟调仓方案与成本", type="primary", use_container_width=True, key="btn_t2_step_to_reb"):
@@ -3835,7 +3965,10 @@ with tab_holdings_and_rebalance:
                     pm,
                     active_tier=active_tier,
                     target_weights=tier_target_w,
-                    min_buffer_pct=(_cur_buf / 100.0)
+                    min_buffer_pct=(_cur_buf / 100.0),
+                    locked_funds=st.session_state.get("tab2_locked_funds"),
+                    pending_take_profit=st.session_state.get("tab2_pending_take_profit"),
+                    c_replace=st.session_state.get("tab2_c_replace")
                 )
                 acc_reb.update_step(3, "调仓路径与账单精算完成", progress_pct=100)
                 acc_reb.complete("调仓模拟完成")
@@ -3930,6 +4063,44 @@ with tab_holdings_and_rebalance:
                 </div>
                 """)
 
+            # 💡 调仓净效用门禁精算 (Net Utility Gate) 提示条
+            imminent_gate_tips = []
+            for _c, _h in pm.holdings.items():
+                _mv = getattr(_h, 'market_value', 0.0)
+                _h_days = 30
+                if hasattr(_h, 'batches') and _h.batches:
+                    _h_days = min((getattr(b, 'holding_days', 0) for b in _h.batches), default=0)
+                elif hasattr(_h, 'holding_days'):
+                    _h_days = getattr(_h, 'holding_days', 0)
+                _sc = getattr(_h, 'share_class', 'A')
+                _fn = getattr(_h, 'fund_name', f"基金_{_c}")
+
+                if _sc == "C" and 23 <= _h_days < 30:
+                    _d_left = 30 - _h_days
+                    _s_fee = round(_mv * 0.005, 2)
+                    imminent_gate_tips.append(
+                        f"标的【{_c} {_fn}】已持有 {_h_days} 天，<b>仅差 {_d_left} 天即可满 30 天免赎回费！等待 {_d_left} 天再调仓可立省赎回费 ¥{_s_fee:,.2f} 元</b>，在【温和免伤调仓】模式下系统已自动为您暂缓该笔赎回。"
+                    )
+                elif _h_days < 7:
+                    _d_left = 7 - _h_days
+                    _s_fee = round(_mv * 0.015, 2)
+                    imminent_gate_tips.append(
+                        f"标的【{_c} {_fn}】持仓仅 {_h_days} 天（未满7天），<b>差 {_d_left} 天即免 1.50% 惩罚费！等待 {_d_left} 天再调仓可立省惩罚扣款 ¥{_s_fee:,.2f} 元</b>，7天安全锁已坚决阻断卖出。"
+                    )
+
+            if imminent_gate_tips:
+                gate_tips_html = "<br>• ".join(imminent_gate_tips)
+                safe_markdown_html(f"""
+                <div style="background: rgba(37, 99, 235, 0.08); border: 1.5px solid var(--accent-primary); border-radius: 8px; padding: 12px 16px; margin: 12px 0 10px 0;">
+                    <div style="font-size: 13px; font-weight: 700; color: var(--accent-primary); margin-bottom: 4px;">
+                        💡 调仓净效用门禁精算 (Net Utility Gate) 提示
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-primary); line-height: 1.6;">
+                        • {gate_tips_html}
+                    </div>
+                </div>
+                """)
+
             # 调仓执行单
             # tier_target_w 已在上方目标组合选择器中动态精准确定
             if "tier_target_w" not in locals():
@@ -3943,7 +4114,10 @@ with tab_holdings_and_rebalance:
                 target_weights_funds=tier_target_w,
                 pm=pm,
                 mode=rebal_mode_param,
-                min_buffer_pct=_cur_buf
+                min_buffer_pct=_cur_buf,
+                locked_funds=st.session_state.get("tab2_locked_funds"),
+                pending_take_profit=st.session_state.get("tab2_pending_take_profit"),
+                c_replace=st.session_state.get("tab2_c_replace")
             )
             items = ai_orders_res.get("items", [])
 
@@ -3955,7 +4129,16 @@ with tab_holdings_and_rebalance:
                     safety = str(it.get("safety_warning", "") or "")
                     holding_days = it.get("holding_days", 999)
 
-                    if "7天" in safety or holding_days < 7 or "锁仓" in action_raw:
+                    if "手动锁定" in action_raw or "禁卖" in action_raw or "锁定" in action_raw:
+                        op_action = "🔒 已手动锁定禁卖"
+                        op_point = "主动风控·锁死持仓下界"
+                    elif "C转A" in action_raw or "置换" in action_raw:
+                        op_action = "🔄 C转A零费率置换"
+                        op_point = "C类高费率清理·换入A类底仓"
+                    elif "暂缓赎回" in action_raw or "免赎立省" in action_raw:
+                        op_action = "⏳ 临期暂缓免赎"
+                        op_point = action_raw
+                    elif "7天" in safety or holding_days < 7 or "锁仓" in action_raw:
                         op_action = "🔒 未满7天锁仓保护"
                         op_point = "未满7天·免收1.5%惩罚"
                     elif "30天" in safety or (7 <= holding_days < 30 and it.get("share_class") == "C") or "缓卖" in action_raw:
@@ -4227,6 +4410,17 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
         </div>
     </div>
     """)
+
+    # 🌪️ 历史黑天鹅极端承压测试卡片
+    try:
+        stress_data = simulate_black_swan_stress(
+            holdings=primary_weights,
+            total_capital=float(st.session_state.get("plan_capital", 100000.0)),
+            df_bt=df_bt if not df_bt.empty else None
+        )
+        render_black_swan_stress_card(stress_data)
+    except Exception as e:
+        st.caption(f"（Tab 3 黑天鹅承压测试卡片渲染提示: {e}）")
 
     st.markdown(" ")
 

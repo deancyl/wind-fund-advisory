@@ -214,18 +214,24 @@ class IndexValuationEngine:
             except Exception:
                 pass
 
-        # 计算最新估值分位映射
+        # 计算最新估值分位映射（全市场 14 大核心赛道真动态精算，0 静态假常量）
         results: Dict[str, Any] = {}
         index_defs = [
-            {"code": "000300", "secid": "1.000300", "name": "沪深300", "type": "broad_lg", "lg_name": "沪深300", "cs_code": "000300", "duck_code": "000300.SH"},
-            {"code": "000905", "secid": "1.000905", "name": "中证500", "type": "broad_lg", "lg_name": "中证500", "cs_code": "000905", "duck_code": "000905.SH"},
-            {"code": "000852", "secid": "1.000852", "name": "中证1000", "type": "broad_lg", "lg_name": "中证1000", "cs_code": "000852", "duck_code": "000852.SH"},
-            {"code": "000016", "secid": "1.000016", "name": "上证50", "type": "broad_lg", "lg_name": "上证50", "cs_code": "000016", "duck_code": "000016.SH"},
-            {"code": "000922", "secid": "1.000922", "name": "中证红利", "type": "cs_parquet", "cs_code": "000922", "parquet": "data/processed/csindex_H00922.parquet"},
-            {"code": "H30269", "secid": "0.H30269", "name": "红利低波", "type": "cs_parquet", "cs_code": "H30269", "parquet": "data/processed/csindex_H30269.parquet"},
-            {"code": "000688", "secid": "1.000688", "name": "科创50", "type": "growth", "cs_code": "000688", "parquet": "data/processed/indices/000688.SH.parquet"},
-            {"code": "518880", "secid": "1.518880", "name": "黄金ETF", "type": "commodity"},
-            {"code": "513500", "secid": "1.513500", "name": "标普500", "type": "qdii"}
+            {"code": "000300", "secid": "1.000300", "name": "沪深300", "type": "broad_lg", "lg_name": "沪深300", "cs_code": "000300", "duck_code": "000300.SH", "parquet": "data/processed/csindex_H00300.parquet", "aliases": ["H00300"]},
+            {"code": "000905", "secid": "1.000905", "name": "中证500", "type": "broad_lg", "lg_name": "中证500", "cs_code": "000905", "duck_code": "000905.SH", "parquet": "data/processed/csindex_H00905.parquet", "aliases": ["H00905"]},
+            {"code": "000852", "secid": "1.000852", "name": "中证1000", "type": "broad_lg", "lg_name": "中证1000", "cs_code": "000852", "duck_code": "000852.SH", "parquet": "data/processed/csindex_H00852.parquet", "aliases": ["H00852"]},
+            {"code": "000016", "secid": "1.000016", "name": "上证50", "type": "broad_lg", "lg_name": "上证50", "cs_code": "000016", "duck_code": "000016.SH", "parquet": "data/processed/indices/000016.SH.parquet", "aliases": []},
+            {"code": "000922", "secid": "1.000922", "name": "中证红利", "type": "cs_parquet", "cs_code": "000922", "parquet": "data/processed/csindex_H00922.parquet", "aliases": ["H00922"]},
+            {"code": "H30269", "secid": "0.H30269", "name": "红利低波", "type": "cs_parquet", "cs_code": "H30269", "parquet": "data/processed/csindex_H30269.parquet", "aliases": ["000978"]},
+            {"code": "000688", "secid": "1.000688", "name": "科创50", "type": "sector_parquet", "cs_code": "000688", "parquet": "data/processed/indices/000688.SH.parquet", "aliases": ["STAR50_STITCH"]},
+            {"code": "000685", "secid": "1.000685", "name": "半导体芯片", "type": "sector_parquet", "cs_code": "000685", "parquet": "data/processed/indices/000685.SH.parquet", "aliases": ["980017"]},
+            {"code": "000933", "secid": "1.000933", "name": "医药医疗", "type": "sector_parquet", "cs_code": "000933", "parquet": "data/processed/indices/000933.SH.parquet", "aliases": []},
+            {"code": "000932", "secid": "1.000932", "name": "消费白酒", "type": "sector_parquet", "cs_code": "000932", "parquet": "data/processed/indices/000932.SH.parquet", "aliases": []},
+            {"code": "399986", "secid": "0.399986", "name": "银行高股息", "type": "sector_parquet", "cs_code": "399986", "parquet": "data/processed/indices/399986.SZ.parquet", "aliases": []},
+            {"code": "518880", "secid": "1.518880", "name": "黄金ETF", "type": "commodity", "parquet": "data/processed/indices/AU9999.SGE.parquet", "aliases": ["AU9999"]},
+            {"code": "513500", "secid": "1.513500", "name": "标普500", "type": "global", "global_symbol": "SPX", "aliases": ["SPX", "SPX_CNY"]},
+            {"code": "HSTECH", "secid": "0.HSTECH", "name": "恒生科技", "type": "global", "global_symbol": "HSTECH", "aliases": ["013402"]},
+            {"code": "H11009", "secid": "0.H11009", "name": "纯债固收", "type": "bond", "parquet": "data/processed/csindex_H11009.parquet", "aliases": ["930609"]}
         ]
 
         duck_db_path = WORKSPACE_ROOT / "data" / "storage.duckdb"
@@ -236,18 +242,94 @@ class IndexValuationEngine:
             except Exception:
                 duck_con = None
 
+        # 加载全局指数表与大盘矩阵供 fallback 查询
+        global_df = None
+        global_p = WORKSPACE_ROOT / "data/global/global_indices.parquet"
+        if global_p.exists():
+            try:
+                global_df = pd.read_parquet(global_p)
+            except Exception:
+                global_df = None
+
+        mat_df = None
+        for m_p in [
+            WORKSPACE_ROOT / "data/processed/aligned_matrix_total_return.parquet",
+            WORKSPACE_ROOT / "data/processed/aligned_market_matrix.parquet",
+            WORKSPACE_ROOT / "data/processed/aligned_matrix.parquet",
+            WORKSPACE_ROOT / "data/processed/market_matrix.parquet"
+        ]:
+            if m_p.exists():
+                try:
+                    mat_df = pd.read_parquet(m_p)
+                    break
+                except Exception:
+                    pass
+
         for it in index_defs:
             c = it["code"]
             secid = it["secid"]
             name = it["name"]
             itype = it["type"]
+            aliases = it.get("aliases", [])
             pe_val, pct_val, status, label = None, None, "mid", ""
 
             if itype == "commodity":
-                label, status = "大宗避险 · 无PE", "mid"
-            elif itype == "qdii":
-                pe_val, pct_val, status = 26.5, 72.0, "high"
-                label = f"PE {pe_val:.1f} ({pct_val:.0f}%高估)"
+                p_f = WORKSPACE_ROOT / it.get("parquet", "")
+                if p_f.exists():
+                    try:
+                        df_p = pd.read_parquet(p_f)
+                        c_col = "close" if "close" in df_p.columns else ("收盘" if "收盘" in df_p.columns else None)
+                        if c_col:
+                            s = df_p[c_col].dropna().values.astype(float)
+                            if len(s) >= 20:
+                                sample = s[-1250:] if len(s) >= 1250 else s
+                                pct_val = round(float(np.mean(sample <= s[-1]) * 100.0), 1)
+                    except Exception:
+                        pass
+                if pct_val is None and mat_df is not None:
+                    for m_col in ["AU9999", "AU9999.SGE"]:
+                        if m_col in mat_df.columns:
+                            s = mat_df[m_col].dropna().values.astype(float)
+                            if len(s) >= 20:
+                                sample = s[-1250:] if len(s) >= 1250 else s
+                                pct_val = round(float(np.mean(sample <= s[-1]) * 100.0), 1)
+                                break
+
+            elif itype == "bond":
+                p_f = WORKSPACE_ROOT / it.get("parquet", "")
+                if p_f.exists():
+                    try:
+                        df_p = pd.read_parquet(p_f)
+                        c_col = "收盘" if "收盘" in df_p.columns else ("close" if "close" in df_p.columns else None)
+                        if c_col:
+                            s = df_p[c_col].dropna().values.astype(float)
+                            if len(s) >= 20:
+                                sample = s[-1250:] if len(s) >= 1250 else s
+                                pct_val = round(float(np.mean(sample <= s[-1]) * 100.0), 1)
+                    except Exception:
+                        pass
+                if pct_val is None and mat_df is not None:
+                    for m_col in ["H11009", "930609"]:
+                        if m_col in mat_df.columns:
+                            s = mat_df[m_col].dropna().values.astype(float)
+                            if len(s) >= 20:
+                                sample = s[-1250:] if len(s) >= 1250 else s
+                                pct_val = round(float(np.mean(sample <= s[-1]) * 100.0), 1)
+                                break
+
+            elif itype == "global":
+                sym = it.get("global_symbol")
+                if global_df is not None and sym and "index_code" in global_df.columns:
+                    try:
+                        sub = global_df[global_df["index_code"] == sym]
+                        if not sub.empty and "close" in sub.columns:
+                            s = sub["close"].dropna().values.astype(float)
+                            if len(s) >= 20:
+                                sample = s[-1250:] if len(s) >= 1250 else s
+                                pct_val = round(float(np.mean(sample <= s[-1]) * 100.0), 1)
+                    except Exception:
+                        pass
+
             elif itype == "broad_lg":
                 try:
                     import akshare as ak
@@ -256,15 +338,38 @@ class IndexValuationEngine:
                     sample = df_lg['滚动市盈率'].tail(120).values
                     pct_val = round(float(np.mean(sample <= pe_val) * 100.0), 1)
                 except Exception:
-                    if duck_con is not None:
+                    pass
+
+                if pe_val is None and duck_con is not None:
+                    try:
+                        pe_arr = duck_con.execute(f"SELECT pe_ttm FROM v_index_valuations WHERE index_code='{it['duck_code']}' ORDER BY date").fetchnumpy()["pe_ttm"]
+                        if len(pe_arr) > 0:
+                            pe_val = float(pe_arr[-1])
+                            sample = pe_arr[-120:] if len(pe_arr) >= 120 else pe_arr
+                            pct_val = round(float(np.mean(sample <= pe_val) * 100.0), 1)
+                    except Exception:
+                        pass
+
+                if pct_val is None and it.get("parquet"):
+                    p_f = WORKSPACE_ROOT / it["parquet"]
+                    if p_f.exists():
                         try:
-                            pe_arr = duck_con.execute(f"SELECT pe_ttm FROM v_index_valuations WHERE index_code='{it['duck_code']}' ORDER BY date").fetchnumpy()["pe_ttm"]
-                            if len(pe_arr) > 0:
-                                pe_val = float(pe_arr[-1])
-                                sample = pe_arr[-120:] if len(pe_arr) >= 120 else pe_arr
-                                pct_val = round(float(np.mean(sample <= pe_val) * 100.0), 1)
+                            df_p = pd.read_parquet(p_f)
+                            if "滚动市盈率" in df_p.columns:
+                                hist_pes = df_p["滚动市盈率"].dropna().values.astype(float)
+                                if len(hist_pes) > 0:
+                                    pe_val = float(hist_pes[-1])
+                                    sample = hist_pes[-1250:] if len(hist_pes) >= 1250 else hist_pes
+                                    pct_val = round(float(np.mean(sample <= pe_val) * 100.0), 1)
+                            elif "close" in df_p.columns or "收盘" in df_p.columns:
+                                c_col = "close" if "close" in df_p.columns else "收盘"
+                                s = df_p[c_col].dropna().values.astype(float)
+                                if len(s) >= 20:
+                                    sample = s[-1250:] if len(s) >= 1250 else s
+                                    pct_val = round(float(np.mean(sample <= s[-1]) * 100.0), 1)
                         except Exception:
                             pass
+
             elif itype == "cs_parquet":
                 try:
                     import akshare as ak
@@ -276,48 +381,72 @@ class IndexValuationEngine:
                 if p_f.exists():
                     try:
                         df_p = pd.read_parquet(p_f)
-                        hist_pes = df_p['滚动市盈率'].dropna().values
+                        hist_pes = df_p['滚动市盈率'].dropna().values.astype(float)
                         if pe_val is None and len(hist_pes) > 0:
                             pe_val = float(hist_pes[-1])
                         if pe_val is not None and len(hist_pes) > 0:
-                            pct_val = round(float(np.mean(hist_pes <= pe_val) * 100.0), 1)
+                            sample = hist_pes[-1250:] if len(hist_pes) >= 1250 else hist_pes
+                            pct_val = round(float(np.mean(sample <= pe_val) * 100.0), 1)
                     except Exception:
                         pass
-            elif itype == "growth":
-                try:
-                    import akshare as ak
-                    df_cs = ak.stock_zh_index_value_csindex(symbol=it["cs_code"])
-                    pe_val = float(df_cs['市盈率1'].iloc[-1])
-                except Exception:
-                    pe_val = 99.7
-                pct_val, status = 68.0, "mid"
-                label = f"PE {pe_val:.1f} (高弹性)"
 
-            if label == "":
-                if pct_val is not None and pe_val is not None:
-                    if pct_val <= 20.0:
-                        status, label = "very_low", f"PE {pe_val:.1f} ({pct_val:.0f}%极低)"
-                    elif pct_val <= 40.0:
-                        status, label = "low", f"PE {pe_val:.1f} ({pct_val:.0f}%低估)"
-                    elif pct_val <= 70.0:
-                        status, label = "mid", f"PE {pe_val:.1f} ({pct_val:.0f}%适中)"
-                    elif pct_val <= 85.0:
-                        status, label = "high", f"PE {pe_val:.1f} ({pct_val:.0f}%高估)"
-                    else:
-                        status, label = "very_high", f"PE {pe_val:.1f} ({pct_val:.0f}%过热)"
+            elif itype == "sector_parquet":
+                p_f = WORKSPACE_ROOT / it["parquet"]
+                if p_f.exists():
+                    try:
+                        df_p = pd.read_parquet(p_f)
+                        if "滚动市盈率" in df_p.columns:
+                            hist_pes = df_p["滚动市盈率"].dropna().values.astype(float)
+                            if len(hist_pes) > 0:
+                                pe_val = float(hist_pes[-1])
+                                sample = hist_pes[-1250:] if len(hist_pes) >= 1250 else hist_pes
+                                pct_val = round(float(np.mean(sample <= pe_val) * 100.0), 1)
+                        c_col = "close" if "close" in df_p.columns else ("收盘" if "收盘" in df_p.columns else None)
+                        if pct_val is None and c_col:
+                            s = df_p[c_col].dropna().values.astype(float)
+                            if len(s) >= 20:
+                                sample = s[-1250:] if len(s) >= 1250 else s
+                                pct_val = round(float(np.mean(sample <= s[-1]) * 100.0), 1)
+                    except Exception:
+                        pass
+                if pct_val is None and mat_df is not None:
+                    cand_cols = [it["code"], it.get("cs_code")] + aliases
+                    for a_sym in cand_cols:
+                        if a_sym and a_sym in mat_df.columns:
+                            s = mat_df[a_sym].dropna().values.astype(float)
+                            if len(s) >= 20:
+                                sample = s[-1250:] if len(s) >= 1250 else s
+                                pct_val = round(float(np.mean(sample <= s[-1]) * 100.0), 1)
+                                break
+
+            # 动态标签与状态推断
+            if pct_val is not None:
+                if pct_val <= 20.0:
+                    status = "very_low"
+                    level_desc = f"{pct_val:.0f}%极低"
+                elif pct_val <= 40.0:
+                    status = "low"
+                    level_desc = f"{pct_val:.0f}%低估"
+                elif pct_val <= 70.0:
+                    status = "mid"
+                    level_desc = f"{pct_val:.0f}%适中"
+                elif pct_val <= 85.0:
+                    status = "high"
+                    level_desc = f"{pct_val:.0f}%高估"
                 else:
-                    label = f"PE {pe_val:.1f}" if pe_val is not None else "跟踪中"
+                    status = "very_high"
+                    level_desc = f"{pct_val:.0f}%过热"
 
-            if pe_val is None and c == "000300":
-                pe_val, pct_val, status, label = 12.8, 66.7, "mid", "PE 12.8 (67%适中)"
-            elif pe_val is None and c == "000905":
-                pe_val, pct_val, status, label = 22.8, 64.2, "mid", "PE 22.8 (64%适中)"
-            elif pe_val is None and c == "000852":
-                pe_val, pct_val, status, label = 25.4, 50.0, "mid", "PE 25.4 (50%适中)"
-            elif pe_val is None and c == "000922":
-                pe_val, pct_val, status, label = 8.83, 89.5, "very_high", "PE 8.8 (90%过热)"
-            elif pe_val is None and c == "000688":
-                pe_val, pct_val, status, label = 99.73, 68.0, "mid", "PE 99.7 (高弹性)"
+                if itype == "commodity":
+                    label = f"大宗避险 (分位 {pct_val:.0f}%)"
+                elif itype == "bond":
+                    label = f"纯债固收 (分位 {pct_val:.0f}%)"
+                elif pe_val is not None:
+                    label = f"PE {pe_val:.1f} ({level_desc})"
+                else:
+                    label = f"历史分位 {pct_val:.0f}% ({level_desc})"
+            else:
+                label = f"PE {pe_val:.1f}" if pe_val is not None else "跟踪中"
 
             entry = {
                 "code": c,
@@ -331,6 +460,8 @@ class IndexValuationEngine:
             }
             results[c] = entry
             results[secid] = entry
+            for a_code in aliases:
+                results[str(a_code)] = entry
 
         if duck_con is not None:
             duck_con.close()

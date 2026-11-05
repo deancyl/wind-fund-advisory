@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-05 12:02:16",
+  "timestamp": "2026-11-05 14:59:50",
   "all_passed": false,
   "has_danger": true,
   "has_warning": true,
@@ -38,11 +38,13 @@
       "level": "yellow",
       "dimension": "深套诊断",
       "title": "【银华集成电路混合C (013841)】深套诊断预警 (浮亏 -16.2%)",
-      "desc": "该标的当前浮亏已达 -16.2%，落入深度套牢区间。",
-      "action": "结合赛道估值与 MA20 负乖离率实施阶梯减亏或定投摊薄，严禁地板盲目割肉！",
+      "desc": "【Beta vs Alpha 病根诊断】该标的当前浮亏达 -16.2%。与组合内科创50等标的高度同质化重叠且超额衰减，建议趁反弹阶梯置换为低费率标杆指数基金。",
+      "action": "存在同质化重叠或超额衰减，建议趁反弹阶梯置换为低费率标杆指数基金。",
       "action_type": "deep_loss_rebalance",
       "fund_code": "013841",
-      "fund_name": "银华集成电路混合C"
+      "fund_name": "银华集成电路混合C",
+      "pnl_pct": -16.19,
+      "val_percentile": 88.5
     },
     {
       "level": "yellow",
