@@ -1287,6 +1287,12 @@ with st.sidebar:
         v_status = v_meta.get("status", "mid")
         v_badge_html = f'<span class="index-pill-val-badge val-{v_status}" style="font-size: 10px; margin-left: 4px;">{v_label}</span>' if v_label else ''
 
+        c_val = float(idx_item.get("point", 0.0))
+        chg_amt = float(idx_item.get("change_amount", idx_item.get("change", 0.0)))
+        if chg_amt == 0.0 and c_pct != 0.0:
+            chg_amt = c_val - (c_val / (1.0 + c_pct / 100.0))
+        chg_amt_str = f"{chg_amt:+,.2f}" if icode != '518880' else f"{chg_amt:+,.3f}"
+
         corridor_cards_html.append(f"""
         <div class="sidebar-index-card">
             <div class="sidebar-index-left">
@@ -1297,7 +1303,10 @@ with st.sidebar:
                 <span class="sidebar-index-code">{icode}</span>
             </div>
             <div class="sidebar-index-right">
-                <span class="sidebar-index-pt">{pt_fmt}</span>
+                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 1px;">
+                    <span class="sidebar-index-pt">{pt_fmt}</span>
+                    <span style="font-size: 10px; font-family: monospace; color: var(--text-muted);">{chg_amt_str}</span>
+                </div>
                 <span class="sidebar-index-badge {c_badge_cls}">{c_sign}{c_pct:.2f}%</span>
             </div>
         </div>
@@ -1524,7 +1533,13 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
             with col_sentry:
                 st.markdown("<div style='font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;'>🚨 主动风险预警哨 · 四维巡检</div>", unsafe_allow_html=True)
                 sentry = ActiveRiskSentry()
-                report = sentry.inspect_portfolio(pm_instance.holdings, snapshot_dict)
+                _f_metas = {}
+                for _c in pm_instance.holdings.keys():
+                    try:
+                        _f_metas[_c] = data_loader.get_fund_metadata(_c) or {}
+                    except Exception:
+                        _f_metas[_c] = {}
+                report = sentry.inspect_portfolio(pm_instance.holdings, snapshot_dict, fund_metadata=_f_metas)
 
                 if report.get("all_passed"):
                     st.markdown("""
@@ -1606,6 +1621,20 @@ with tab_zero_start:
             st.session_state.custom_fund_overrides = {}
 
         # 🧭 工作流步骤与系统状态指示器
+        # 机会雷达入池动态提示标签
+        _radar_funds = st.session_state.get("radar_selected_funds", [])
+        if _radar_funds:
+            _tag_parts = []
+            for _rfc in _radar_funds:
+                _r_meta = CORE_STRATEGY_POOL.get(_rfc, {}) or EXTENDED_FUND_CATALOG.get(_rfc, {})
+                _r_name = _r_meta.get("fund_name", _rfc)
+                _tag_parts.append(f'<span style="background: var(--bg-surface); border: 1px solid var(--accent-primary); color: var(--accent-primary); border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 600;">✅ 已纳入建仓组合池：{_r_name} ({_rfc})</span>')
+            safe_markdown_html(f'''
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
+                {' '.join(_tag_parts)}
+            </div>
+            ''')
+
         step_now = int(st.session_state.get("tab1_step_reached", 1))
         render_workflow_step_indicator(
             ["设定目标与测风险", "量化推演看好坏", "生成实盘建仓单"],
@@ -2508,18 +2537,48 @@ with tab_zero_start:
             if overrides:
                 st.info(f"💡 检测到您自定义替换了 {len(overrides)} 只标的：{overrides}，配置方案已实时动态调整。")
 
+            # 动态根据建仓节奏扩展表格列
+            df_display = df_bp.copy()
+            dynamic_col_config = {
+                "目标占比(%)": st.column_config.ProgressColumn(min_value=0, max_value=60, format="%.1f%%"),
+                "精确买入金额(元)": st.column_config.NumberColumn(format="¥%.2f"),
+                "最新净值": st.column_config.NumberColumn(format="%.4f"),
+                "实时估值涨跌(%)": st.column_config.NumberColumn(format="%+.2f%%"),
+                "实操分红与限购指引": st.column_config.TextColumn(
+                    "实操分红与限购指引 ⓘ",
+                    help="下单实操要点：红利类设为【现金分红】锁住收益；限额标的自动拆单；A类长投免赎，C类适合弹性波段。"
+                ),
+            }
+
+            active_cheat_sheet_text = cheat_sheet_text
+            if "稳健三步" in cap_deployment_mode:
+                df_display["今日底仓买入(50%)"] = df_display["精确买入金额(元)"] * 0.50
+                df_display["逢低网格挂单(30%)"] = df_display["精确买入金额(元)"] * 0.30
+                df_display["右侧突破加仓(20%)"] = df_display["精确买入金额(元)"] * 0.20
+                dynamic_col_config["今日底仓买入(50%)"] = st.column_config.NumberColumn(format="¥%.2f")
+                dynamic_col_config["逢低网格挂单(30%)"] = st.column_config.NumberColumn(format="¥%.2f")
+                dynamic_col_config["右侧突破加仓(20%)"] = st.column_config.NumberColumn(format="¥%.2f")
+
+                cs_lines = [cheat_sheet_text, "\n【🌊 稳健三步分批建仓执行小抄】"]
+                for _, r in df_display.iterrows():
+                    cs_lines.append(f"标的: {r['基金代码']} ({r['基金名称']}) -> 第1步今日底仓: ¥{r['今日底仓买入(50%)']:,.2f} | 第2步逢低网格: ¥{r['逢低网格挂单(30%)']:,.2f} | 第3步右侧加仓: ¥{r['右侧突破加仓(20%)']:,.2f}")
+                active_cheat_sheet_text = "\n".join(cs_lines)
+
+            elif "智能定投" in cap_deployment_mode and 'dca_plan' in locals():
+                mult = dca_plan.get("multiplier", 1.0)
+                df_display["基准每期定投(元)"] = df_display["精确买入金额(元)"] / 12.0
+                df_display["本期乘数修正后实扣(元)"] = (df_display["精确买入金额(元)"] / 12.0) * mult
+                dynamic_col_config["基准每期定投(元)"] = st.column_config.NumberColumn(format="¥%.2f")
+                dynamic_col_config["本期乘数修正后实扣(元)"] = st.column_config.NumberColumn(format="¥%.2f")
+
+                cs_lines = [cheat_sheet_text, f"\n【📅 估值自适应智能定投执行小抄 (乘数: {mult:.2f}x)】"]
+                for _, r in df_display.iterrows():
+                    cs_lines.append(f"标的: {r['基金代码']} ({r['基金名称']}) -> 基准定投: ¥{r['基准每期定投(元)']:,.2f}/期 | 本期实扣: ¥{r['本期乘数修正后实扣(元)']:,.2f}")
+                active_cheat_sheet_text = "\n".join(cs_lines)
+
             st.dataframe(
-                df_bp,
-                column_config={
-                    "目标占比(%)": st.column_config.ProgressColumn(min_value=0, max_value=60, format="%.1f%%"),
-                    "精确买入金额(元)": st.column_config.NumberColumn(format="¥%.2f"),
-                    "最新净值": st.column_config.NumberColumn(format="%.4f"),
-                    "实时估值涨跌(%)": st.column_config.NumberColumn(format="%+.2f%%"),
-                    "实操分红与限购指引": st.column_config.TextColumn(
-                        "实操分红与限购指引 ⓘ",
-                        help="下单实操要点：红利类设为【现金分红】锁住收益；限额标的自动拆单；A类长投免赎，C类适合弹性波段。"
-                    ),
-                },
+                df_display,
+                column_config=dynamic_col_config,
                 use_container_width=True,
                 hide_index=True
             )
@@ -2528,7 +2587,7 @@ with tab_zero_start:
 
             with st.expander("📱 下单一键复制小抄", expanded=False):
                 st.caption("您可以直接复制下方文本发送给微信或记事本，对照手机银行、天天基金、蚂蚁财富一分钟完成买入：")
-                st.code(cheat_sheet_text, language="text")
+                st.code(active_cheat_sheet_text, language="text")
 
             col_btn_set_hold, col_btn_to_bt = st.columns([5, 5])
             with col_btn_set_hold:
@@ -3172,14 +3231,32 @@ with tab_holdings_and_rebalance:
                     st.write(f"**接管期最大回撤**：`{pm.max_drawdown_pct:.2f}%`")
                     st.write(f"**基准超额 (Alpha)**：`{pm.alpha_return_pct:+.2f}%` (vs {pm.benchmark_code})")
 
-        # 步骤一底部推进按钮
+        # 步骤一底部推进按钮与缓冲带微调 (方便诊断调仓时机前直接调节)
         safe_markdown_html("<div style='height: 8px;'></div>")
-        col_t2_btn1, col_t2_btn2 = st.columns([1, 1])
+        col_t2_btn1, col_t2_buf_bot, col_t2_btn2 = st.columns([3.5, 4.0, 2.5])
         with col_t2_btn1:
             if st.button("🔍 诊断今日调仓时机", type="primary", use_container_width=True, key="btn_tab2_diagnose"):
                 st.session_state.tab2_diagnosed = True
                 st.session_state.tab2_trigger_diagnose = True
                 st.rerun()
+        with col_t2_buf_bot:
+            def _sync_t2_buffer_bot_change():
+                st.session_state.rebalance_buffer_pct = float(st.session_state.tab2_rebal_buf_slider_bot)
+                st.session_state.tab2_diag_cache = None
+                st.session_state.tab2_rebal_cache = None
+
+            cur_buf_now = float(st.session_state.get("rebalance_buffer_pct", 3.0))
+            st.slider(
+                "🛡️ 免折腾调仓缓冲带 (%)",
+                min_value=1.0,
+                max_value=5.0,
+                value=cur_buf_now,
+                step=0.5,
+                format="%.1f%%",
+                key="tab2_rebal_buf_slider_bot",
+                on_change=_sync_t2_buffer_bot_change,
+                help="控制偏离度过滤下限，低于此阈值的微小偏离自动维持现状"
+            )
         with col_t2_btn2:
             if st.button("🚀 一键执行全案", type="secondary", use_container_width=True, key="btn_tab2_all"):
                 st.session_state.tab2_diagnosed = True
