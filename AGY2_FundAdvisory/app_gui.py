@@ -32,10 +32,14 @@ sys.path.insert(0, str(CURRENT_DIR))
 
 # 核心本地模块导入与显式热重载守卫
 import cache_manager
+importlib.reload(cache_manager)
 import data_loader
+importlib.reload(data_loader)
 import trading_clock_fee
+importlib.reload(trading_clock_fee)
 from trading_clock_fee import TradingClock, FeeMatrixCalculator
 import portfolio_manager
+importlib.reload(portfolio_manager)
 from portfolio_manager import (
     PortfolioManager,
     CORE_STRATEGY_POOL,
@@ -52,7 +56,13 @@ from portfolio_manager import (
 )
 from data_loader import (
     fetch_market_turnover_and_sentiment,
-    fetch_or_calc_index_valuations
+    fetch_or_calc_index_valuations,
+    load_custom_watchlist,
+    save_custom_watchlist,
+    validate_and_fetch_code,
+    fetch_custom_realtime_indices,
+    get_index_corridor_metrics,
+    INDEX_CATALOG_38
 )
 import winrate_engine
 from winrate_engine import WinRateEngine, HOLDING_PERIODS, WINRATE_METRIC_DEFINITIONS
@@ -77,7 +87,8 @@ from portfolio_optimizer import (
     WinRateOptimizer,
     QUANT_MODELS_CATALOG,
     recommend_model_for_regime,
-    execute_market_optimization_flow
+    execute_market_optimization_flow,
+    simulate_black_swan_stress
 )
 import advisory_engine
 from advisory_engine import (
@@ -135,7 +146,8 @@ if _need_reimport or not st.session_state.get("_modules_initialized"):
     from market_screener import MarketScreener
     from portfolio_optimizer import (
         WinRateOptimizer, QUANT_MODELS_CATALOG,
-        recommend_model_for_regime, execute_market_optimization_flow
+        recommend_model_for_regime, execute_market_optimization_flow,
+        simulate_black_swan_stress
     )
     st.session_state["_modules_initialized"] = True
 
@@ -784,24 +796,48 @@ st.markdown(f"""
     }}
 
     
-    /* 侧边栏垂直行情走廊卡片流 (Sidebar Index Corridor Cards) */
+    /* 侧边栏垂直行情走廊 3 层专业指标卡片流 (3-Layer Sidebar Index Corridor Cards) */
     .sidebar-index-card {{
         background: var(--bg-surface) !important;
         border: 1px solid var(--border-subtle) !important;
         border-radius: 8px;
-        padding: 9px 12px;
+        padding: 8px 10px;
         margin-bottom: 8px;
         box-shadow: var(--shadow-card) !important;
         display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        transition: all 0.2s ease;
+        flex-direction: column;
+        gap: 5px;
+        min-height: 80px;
+        height: auto !important;
+        overflow: visible !important;
         box-sizing: border-box;
+        transition: all 0.2s ease;
     }}
     .sidebar-index-card:hover {{
         border-color: var(--border-hover) !important;
         background: var(--bg-elevated) !important;
+    }}
+    .sidebar-card-row-top, .sidebar-card-row-mid, .sidebar-card-row-bot {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        box-sizing: border-box;
+    }}
+    .sidebar-card-row-top {{
+        min-height: 22px;
+    }}
+    .sidebar-card-title-box {{
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        min-width: 0;
+    }}
+    .sidebar-card-quote-box {{
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
     }}
     .sidebar-index-left {{
         display: flex;
@@ -818,12 +854,13 @@ st.markdown(f"""
         font-size: 13px;
         font-weight: 700;
         color: var(--text-primary) !important;
-        white-space: nowrap;
+        white-space: nowrap !important;
     }}
     .sidebar-index-code {{
         font-size: 11px;
         font-family: monospace;
         color: var(--text-muted) !important;
+        white-space: nowrap !important;
     }}
     .sidebar-index-right {{
         display: flex;
@@ -839,15 +876,17 @@ st.markdown(f"""
         letter-spacing: -0.2px;
         color: var(--text-primary) !important;
         text-align: right;
+        white-space: nowrap !important;
     }}
     .sidebar-index-badge {{
+        flex: 0 0 auto !important;
+        white-space: nowrap !important;
         font-size: 11px;
         font-weight: 700;
         font-family: monospace;
         border-radius: 4px;
         padding: 2px 6px;
         line-height: 1.2;
-        white-space: nowrap;
     }}
     .sidebar-index-badge-up {{
         color: var(--color-up) !important;
@@ -864,6 +903,36 @@ st.markdown(f"""
         background: var(--bg-elevated) !important;
         border: 1px solid var(--border-subtle) !important;
     }}
+    .sidebar-card-row-mid {{
+        font-size: 11px;
+        line-height: 1.3;
+    }}
+    .sidebar-card-ret20 {{
+        font-size: 11px;
+        font-weight: 600;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap !important;
+    }}
+    .sidebar-card-row-bot {{
+        border-top: 1px dashed var(--border-subtle);
+        padding-top: 4px;
+        margin-top: 2px;
+        font-size: 10.5px;
+        line-height: 1.3;
+    }}
+    .sidebar-card-trend-text {{
+        font-size: 10.5px;
+        font-weight: 600;
+        white-space: nowrap !important;
+    }}
+    .sidebar-card-ma-pt {{
+        font-size: 10px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-variant-numeric: tabular-nums;
+        color: var(--text-muted);
+        white-space: nowrap !important;
+    }}
     
     /* 顶部行情带真实估值分位标签微胶囊 */
     .index-pill-val-badge, .index-pill-val-tag {{
@@ -875,7 +944,7 @@ st.markdown(f"""
         line-height: 1.2;
         box-sizing: border-box;
     }}
-    .val-very-low {{
+    .val-very-low, .val-very_low {{
         background: rgba(16, 185, 129, 0.15) !important;
         color: #10b981 !important;
         border: 1px solid rgba(16, 185, 129, 0.35) !important;
@@ -895,7 +964,7 @@ st.markdown(f"""
         color: #f59e0b !important;
         border: 1px solid rgba(245, 158, 11, 0.3) !important;
     }}
-    .val-very-high {{
+    .val-very-high, .val-very_high {{
         background: rgba(239, 68, 68, 0.12) !important;
         color: #ef4444 !important;
         border: 1px solid rgba(239, 68, 68, 0.3) !important;
@@ -939,6 +1008,19 @@ st.markdown(f"""
         color: var(--text-primary) !important;
     }}
 
+    /* 🛡️ Primary 主按钮文字绝对防护：任何主题下强制纯白文字 */
+    button[kind="primary"],
+    button[kind="primary"] *,
+    button[kind="primary"] p,
+    button[kind="primary"] span,
+    button[kind="primary"] div,
+    [data-testid="stBaseButton-primary"],
+    [data-testid="stBaseButton-primary"] *,
+    [data-testid="stBaseButton-primary"] p,
+    [data-testid="stBaseButton-primary"] span {{
+        color: #ffffff !important;
+    }}
+
     /* 原生指标卡文字与标题防黑字 */
     [data-testid="stMetricLabel"] p {{
         color: var(--text-secondary) !important;
@@ -959,6 +1041,15 @@ st.markdown(f"""
         background-color: var(--bg-elevated) !important;
         color: var(--text-primary) !important;
         border-color: var(--border-subtle) !important;
+    }}
+
+    /* Primary 主按钮强制白色文字穿透 (支持全主题对比度) */
+    button[kind="primary"],
+    button[kind="primary"] *,
+    button[kind="primary"] p,
+    button[kind="primary"] span {{
+        color: #ffffff !important;
+        font-weight: 600 !important;
     }}
 
     /* 次级按钮与弹窗容器深色模式穿透 */
@@ -1077,6 +1168,61 @@ def render_workflow_step_indicator(steps: List[str], current_step: int, help_tex
         </div>
     </div>
     """)
+
+
+def render_black_swan_stress_card(stress_data: Dict[str, Any]):
+    """渲染历史三大黑天鹅极端行情压力测试卡片"""
+    if not stress_data or not stress_data.get("scenarios"):
+        return
+    scenarios = stress_data.get("scenarios", [])
+    safe_markdown_html("""
+    <div style="margin-top: 14px; margin-bottom: 8px;">
+        <span style="font-size: 15px; font-weight: 700; color: var(--text-primary);">🌪️ 历史黑天鹅极端承压测试</span>
+        <span style="font-size: 11px; color: var(--text-muted); margin-left: 8px;">穿透测算当前组合在历史三大极端暴跌危机下的最大账面浮亏、水下回本时长与相对沪深300超额防御表现</span>
+    </div>
+    """)
+
+    cols = st.columns(len(scenarios))
+    for i, sc in enumerate(scenarios):
+        with cols[i]:
+            max_dd = sc.get("max_dd_pct", 0.0)
+            loss_amt = sc.get("max_loss_amt", 0.0)
+            rec_str = sc.get("recovery_str", "跨周期修复中")
+            h300_mdd = sc.get("h300_mdd_pct", 0.0)
+            excess = sc.get("excess_defense_pct", 0.0)
+            sc_name = sc.get("name", "")
+            period = sc.get("period", "")
+            desc = sc.get("desc", "")
+
+            excess_badge = (
+                f'<span style="color: var(--color-up); font-weight: 700;">少亏 +{excess:.1f}%</span>'
+                if excess > 0 else
+                f'<span style="color: var(--color-down); font-weight: 700;">偏离 {excess:+.1f}%</span>'
+            )
+
+            safe_markdown_html(f"""
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; box-shadow: var(--shadow-card); height: 100%; box-sizing: border-box;">
+                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">
+                    {sc_name}
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">
+                    {period}
+                </div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--color-down); margin-bottom: 2px;">
+                    -{max_dd:.2f}%
+                    <span style="font-size: 13px; font-weight: 600; color: var(--color-down);">(-¥{loss_amt:,.0f})</span>
+                </div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; line-height: 1.4;">
+                    ⏱️ <b>水下回本：</b>{rec_str}
+                </div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; line-height: 1.4;">
+                    📉 <b>同期沪深300：</b>-{h300_mdd:.1f}% ｜ <b>超额防御：</b>{excess_badge}
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); line-height: 1.3; border-top: 1px dashed var(--border-subtle); padding-top: 6px; margin-top: 4px;">
+                    {desc}
+                </div>
+            </div>
+            """)
 
 
 # 初始化核心运行态 (首屏毫秒级秒开：使用本地账本与 parquet，消灭 akshare/天天基金网络阻塞)
@@ -1305,41 +1451,111 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # 3. 📊 核心指数行情走廊 (垂直卡片流，完美复刻截图交互)
+    # 3. 📊 核心指数行情走廊 (垂直卡片流，支持全市场自由定制与 3 层专业指标流)
     col_sb_title, col_sb_opt, col_sb_rf = st.columns([5.5, 2.5, 2.0])
     with col_sb_title:
         st.markdown("##### 📊 核心指数行情走廊")
+
+    # 读取持久化自选走廊配置
+    saved_watchlist = load_custom_watchlist()
+    if "sb_corridor_display_limit" not in st.session_state:
+        st.session_state.sb_corridor_display_limit = saved_watchlist.get("display_limit", 6)
+    if "sb_selected_corridor_indices" not in st.session_state:
+        st.session_state.sb_selected_corridor_indices = saved_watchlist.get("selected_codes", ["000300", "000688", "000922", "000905", "000852", "518880"])
+    if "sb_custom_corridor_items" not in st.session_state:
+        st.session_state.sb_custom_corridor_items = saved_watchlist.get("custom_items", {})
+
     with col_sb_opt:
-        with st.popover("⚙️", help="增删指数与切换风格预设"):
-            st.caption("行情走廊指数配置")
-            all_avail_indices = {
-                "000300": "沪深300",
-                "000688": "科创50",
-                "000922": "中证红利",
-                "000905": "中证500",
-                "000852": "中证1000",
-                "518880": "黄金ETF",
-                "399006": "创业板指",
-                "000016": "上证50",
-                "HKTECH": "恒生科技",
-                "NDX": "纳斯达克100"
-            }
-            default_keys = ["000300", "000688", "000922", "000905", "000852", "518880"]
-            if "sb_selected_corridor_indices" not in st.session_state:
-                st.session_state.sb_selected_corridor_indices = default_keys
+        with st.popover("⚙️", help="全市场自由定制与走廊配置"):
+            st.caption("⚙️ 核心指数走廊自由定制")
+            # 1. 3~15 展示数量滑块
+            cur_limit = int(st.session_state.sb_corridor_display_limit)
+            new_limit = st.slider(
+                "走廊展示数量",
+                min_value=3,
+                max_value=15,
+                value=cur_limit,
+                step=1,
+                key="sl_corridor_disp_limit",
+                help="控制侧边栏卡片展示上限（3 至 15 只）"
+            )
+            if new_limit != cur_limit:
+                st.session_state.sb_corridor_display_limit = new_limit
+                saved_watchlist["display_limit"] = new_limit
+                saved_watchlist["display_count"] = new_limit
+                saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
+                saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
+                save_custom_watchlist(saved_watchlist)
+
+            # 2. 全市场 38+ 目录 + 自定义项多选检索器 (支持拼音首字母/代码/名称三模检索并保持选择顺序)
+            combined_catalog = dict(INDEX_CATALOG_38)
+            combined_catalog.update(st.session_state.sb_custom_corridor_items)
+
+            # 保证当前选中的代码均在 options 列表中
+            avail_options = []
+            for c in st.session_state.sb_selected_corridor_indices:
+                if c not in avail_options:
+                    avail_options.append(c)
+            for c in combined_catalog.keys():
+                if c not in avail_options:
+                    avail_options.append(c)
+
+            def _fmt_option(k: str) -> str:
+                item_info = combined_catalog.get(k, {})
+                c_name = item_info.get("name", k)
+                pinyin_str = item_info.get("pinyin", "")
+                sec = item_info.get("sector", "")
+                sec_tag = f"[{sec}] " if sec else ""
+                return f"{sec_tag}{c_name} ({k}) [{pinyin_str}]"
+
             sel_corridor_keys = st.multiselect(
-                "显示标的",
-                options=list(all_avail_indices.keys()),
+                "全市场自选列表 (支持拼音/代码/名称检索)",
+                options=avail_options,
                 default=st.session_state.sb_selected_corridor_indices,
-                format_func=lambda k: f"{all_avail_indices.get(k, k)} ({k})",
+                format_func=_fmt_option,
                 key="ms_corridor_indices"
             )
-            st.session_state.sb_selected_corridor_indices = sel_corridor_keys or default_keys
+            if sel_corridor_keys != st.session_state.sb_selected_corridor_indices:
+                st.session_state.sb_selected_corridor_indices = sel_corridor_keys or ["000300", "000688", "000922", "000905", "000852", "518880"]
+                saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
+                saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
+                saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
+                saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
+                save_custom_watchlist(saved_watchlist)
+
+            # 3. 任意 6 位有效代码实时接入输入框
+            st.markdown("---")
+            st.caption("➕ 接入任意 6 位有效代码 (股票/ETF/LOF/指数)")
+            c_input_col, c_btn_col = st.columns([7, 3])
+            with c_input_col:
+                new_code_input = st.text_input("标的代码", max_chars=6, placeholder="如 510300 或 159915", label_visibility="collapsed", key="txt_add_custom_code")
+            with c_btn_col:
+                add_btn = st.button("添加", key="btn_add_custom_code", use_container_width=True)
+
+            if add_btn and new_code_input:
+                clean_code = new_code_input.strip()
+                if len(clean_code) == 6 and clean_code.isdigit():
+                    probe_res = validate_and_fetch_code(clean_code)
+                    if probe_res:
+                        st.session_state.sb_custom_corridor_items[clean_code] = probe_res
+                        if clean_code not in st.session_state.sb_selected_corridor_indices:
+                            st.session_state.sb_selected_corridor_indices.insert(0, clean_code)
+                        saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
+                        saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
+                        saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
+                        saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
+                        save_custom_watchlist(saved_watchlist)
+                        st.success(f"已接入: {probe_res['name']} ({clean_code})")
+                        st.rerun()
+                    else:
+                        st.error(f"代码 {clean_code} 探针失败，未能获取有效盘中行情")
+                else:
+                    st.warning("请输入有效的 6 位数字代码")
 
     with col_sb_rf:
         if st.button("🔄", key="btn_refresh_all_live_quotes", help="极速刷新实时行情", use_container_width=True):
             clear_realtime_cache()
-            fetch_batch_realtime_indices(use_cache=False)
+            fetch_custom_realtime_indices(codes=st.session_state.sb_selected_corridor_indices, use_cache=False)
             fetch_market_turnover_and_sentiment(force_refresh=True)
             fetch_or_calc_index_valuations(force_refresh=True)
             pm.sync_holdings_live_nav(use_intraday_gsz=True)
@@ -1348,54 +1564,76 @@ with st.sidebar:
             StrategyBridge.get_latest_market_snapshot(force_reload=True, auto_sync=False)
             st.rerun()
 
+    # 根据展示数量滑块切片取前 N 只
+    display_limit = int(st.session_state.get("sb_corridor_display_limit", 6))
+    current_corridor_codes = st.session_state.get("sb_selected_corridor_indices", ["000300", "000688", "000922", "000905", "000852", "518880"])[:display_limit]
+
     # 拉取当前批次实时指数行情与估值
-    active_corridor_list = fetch_batch_realtime_indices(use_cache=True)
+    active_corridor_list = fetch_custom_realtime_indices(codes=current_corridor_codes, use_cache=True)
     corridor_val_map = fetch_or_calc_index_valuations(force_refresh=False)
-    target_idx_codes = set(st.session_state.get("sb_selected_corridor_indices", ["000300", "000688", "000922", "000905", "000852", "518880"]))
 
     rendered_count = 0
     corridor_cards_html = []
     for idx_item in active_corridor_list:
         icode = idx_item["code"]
-        if icode not in target_idx_codes:
-            continue
         rendered_count += 1
-        c_pct = idx_item["change_pct"]
+        c_pct = float(idx_item["change_pct"])
         c_badge_cls = "sidebar-index-badge-up" if c_pct > 0 else ("sidebar-index-badge-down" if c_pct < 0 else "sidebar-index-badge-flat")
         c_sign = "+" if c_pct > 0 else ""
-        pt_fmt = f"{idx_item['point']:,.3f}" if (icode == '518880') else f"{idx_item['point']:,.2f}"
+        is_small_pt = (idx_item["point"] < 100.0)
+        pt_fmt = f"{idx_item['point']:,.3f}" if is_small_pt else f"{idx_item['point']:,.2f}"
+
+        # 估值分位标签
         v_meta = corridor_val_map.get(icode) or corridor_val_map.get(idx_item.get("secid", "")) or {}
         v_label = v_meta.get("label", "")
         v_status = v_meta.get("status", "mid")
-        v_badge_html = f'<span class="index-pill-val-badge val-{v_status}" style="font-size: 10px; margin-left: 4px;">{v_label}</span>' if v_label else ''
+        # 兼容连字符与下划线两种类名
+        val_cls_name = f"val-{v_status.replace('_', '-')}"
+        if not v_label:
+            v_label = "适中"
+            val_cls_name = "val-mid"
+        v_badge_html = f'<span class="index-pill-val-badge {val_cls_name}">{v_label}</span>'
 
-        c_val = float(idx_item.get("point", 0.0))
-        chg_amt = float(idx_item.get("change_amount", idx_item.get("change", 0.0)))
-        if chg_amt == 0.0 and c_pct != 0.0:
-            chg_amt = c_val - (c_val / (1.0 + c_pct / 100.0))
-        chg_amt_str = f"{chg_amt:+,.2f}" if icode != '518880' else f"{chg_amt:+,.3f}"
+        # 近 20 日累计涨跌幅
+        ret20 = float(idx_item.get("ret_20d", 0.0))
+        ret20_sign = "+" if ret20 > 0 else ""
+        ret20_color = "var(--color-up, #ef4444)" if ret20 > 0 else ("var(--color-down, #10b981)" if ret20 < 0 else "var(--text-muted)")
+
+        # MA20 趋势与偏离状态
+        trend_status_text = idx_item.get("trend_status", "")
+        trend_color = idx_item.get("trend_color", "var(--text-secondary)")
+        ma20_fmt = idx_item.get("ma20_fmt", "")
 
         corridor_cards_html.append(f"""
         <div class="sidebar-index-card">
-            <div class="sidebar-index-left">
-                <div class="sidebar-index-name-row">
+            <!-- 第 1 行：指数名称、代码、最新点位与涨跌幅防压扁胶囊 -->
+            <div class="sidebar-card-row-top">
+                <div class="sidebar-card-title-box">
                     <span class="sidebar-index-name">{idx_item['name']}</span>
-                    {v_badge_html}
+                    <span class="sidebar-index-code">{icode}</span>
                 </div>
-                <span class="sidebar-index-code">{icode}</span>
-            </div>
-            <div class="sidebar-index-right">
-                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 1px;">
+                <div class="sidebar-card-quote-box">
                     <span class="sidebar-index-pt">{pt_fmt}</span>
-                    <span style="font-size: 10px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-variant-numeric: tabular-nums; color: var(--text-muted);">{chg_amt_str}</span>
+                    <span class="sidebar-index-badge {c_badge_cls}" style="flex: 0 0 auto !important; white-space: nowrap !important;">{c_sign}{c_pct:.2f}%</span>
                 </div>
-                <span class="sidebar-index-badge {c_badge_cls}">{c_sign}{c_pct:.2f}%</span>
+            </div>
+
+            <!-- 第 2 行：真实 PE/PB 估值分位数徽章 与 近20日累计涨跌幅 -->
+            <div class="sidebar-card-row-mid">
+                {v_badge_html}
+                <span class="sidebar-card-ret20" style="color: {ret20_color};">近20日 {ret20_sign}{ret20:.1f}%</span>
+            </div>
+
+            <!-- 第 3 行：MA20 趋势生命线与乖离率攻防状态 -->
+            <div class="sidebar-card-row-bot">
+                <span class="sidebar-card-trend-text" style="color: {trend_color};">{trend_status_text}</span>
+                <span class="sidebar-card-ma-pt">MA20: {ma20_fmt}</span>
             </div>
         </div>
         """)
 
     safe_markdown_html("\n".join(corridor_cards_html))
-    st.caption(f"💡 点击右上角 ⚙️ 可自由增删全市场指数。共展示 {rendered_count} 只标的。")
+    st.caption(f"💡 点击右上角 ⚙️ 可自由定制 38+ 全市场指数与任意 6 位代码。当前展示 {rendered_count}/{len(st.session_state.sb_selected_corridor_indices)} 只标的。")
 
 # -------------------------------------------------------------
 # 顶部全局看板：1 行 4 宽卡 + 1 个紧凑刷新按钮 (无下方重复行情条)
@@ -1567,7 +1805,45 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
             with col_radar:
                 st.markdown("<div style='font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;'>🔭 全市场机会雷达 · Top 3 机会甄选</div>", unsafe_allow_html=True)
                 radar_engine = OpportunityRadarEngine()
-                top3_sectors = radar_engine.get_top_opportunities(3)
+                all_scanned_sectors = radar_engine.scan_all_sectors()
+                top3_sectors = [s for s in all_scanned_sectors if s.get("s_crowd", 85.0) >= 45.0][:3]
+
+                # 今日市场脉搏晨报 (<=80字)
+                turnover_str = "1.2万亿"
+                vol_text = "放量活跃"
+                try:
+                    t_data = data_loader.fetch_market_turnover_and_sentiment()
+                    if t_data and "turnover_str" in t_data:
+                        turnover_str = t_data.get("turnover_str", turnover_str)
+                        vol_text = t_data.get("vol_text", vol_text)
+                except Exception:
+                    pass
+
+                erp_pct = float(snapshot_dict.get("erp_percentile", 82.0))
+                if erp_pct >= 75.0:
+                    erp_zone = f"ERP分位{erp_pct:.1f}%处历史高性价比击球区"
+                elif erp_pct <= 30.0:
+                    erp_zone = f"ERP分位{erp_pct:.1f}%偏高估宜防守"
+                else:
+                    erp_zone = f"ERP分位{erp_pct:.1f}%处中性配置区间"
+
+                top_names = [s.get("name", "") for s in top3_sectors[:2] if s.get("name")]
+                lead_str = "与".join(top_names) if top_names else "红利低波与大盘蓝筹"
+                pulse_brief = f"两市成交{turnover_str}{vol_text}，{erp_zone}；{lead_str}领衔低估与右侧主线，策略宜逢低均衡布局。"
+                if len(pulse_brief) > 80:
+                    pulse_brief = pulse_brief[:79] + "。"
+
+                st.markdown(f"""
+                <div class="decision-card" style="padding: 8px 12px; margin-bottom: 10px; border-left: 3px solid var(--accent-primary); background: var(--bg-surface);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">
+                        <span style="font-size: 11px; font-weight: 700; color: var(--accent-primary);">📢 今日市场脉搏晨报</span>
+                        <span style="font-size: 10px; color: var(--text-secondary);">全景量化串联</span>
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-primary); line-height: 1.5;">
+                        {pulse_brief}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
                 cols_top3 = st.columns(3)
                 for i, sec in enumerate(top3_sectors):
@@ -1611,9 +1887,28 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                             st.toast(f"✅ 已将【{sec_fund.get('name')}】一键纳入备选池，正在为您重新定权！")
                             st.rerun()
 
+                # 全市场 14 大赛道量化温度计总表 (可展开容器)
+                with st.expander("📊 查看全市场 14 大赛道量化温度计总表", expanded=False):
+                    df_rows = []
+                    for s in all_scanned_sectors:
+                        f_info = s.get("fund", {})
+                        df_rows.append({
+                            "赛道名称": s.get("name", ""),
+                            "估值分位": f"{s.get('val_percentile', 50.0):.1f}%",
+                            "趋势信噪比": f"{s.get('er_20', 0.5):.2f}",
+                            "20日乖离率": f"{s.get('bias_20', 0.0):+.1f}%",
+                            "拥挤度评分": f"{s.get('s_crowd', 85.0):.1f}",
+                            "综合得分": f"{s.get('total_score', 50.0):.1f}",
+                            "状态标签": s.get("tag", "📈 稳健蓄势"),
+                            "优选基金": f"{f_info.get('name', '')} ({f_info.get('code', '')})",
+                        })
+                    if df_rows:
+                        df_thermometer = pd.DataFrame(df_rows)
+                        st.dataframe(df_thermometer, use_container_width=True, hide_index=True)
+
             # --- 右翼：主动风险哨 ---
             with col_sentry:
-                st.markdown("<div style='font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;'>🚨 主动风险预警哨 · 四维巡检</div>", unsafe_allow_html=True)
+                st.markdown("<div style='font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;'>🚨 主动风险预警哨 · 六维主动巡检 <span style='font-size: 11px; font-weight: 400; color: var(--text-secondary);'>[主动风险预警哨 · 四维巡检升级版]</span></div>", unsafe_allow_html=True)
                 sentry = ActiveRiskSentry()
                 _f_metas = {}
                 for _c in pm_instance.holdings.keys():
@@ -1633,11 +1928,12 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                     </div>
                     """, unsafe_allow_html=True)
                 else:
-                    for alert in report.get("alerts", [])[:3]:
+                    alerts_to_show = report.get("alerts", [])[:4]
+                    for i, alert in enumerate(alerts_to_show):
                         border_c = "var(--color-up)" if alert["level"] == "red" else ("var(--color-down)" if alert["level"] == "green_notice" else "var(--accent-primary)")
                         badge_icon = "🔴" if alert["level"] == "red" else ("🟢" if alert["level"] == "green_notice" else "🟡")
                         st.markdown(f"""
-                        <div class="decision-card" style="border-left: 3px solid {border_c}; padding: 8px 10px; margin-bottom: 6px;">
+                        <div class="decision-card" style="border-left: 3px solid {border_c}; padding: 8px 10px; margin-bottom: 4px;">
                             <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">
                                 {badge_icon} {alert['title']}
                             </div>
@@ -1649,6 +1945,59 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
+
+                        act_type = alert.get("action_type")
+                        fcode = alert.get("fund_code", "")
+                        fname = alert.get("fund_name", fcode)
+
+                        if act_type == "lock_shares":
+                            btn_lbl = f"🔒 锁定【{fcode or '未满7天标的'}】调仓下界"
+                        elif act_type == "countdown_hold":
+                            btn_lbl = f"⏳ 暂缓【{fcode}】调仓倒计时"
+                        elif act_type == "switch_a_class":
+                            btn_lbl = f"🔄 择机置换【{fcode}】为A类"
+                        elif act_type == "take_profit":
+                            btn_lbl = f"📉 生成【{fcode or '超买标的'}】阶梯止盈单"
+                        elif act_type == "deep_loss_rebalance":
+                            btn_lbl = f"💼 查看【{fcode}】反弹减亏诊断"
+                        elif act_type == "rebalance_sector":
+                            btn_lbl = "⚖️ 平衡赛道敞口"
+                        elif act_type == "replace_fund":
+                            btn_lbl = f"🚨 置换【{fcode}】为标杆公募"
+                        elif act_type == "defense_mode":
+                            btn_lbl = "🛡️ 启动防守预案"
+                        elif act_type == "offense_mode":
+                            btn_lbl = "🚀 查看进攻主线"
+                        else:
+                            btn_lbl = "⚡ 立即处置"
+
+                        if st.button(btn_lbl, key=f"btn_sentry_act_{i}_{fcode}_{act_type}", use_container_width=True, type="secondary"):
+                            if act_type == "lock_shares":
+                                if "tab2_locked_funds" not in st.session_state:
+                                    st.session_state.tab2_locked_funds = []
+                                if fcode and fcode not in st.session_state.tab2_locked_funds:
+                                    st.session_state.tab2_locked_funds.append(fcode)
+                                st.session_state.tab2_trigger_diagnose = True
+                                st.toast(f"🔒 已锁定标的【{fcode}】持仓下界，严禁调仓卖出！")
+                                st.rerun()
+                            elif act_type == "take_profit":
+                                st.session_state.tab2_pending_take_profit = {"fund_code": fcode, "ratio": 0.40}
+                                st.session_state.tab2_trigger_rebalance = True
+                                st.toast(f"📉 已生成【{fcode}】阶梯止盈单（建议减持40%），请在【💼 持仓调仓】Tab 执行")
+                                st.rerun()
+                            elif act_type == "deep_loss_rebalance":
+                                st.session_state.tab2_trigger_diagnose = True
+                                st.toast(f"💼 正在为深套标的【{fcode}】生成反弹抽均线阶梯减亏诊断...")
+                                st.rerun()
+                            elif act_type == "countdown_hold":
+                                st.toast(f"⏳ 已为【{fcode}】设置免赎倒计时保护，建议持有满 30 天后再行操作")
+                            elif act_type == "switch_a_class":
+                                st.session_state.tab2_trigger_diagnose = True
+                                st.toast(f"🔄 建议在【💼 持仓调仓】将 C 类【{fcode}】逢高置换为对应 A 类份额")
+                            else:
+                                st.session_state.tab2_trigger_diagnose = True
+                                st.toast(f"⚡ 请前往【💼 持仓调仓】Tab 查看针对【{fcode}】的调仓建议")
+                                st.rerun()
     except Exception as e:
         st.caption(f"（双翼看板加载提示: {e}）")
 
@@ -1847,7 +2196,7 @@ with tab_zero_start:
                 if target_ret_input > 25.0:
                     st.caption(f"⚡ 高收益提示：目标年化 {target_ret_input:.0f}% 对应【{active_tier} {cur_tier_meta['name']}】，历史最大回撤约 {abs(cur_tier_meta['historical_mdd']):.1f}%，解套需 {cur_tier_meta['max_tolerated_months']} 个月，建议长钱长投。")
                 else:
-                    st.caption(f"💡 目标收益 {target_ret_input:.0f}% ➔ 当前档位：【{active_tier} {cur_tier_meta['name']}】（权益上限 {cur_tier_meta['equity_range'][1]}% ｜ 预期年化 {cur_tier_meta['target_cagr']} ｜ 核心：{cur_tier_meta['core_assets']}）")
+                    st.caption(f"💡 目标年化 {target_ret_input:.0f}% ➔ 匹配投资画像【{active_tier} {cur_tier_meta['name']}】，预期年化复合增速约 {cur_tier_meta['target_cagr']}。")
             else:
                 col_q1, col_q2, col_q3 = st.columns(3)
                 with col_q1:

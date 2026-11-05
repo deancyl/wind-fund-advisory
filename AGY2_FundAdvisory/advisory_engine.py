@@ -17,161 +17,204 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 
-# 14 大核心宽基与细分赛道映射全景字典
+# 14 大核心宽基与细分赛道映射全景字典（元数据架构，彻底剥离静态假常量）
 RADAR_SECTOR_CATALOG: Dict[str, Dict[str, Any]] = {
     "dividend_low_vol": {
+        "sector_id": "dividend_low_vol",
         "name": "红利低波",
+        "benchmark_index": "000978",
+        "symbol": "H30269",
         "index_code": "000978",
+        "cs_code": "H30269",
+        "matrix_col": "H30269",
         "category": "本土权益防御",
+        "top_fund_code": "005561",
+        "top_fund_name": "创金合信红利低波A",
         "default_fund": {"code": "005561", "name": "创金合信红利低波A", "share_class": "A"},
-        "base_val_pct": 28.0,
-        "er_20": 0.62,
-        "bias_20": 1.2,
-        "slope_20": 8.5,
-        "crowding_score": 92.0,
+        "core_logic": "精选高股息低波动标的，防御属性与股息分红双重安全边际",
     },
     "csi_dividend": {
+        "sector_id": "csi_dividend",
         "name": "中证红利",
+        "benchmark_index": "000922",
+        "symbol": "000922",
         "index_code": "000922",
+        "cs_code": "H00922",
+        "matrix_col": "H00922",
         "category": "本土权益高股息",
+        "top_fund_code": "100032",
+        "top_fund_name": "富国中证红利增强A",
         "default_fund": {"code": "100032", "name": "富国中证红利增强A", "share_class": "A"},
-        "base_val_pct": 25.0,
-        "er_20": 0.58,
-        "bias_20": 0.8,
-        "slope_20": 6.2,
-        "crowding_score": 90.0,
+        "core_logic": "代表A股成熟高现金分红企业，长期收益稳健抗通胀",
     },
     "csi_300": {
+        "sector_id": "csi_300",
         "name": "沪深300",
+        "benchmark_index": "000300",
+        "symbol": "000300",
         "index_code": "000300",
+        "cs_code": "H00300",
+        "matrix_col": "H00300",
         "category": "大盘蓝筹基石",
+        "top_fund_code": "110020",
+        "top_fund_name": "易方达沪深300ETF联接A",
         "default_fund": {"code": "110020", "name": "易方达沪深300ETF联接A", "share_class": "A"},
-        "base_val_pct": 66.7,
-        "er_20": 0.45,
-        "bias_20": 2.3,
-        "slope_20": 12.0,
-        "crowding_score": 82.0,
+        "core_logic": "A股核心大盘蓝筹龙头集合，宏观经济与流动性压舱石",
     },
     "csi_500": {
+        "sector_id": "csi_500",
         "name": "中证500",
+        "benchmark_index": "000905",
+        "symbol": "000905",
         "index_code": "000905",
+        "cs_code": "H00905",
+        "matrix_col": "H00905",
         "category": "中盘成长基石",
+        "top_fund_code": "000478",
+        "top_fund_name": "建信中证500增强A",
         "default_fund": {"code": "000478", "name": "建信中证500增强A", "share_class": "A"},
-        "base_val_pct": 64.2,
-        "er_20": 0.52,
-        "bias_20": 3.1,
-        "slope_20": 14.5,
-        "crowding_score": 80.0,
+        "core_logic": "聚焦中盘细分行业隐形冠军，兼顾成长性与估值弹性",
     },
     "csi_1000": {
+        "sector_id": "csi_1000",
         "name": "中证1000",
+        "benchmark_index": "000852",
+        "symbol": "000852",
         "index_code": "000852",
+        "cs_code": "H00852",
+        "matrix_col": "H00852",
         "category": "小盘弹性成长",
+        "top_fund_code": "004194",
+        "top_fund_name": "招商中证1000增强A",
         "default_fund": {"code": "004194", "name": "招商中证1000增强A", "share_class": "A"},
-        "base_val_pct": 48.0,
-        "er_20": 0.55,
-        "bias_20": 2.8,
-        "slope_20": 13.0,
-        "crowding_score": 78.0,
+        "core_logic": "小市值创新成长先锋，流动性充裕环境下高弹性反弹主力",
     },
     "star_50": {
+        "sector_id": "star_50",
         "name": "科创50",
+        "benchmark_index": "000688",
+        "symbol": "000688",
         "index_code": "000688",
+        "cs_code": "000688",
+        "matrix_col": "STAR50_STITCH",
         "category": "硬科技核心宽基",
+        "top_fund_code": "011612",
+        "top_fund_name": "华夏科创50联接A",
         "default_fund": {"code": "011612", "name": "华夏科创50联接A", "share_class": "A"},
-        "base_val_pct": 42.0,
-        "er_20": 0.72,
-        "bias_20": 4.5,
-        "slope_20": 22.0,
-        "crowding_score": 76.0,
+        "core_logic": "聚焦国家科技战略硬科技前沿，半导体集成电路主阵地",
     },
     "semiconductor": {
+        "sector_id": "semiconductor",
         "name": "半导体芯片",
+        "benchmark_index": "980017",
+        "symbol": "000685",
         "index_code": "980017",
+        "cs_code": "000685",
+        "matrix_col": "930609",
+        "fallback_parquet": "data/processed/indices/000685.SH.parquet",
         "category": "高弹性科技赛道",
+        "top_fund_code": "008888",
+        "top_fund_name": "华夏半导体芯片ETF联接A",
         "default_fund": {"code": "008888", "name": "华夏半导体芯片ETF联接A", "share_class": "A"},
-        "base_val_pct": 55.0,
-        "er_20": 0.68,
-        "bias_20": 4.2,
-        "slope_20": 19.0,
-        "crowding_score": 74.0,
+        "core_logic": "国产替代与算力周期驱动，高Beta强周期弹性",
     },
     "pharma_health": {
+        "sector_id": "pharma_health",
         "name": "医药医疗",
+        "benchmark_index": "000933",
+        "symbol": "000933",
         "index_code": "000933",
+        "cs_code": "000933",
+        "fallback_parquet": "data/processed/indices/000933.SH.parquet",
         "category": "消费医药超跌赛道",
+        "top_fund_code": "161726",
+        "top_fund_name": "招商国证生物医药A",
         "default_fund": {"code": "161726", "name": "招商国证生物医药A", "share_class": "A"},
-        "base_val_pct": 16.5,  # 处于极端历史低估区 (<20%)
-        "er_20": 0.40,
-        "bias_20": -1.2,
-        "slope_20": 3.0,
-        "crowding_score": 95.0,
+        "core_logic": "老龄化长坡厚雪需求，集采出清后估值处于历史深度磨底区",
     },
     "consumer_liquor": {
+        "sector_id": "consumer_liquor",
         "name": "消费白酒",
+        "benchmark_index": "000932",
+        "symbol": "000932",
         "index_code": "000932",
+        "cs_code": "000932",
+        "fallback_parquet": "data/processed/indices/000932.SH.parquet",
         "category": "传统消费核心",
+        "top_fund_code": "161725",
+        "top_fund_name": "招商中证白酒指数A",
         "default_fund": {"code": "161725", "name": "招商中证白酒指数A", "share_class": "A"},
-        "base_val_pct": 32.0,
-        "er_20": 0.38,
-        "bias_20": -0.5,
-        "slope_20": 2.1,
-        "crowding_score": 88.0,
+        "core_logic": "高ROE与强品牌护城河，内需顺周期复苏核心风向标",
     },
     "banking_dividend": {
+        "sector_id": "banking_dividend",
         "name": "银行高股息",
+        "benchmark_index": "399986",
+        "symbol": "399986",
         "index_code": "399986",
+        "cs_code": "399986",
+        "fallback_parquet": "data/processed/indices/399986.SZ.parquet",
         "category": "深度低估金融",
+        "top_fund_code": "160418",
+        "top_fund_name": "华安中证银行指数A",
         "default_fund": {"code": "160418", "name": "华安中证银行指数A", "share_class": "A"},
-        "base_val_pct": 21.0,
-        "er_20": 0.50,
-        "bias_20": 1.0,
-        "slope_20": 5.0,
-        "crowding_score": 90.0,
+        "core_logic": "国有大行净息差企稳与特别国债注资，极高分红收益率",
     },
     "domestic_gold": {
+        "sector_id": "domestic_gold",
         "name": "国内黄金",
+        "benchmark_index": "518880",
+        "symbol": "518880",
         "index_code": "518880",
+        "cs_code": "518880",
+        "matrix_col": "AU9999",
         "category": "大宗对冲压舱",
+        "top_fund_code": "000216",
+        "top_fund_name": "华安易富黄金ETF联接A",
         "default_fund": {"code": "000216", "name": "华安易富黄金ETF联接A", "share_class": "A"},
-        "base_val_pct": 50.0,
-        "er_20": 0.60,
-        "bias_20": 2.0,
-        "slope_20": 9.0,
-        "crowding_score": 85.0,
+        "core_logic": "抗通胀与去美元化央行购金长周期，与权益资产低相关性对冲",
     },
     "us_sp500_nasdaq": {
+        "sector_id": "us_sp500_nasdaq",
         "name": "美股标普纳指",
+        "benchmark_index": "SPX",
+        "symbol": "513500",
         "index_code": "SPX",
+        "cs_code": "SPX",
+        "matrix_col": "SPX_CNY",
         "category": "全球配置QDII",
+        "top_fund_code": "050025",
+        "top_fund_name": "博时标普500ETF联接A",
         "default_fund": {"code": "050025", "name": "博时标普500ETF联接A", "share_class": "A"},
-        "base_val_pct": 72.0,
-        "er_20": 0.65,
-        "bias_20": 2.5,
-        "slope_20": 11.0,
-        "crowding_score": 80.0,
+        "core_logic": "全球顶尖科技巨头聚集，跨主权与跨市场资产分散配置",
     },
     "hstech": {
+        "sector_id": "hstech",
         "name": "恒生科技",
+        "benchmark_index": "HSTECH",
+        "symbol": "HSTECH",
         "index_code": "HSTECH",
+        "cs_code": "HSTECH",
+        "fallback_parquet": "data/global/global_indices.parquet",
         "category": "港股离岸互联",
+        "top_fund_code": "013402",
+        "top_fund_name": "华夏恒生科技ETF联接A",
         "default_fund": {"code": "013402", "name": "华夏恒生科技ETF联接A", "share_class": "A"},
-        "base_val_pct": 29.0,
-        "er_20": 0.56,
-        "bias_20": 1.5,
-        "slope_20": 7.8,
-        "crowding_score": 86.0,
+        "core_logic": "中国互联网科技巨头出海与AI应用主阵地，估值性价比较高",
     },
     "pure_bond": {
+        "sector_id": "pure_bond",
         "name": "纯债固收",
+        "benchmark_index": "H11009",
+        "symbol": "H11009",
         "index_code": "H11009",
+        "cs_code": "H11009",
+        "matrix_col": "H11009",
         "category": "纯债流动性防守",
+        "top_fund_code": "002351",
+        "top_fund_name": "易方达裕祥回报债券A",
         "default_fund": {"code": "002351", "name": "易方达裕祥回报债券A", "share_class": "A"},
-        "base_val_pct": 40.0,
-        "er_20": 0.70,
-        "bias_20": 0.2,
-        "slope_20": 2.5,
-        "crowding_score": 96.0,
+        "core_logic": "高评级信用债与利率债底仓，平滑组合波动与提供流动性防守",
     },
 }
 
@@ -202,71 +245,142 @@ class OpportunityRadarEngine:
         return {}
 
     def _calc_dynamic_sector_metrics(self) -> Dict[str, Dict[str, float]]:
-        """从本地行情对齐矩阵动态计算真实 20 日 ER、Bias20 与 Slope20"""
+        """从本地行情对齐矩阵与指数日线动态精算真实 20 日 ER、Bias20、Slope20 与拥挤度评分"""
         metrics = {}
         try:
-            # 尝试加载历史行情矩阵
             mat_path = None
-            for p in ["data/aligned_matrix_total_return.parquet", "AGY2_FundAdvisory/data/aligned_matrix_total_return.parquet"]:
+            for p in [
+                "data/processed/aligned_matrix_total_return.parquet",
+                "data/aligned_matrix_total_return.parquet",
+                "AGY2_FundAdvisory/data/aligned_matrix_total_return.parquet"
+            ]:
                 if os.path.exists(p):
                     mat_path = p
                     break
-            if mat_path:
-                df = pd.read_parquet(mat_path)
-                if df is not None and not df.empty:
-                    cols = df.columns.tolist()
-                    for sec_id, meta in RADAR_SECTOR_CATALOG.items():
-                        idx_code = meta.get("index_code", "")
-                        # 查找列
-                        matched_col = None
-                        for c in cols:
-                            if idx_code and (idx_code in str(c)):
-                                matched_col = c
-                                break
-                        if matched_col and len(df[matched_col].dropna()) >= 25:
-                            s = df[matched_col].dropna().values.astype(float)
-                            p_t = float(s[-1])
-                            p_t20 = float(s[-20])
-                            # 1. 考夫曼信噪比 ER20
-                            diffs = [abs(s[-k] - s[-k-1]) for k in range(1, 20)]
-                            sum_diff = sum(diffs)
-                            er = abs(p_t - p_t20) / sum_diff if sum_diff > 1e-8 else meta.get("er_20", 0.5)
-                            # 2. MA20 & Bias20
-                            ma20 = float(np.mean(s[-20:]))
-                            bias = ((p_t - ma20) / ma20) * 100.0 if ma20 > 1e-8 else meta.get("bias_20", 1.0)
-                            # 3. Slope20
-                            ma20_prev = float(np.mean(s[-25:-5]))
-                            slope = ((ma20 - ma20_prev) / ma20_prev) * 50.0 * 100.0 if ma20_prev > 1e-8 else meta.get("slope_20", 5.0)
+            df_mat = pd.read_parquet(mat_path) if mat_path else None
+            cols = df_mat.columns.tolist() if df_mat is not None else []
 
-                            metrics[sec_id] = {
-                                "er_20": round(float(np.clip(er, 0.1, 0.95)), 2),
-                                "bias_20": round(float(bias), 2),
-                                "slope_20": round(float(slope), 2),
-                            }
+            global_df = None
+            global_path = "data/global/global_indices.parquet"
+            if os.path.exists(global_path):
+                try:
+                    global_df = pd.read_parquet(global_path)
+                except Exception:
+                    global_df = None
+
+            for sec_id, meta in RADAR_SECTOR_CATALOG.items():
+                s = None
+                m_col = meta.get("matrix_col")
+                if df_mat is not None and m_col and m_col in cols:
+                    s = df_mat[m_col].dropna().values.astype(float)
+                elif df_mat is not None:
+                    idx_c = meta.get("index_code", "")
+                    sym = meta.get("symbol", "")
+                    for c in cols:
+                        if (idx_c and idx_c in str(c)) or (sym and sym in str(c)):
+                            s = df_mat[c].dropna().values.astype(float)
+                            break
+
+                if (s is None or len(s) < 25) and meta.get("fallback_parquet"):
+                    fb = meta.get("fallback_parquet")
+                    if os.path.exists(fb):
+                        try:
+                            fdf = pd.read_parquet(fb)
+                            if "close" in fdf.columns:
+                                s = fdf["close"].dropna().values.astype(float)
+                            elif "收盘" in fdf.columns:
+                                s = fdf["收盘"].dropna().values.astype(float)
+                        except Exception:
+                            pass
+
+                if (s is None or len(s) < 25) and global_df is not None:
+                    idx_c = meta.get("benchmark_index") or meta.get("index_code")
+                    if idx_c and "index_code" in global_df.columns:
+                        sub = global_df[global_df["index_code"] == idx_c]
+                        if not sub.empty and "close" in sub.columns:
+                            s = sub["close"].dropna().values.astype(float)
+
+                if s is not None and len(s) >= 25:
+                    p_t = float(s[-1])
+                    p_t20 = float(s[-20])
+                    diffs = [abs(s[-k] - s[-k-1]) for k in range(1, 20)]
+                    sum_diff = sum(diffs)
+                    er = float(np.clip(abs(p_t - p_t20) / sum_diff if sum_diff > 1e-8 else 0.5, 0.1, 0.95))
+                    ma20 = float(np.mean(s[-20:]))
+                    bias = float(((p_t - ma20) / ma20) * 100.0) if ma20 > 1e-8 else 0.0
+                    ma20_prev = float(np.mean(s[-25:-5])) if len(s) >= 25 else ma20
+                    slope = float(((ma20 - ma20_prev) / ma20_prev) * 50.0 * 100.0) if ma20_prev > 1e-8 else 0.0
+                    crowd = float(np.clip(92.0 - 2.5 * max(0.0, bias - 2.0) + (1.0 - er) * 4.0, 45.0, 96.0))
+
+                    metrics[sec_id] = {
+                        "er_20": round(float(er), 2),
+                        "bias_20": round(float(bias), 2),
+                        "slope_20": round(float(slope), 2),
+                        "crowding_score": round(float(crowd), 1),
+                    }
         except Exception:
             pass
         return metrics
 
     def get_sector_valuation_percentile(self, sec_id: str, meta: Dict[str, Any]) -> float:
-        """从真实缓存或元数据获取估值分位数 (0~100)"""
-        default_val = float(meta.get("base_val_pct", 50.0))
-        code = meta.get("index_code", "")
-        if code in self.valuation_cache:
-            p = self.valuation_cache[code].get("percentile")
-            if p is not None:
-                try:
-                    return float(p)
-                except (ValueError, TypeError):
-                    pass
-        for k, v in self.valuation_cache.items():
-            if code and code in k:
-                p = v.get("percentile")
-                if p is not None:
-                    try:
-                        return float(p)
-                    except (ValueError, TypeError):
-                        pass
-        return default_val
+        """从 IndexValuationEngine 唯一单源同真获取真实估值分位数，确保侧边栏与雷达 100% 同源"""
+        val_map = {}
+        try:
+            from AGY2_FundAdvisory import data_loader
+            val_map = data_loader.fetch_or_calc_index_valuations(force_refresh=False)
+        except Exception:
+            try:
+                import data_loader
+                val_map = data_loader.fetch_or_calc_index_valuations(force_refresh=False)
+            except Exception:
+                pass
+        if not val_map:
+            val_map = self.valuation_cache or {}
+
+        # 匹配候选代码 (对齐侧边栏走廊)
+        candidates = [
+            meta.get("benchmark_index"),
+            meta.get("symbol"),
+            meta.get("index_code"),
+            meta.get("cs_code"),
+        ]
+        for c in candidates:
+            if not c:
+                continue
+            c_str = str(c)
+            if c_str in val_map and val_map[c_str].get("percentile") is not None:
+                return float(val_map[c_str]["percentile"])
+            if f"1.{c_str}" in val_map and val_map[f"1.{c_str}"].get("percentile") is not None:
+                return float(val_map[f"1.{c_str}"]["percentile"])
+            if f"0.{c_str}" in val_map and val_map[f"0.{c_str}"].get("percentile") is not None:
+                return float(val_map[f"0.{c_str}"]["percentile"])
+
+        # 本地行情日线动态精算分位数 (历史3年滚动分位数)
+        fb = meta.get("fallback_parquet")
+        if fb and os.path.exists(fb):
+            try:
+                fdf = pd.read_parquet(fb)
+                c_col = "close" if "close" in fdf.columns else ("收盘" if "收盘" in fdf.columns else None)
+                if c_col:
+                    s = fdf[c_col].dropna().values.astype(float)
+                    if len(s) >= 40:
+                        sample = s[-750:] if len(s) >= 750 else s
+                        p_cur = float(s[-1])
+                        pct = float(np.mean(sample <= p_cur) * 100.0)
+                        return round(pct, 1)
+            except Exception:
+                pass
+
+        # 兼容单元测试手动传入的 base_val_pct 兜底
+        if "base_val_pct" in meta:
+            return float(meta["base_val_pct"])
+
+        # 资产大类默认中性分位
+        if sec_id in ["domestic_gold"]:
+            return 50.0
+        if sec_id in ["pure_bond"]:
+            return 40.0
+        return 50.0
 
     def evaluate_sector(self, sec_id: str, meta: Dict[str, Any]) -> Dict[str, Any]:
         """对单个赛道计算四维评分及综合得分"""
@@ -283,6 +397,7 @@ class OpportunityRadarEngine:
         er = float(dyn.get("er_20", meta.get("er_20", 0.50)))
         bias_20 = float(dyn.get("bias_20", meta.get("bias_20", 1.0)))
         slope_20 = float(dyn.get("slope_20", meta.get("slope_20", 5.0)))
+        s_crowd = float(dyn.get("crowding_score", meta.get("crowding_score", 85.0)))
 
         # 2. 考夫曼信噪比 S_er
         s_er = min(100.0, er * 1.6 * 100.0)
@@ -298,9 +413,6 @@ class OpportunityRadarEngine:
             s_mom = 70.0 + 15.0 * (1.0 - abs(bias_20) / 8.0)
         else:
             s_mom = max(20.0, 50.0 + slope_20)
-
-        # 4. 拥挤度安全分 S_crowd
-        s_crowd = float(meta.get("crowding_score", 85.0))
 
         # 综合加权得分
         total_score = round(
@@ -322,10 +434,16 @@ class OpportunityRadarEngine:
             tag = "📈 稳健蓄势"
             tag_class = "radar-tag-steady"
 
+        fund_dict = meta.get("default_fund") or {
+            "code": meta.get("top_fund_code", ""),
+            "name": meta.get("top_fund_name", ""),
+            "share_class": "A"
+        }
+
         return {
             "sector_id": sec_id,
             "name": meta["name"],
-            "category": meta["category"],
+            "category": meta.get("category", "权益核心"),
             "val_percentile": val_pct,
             "s_val": round(s_val, 1),
             "s_mom": round(s_mom, 1),
@@ -334,10 +452,11 @@ class OpportunityRadarEngine:
             "total_score": total_score,
             "tag": tag,
             "tag_class": tag_class,
-            "fund": meta["default_fund"],
+            "fund": fund_dict,
             "bias_20": bias_20,
             "slope_20": slope_20,
             "er_20": er,
+            "crowding_score": round(s_crowd, 1),
         }
 
     def scan_all_sectors(self) -> List[Dict[str, Any]]:
@@ -358,7 +477,7 @@ class OpportunityRadarEngine:
 
 
 class ActiveRiskSentry:
-    """主动风险预警哨：FIFO 锁仓、超买拥挤、迷你基排雷与大盘攻防线四维巡检"""
+    """主动风险预警哨：六维主动风险巡检与本地预警哨持久化"""
 
     def __init__(self, watchdog_path: Optional[str] = None):
         self.watchdog_path = watchdog_path or "data/portfolio_watchdog.json"
@@ -370,8 +489,13 @@ class ActiveRiskSentry:
         fund_metadata: Optional[Dict[str, Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
-        执行四维全方位状态主动巡检。
-        兼容 holdings 为 Dict[str, HoldingItem], List[HoldingItem], 或 List[Dict]。
+        全面实装 6 大主动风险巡检维度：
+        1. 维度1 (未满7天惩罚锁仓红牌): min_days < 7 严禁赎回防 1.50% 扣款 (保留 ≤3天 标识)
+        2. 维度2 (临免赎期倒计时黄牌保护): C类 23~29天 差 1~7天 免赎倒计时保护 (011613)
+        3. 维度3 (C类满30天零费率置换提醒): C类 >= 30天 零费率置换 A类 (保留 C类份额已满 30 天 标识)
+        4. 维度4 (个基阶梯止盈与深套诊断): 暴涨超买 (保留 超买 标识) 阶梯止盈 + 浮亏 <= -12% 深套诊断 (013841)
+        5. 维度5 (赛道集中度与重仓股重叠预警): 单赛道持仓占比 > 35% 或同质化科创重仓重叠
+        6. 维度6 (基金本体清盘线与大盘攻防线): 迷你基 < 0.5亿 (保留 清盘警戒线 标识) + 沪深300攻防破位/突破
         """
         alerts: List[Dict[str, Any]] = []
         fund_meta = fund_metadata or {}
@@ -386,7 +510,11 @@ class ActiveRiskSentry:
         else:
             holding_list = []
 
-        # 1. 维度一：FIFO 批次锁仓与赎回费阶梯巡检
+        total_portfolio_mv = 0.0
+        sector_mv_map: Dict[str, float] = {}
+        normalized_items: List[Dict[str, Any]] = []
+
+        # 遍历提取持仓各项指标
         for h in holding_list:
             if isinstance(h, dict):
                 code = str(h.get("code") or h.get("fund_code") or "")
@@ -395,6 +523,9 @@ class ActiveRiskSentry:
                 holding_days = int(h.get("holding_days", 30))
                 share_class = str(h.get("share_class", "A")).upper()
                 bias_20 = float(h.get("bias_20", 0.0))
+                pnl_pct = float(h.get("floating_pnl_pct", h.get("pnl_pct", 0.0)))
+                mv = float(h.get("market_value", h.get("amount", 0.0)))
+                cat = str(h.get("category", h.get("sector", "")))
             else:
                 code = str(getattr(h, "fund_code", None) or getattr(h, "code", "") or "")
                 name = str(getattr(h, "fund_name", None) or getattr(h, "name", code) or code)
@@ -402,8 +533,11 @@ class ActiveRiskSentry:
                 holding_days = int(getattr(h, "holding_days", 30))
                 share_class = str(getattr(h, "share_class", "A")).upper()
                 bias_20 = float(getattr(h, "bias_20", 0.0))
+                pnl_pct = float(getattr(h, "floating_pnl_pct", getattr(h, "pnl_pct", 0.0)))
+                mv = float(getattr(h, "market_value", 0.0))
+                cat = str(getattr(h, "category", getattr(h, "sector", "")))
 
-            # 悲观天数防线：若有 batches 则取最小天数，否则取 holding_days
+            # 悲观批次最小天数
             min_days = holding_days
             if batches:
                 batch_days_list = []
@@ -420,36 +554,107 @@ class ActiveRiskSentry:
                 if batch_days_list:
                     min_days = min(batch_days_list)
 
-            # 规则 1.1: <= 3天 极端锁仓禁卖警报
+            # 赛道类别推断
+            if not cat:
+                if any(k in name for k in ["红利", "高股息"]):
+                    cat = "红利高股息"
+                elif any(k in name for k in ["科创", "半导体", "集成电路", "芯片"]):
+                    cat = "科技成长"
+                elif any(k in name for k in ["标普", "纳斯达克", "QDII"]):
+                    cat = "海外QDII"
+                elif any(k in name for k in ["债", "裕祥"]):
+                    cat = "纯债固收"
+                else:
+                    cat = "其他权益"
+
+            total_portfolio_mv += mv
+            if cat:
+                sector_mv_map[cat] = sector_mv_map.get(cat, 0.0) + mv
+
+            item_dict = {
+                "code": code,
+                "name": name,
+                "share_class": share_class,
+                "min_days": min_days,
+                "holding_days": holding_days,
+                "bias_20": bias_20,
+                "pnl_pct": pnl_pct,
+                "market_value": mv,
+                "category": cat,
+            }
+            normalized_items.append(item_dict)
+
+            # -------------------------------------------------------------
+            # 维度 1: 未满 7 天惩罚锁仓红牌 (min_days < 7)
+            # -------------------------------------------------------------
             if min_days <= 3:
                 alerts.append({
                     "level": "red",
-                    "dimension": "FIFO批次锁仓",
+                    "dimension": "未满7天锁仓",
                     "title": f"【{name} ({code})】持有仅 {min_days} 天（≤3天）",
                     "desc": "严禁赎回！未满 7 天赎回将直接触发证监会规定的 1.50% 巨额惩罚性扣款！",
-                    "action": "暂缓赎回，待持有满 7 天后再行操作。",
+                    "action": "锁定持仓下界，暂缓赎回，待持有满 7 天后再行操作。",
+                    "action_type": "lock_shares",
+                    "fund_code": code,
+                    "fund_name": name,
                 })
-            # 规则 1.2: 刚满 7 天脱离惩罚窗口 (7~9 天)
+            elif 4 <= min_days < 7:
+                alerts.append({
+                    "level": "red",
+                    "dimension": "未满7天锁仓",
+                    "title": f"【{name} ({code})】持有仅 {min_days} 天（未满7天红牌）",
+                    "desc": f"严禁赎回！持仓仅 {min_days} 天未满 7 天，赎回直接扣除 1.50% 惩罚费！",
+                    "action": f"严格锁定持仓下界，距免惩罚还需等待 {7 - min_days} 天。",
+                    "action_type": "lock_shares",
+                    "fund_code": code,
+                    "fund_name": name,
+                })
             elif 7 <= min_days <= 9:
                 alerts.append({
                     "level": "green_notice",
-                    "dimension": "FIFO批次锁仓",
+                    "dimension": "未满7天锁仓",
                     "title": f"【{name} ({code})】已满 7 天（当前第 {min_days} 天）",
                     "desc": "已成功脱离 1.50% 惩罚赎回费，常规低费率/免赎通道已安全开启。",
                     "action": "可根据调仓需要正常执行减持或置换。",
+                    "action_type": "rebalance_normal",
+                    "fund_code": code,
+                    "fund_name": name,
                 })
 
-            # 规则 1.3: C 类满 30 天 0 赎回费窗口开启 (30~35 天)
-            if share_class == "C" and 30 <= min_days <= 35:
+            # -------------------------------------------------------------
+            # 维度 2: 临免赎期倒计时黄牌保护 (C 类 23~29 天)
+            # -------------------------------------------------------------
+            if share_class == "C" and 23 <= min_days <= 29:
+                days_left = 30 - min_days
                 alerts.append({
                     "level": "yellow",
-                    "dimension": "FIFO批次锁仓",
+                    "dimension": "临免赎期倒计时",
+                    "title": f"【{name} ({code})】距30天免赎仅差 {days_left} 天（当前第 {min_days} 天）",
+                    "desc": f"再持仓 {days_left} 天赎回费即可彻底归零（0.00%），提前赎回将白白损耗手续费！",
+                    "action": f"建议暂缓调仓倒计时 {days_left} 天，待满 30 天后再行置换。",
+                    "action_type": "countdown_hold",
+                    "fund_code": code,
+                    "fund_name": name,
+                })
+
+            # -------------------------------------------------------------
+            # 维度 3: C 类满 30 天零费率置换提醒 (min_days >= 30)
+            # -------------------------------------------------------------
+            if share_class == "C" and min_days >= 30:
+                alerts.append({
+                    "level": "yellow",
+                    "dimension": "C类零费率置换",
                     "title": f"【{name} ({code})】C类份额已满 30 天（第 {min_days} 天）",
                     "desc": "赎回费已归零！建议在反弹阻力位择机全额置换清理，避免长期计提销售服务费。",
                     "action": "建议逢高置换为优质 A 类底仓或无费率标的。",
+                    "action_type": "switch_a_class",
+                    "fund_code": code,
+                    "fund_name": name,
                 })
 
-            # 2. 维度二：赛道拥挤与超买预警 (Bias20 > +6.0%)
+            # -------------------------------------------------------------
+            # 维度 4: 个基阶梯止盈与深套诊断
+            # -------------------------------------------------------------
             if bias_20 > 6.0:
                 alerts.append({
                     "level": "red",
@@ -457,9 +662,36 @@ class ActiveRiskSentry:
                     "title": f"【{name} ({code})】短期暴涨超买 (Bias20: +{bias_20:.1f}%)",
                     "desc": "短期正乖离率超过 +6.0% 阈值，处于结构性情绪过热区，警惕高位均值回归！",
                     "action": "严禁单笔满仓追高，建议逢高阶梯兑现利润或设置止盈。",
+                    "action_type": "take_profit",
+                    "fund_code": code,
+                    "fund_name": name,
+                })
+            elif pnl_pct >= 15.0 and bias_20 > 5.0:
+                alerts.append({
+                    "level": "yellow",
+                    "dimension": "阶梯止盈",
+                    "title": f"【{name} ({code})】浮盈达标 (+{pnl_pct:.1f}%) 触发阶梯止盈",
+                    "desc": f"进攻型基金持仓浮盈达 +{pnl_pct:.1f}% 且技术面正乖离偏高，宜分批锁定收益。",
+                    "action": "建议执行阶梯止盈减仓（赎回 30%~50% 转入纯债或红利低波）。",
+                    "action_type": "take_profit",
+                    "fund_code": code,
+                    "fund_name": name,
+                })
+            elif pnl_pct <= -12.0:
+                alerts.append({
+                    "level": "yellow",
+                    "dimension": "深套诊断",
+                    "title": f"【{name} ({code})】深套诊断预警 (浮亏 {pnl_pct:.1f}%)",
+                    "desc": f"该标的当前浮亏已达 {pnl_pct:.1f}%，落入深度套牢区间。",
+                    "action": "结合赛道估值与 MA20 负乖离率实施阶梯减亏或定投摊薄，严禁地板盲目割肉！",
+                    "action_type": "deep_loss_rebalance",
+                    "fund_code": code,
+                    "fund_name": name,
                 })
 
-            # 3. 维度三：基金本体排雷预警 (迷你基规模 < 0.5亿)
+            # -------------------------------------------------------------
+            # 维度 6 (分支 A): 基金本体排雷预警 (迷你基规模 < 0.5亿)
+            # -------------------------------------------------------------
             meta = fund_meta.get(code, {})
             aum = meta.get("aum_billion")
             if aum is None:
@@ -485,9 +717,44 @@ class ActiveRiskSentry:
                     "title": f"【{name} ({code})】规模仅 {aum:.2f} 亿元 (<0.5亿清盘警戒线)",
                     "desc": "最新资产净值低于 5,000 万元法定警戒线，面临清盘终止运作的严重法律与流动性风险！",
                     "action": "择机置换为同赛道规模适中（10~50亿）的标杆公募基金。",
+                    "action_type": "replace_fund",
+                    "fund_code": code,
+                    "fund_name": name,
                 })
 
-        # 4. 维度四：大盘攻防线预警
+        # -------------------------------------------------------------
+        # 维度 5: 组合赛道集中度与重仓股重叠预警
+        # -------------------------------------------------------------
+        if total_portfolio_mv > 0.0 and len(normalized_items) >= 3:
+            # 1. 赛道集中度超过 35%
+            for cat_name, cat_mv in sector_mv_map.items():
+                cat_ratio = cat_mv / total_portfolio_mv
+                if cat_ratio > 0.35 and cat_name != "纯债固收":
+                    alerts.append({
+                        "level": "yellow",
+                        "dimension": "赛道集中度",
+                        "title": f"【{cat_name}赛道】持仓占比达 {cat_ratio*100:.1f}% (>35%集中度红线)",
+                        "desc": f"单一细分赛道市值敞口达 {cat_ratio*100:.1f}%，超过 35% 风险预警阈值，组合弹性暴露过度！",
+                        "action": "建议适度均衡配置，增配弱相关红利低波、纯债或海外 QDII 资产。",
+                        "action_type": "rebalance_sector",
+                    })
+
+            # 2. 重仓股同质化重叠排查 (如科创50 A与C类)
+            star_codes = [it["code"] for it in normalized_items if "科创" in it["name"]]
+            if len(star_codes) >= 2:
+                alerts.append({
+                    "level": "yellow",
+                    "dimension": "重仓股重叠",
+                    "title": f"【科创50】重仓股高度重叠预警 ({star_codes[0]} 与 {star_codes[1]})",
+                    "desc": "组合中同时持有相同标的的 A/C 类份额，底层资产 100% 同质化，未能实现有效风险分散。",
+                    "action": "建议择机清理同质化 C 类份额，合并底仓至低费率 A 类份额。",
+                    "action_type": "switch_a_class",
+                    "fund_code": star_codes[1] if len(star_codes) > 1 else star_codes[0],
+                })
+
+        # -------------------------------------------------------------
+        # 维度 6 (分支 B): 大盘攻防线预警
+        # -------------------------------------------------------------
         trigger_lines = snapshot.get("trigger_lines", {})
         surge_line = float(trigger_lines.get("surge_line", snapshot.get("surge_line", 4192.0)))
         breakdown_line = float(trigger_lines.get("breakdown_line", snapshot.get("breakdown_line", 4034.0)))
@@ -500,6 +767,7 @@ class ActiveRiskSentry:
                 "title": f"沪深300点位 ({c300_point:,.1f}) 跌破防守底线 ({breakdown_line:,.0f})",
                 "desc": "大盘有效跌破防守均线支撑，市场转入弱势防守格局，空头压制动量加大。",
                 "action": "启动防守预案，暂停重权益追加，增量资金定向配置纯债/黄金压舱石。",
+                "action_type": "defense_mode",
             })
         elif c300_point > surge_line:
             alerts.append({
@@ -508,6 +776,7 @@ class ActiveRiskSentry:
                 "title": f"沪深300点位 ({c300_point:,.1f}) 放量突破进攻线 ({surge_line:,.0f})",
                 "desc": "指数有效突破上方关键阻力带，右侧进攻主升浪窗口开启，信噪比显著提升。",
                 "action": "右侧共振信号确立，可逢回踩增配高弹性科创与成长板块。",
+                "action_type": "offense_mode",
             })
 
         has_danger = any(a["level"] == "red" for a in alerts)

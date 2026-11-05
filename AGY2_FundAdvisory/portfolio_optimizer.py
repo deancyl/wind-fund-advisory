@@ -26,7 +26,7 @@ _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
-from winrate_engine import WinRateEngine, HOLDING_PERIODS
+from winrate_engine import WinRateEngine, HOLDING_PERIODS, simulate_black_swan_stress
 from cache_manager import SmartCacheManager
 from data_loader import denoise_covariance_matrix
 
@@ -37,43 +37,97 @@ __all__ = [
     "QUANT_MODELS_CATALOG",
     "recommend_model_for_regime",
     "execute_market_optimization_flow",
+    "simulate_black_swan_stress",
+    "_normalize_weights_strict",
 ]
 
-# ─── 四大机构级量化定权模型目录（名称严格 ≤ 6 字） ────────────────────
+
+def _normalize_weights_strict(weights: Dict[str, float]) -> Dict[str, float]:
+    """确保权重非负、无 NaN，且严格闭合至 1.000000 (浮点误差 < 1e-6)"""
+    cleaned = {k: max(0.0, float(v)) for k, v in weights.items() if np.isfinite(v)}
+    tot = sum(cleaned.values())
+    if tot <= 1e-12:
+        n = max(1, len(weights))
+        return {k: round(1.0 / n, 6) for k in weights}
+    normed = {k: float(v) / tot for k, v in cleaned.items()}
+    keys = list(normed.keys())
+    if keys:
+        diff = 1.0 - sum(normed.values())
+        normed[keys[0]] += diff
+    return normed
+
+
+# ─── 七大机构级量化定权模型目录（名称严格 ≤ 6 字） ────────────────────
 QUANT_MODELS_CATALOG: Dict[str, Dict[str, Any]] = {
-    "hrp_cvar": {
-        "key": "hrp_cvar",
+    "hrp_robust": {
+        "key": "hrp_robust",
         "name": "鲁棒双核HRP",
         "badge": "🛡️ 机构首选·高确定性",
-        "principle": "层次风险平价(Hierarchical Risk Parity)聚类树分配 + Black-Litterman宏观视图 + 95% CVaR尾部风险约束。",
-        "advantage": "无需对协方差矩阵求逆，彻底根除单一赛道押注与历史过拟合，样本外跨周期稳健性最高。",
-        "suitable_when": "震荡磨底期、行业快速轮动期、或希望构建全天候高确定性底仓时。",
+        "principle": "层次风险平价(HRP)聚类树分配 + 极值CVaR尾部风险约束，融合条件胜率先验。",
+        "advantage": "无需协方差求逆，彻底根除单一赛道押注与历史过拟合，跨周期稳健性最高。",
+        "suitable_when": "震荡磨底期、行业快速轮动期、构建全天候高确定性底仓。",
+        "source": "De Prado (2016) / 华泰证券人工智能系列",
     },
-    "cond_winrate": {
-        "key": "cond_winrate",
+    "core_satellite": {
+        "key": "core_satellite",
+        "name": "核心卫星杠铃",
+        "badge": "⚖️ 攻守两极·底仓压舱",
+        "principle": "70%~80% 纯债红利核心底仓(等方差/逆波动配置) + 20%~30% 高弹性成长/雷达精选卫星仓(信噪比动量加权)。",
+        "advantage": "两极配置锁死下行防守底线，同时保留高弹性进攻抓手，兼顾稳健分红与超额收益。",
+        "suitable_when": "稳健增值诉求、震荡市防守反击、期望长钱底仓安心吃息。",
+        "source": "先锋领航 (Vanguard) 经典核心-卫星架构",
+    },
+    "all_weather": {
+        "key": "all_weather",
+        "name": "全天候平价",
+        "badge": "🌍 跨周期风险等权",
+        "principle": "风险平价(Equal Risk Contribution)规划求解，跨A股宽基、红利、纯债、黄金、海外QDII均衡分配风险边际贡献。",
+        "advantage": "消除单一资产周期性崩溃风险，无论经济通胀/紧缩或增长/衰退均具备自适应防御力。",
+        "suitable_when": "宏观牛熊不确定、跨大类资产长期配置、防范极端黑天鹅。",
+        "source": "桥水基金 (Bridgewater Associates) 达利欧全天候策略",
+    },
+    "black_litterman": {
+        "key": "black_litterman",
+        "name": "BL观点融合",
+        "badge": "🧬 主客观贝叶斯后验",
+        "principle": "以市场均衡配置为先验基准，贝叶斯融合机会雷达Top赛道高信噪比主观观点矩阵与置信度协方差。",
+        "advantage": "克服传统均值-方差对期望收益极度敏感的极端权重陷阱，在基准锚定与主动alpha间实现数学最优折中。",
+        "suitable_when": "机会雷达主线明确、结构性牛市、存在清晰高胜率赛道观点时。",
+        "source": "高盛资产管理 (Goldman Sachs) Black & Litterman (1992)",
+    },
+    "conditional_winrate": {
+        "key": "conditional_winrate",
         "name": "条件胜率最优",
         "badge": "🎯 同温层状态匹配",
-        "principle": "当下时点(T_now)五维宏观向量高斯核相似度赋权 + SLSQP非线性规划最大化目标年化达标胜率。",
-        "advantage": "精准锁定与今日估值、利率、波动率最相似的历史同温层行情，直接最大化目标收益达成概率。",
-        "suitable_when": "宏观估值与技术面信号明确、对特定目标年化收益率有明确达成诉求时。",
+        "principle": "当下T_now五维宏观状态向量高斯核加权 + SLSQP非线性规划最大化目标年化达标胜率。",
+        "advantage": "直接以目标收益达成概率为优化目标，精准匹配历史宏观同温层样本。",
+        "suitable_when": "宏观估值明确、对特定目标年化收益率有刚性达标诉求时。",
+        "source": "Wind 智能投顾同温层状态机引擎",
     },
-    "min_cvar": {
-        "key": "min_cvar",
+    "cvar_tail": {
+        "key": "cvar_tail",
         "name": "尾部风控CVaR",
         "badge": "⚓ 极小化极端回撤",
-        "principle": "Rockafellar-Uryasev 95%条件风险价值(CVaR)极小化 + 索提诺比率(Sortino仅惩罚下行波动)最大化。",
-        "advantage": "严控最差5%极端黑天鹅行情的平均亏损底线，优先保护本金安全与最短水下回本周期。",
-        "suitable_when": "大盘高位剧烈震荡、期权隐含波动率(iVIX)偏高、或厌恶深度浮亏的防御阶段。",
+        "principle": "Rockafellar-Uryasev 95%条件风险价值(CVaR)极小化 + 索提诺下行方差控制，严控5%最恶劣亏损。",
+        "advantage": "优先锁死极端暴跌情景下的最大账面浮亏，最小化水下回本天数。",
+        "suitable_when": "大盘破位恐慌、期权隐含波动率飙升、极度厌恶深度回撤的避险阶段。",
+        "source": "Rockafellar & Uryasev (2000) 凸优化风险测度",
     },
     "kelly_momentum": {
         "key": "kelly_momentum",
         "name": "凯利动量增强",
         "badge": "⚡ 右侧复利进攻",
-        "principle": "半凯利准则(Half-Kelly对数几何期望增长率最大化) + 右侧均线动量增强(内置超买均值回归折价)。",
-        "advantage": "在严防破产风险的前提下最大化长期复利斜率，顺势捕捉右侧主升浪超额Alpha。",
-        "suitable_when": "股债性价比(ERP)处于底部击球区且指数放量站上MA20生命线的右侧主升期。",
+        "principle": "半凯利准则(Half-Kelly对数期望增长率最大化) + 考夫曼信噪比(Kaufman Efficiency Ratio)动量增强。",
+        "advantage": "在防范破产边界的前提下最大化长期几何复利斜率，兼具超买均值回归折价惩罚。",
+        "suitable_when": "ERP处于底部高性价比击球区、大盘放量突破MA20生命线的主升浪。",
+        "source": "J.L. Kelly (1956) / 动量自适应半凯利公式",
     },
 }
+
+# 别名注册，确保现有与未来调用双向兼容
+QUANT_MODELS_CATALOG["hrp_cvar"] = QUANT_MODELS_CATALOG["hrp_robust"]
+QUANT_MODELS_CATALOG["cond_winrate"] = QUANT_MODELS_CATALOG["conditional_winrate"]
+QUANT_MODELS_CATALOG["min_cvar"] = QUANT_MODELS_CATALOG["cvar_tail"]
 
 
 def recommend_model_for_regime(
@@ -90,10 +144,11 @@ def recommend_model_for_regime(
     dr007 = float(snap.get("dr007_7d_ma", 1.65))
     ivix = float(snap.get("option_iv_pct", snap.get("ivix_index", 18.5)))
     m_state = str(snap.get("market_state", "震荡收息期"))
+    snr = float(snap.get("er_snr", 0.55))
 
-    if ivix > 26.0 or bias_20 < -2.5 or erp_pct < 35.0 or "防守" in m_state or "避险" in m_state:
+    if ivix > 26.0 or bias_20 < -2.8 or erp_pct < 35.0 or "防守" in m_state or "避险" in m_state:
         regime_name = "高波防御避险期"
-        rec_key = "min_cvar"
+        rec_key = "cvar_tail"
         reason = (
             f"当前期权波动率({ivix:.1f}%)/均线乖离({bias_20:+.2f}%)显示市场处于尾部波动敏感期，"
             f"使用【尾部风控CVaR】可锁死最差5%极端行情的下行底线，严防深套。"
@@ -105,16 +160,37 @@ def recommend_model_for_regime(
             f"当前ERP估值分位高达 {erp_pct:.1f}%（权益极度便宜）且站稳MA20均线({bias_20:+.2f}%)，"
             f"使用【凯利动量增强】可顺势捕捉右侧主升浪复利弹性。"
         )
-    elif erp_pct >= 60.0 and abs(bias_20) <= 3.0:
+    elif target_return_pct <= 9.0 or "固收" in m_state or "保守" in m_state:
+        regime_name = "稳健防守固收期"
+        rec_key = "core_satellite"
+        reason = (
+            f"当前投资画像偏向稳健收息（目标年化 {target_return_pct:.0f}%），"
+            f"使用【核心卫星杠铃】以75%~80%纯债红利为压舱底仓，20%卫星仓捕获成长弹性，兼顾安全与收息。"
+        )
+    elif abs(bias_20) > 3.0 or ivix > 22.0 or erp_pct < 50.0 or "平衡" in m_state:
+        regime_name = "宏观变盘平衡期"
+        rec_key = "all_weather"
+        reason = (
+            f"当前大盘乖离率({bias_20:+.2f}%)与期权波动({ivix:.1f}%)显示多资产分化明显，"
+            f"使用【全天候平价】跨宽基、红利、纯债、黄金等权均衡风险边际贡献，免疫周期变盘。"
+        )
+    elif "主线" in m_state or "结构" in m_state or snr > 0.60:
+        regime_name = "结构分化主线期"
+        rec_key = "black_litterman"
+        reason = (
+            f"当前市场处于结构性主线分化行情（信噪比 {snr:.2f}），"
+            f"使用【BL观点融合】以全市场均衡配置为先验，贝叶斯融入高信噪比赛道主观观点，兼顾胜率与超额。"
+        )
+    elif erp_pct >= 60.0 and abs(bias_20) <= 2.5:
         regime_name = "高性价比磨底期"
-        rec_key = "hrp_cvar"
+        rec_key = "hrp_robust"
         reason = (
             f"当前ERP处于 {erp_pct:.1f}% 高性价比区、均线窄幅震荡({bias_20:+.2f}%)、DR007利率 {dr007:.2f}% 充裕，"
             f"使用【鲁棒双核HRP】可通过层次聚类均衡配置多资产，消除单一赛道过拟合，确定性最高。"
         )
     else:
-        regime_name = "结构分化轮动期"
-        rec_key = "cond_winrate"
+        regime_name = "同温层状态匹配期"
+        rec_key = "conditional_winrate"
         reason = (
             f"当前市场处于【{m_state}】（ERP分位 {erp_pct:.1f}%，MA20乖离 {bias_20:+.2f}%），"
             f"使用【条件胜率最优】可在历史同温层样本中精准锁定达标率最高的组合。"
@@ -191,7 +267,7 @@ class WinRateOptimizer:
         self.target_return = target_annual_return
         self.tier = tier
         self.constraints = {**DEFAULT_CONSTRAINTS, **(constraints or {})}
-        self.model_type = model_type if model_type in QUANT_MODELS_CATALOG else "cond_winrate"
+        self.model_type = model_type if model_type in QUANT_MODELS_CATALOG else "hrp_robust"
         self.target_num_funds = int(max(3, min(15, target_num_funds))) if target_num_funds is not None else None
         if self.target_num_funds is not None:
             n_f = self.target_num_funds
@@ -492,6 +568,7 @@ class WinRateOptimizer:
         if progress_callback:
             progress_callback(4, 5, "生成基金详细信息...")
 
+        best_result["optimal_weights"] = _normalize_weights_strict(best_result["optimal_weights"])
         # 补充基金详细信息与日度组合净值序列
         best_result["fund_details"] = self._build_fund_details(
             best_result["optimal_weights"], metrics
@@ -509,7 +586,7 @@ class WinRateOptimizer:
         best_result["tier"] = self.tier
 
         elapsed = _time.monotonic() - t0
-        model_meta = QUANT_MODELS_CATALOG.get(self.model_type, QUANT_MODELS_CATALOG["cond_winrate"])
+        model_meta = QUANT_MODELS_CATALOG.get(self.model_type, QUANT_MODELS_CATALOG["hrp_robust"])
         best_result["model_type"] = self.model_type
         best_result["model_name"] = model_meta["name"]
         best_result["model_principle"] = model_meta["principle"]
@@ -541,26 +618,46 @@ class WinRateOptimizer:
 
         # 根据所选机构模型对候选基金进行特征排序
         sub_m = metrics[metrics["fund_code"].isin(all_codes)].copy()
-        if self.model_type == "min_cvar":
+        m_t = self.model_type
+        if m_t in ("cvar_tail", "min_cvar"):
             sub_m["_model_rank_score"] = (
                 0.45 * sub_m["no_loss_rate"]
                 + 0.35 * (1.0 - np.clip(np.abs(sub_m["max_dd"]) / max(self.max_dd * 1.5, 0.05), 0.0, 1.0))
                 + 0.20 * sub_m["win_rate"]
             )
-        elif self.model_type == "kelly_momentum":
+        elif m_t in ("kelly_momentum",):
             sub_m["_model_rank_score"] = (
                 0.50 * np.clip(sub_m["annual_return"] / max(self.target_return, 0.05), -0.5, 2.0)
                 + 0.30 * sub_m["win_rate"]
                 + 0.20 * np.clip(sub_m["sharpe"] / 2.0, -0.5, 1.5)
             )
-        elif self.model_type == "hrp_cvar":
+        elif m_t in ("hrp_robust", "hrp_cvar"):
             sub_m["_model_rank_score"] = (
                 0.40 * sub_m["win_rate"]
                 + 0.35 * np.clip(sub_m["sharpe"] / 2.0, 0.0, 1.5)
                 + 0.25 * (1.0 - np.clip(np.abs(sub_m["max_dd"]) / max(self.max_dd * 1.5, 0.05), 0.0, 1.0))
             )
-        else:
-            sub_m["_model_rank_score"] = sub_m["win_rate"]
+        elif m_t in ("core_satellite",):
+            is_core = sub_m["bucket"].isin(["pure_bond", "fixed_income_plus", "dividend_value", "gold"])
+            sub_m["_model_rank_score"] = np.where(
+                is_core,
+                0.55 * sub_m["no_loss_rate"] + 0.45 * (1.0 - np.clip(np.abs(sub_m["max_dd"]) / 0.10, 0.0, 1.0)),
+                0.50 * sub_m["win_rate"] + 0.50 * np.clip(sub_m["sharpe"] / 1.5, 0.0, 1.5),
+            )
+        elif m_t in ("all_weather",):
+            sub_m["_model_rank_score"] = (
+                0.40 * np.clip(sub_m["sharpe"] / 2.0, 0.0, 1.5)
+                + 0.35 * sub_m["no_loss_rate"]
+                + 0.25 * sub_m["win_rate"]
+            )
+        elif m_t in ("black_litterman",):
+            sub_m["_model_rank_score"] = (
+                0.45 * sub_m["win_rate"]
+                + 0.35 * np.clip(sub_m["sharpe"] / 2.0, -0.2, 1.5)
+                + 0.20 * np.clip(sub_m["annual_return"] / max(self.target_return, 0.05), 0.0, 2.0)
+            )
+        else:  # conditional_winrate / cond_winrate
+            sub_m["_model_rank_score"] = sub_m.get("conditional_win_rate", sub_m["win_rate"])
         sorted_by_wr = sub_m.sort_values("_model_rank_score", ascending=False)
 
         initial_codes: List[str] = []
@@ -611,6 +708,7 @@ class WinRateOptimizer:
             # 等权回退
             eq_w = 1.0 / n_funds
             optimal_weights = {c: eq_w for c in selected_codes}
+        optimal_weights = _normalize_weights_strict(optimal_weights)
 
         # 计算组合胜率（接入当下 market_snapshot 条件胜率）
         wr = WinRateEngine.rolling_target_winrate(
@@ -639,6 +737,7 @@ class WinRateOptimizer:
         )
         if improved:
             selected_codes, optimal_weights, wr = improved
+            optimal_weights = _normalize_weights_strict(optimal_weights)
             pnav = self._build_portfolio_nav(nav_df, optimal_weights).values
             daily_ret = pnav[1:] / pnav[:-1] - 1.0
             cummax = np.maximum.accumulate(pnav)
@@ -651,7 +750,7 @@ class WinRateOptimizer:
             sharpe = (ann_ret - 0.02) / max(ann_vol, 1e-10)
 
         return {
-            "optimal_weights": optimal_weights,
+            "optimal_weights": _normalize_weights_strict(optimal_weights),
             "portfolio_metrics": {
                 "win_rate": float(min(1.0, max(0.0, float(wr.get("conditional_win_rate", wr["win_rate"]))))),
                 "conditional_win_rate": float(min(1.0, max(0.0, float(wr.get("conditional_win_rate", wr["win_rate"]))))),
@@ -750,7 +849,224 @@ class WinRateOptimizer:
             s = np.sum(w_arr)
             if s > 0:
                 w_arr /= s
-        return {c: round(float(w), 4) for c, w in zip(codes, w_arr)}
+        return _normalize_weights_strict({c: float(w) for c, w in zip(codes, w_arr)})
+
+    def _compute_core_satellite_weights(
+        self,
+        codes: List[str],
+        nav_df: pd.DataFrame,
+    ) -> Dict[str, float]:
+        """
+        核心-卫星杠铃模型 (Core-Satellite Barbell)
+        1. 划分核心底仓 (纯债固收、红利价值、黄金) 与卫星仓 (成长科技、海外QDII、宽基核心)
+        2. 依据风险档位设定杠铃比例：核心 70%~80%，卫星 20%~30%
+        3. 核心仓内按逆波动/逆下行风险配置，卫星仓内按考夫曼信噪比/夏普比率加权
+        4. 满足单基权重约束并严格归一化 (sum == 1.0)
+        """
+        n = len(codes)
+        if n <= 1:
+            return {codes[0]: 1.0} if n == 1 else {}
+
+        sub_nav = nav_df[codes].dropna()
+        if len(sub_nav) < 10:
+            return _normalize_weights_strict({c: 1.0 / n for c in codes})
+
+        ret_df = sub_nav.pct_change().dropna()
+        vols = ret_df.std().values * np.sqrt(250.0)
+        vol_map = {c: max(float(v), 0.01) for c, v in zip(codes, vols)}
+
+        core_buckets = {"pure_bond", "fixed_income_plus", "dividend_value", "gold", "bond", "dividend"}
+        core_codes = []
+        sat_codes = []
+
+        m_dict = {}
+        if self._individual_metrics is not None and not self._individual_metrics.empty:
+            m_dict = {r["fund_code"]: r for _, r in self._individual_metrics.iterrows()}
+
+        for c in codes:
+            b = "other"
+            if not self.candidate_info.empty:
+                c_row = self.candidate_info[self.candidate_info["fund_code"] == c]
+                if not c_row.empty:
+                    b = str(c_row.iloc[0].get("bucket", "other"))
+            if b in core_buckets:
+                core_codes.append(c)
+            else:
+                sat_codes.append(c)
+
+        if not core_codes or not sat_codes:
+            sorted_by_vol = sorted(codes, key=lambda c: vol_map.get(c, 0.1))
+            split_pt = max(1, len(codes) // 2)
+            core_codes = sorted_by_vol[:split_pt]
+            sat_codes = sorted_by_vol[split_pt:]
+
+        tier_core_map = {"C1": 0.85, "C2": 0.80, "C3": 0.75, "C4": 0.70, "C5": 0.65}
+        w_core_target = tier_core_map.get(str(self.tier).upper(), 0.75)
+        w_sat_target = 1.0 - w_core_target
+
+        inv_vols_core = {c: 1.0 / vol_map[c] for c in core_codes}
+        sum_inv_core = sum(inv_vols_core.values())
+        core_weights = {c: (inv_vols_core[c] / max(sum_inv_core, 1e-12)) * w_core_target for c in core_codes}
+
+        sat_scores = {}
+        for c in sat_codes:
+            sh = float(m_dict.get(c, {}).get("sharpe", 0.5))
+            wr = float(m_dict.get(c, {}).get("win_rate", 0.5))
+            sat_scores[c] = max(0.1, sh + 0.5) * (0.8 + 0.4 * wr)
+        sum_sat_score = sum(sat_scores.values())
+        sat_weights = {c: (sat_scores[c] / max(sum_sat_score, 1e-12)) * w_sat_target for c in sat_codes}
+
+        combined = {**core_weights, **sat_weights}
+        min_w = self.constraints.get("min_single_weight", 0.04)
+        max_w = self.constraints.get("max_single_weight", 0.40)
+        w_arr = np.array([combined.get(c, 1.0 / n) for c in codes], dtype=float)
+        for _ in range(5):
+            w_arr = np.clip(w_arr, min_w, max_w)
+            s = np.sum(w_arr)
+            if s > 0:
+                w_arr /= s
+
+        res = {c: float(w) for c, w in zip(codes, w_arr)}
+        return _normalize_weights_strict(res)
+
+    def _compute_all_weather_weights(
+        self,
+        codes: List[str],
+        nav_df: pd.DataFrame,
+    ) -> Dict[str, float]:
+        """
+        全天候风险平价模型 (All-Weather Equal Risk Contribution)
+        求解使组合中各资产风险边际贡献相等的权重向量:
+        min sum_i sum_j (w_i * (Sigma * w)_i - w_j * (Sigma * w)_j)^2
+        s.t. sum(w) = 1, min_w <= w_i <= max_w
+        """
+        n = len(codes)
+        if n <= 1:
+            return {codes[0]: 1.0} if n == 1 else {}
+
+        sub_nav = nav_df[codes].dropna()
+        if len(sub_nav) < 15:
+            return _normalize_weights_strict({c: 1.0 / n for c in codes})
+
+        ret_df = sub_nav.pct_change().dropna()
+        cov = ret_df.cov().values * 250.0
+        cov = denoise_covariance_matrix(cov, n_obs=len(ret_df), shrink_alpha=0.15)
+        vols = np.sqrt(np.maximum(np.diag(cov), 1e-8))
+
+        inv_v = 1.0 / vols
+        x0 = inv_v / np.sum(inv_v)
+
+        min_w = self.constraints.get("min_single_weight", 0.04)
+        max_w = self.constraints.get("max_single_weight", 0.40)
+        bounds = [(min_w, max_w)] * n
+
+        def erc_objective(w):
+            w = np.asarray(w, dtype=np.float64)
+            sigma_w = cov @ w
+            trc = w * sigma_w
+            diffs = trc[:, None] - trc[None, :]
+            return float(np.sum(diffs ** 2)) * 1e4
+
+        cons = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
+        try:
+            res = minimize(
+                erc_objective,
+                x0,
+                method="SLSQP",
+                bounds=bounds,
+                constraints=cons,
+                options={"maxiter": 150, "ftol": 1e-8},
+            )
+            if res.success or res.fun < erc_objective(x0):
+                w_opt = res.x
+            else:
+                w_opt = x0
+        except Exception:
+            w_opt = x0
+
+        w_opt = np.clip(w_opt, min_w, max_w)
+        w_opt /= np.sum(w_opt)
+        return _normalize_weights_strict({c: float(w) for c, w in zip(codes, w_opt)})
+
+    def _compute_black_litterman_weights(
+        self,
+        codes: List[str],
+        nav_df: pd.DataFrame,
+    ) -> Dict[str, float]:
+        """
+        Black-Litterman 主客观观点融合模型
+        1. 先验基准：市场均衡期望收益 Pi = lambda * Sigma * w_eq
+        2. 机会雷达与胜率观点构建：P, Q, Omega
+        3. 贝叶斯后验期望：E[R] = [ (tau*Sigma)^-1 + P^T Omega^-1 P ]^-1 * [ (tau*Sigma)^-1 Pi + P^T Omega^-1 Q ]
+        4. 均值-方差优化求解最优权重并严格归一化
+        """
+        n = len(codes)
+        if n <= 1:
+            return {codes[0]: 1.0} if n == 1 else {}
+
+        sub_nav = nav_df[codes].dropna()
+        if len(sub_nav) < 15:
+            return _normalize_weights_strict({c: 1.0 / n for c in codes})
+
+        ret_df = sub_nav.pct_change().dropna()
+        cov = ret_df.cov().values * 250.0
+        cov = denoise_covariance_matrix(cov, n_obs=len(ret_df), shrink_alpha=0.15)
+        vols = np.sqrt(np.maximum(np.diag(cov), 1e-8))
+
+        risk_aversion = 2.5
+        w_eq = 1.0 / (vols ** 2)
+        w_eq /= np.sum(w_eq)
+        pi = risk_aversion * (cov @ w_eq)
+
+        tau = 0.05
+        m_dict = {}
+        if self._individual_metrics is not None and not self._individual_metrics.empty:
+            m_dict = {r["fund_code"]: r for _, r in self._individual_metrics.iterrows()}
+
+        ann_ret = (sub_nav.iloc[-1] / sub_nav.iloc[0]) ** (250.0 / len(sub_nav)) - 1.0
+        sharpes = np.array([float(m_dict.get(c, {}).get("sharpe", float(ann_ret.get(c, 0.08)) / max(vols[i], 0.01))) for i, c in enumerate(codes)])
+        winrates = np.array([float(m_dict.get(c, {}).get("conditional_win_rate", m_dict.get(c, {}).get("win_rate", 0.5))) for c in codes])
+
+        P = np.eye(n)
+        mean_sh = np.mean(sharpes)
+        tilt = 0.04 * np.tanh(sharpes - mean_sh) + 0.03 * (winrates - 0.5)
+        Q = pi + tilt
+        omega = np.diag(np.diag(P @ (tau * cov) @ P.T)) + 1e-5 * np.eye(n)
+
+        tau_cov_inv = np.linalg.pinv(tau * cov)
+        omega_inv = np.linalg.pinv(omega)
+        post_cov_inv = tau_cov_inv + P.T @ omega_inv @ P
+        post_cov = np.linalg.pinv(post_cov_inv)
+        er_post = post_cov @ (tau_cov_inv @ pi + P.T @ omega_inv @ Q)
+
+        min_w = self.constraints.get("min_single_weight", 0.04)
+        max_w = self.constraints.get("max_single_weight", 0.40)
+        bounds = [(min_w, max_w)] * n
+
+        def bl_objective(w):
+            w = np.asarray(w, dtype=np.float64)
+            port_ret = np.dot(w, er_post)
+            port_var = w @ cov @ w
+            return -(port_ret - 0.5 * risk_aversion * port_var)
+
+        cons = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
+        x0 = w_eq
+        try:
+            res = minimize(
+                bl_objective,
+                x0,
+                method="SLSQP",
+                bounds=bounds,
+                constraints=cons,
+                options={"maxiter": 150, "ftol": 1e-8},
+            )
+            w_opt = res.x if res.success else x0
+        except Exception:
+            w_opt = x0
+
+        w_opt = np.clip(w_opt, min_w, max_w)
+        w_opt /= np.sum(w_opt)
+        return _normalize_weights_strict({c: float(w) for c, w in zip(codes, w_opt)})
 
     def _optimize_by_model_type(
         self,
@@ -758,17 +1074,33 @@ class WinRateOptimizer:
         nav_df: pd.DataFrame,
         quota_info: Optional[Dict[str, Dict]],
     ) -> Optional[Dict[str, float]]:
-        """根据 self.model_type 调度四大机构级量化模型求解权重"""
-        if self.model_type == "hrp_cvar":
+        """根据 self.model_type 调度七大机构级量化模型求解权重"""
+        m_t = getattr(self, "model_type", "hrp_robust")
+        if m_t in ("hrp_robust", "hrp_cvar"):
             hrp_w = self._compute_hrp_weights(codes, nav_df)
             slsqp_w = self._slsqp_optimize(codes, nav_df, quota_info)
             if slsqp_w is not None and hrp_w:
                 # 双核融合：60% 层次风险平价 + 40% CVaR-胜率规划
                 blended = {c: 0.60 * hrp_w.get(c, 1.0 / len(codes)) + 0.40 * slsqp_w.get(c, 1.0 / len(codes)) for c in codes}
-                tot = sum(blended.values())
-                return {c: round(v / tot, 4) for c, v in blended.items()}
-            return hrp_w
-        return self._slsqp_optimize(codes, nav_df, quota_info)
+                return _normalize_weights_strict(blended)
+            return _normalize_weights_strict(hrp_w) if hrp_w else self._slsqp_optimize(codes, nav_df, quota_info)
+        elif m_t == "core_satellite":
+            cs_w = self._compute_core_satellite_weights(codes, nav_df)
+            return _normalize_weights_strict(cs_w)
+        elif m_t == "all_weather":
+            aw_w = self._compute_all_weather_weights(codes, nav_df)
+            return _normalize_weights_strict(aw_w)
+        elif m_t == "black_litterman":
+            bl_w = self._compute_black_litterman_weights(codes, nav_df)
+            return _normalize_weights_strict(bl_w)
+        elif m_t in ("cvar_tail", "min_cvar", "kelly_momentum", "conditional_winrate", "cond_winrate"):
+            w = self._slsqp_optimize(codes, nav_df, quota_info)
+            if w is not None:
+                return _normalize_weights_strict(w)
+            return _normalize_weights_strict(self._compute_hrp_weights(codes, nav_df))
+        else:
+            w = self._slsqp_optimize(codes, nav_df, quota_info)
+            return _normalize_weights_strict(w) if w else None
 
     def _slsqp_optimize(
         self,
@@ -853,38 +1185,49 @@ class WinRateOptimizer:
                     if qi.get("is_limited", False):
                         penalty += pen_coef * w[i]
 
-            if getattr(self, "model_type", "cond_winrate") == "min_cvar":
+            m_type = getattr(self, "model_type", "conditional_winrate")
+            if m_type in ("min_cvar", "cvar_tail"):
                 p5 = float(np.percentile(ann_ret, 5)) if len(ann_ret) > 0 else 0.0
                 tail_losses = np.maximum(0.0, p5 - ann_ret)
                 smooth_cvar = p5 - float(np.mean(tail_losses)) / 0.05
                 down_vol = float(np.sqrt(np.mean(np.minimum(0.0, ann_ret) ** 2)))
                 return -(0.55 * smooth_cvar - 0.35 * down_vol * 2.0 + 0.10 * wr - penalty)
-            elif getattr(self, "model_type", "cond_winrate") == "kelly_momentum":
+            elif m_type in ("kelly_momentum",):
                 safe_r = np.clip(0.5 * ann_ret, -0.45, 2.0)
                 kelly_g = float(np.mean(np.log1p(safe_r)))
                 sharpes = np.array([float(m_dict.get(c, {}).get("sharpe", 0.5)) for c in valid_codes])
                 mom_tilt = float(np.dot(w, sharpes))
                 return -(0.60 * kelly_g + 0.25 * mom_tilt * 0.1 + 0.15 * wr - penalty)
-            elif getattr(self, "model_type", "cond_winrate") == "hrp_cvar":
+            elif m_type in ("hrp_cvar", "hrp_robust"):
                 p5 = float(np.percentile(ann_ret, 5)) if len(ann_ret) > 0 else 0.0
                 smooth_cvar = p5 - float(np.mean(np.maximum(0.0, p5 - ann_ret))) / 0.05
                 return -(0.50 * wr + 0.50 * smooth_cvar - penalty)
 
-            # 默认 cond_winrate：平滑条件胜率 + 达标夏普奖励
+            # 默认 cond_winrate / conditional_winrate / 其他
             mu = float(np.mean(ann_ret))
             vol = float(np.std(ann_ret) + 1e-4)
             omega_bonus = (mu - self.target_return) / vol
             return -(0.75 * wr + 0.25 * np.clip(omega_bonus * 0.1, -0.5, 0.5) - penalty)
 
         # 初始权重根据所选机构模型提供智能先验倾斜 (Prior Tilt)，避免机械 1/N
-        if self.model_type == "min_cvar":
+        m_type = getattr(self, "model_type", "conditional_winrate")
+        if m_type in ("min_cvar", "cvar_tail"):
             priors = np.array([1.0 / max(0.04, abs(float(m_dict.get(c, {}).get("max_dd", 0.15)))) for c in valid_codes], dtype=float)
-        elif self.model_type == "kelly_momentum":
+        elif m_type in ("kelly_momentum",):
             priors = np.array([max(0.1, float(m_dict.get(c, {}).get("sharpe", 0.5)) + 1.0) for c in valid_codes], dtype=float)
-        elif self.model_type == "hrp_cvar":
+        elif m_type in ("hrp_cvar", "hrp_robust"):
             hrp_init = self._compute_hrp_weights(valid_codes, nav_df)
             priors = np.array([hrp_init.get(c, 1.0 / n) for c in valid_codes], dtype=float)
-        else:  # cond_winrate
+        elif m_type in ("core_satellite",):
+            cs_init = self._compute_core_satellite_weights(valid_codes, nav_df)
+            priors = np.array([cs_init.get(c, 1.0 / n) for c in valid_codes], dtype=float)
+        elif m_type in ("all_weather",):
+            aw_init = self._compute_all_weather_weights(valid_codes, nav_df)
+            priors = np.array([aw_init.get(c, 1.0 / n) for c in valid_codes], dtype=float)
+        elif m_type in ("black_litterman",):
+            bl_init = self._compute_black_litterman_weights(valid_codes, nav_df)
+            priors = np.array([bl_init.get(c, 1.0 / n) for c in valid_codes], dtype=float)
+        else:  # conditional_winrate / cond_winrate
             priors = np.array([float(m_dict.get(c, {}).get("conditional_win_rate", m_dict.get(c, {}).get("win_rate", 0.5))) ** 1.8 for c in valid_codes], dtype=float)
 
         if len(priors) == n and np.all(np.isfinite(priors)) and priors.sum() > 0:
@@ -928,14 +1271,13 @@ class WinRateOptimizer:
             if result.success or result.fun < objective(x0):
                 w = result.x
                 w = np.clip(w, min_w, max_w)
-                w = w / w.sum()  # 归一化
-                return {code: float(w[i]) for i, code in enumerate(valid_codes)}
+                return _normalize_weights_strict({code: float(w[i]) for i, code in enumerate(valid_codes)})
             elif np.all(np.isfinite(x0)) and x0.sum() > 0:
                 # 即使 SLSQP 无法进一步改善，x0 也是有效先验倾斜解
-                return {code: float(x0[i]) for i, code in enumerate(valid_codes)}
+                return _normalize_weights_strict({code: float(x0[i]) for i, code in enumerate(valid_codes)})
         except Exception:
             if np.all(np.isfinite(x0)) and x0.sum() > 0:
-                return {code: float(x0[i]) for i, code in enumerate(valid_codes)}
+                return _normalize_weights_strict({code: float(x0[i]) for i, code in enumerate(valid_codes)})
 
         return None
 

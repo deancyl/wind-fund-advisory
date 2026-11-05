@@ -1,92 +1,78 @@
-# Project: Wind 投顾系统全栈升级 (Global UI/UX Design System, Real Open Data, Quant Modules & Verification)
+# Project: Wind 投顾系统全栈升级 (全市场自定义走廊、数据单源同真、7大机构定权模型、6维主动预警与压力测试)
 
 ## Architecture
 - **Web UI & Visualization Layer**: `AGY2_FundAdvisory/app_gui.py`
-  - 5 套机构级主题配色 (`THEME_PRESETS`) + 全局 CSS 变量绑定系统
-  - 动态盈亏涨跌色全站联动 (`active_co`: A股红涨绿跌 vs 国际绿涨红跌)
-  - 顶部 6 大指数实时行情带 (含点位、涨跌幅、真实估值标签、紧凑刷新)
-  - 🧭 全局领航台侧边栏：视觉中枢、目标档位快切、风控护栏、账本环境管理
-  - 四大核心 Tab 错误隔离边界 (`try ... except Exception as e: st.error(...)`)
-- **Data & Persistent Cache Layer**: `AGY2_FundAdvisory/data_loader.py`, `market_screener.py`, `cache_manager.py`, `data/cache/`
-  - 东财两市实时宽度与成交额接口 (`push2.eastmoney.com` `f6/f104/f105/f106`)，彻底清除 `3210/1780` (M1 DONE)
-  - AkShare 指数估值与 CSI 估值引擎，动态计算 PE-TTM/PB/股息率及历史分位数，缓存至 `data/cache/index_valuation.json`，替换 `INDEX_PE_METAS` (M1 DONE)
-  - 公募基金全市场申购限额 (`ak.fund_purchase_em`)，落盘至 `data/cache/fund_purchase.parquet` (读取 14.29ms < 50ms) (M1 DONE)
-  - 基金本体排雷与季报重仓穿透 (天天基金 JS API)，带 24h TTL 缓存与离线兜底 (M1 DONE)
-  - 修复 `market_screener.py` 成立日期 bug，恢复 7,362 只候选池 (M1 DONE)
-- **Quant Strategy & Execution Layer**: `AGY2_FundAdvisory/strategy_bridge.py`, `portfolio_manager.py`, `portfolio_optimizer.py`
-  - 【🔭 全市场机会雷达】：覆盖 14 大赛道，计算估值分位、考夫曼信噪比 $ER_{20}$、MA20 动量拐点（超买 >+6% 折价）、拥挤度安全分；输出 Top 3 推荐赛道及对应六维最高分公募基金，支持一键纳入备选池
-  - 【🚨 主动风险预警哨】：4 维状态自动巡检（FIFO 批次持仓天数 <=3d 预警、7d 脱离惩罚、C 类 30d 零费；赛道拥挤度超买；基金规模 <0.5 亿/经理变更/风格漂移本体排雷；大盘攻防线 MA20/MA60/MA120 突破/破位）
-  - 【🌊 分批建仓与智能定投算子】：Tab 1 步骤三实装建仓节奏单选（模式一一次性建仓；模式二稳健三步分批建仓 50%/30%/20%，资金严格守恒 $\sum C_i \equiv \text{total\_capital}$；模式三估值自适应智能定投，根据 ERP 与 Bias20 输出 0.0x~2.0x 乘数与排期表）
+  - 侧边栏核心指数行情走廊：3 层卡片指标流、东财/新浪实时批量接口与离线多日收盘价涨跌幅计算、CSS 并集选择器修复
+  - 侧边栏右上角自选设置弹窗：3~15 只展示数量滑块、38+ 全市场指数/ETF 三模多选排序检索器、任意 6 位有效代码实时校验接入与 JSON 持久化
+  - 左翼全市场机会雷达看板：Top 3 机会卡片 + 可展开 14 大赛道量化温度计总表 + 顶部 <=80 字今日市场脉搏晨报
+  - 右翼六维主动风险预警哨：涵盖红牌锁仓、黄牌倒计时、C类置换、阶梯止盈与深套、赛道集中度与清盘线，配套一键跳转与减仓单动作按钮
+  - UI 细节修复：`button[kind="primary"] * { color: #ffffff !important; }` 样式锁死，Tab 1 步骤一策略锚点重复文案合并精炼
+- **Data & Single Source of Truth Layer**: `AGY2_FundAdvisory/data_loader.py`, `data/processed/aligned_matrix_total_return.parquet`, `data/processed/indices/*.parquet`
+  - 单源同真（Single Source of Truth）：废除 `RADAR_SECTOR_CATALOG` 静态假常量，统一下潜至 `IndexValuationEngine` 与本地行情日线动态精算
+  - 侧边栏与雷达双翼估值分位数绝对一致（浮点误差 < 1e-4）
+  - 自选配置持久化：`data/cache/custom_watchlist.json`
+- **Quant Strategy & Execution Layer**: `AGY2_FundAdvisory/advisory_engine.py`, `winrate_engine.py`, `portfolio_optimizer.py`
+  - 7 大机构级量化定权求解算子：鲁棒双核HRP、核心-卫星杠铃、全天候风险平价、BL观点融合、条件胜率最优、尾部CVaR、凯利动量增强，权重和严格等于 1.0
+  - 宏观状态自适应推荐路由逻辑与模型对比说明卡片
+  - 历史黑天鹅压力测试器：2018 贸易摩擦熊市、2022 杀估值熊市、2024 微盘流动性危机三个历史切片的最大浮亏与回本天数测算
 - **Physical Safety Redline Layer**:
   - `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`（物理只读红线，SHA256 绝对锁定，严禁修改）
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | 东财真实全市场涨跌家数与量能 | 获取 f6, f104, f105, f106，清零 3210/1780 假常数，带本地 JSON 缓存与降级 | M1 (DONE) | R2 |
-| 2 | 真实指数估值分位数与百分位引擎 | akshare/CSI 估值与历史序列计算分位，缓存至 data/cache/index_valuation.json，替换 INDEX_PE_METAS | M1 (DONE) | R2 |
-| 3 | 全市场基金真实限购金额与缓存 | ak.fund_purchase_em() 缓存至 data/cache/fund_purchase.parquet (14ms)，打通限额过滤 | M1 (DONE) | R2 |
-| 4 | 基金本体排雷与季报重仓元数据 | 天天基金接口提取 AUM (<0.5亿清盘排查)、经理任职与回报、季报股债仓位与前十大重仓，24h TTL 缓存 | M1 (DONE) | R2 |
-| 5 | 修复 market_screener 成立日期 Bug | 修复 ak.fund_name_em 缺少 inception_date 导致候选池为空问题，恢复 7,362 只 | M1 (DONE) | R2 |
-| 6 | CSS 核心组件类与变量绑定恢复 | 重建 .decision-card, .decision-title 等类，100% 绑定 var(--bg-canvas) 等 CSS 变量 | M2 | R1 |
-| 7 | 清零内联硬编码色值与动态涨跌联动 | 清除 safe_markdown_html 与 Plotly 中硬编码 Hex 色值，盈亏颜色与图表动态读取 active_co | M2 | R1 |
-| 8 | 文案与视觉样式去营销化 | 废除五彩彩虹顶边，清除感叹号、多余书名号与方括号，标题控制在 6~7 字，按钮精炼 | M2 | R1 |
-| 9 | 5 套机构级主题配色实装 | light_slate (默认), dark_terminal, nordic_paper, deep_titanium, nordic_frost (含别名兼容) | M2 | R1 |
-| 10 | 顶部行情带与侧边栏职责归位 | 顶部 6 大指数行情带实装点位、涨跌幅与真实估值标签；侧边栏聚焦视觉/目标/风控/账本四大职责 | M2 | R1 |
-| 11 | 【🔭 全市场机会雷达】引擎与看板 | 覆盖 14 赛道，计算估值/ER/动量/拥挤度得分，输出 Top 3 机会赛道与六维最优基金，支持一键加入备选池 | M3 | R3 |
-| 12 | 【🚨 主动风险预警哨】四维巡检 | FIFO 批次解锁提醒 (<=3d, 7d, 30d)、拥挤超买预警、基金本体排雷预警、大盘攻防线预警 | M3 | R3 |
-| 13 | 【🌊 分批建仓与智能定投算子】 | 模式一一键建仓；模式二三步分批 (50%/30%/20%，资金守恒)；模式三估值自适应定投 (ERP+Bias20 乘数) | M3 | R3 |
-| 14 | 物理裁判文件哈希锁定与只读审计 | 校验 judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py SHA256 哈希 | M4 | R4 |
-| 15 | 自动化单元测试与 AppTest 回归验证 | 编写针对新数据与投顾算子的针对性测试，Streamlit AppTest 验证 5 套主题与 4 个 Tab 0 异常 | M4 | R5 |
-| 16 | 8501 端口平滑重启与服务健康自检 | 遵循瞬态端口非破坏性甄别，平滑重启服务并验证 HTTP 200 探针存活 | M4 | R5 |
+| 1 | 侧边栏样式类名修复 | 样式表支持 `.val-very-low, .val-very_low` 与 `.val-very-high, .val-very_high` 并集选择器，极低估与过热徽章边框底色生效 | M1 | R1 |
+| 2 | 真实行情与非交易日涨跌幅 | 优先东财/新浪批量实时接口，离线/非交易时段读取本地最新两交易日收盘价计算真实涨跌幅，杜绝整排 0.00% 假平盘 | M1 | R1 |
+| 3 | 侧边栏卡片 3 层专业指标流 | 行1: 名称代码实时点位与涨跌幅胶囊(Flexbox防压扁)；行2: 真实PE/PB分位与近20日涨跌幅；行3: MA20趋势与偏离状态 | M1 | R1 |
+| 4 | 全市场 38 只指数/ETF 目录与弹窗设置 | 内置 12 板块 38+ 标的(锁死000922)，侧边栏右上角设置弹窗支持 3~15 只滑块、拼音/代码/名称三模检索多选排序器、任意 6 位有效代码实时校验接入 | M1 | R1 |
+| 5 | 自选走廊持久化缓存 | 自选配置落盘至 `data/cache/custom_watchlist.json`，支持冷启动恢复与默认列表兜底 | M1 | R1 |
+| 6 | UI 细节修复与精炼 | `button[kind="primary"] *` 强制白色文字 (`#ffffff !important`)，Tab 1 步骤一合并消除重复资产锚点与权益上限描述 | M1 | R3 |
+| 7 | 估值与动量单源同真 | 彻底废除 `RADAR_SECTOR_CATALOG` 静态硬编码字段，修正 parquet 路径，统一由 `IndexValuationEngine` 与本地矩阵动态精算 14 赛道指标 | M2 | R2 |
+| 8 | 升级左翼全市场机会雷达 | Top 3 机会卡片下方提供可展开 14 大赛道量化温度计总表，顶部增加 <=80 字今日市场脉搏晨报 | M2 | R2 |
+| 9 | 实装右翼六维主动风险预警哨 | 实装未满7天锁仓红牌(011612)、临免赎倒计时黄牌(011613)、C类30天置换、阶梯止盈与深套诊断(013841)、赛道集中度与重仓重叠、迷你基清盘与攻防线 | M2 | R2 |
+| 10 | 预警卡片交互式动作按钮 | 每条预警卡片配备一键跳转 Tab 2 锁定未满 7 天标的或生成阶梯止盈减仓单的可交互动作按钮 | M2 | R2 |
+| 11 | 实装 7 大机构量化定权求解算子 | 在 `QUANT_MODELS_CATALOG` 与 `WinRateOptimizer` 中实装 HRP、核心卫星、全天候、BL观点融合、条件胜率、CVaR、凯利动量增强，权重和严格等于 1.0 | M3 | R3 |
+| 12 | 步骤一模型对比与宏观路由更新 | 同步更新 Tab 1 步骤一 7 大模型对比说明卡片与宏观环境推荐路由逻辑 | M3 | R3 |
+| 13 | 历史黑天鹅压力测试器 | 在 Tab 1 步骤二与 Tab 3 推演结果中实装 2018、2022、2024 年初三大历史切片最大浮亏金额与回本天数测算卡片 | M3 | R3 |
+| 14 | 物理裁判文件哈希锁定与只读审计 | 运行 `verify_referee_hashes.py` 验证 4 大只读文件 SHA256 完好无损 | M4 | R4 |
+| 15 | 针对性单元测试套件全覆盖 | 验证 7 大模型权重和严格等于 1.0、6 维预警哨精准识别 011612/011613/013841、侧边栏与雷达估值分位 100% 同源一致 | M4 | R5 |
+| 16 | Streamlit AppTest 回归与服务重启 | AppTest 验证深浅色主题全站 0 异常，遵循瞬态端口非破坏性甄别平滑重启 8501 端口服务 | M4 | R5 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | 免费开源真实数据底座升级与持久化缓存 | Features 1-5 (R2): 东财市场宽度/量能, 真实指数估值分位, 基金真实限购 Parquet 缓存, 基金本体排雷与季报重仓, 修复 market_screener | none | DONE |
-| M2 | 全局 UI/UX 多配色设计系统重构与 5 套高定主题 | Features 6-10 (R1): CSS 类与变量绑定, 清零内联色值与动态涨跌色联动, 去营销化文案与微边框, 5 套主题预设, 顶部行情带与侧边栏重构 | M1 (for real valuation tags) | PLANNED |
-| M3 | 实装三大投顾核心业务模块 | Features 11-13 (R3): 全市场机会雷达, 主动风险预警哨, 分批建仓与智能定投算子及 UI 接入 | M1, M2 | PLANNED |
-| M4 | 物理红线哈希审计、全套自动化回归测试与服务重启 | Features 14-16 (R4, R5): 裁判文件哈希审计, 假常数清零断言, 新算子增量测试, AppTest 4-Tab 回归, 8501 端口平滑重启 | M1, M2, M3 | PLANNED |
+| M1 | 侧边栏核心指数走廊升级、全市场自由定制与 UI 细节修复 | Features 1-6 (R1, R3 UI): 样式并集选择器, 离线真实涨跌幅, 3 层指标流卡片, 38+ 目录与弹窗设置, Watchlist JSON 持久化, Primary 白字与步骤一文案精炼 | none | DONE |
+| M2 | 估值动量单源同真与双翼看板升级 (机会雷达 + 六维预警哨) | Features 7-10 (R2): 废除静态常量, 路径纠正与 14 赛道动态精算, 脉搏晨报与温度计总表, 六维主动预警哨实装与快捷交互按钮 | M1 | DONE |
+| M3 | 7 大机构级量化定权模型与历史黑天鹅压力测试器 | Features 11-13 (R3): 实装 7 大数学求解算子, 权重归一化严格等于 1.0, 宏观推荐路由, 2018/2022/2024 黑天鹅压力测试卡片 | M1, M2 | IN_PROGRESS |
+| M4 | 物理红线哈希审计、全套自动化回归测试与服务平滑重启 | Features 14-16 (R4, R5): 裁判文件哈希审计, 7 模型归一化/6 维预警/估值同源针对性单元测试, AppTest 4-Tab 0 异常, 8501 端口平滑重启 | M1, M2, M3 | PLANNED |
 
 ## Interface Contracts
-### M1 ↔ M2: Index Valuation & Market Breadth Interface
-- **File**: `data/cache/index_valuation.json` & `data/cache/market_breadth.json`
+### M1 ↔ M2: Index Valuation & Sector Mapping Contract
+- **File**: `data/cache/custom_watchlist.json` & `AGY2_FundAdvisory/data_loader.py`
 - **Schema**:
-  - `index_valuation.json`: `{ "<symbol>": { "name": str, "pe_ttm": float, "percentile": float, "label": str, "status": "low"|"mid"|"high" } }`
-  - `market_breadth.json`: `{ "turnover_str": str, "turnover_val": float, "up_count": int, "down_count": int, "flat_count": int, "up_pct": float, "timestamp": str }`
-- **Status**: Verified and operational.
+  - `custom_watchlist.json`: `{"selected_symbols": ["000300", "000905", "000852", "000922", ...], "custom_added": [{"symbol": str, "name": str, "market": str}], "display_count": int}`
+  - `IndexValuationEngine`: Benchmark symbols (e.g. `000922` for csi_dividend) must return identical percentile in both sidebar and radar.
+- **Rule 16 Invariant**: CSI Dividend benchmark symbol is strictly `000922` (never `000015`).
 
-### M1 ↔ M3: Fund Purchase Quota & Screening Interface
-- **File**: `data/cache/fund_purchase.parquet` & `data/cache/funds/{code}_meta.json`
-- **Schema**:
-  - `fund_purchase.parquet`: columns `['基金代码', '申购状态', '赎回状态', '日累计限定金额']`, cold read latency 14.29ms (<50ms).
-  - `{code}_meta.json`: `{ "code": str, "aum": float, "manager": str, "term_years": float, "term_return": float, "asset_allocation": { "stock": float, "bond": float, "cash": float }, "top10_stocks": list[str] }`
-- **Status**: Verified and operational.
-
-### M2 ↔ M3: UI Radar & DCA Component Container Interface
-- **File**: `AGY2_FundAdvisory/app_gui.py`
+### M2 ↔ M3: Radar Views & Black-Litterman Input Contract
+- **File**: `AGY2_FundAdvisory/advisory_engine.py` ↔ `winrate_engine.py`
 - **Contract**:
-  - 机会雷达组件以可折叠/常驻卡片形式挂载于行情带正下方或 Tab 顶部专属区域；
-  - 分批建仓选择器集成于 Tab 1 步骤三实盘交割单，输出 `st.session_state.execution_plan` 并向交割单组件传递 `capital_deployment_mode` 及对应批次明细。
+  - `OpportunityRadarEngine.get_top_opportunity_sectors(k=3)` returns `{sector_id: expected_excess_return}` as Bayesian P / Q views for Model 4 (Black-Litterman).
+  - All 7 quantitative weighting models must output weights $w_i \ge 0$ such that $|\sum w_i - 1.0| < 1e-6$.
 
-### M3 ↔ M4: Test Contracts & Mathematical Invariants
-- **Contract 1 (Capital Conservation)**:
-  - 稳健三步分批建仓算法必须保证：`abs(batch_1_amount + batch_2_amount + batch_3_amount - total_capital) < 1e-4`。
-- **Contract 2 (FIFO Holding Days & Penalty Lock)**:
-  - 调仓优化器严格遵守持有期 $<7$ 天份额 `locked_shares` 约束，严禁建议卖出。
-- **Contract 3 (DCA Multiplier Boundedness)**:
-  - 估值自适应定投乘数严格处于 $[0.0, 2.0]$ 区间。
+### M3 ↔ M4: Mathematical Invariants & Test Verification
+- **Contract 1 (Weight Sum Unity)**: All 7 models must satisfy `sum(weights.values()) == 1.0` within floating precision `1e-6`.
+- **Contract 2 (Penalty Lock & FIFO Holding)**: Holding $<7$ days (011612) strictly locks shares at lower bound in optimizer.
+- **Contract 3 (Zero Exception AppTest)**: Streamlit `AppTest` executes all 4 tabs with `assert not at.exception` in both light and dark themes.
 
 ## Code Layout
 - `AGY2_FundAdvisory/`
-  - `app_gui.py`: UI 视图与设计系统 (M2, M3)
-  - `data_loader.py`: 数据加载与外部接口 (M1 DONE)
-  - `market_screener.py`: 标的筛选器 (M1 DONE, M3)
-  - `cache_manager.py`: 本地缓存与持久化存储 (M1 DONE)
-  - `portfolio_manager.py`: 组合管理、选基评分与持仓批次 (M3)
-  - `portfolio_optimizer.py`: 组合优化器、调仓路径与定投算子 (M3)
-  - `strategy_bridge.py`: 策略桥接与建仓蓝图 (M3)
-  - `tests/`: 单元与集成测试套件 (M4)
+  - `app_gui.py`: 侧边栏行情走廊、设置弹窗、双翼看板渲染、黑天鹅卡片与全局样式 (M1, M2, M3)
+  - `data_loader.py`: 实时行情获取、离线收盘价涨跌幅、估值分位引擎 (M1, M2)
+  - `advisory_engine.py`: 单源同真雷达引擎、14 赛道量化温度计、六维主动风险预警哨 (M2)
+  - `winrate_engine.py`: 7 大机构定权模型算子、黑天鹅压力测试测算逻辑 (M3)
+  - `portfolio_optimizer.py`: 调仓路径优化、惩罚锁仓硬约束 (M2, M3)
+  - `tests/`: 自动化单元测试与回归测试 (M4)
 - `tests/`:
-  - `test_infra.py`: 只读测试基线（物理只读）
-  - 新增针对性增量测试 (M4)
+  - `test_infra.py`: 只读裁判测试基线（物理只读）
+  - `test_r8_quant_models_and_sentry.py`: 增量针对性测试套件 (M4)

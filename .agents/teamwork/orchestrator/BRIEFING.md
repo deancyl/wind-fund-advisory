@@ -1,39 +1,39 @@
-# BRIEFING — 2026-11-04T10:52:15Z
+# BRIEFING — 2026-11-05T03:13:05Z
 
 ## Mission
-对现有 Wind 投顾系统执行生产级全栈升级任务：“全局 UI/UX 多配色设计系统重塑 + 免费开源真实数据底座升级 + 【🔭全市场机会雷达】+【🚨主动风险预警哨】+【🌊分批建仓与智能定投算子】”，全面根治外在粗糙与样式断裂，消灭静态假常数，实装智能投顾核心业务模块并完成端到端自动化验证。
+启动全市场指数自定义走廊、全栈7大机构定权模型、6维主动预警与阶梯止盈引擎、数据同源打通及UI细节修复任务。严格恪守裁判文件物理安全红线，实现单源同真架构设计。
 
 ## 🔒 My Identity
 - Archetype: orchestrator
 - Roles: orchestrator, user_liaison, human_reporter, successor
 - Working directory: d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\
 - Original parent: parent
-- Original parent conversation ID: 4a9e7fb3-3e07-4201-8f85-a88802a948f5
+- Original parent conversation ID: 53d5c4b6-a39f-44a6-9ac1-65cca1c46913
 
 ## 🔒 My Workflow
 - **Pattern**: Project Pattern
 - **Scope document**: d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
 1. **Decompose**:
-   - Step 0: Survey codebase with 3 Explorers in parallel (R1-R5) [COMPLETED]
+   - Step 0: Survey codebase with 3 Explorers in parallel (R1-R4) [COMPLETED]
    - Step 1: Synthesize survey results and update PROJECT.md Feature Inventory & Milestones [COMPLETED]
    - Step 2: Milestone Iteration Loops (Worker -> Reviewers (2) -> Challengers (2) -> Forensic Auditor -> Gate)
 2. **Dispatch & Execute**:
-   - M1: 免费开源真实数据底座升级与持久化缓存 (Features 1-5, R2) [IN_PROGRESS: Reviewer Fix M1 verifying]
-   - M2: 全局 UI/UX 多配色设计系统重构与 5 套高定主题 (Features 6-10, R1) [PLANNED]
-   - M3: 实装三大投顾核心业务模块 (Features 11-13, R3) [PLANNED]
-   - M4: 物理红线哈希审计、全套自动化回归测试与服务重启 (Features 14-16, R4, R5) [PLANNED]
+   - M1: 侧边栏核心指数走廊升级、全市场自由定制与 UI 细节修复 (Features 1-6) [GATE PASSED]
+   - M2: 估值动量单源同真与双翼看板升级 (机会雷达 + 六维预警哨) (Features 7-10) [GATE PASSED]
+   - M3: 7 大机构级量化定权模型与历史黑天鹅压力测试器 (Features 11-13) [IN_PROGRESS: Worker Prod R8-M3 running]
+   - M4: 物理红线哈希审计、全套自动化回归测试与服务平滑重启 (Features 14-16) [PLANNED]
 3. **On failure**:
    - Retry -> Replace -> Skip -> Redistribute -> Redesign
 4. **Succession**:
-   - At 16 spawns, write handoff.md, spawn successor
+   - In single-session orchestrator hierarchy, driving milestones to completion within spawn limits.
 - **Work items**:
-   1. Survey & Architecture Mapping (R1-R5) [DONE]
-   2. Milestone 1: R2 Real Data & Parquet Cache [IN_PROGRESS: Re-verification]
-   3. Milestone 2: R1 UI/UX & 5 Themes [PLANNED]
-   4. Milestone 3: R3 Quant Modules [PLANNED]
-   5. Milestone 4: R4/R5 Tests, Audits & Deployment [PLANNED]
-- **Current phase**: 2 (M2 Gate Verification - 2 Reviewers, 2 Challengers, 1 Forensic Auditor)
-- **Current focus**: Reviewers M2-1/M2-2, Challengers M2-1/M2-2, Auditor M2 executing independent evaluations
+   1. Survey & Architecture Mapping (R1-R4) [DONE]
+   2. Milestone 1: R1 & UI Fixes [DONE]
+   3. Milestone 2: R2 Single Source of Truth & Wings [DONE]
+   4. Milestone 3: R3 Quant Models & Stress Test [IN_PROGRESS]
+   5. Milestone 4: R4/R5 Verification & Deployment [PLANNED]
+- **Current phase**: 2 (M3 Execution)
+- **Current focus**: Worker Prod R8-M3 implementing Features 11-13 in winrate_engine.py, portfolio_optimizer.py, app_gui.py
 
 ## 🔒 Key Constraints
 - DISPATCH-ONLY orchestrator: MUST delegate ALL work to subagents via invoke_subagent.
@@ -47,50 +47,47 @@
 - Never reuse a subagent after it has delivered its handoff — always spawn fresh.
 
 ## Current Parent
-- Conversation ID: 4a9e7fb3-3e07-4201-8f85-a88802a948f5
-- Updated: 2026-11-04T09:22:09Z
+- Conversation ID: 53d5c4b6-a39f-44a6-9ac1-65cca1c46913
+- Updated: 2026-11-05T01:35:33Z
 
 ## Key Decisions Made
-- Survey completed by Explorers r7_1, r7_2, r7_3.
-- Master PROJECT.md established with 16 features, 4 sequential milestones.
-- Milestone 1 Iteration 1: Worker Prod M1 completed code. Auditor: CLEAN. Reviewers: APPROVE. Challenger 1: REQUEST_CHANGES (cold start 113ms > 50ms). Gate: FAIL.
-- Worker Remediation M1 completed: implemented `FundQuotaDict`, reducing cold start latency to 14.29ms (Max 40.21ms < 50ms), all 18/18 adversarial tests pass.
-- Dispatched Reviewer Fix M1 (`cb704eeb-abf8-4355-82b3-c9e8619896c2`) for re-verification.
+- Milestone 1: GATE PASSED.
+- Milestone 2: GATE PASSED.
+- Dispatched Worker Prod R8-M3 (`274b44eb-891b-47d7-ba52-902ae27f9426`) for Milestone 3 (Features 11-13). Exclusive write ownership: winrate_engine.py, portfolio_optimizer.py, app_gui.py.
 
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |-------|------|-----------|--------|---------|
-| Explorer r7_1 | teamwork_explorer | Survey R1: UI/UX & 5 Themes | completed | c27db1fd-b775-435b-b1fb-91ce9e4f0772 |
-| Explorer r7_2 | teamwork_explorer | Survey R2: Real Data & Cache | completed | 8d3ac414-72d7-4bf7-b970-b6e51614378d |
-| Explorer r7_3 | teamwork_explorer | Survey R3, R4, R5: Quant & QA | completed | 44f3f23e-4f49-401d-9449-b15b90403e21 |
-| Explorer M1-1 | teamwork_explorer | M1: Market Breadth & Index Valuation | completed | c8a61ada-8b79-4a80-9f8c-f57e0ad1b26c |
-| Explorer M1-2 | teamwork_explorer | M1: Fund Quota Parquet & Metadata | completed | 998c0b94-cf0e-476a-aa55-0499da616fda |
-| Explorer M1-3 | teamwork_explorer | M1: Screener Bug & Integration Check | completed | 9e28f3f1-c253-42c9-83cd-e1fe098ae4c1 |
-| Worker Prod M1 | teamwork_worker | M1 Implementation (Features 1-5) | completed | e23986e3-6de4-4587-9604-d94af4bbac52 |
-| Reviewer M1-1 | teamwork_reviewer | M1: Data Engine & Cache Integrity | completed (APPROVE) | e9d0d2e1-99e1-4e43-9181-3688077ade54 |
-| Reviewer M1-2 | teamwork_reviewer | M1: Screener & GUI Integration | completed (APPROVE) | be836b33-06d1-4884-890d-e27c00c8038d |
-| Challenger M1-1 | teamwork_challenger | M1: Latency & Fallback Stress | completed (REQUEST_CHANGES) | e092b853-98a6-4f93-9483-289c63657d0f |
-| Challenger M1-2 | teamwork_challenger | M1: Screener Boundary & Liquidation | completed (APPROVE) | e5d3844e-1838-4b12-8f47-42ebe0a0cbb6 |
-| Auditor M1 | teamwork_auditor | M1: Forensic Integrity & Referee Lock | completed (CLEAN) | ac66028a-d272-486b-bbc7-55bf412339a6 |
-| Worker Remediation M1 | teamwork_worker | M1 Remediation: Cold Start Latency Fix | completed | 20dd1960-aeb1-458d-a005-90fd07fbf83a |
-| Reviewer Fix M1 | teamwork_reviewer | M1 Remediation Re-Verification | completed (APPROVE) | cb704eeb-abf8-4355-82b3-c9e8619896c2 |
-| Worker Prod M2 | teamwork_worker | M2: UI/UX 5 Themes & Layout (Features 6-10) | completed | 7953d9b3-fae9-4176-bc83-a3dfe85ae70e |
-| Reviewer M2-1 | teamwork_reviewer | M2: UI/UX Design System & 5 Themes Review | in-progress | 58ff357b-3f01-4a41-802f-3db19d65f1f4 |
-| Reviewer M2-2 | teamwork_reviewer | M2: Color Purge & Layout Review | in-progress | 7ca28942-65a5-42ae-8637-e07e6ca3855e |
-| Challenger M2-1 | teamwork_challenger | M2: Adversarial Theme & Geometry Stress | in-progress | 60f4bbfd-7cea-4cb8-8aae-c5889a3cdbe3 |
-| Challenger M2-2 | teamwork_challenger | M2: Cross-Tab State & Interactive Regression | in-progress | 8adf298d-8acd-4654-9426-a0bdf5380dd9 |
-| Auditor M2 | teamwork_auditor | M2: Forensic Integrity & Referee Lock | in-progress | d75bff00-69db-41c6-9ef3-2be6d932309e |
+| Explorer Survey R8-1 | teamwork_explorer | R1: 侧边栏行情走廊与全市场自由定制 | completed | 33ee580f-cbbe-40c0-9807-6e04e28c1928 |
+| Explorer Survey R8-2 | teamwork_explorer | R2: 数据单源同真与双翼看板升级 | completed | 307d0360-954f-4128-bb0c-ac7a9bd3cd7a |
+| Explorer Survey R8-3 | teamwork_explorer | R3 & R4: 7大量化模型、黑天鹅测试与UI细节 | completed | 617a3d91-dbc6-4c51-9f4d-771288229f03 |
+| Worker Prod R8-M1 | teamwork_worker | M1: 侧边栏走廊、全市场定制与UI修复 | completed | bceb8862-92df-41a4-8be0-ec958c0eef5c |
+| Reviewer R8-M1-1 | teamwork_reviewer | M1: 走廊样式、真实行情与离线双日涨跌幅 | completed (APPROVE) | 7869439c-beaf-4de2-b6c7-43248f32d8b6 |
+| Reviewer R8-M1-2 | teamwork_reviewer | M1: 38+目录、弹窗设置、持久化与UI修复 | completed (APPROVE) | 6fce7836-d7ee-42c3-83d1-b222c0dc2022 |
+| Challenger R8-M1-1 | teamwork_challenger | M1: 离线回退与无假平盘压力测试 | completed (REQUEST_CHANGES) | a35454a7-1174-422d-b4c8-0e4fa0695492 |
+| Challenger R8-M1-2 | teamwork_challenger | M1: 000922铁律、冷启动自愈与AppTest几何 | completed (REQUEST_CHANGES) | 29b20441-223f-43b9-af0b-019bf4d0933d |
+| Auditor R8-M1 | teamwork_auditor | M1: 物理红线与诚信审计 | completed (CLEAN) | e7042043-8872-4273-99f0-80793fd6638b |
+| Worker Remediation R8-M1 | teamwork_worker | M1: 修复离线点位解耦与ETF量纲对齐 | completed | 5747ca2d-9208-471c-86e6-546cae602d5f |
+| Challenger Remediation R8-M1 | teamwork_challenger | M1: 修复后独立压力验证 | completed (APPROVE) | 94e1c8ea-964b-4253-a359-0013c7e07cd9 |
+| Auditor Remediation R8-M1 | teamwork_auditor | M1: 修复后独立法医审计 | completed (CLEAN) | 051890f8-f7ad-48a9-b6a3-1b922648106a |
+| Worker Prod R8-M2 | teamwork_worker | M2: 单源同真、脉搏晨报与六维预警哨 | completed | a1436e8d-3b20-4851-b6ff-9143796ca231 |
+| Reviewer R8-M2-1 | teamwork_reviewer | M2: 单源同真与左翼雷达升级 | completed (APPROVE) | 8e428859-7d8d-4dae-a204-5937ba553e17 |
+| Reviewer R8-M2-2 | teamwork_reviewer | M2: 六维风险哨与交互按钮联动 | completed (APPROVE) | b0642a81-a17b-4f90-81ba-4ce331bf9946 |
+| Challenger R8-M2-1 | teamwork_challenger | M2: 单源同真与温度计数据对抗压测 | completed (APPROVE) | 0a9703ae-bcbe-47b1-afeb-e3baac64706b |
+| Challenger R8-M2-2 | teamwork_challenger | M2: 六维风险靶向与按钮交互压测 | completed (APPROVE) | d54d36d9-5727-42c9-a141-66af9a68c2d8 |
+| Auditor R8-M2 | teamwork_auditor | M2: 物理红线与诚信审计 | completed (CLEAN) | b38aea5f-aa30-4a8f-9946-88053335d481 |
+| Worker Prod R8-M3 | teamwork_worker | M3: 7大量化模型求解算子与黑天鹅测试 | in-progress | 274b44eb-891b-47d7-ba52-902ae27f9426 |
 
 ## Succession Status
-- Succession required: pending subagents completion
-- Spawn count: 20 / 16
-- Pending subagents: 58ff357b-3f01-4a41-802f-3db19d65f1f4, 7ca28942-65a5-42ae-8637-e07e6ca3855e, 60f4bbfd-7cea-4cb8-8aae-c5889a3cdbe3, 8adf298d-8acd-4654-9426-a0bdf5380dd9, d75bff00-69db-41c6-9ef3-2be6d932309e
+- Succession required: no
+- Spawn count: 19 / 128
+- Pending subagents: 274b44eb-891b-47d7-ba52-902ae27f9426
 - Predecessor: none
 - Successor: none
 
 ## Active Timers
-- Heartbeat cron: c98181d5-8d61-4839-8d62-5dbcef7c85af/task-399
-- Safety timer: c98181d5-8d61-4839-8d62-5dbcef7c85af/task-493
+- Heartbeat cron: 3ef18151-e1aa-4330-83a1-353aa7bcc35e/task-347
+- Safety timer: none
 
 ## Artifact Index
 - d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md — Original User Request
@@ -99,5 +96,5 @@
 - d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\BRIEFING.md — Persistent briefing
 - d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\progress.md — Progress tracker
 - d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\DISPATCH.md — Dispatch log
-- d:\Google\Workspace\Wind\.agents\teamwork\worker_remediation_m1\handoff.md — Worker Remediation M1 Handoff (DONE)
-- d:\Google\Workspace\Wind\.agents\teamwork\reviewer_fix_m1\handoff.md — (Pending) Reviewer Fix M1 Handoff
+- d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_r8_m2\handoff.md — Worker Prod R8-M2 Handoff
+- d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_r8_3\analysis.md — Explorer R8-3 Analysis (M3 Blueprint)
