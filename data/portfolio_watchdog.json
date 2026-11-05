@@ -1,68 +1,8 @@
 {
-  "timestamp": "2026-11-05 16:54:28",
-  "all_passed": false,
-  "has_danger": true,
-  "has_warning": true,
-  "alerts": [
-    {
-      "level": "red",
-      "dimension": "未满7天锁仓",
-      "title": "【华夏科创50ETF联接A (011612)】持有仅 3 天（≤3天）",
-      "desc": "严禁赎回！未满 7 天赎回将直接触发证监会规定的 1.50% 巨额惩罚性扣款！",
-      "action": "锁定持仓下界，暂缓赎回，待持有满 7 天后再行操作。",
-      "action_type": "lock_shares",
-      "fund_code": "011612",
-      "fund_name": "华夏科创50ETF联接A"
-    },
-    {
-      "level": "yellow",
-      "dimension": "临免赎期倒计时",
-      "title": "【华夏上证科创板50成份ETF联接C (011613)】距30天免赎仅差 2 天（当前第 28 天）",
-      "desc": "再持仓 2 天赎回费即可彻底归零（0.00%），提前赎回将白白损耗手续费！",
-      "action": "建议暂缓调仓倒计时 2 天，待满 30 天后再行置换。",
-      "action_type": "countdown_hold",
-      "fund_code": "011613",
-      "fund_name": "华夏上证科创板50成份ETF联接C"
-    },
-    {
-      "level": "yellow",
-      "dimension": "C类零费率置换",
-      "title": "【银华集成电路混合C (013841)】C类份额已满 30 天（第 40 天）",
-      "desc": "赎回费已归零！建议在反弹阻力位择机全额置换清理，避免长期计提销售服务费。",
-      "action": "建议逢高置换为优质 A 类底仓或无费率标的。",
-      "action_type": "switch_a_class",
-      "fund_code": "013841",
-      "fund_name": "银华集成电路混合C"
-    },
-    {
-      "level": "yellow",
-      "dimension": "深套诊断",
-      "title": "【银华集成电路混合C (013841)】深套诊断预警 (浮亏 -16.2%)",
-      "desc": "【Beta vs Alpha 病根诊断】该标的当前浮亏达 -16.2%。与组合内科创50等标的高度同质化重叠且超额衰减，建议趁反弹阶梯置换为低费率标杆指数基金。",
-      "action": "存在同质化重叠或超额衰减，建议趁反弹阶梯置换为低费率标杆指数基金。",
-      "action_type": "deep_loss_rebalance",
-      "fund_code": "013841",
-      "fund_name": "银华集成电路混合C",
-      "pnl_pct": -16.19,
-      "val_percentile": 88.5
-    },
-    {
-      "level": "yellow",
-      "dimension": "赛道集中度",
-      "title": "【红利高股息赛道】持仓占比达 60.8% (>35%集中度红线)",
-      "desc": "单一细分赛道市值敞口达 60.8%，超过 35% 风险预警阈值，组合弹性暴露过度！",
-      "action": "建议适度均衡配置，增配弱相关红利低波、纯债或海外 QDII 资产。",
-      "action_type": "rebalance_sector"
-    },
-    {
-      "level": "yellow",
-      "dimension": "重仓股重叠",
-      "title": "【科创50】重仓股高度重叠预警 (011612 与 011613)",
-      "desc": "组合中同时持有相同标的的 A/C 类份额，底层资产 100% 同质化，未能实现有效风险分散。",
-      "action": "建议择机清理同质化 C 类份额，合并底仓至低费率 A 类份额。",
-      "action_type": "switch_a_class",
-      "fund_code": "011613"
-    }
-  ],
-  "summary": "发现 6 项风险与提示项"
+  "timestamp": "2026-11-06 00:07:17",
+  "all_passed": true,
+  "has_danger": false,
+  "has_warning": false,
+  "alerts": [],
+  "summary": "主动风控巡检全通"
 }

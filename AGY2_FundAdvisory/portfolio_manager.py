@@ -2386,12 +2386,33 @@ class PortfolioManager:
 
     def __init__(
         self,
-        db_path: Union[str, Path] = "portfolio_state.db",
+        db_path: Optional[Union[str, Path]] = "portfolio_state.db",
         ledger_json_path: Union[str, Path] = "portfolio_ledger.json",
-        storage_file: Optional[Union[str, Path]] = None
+        storage_file: Optional[Union[str, Path]] = None,
+        ledger_file: Optional[Union[str, Path]] = None,
+        ledger_id: Optional[str] = None
     ):
+        if ledger_file is not None:
+            ledger_json_path = ledger_file
         if storage_file is not None:
             db_path = storage_file
+
+        self.ledger_json_path = Path(ledger_json_path)
+
+        # 账本标识绑定
+        if ledger_id is not None:
+            self.ledger_id = str(ledger_id)
+        elif self.ledger_json_path.name == "portfolio_ledger.json":
+            self.ledger_id = "main_live"
+        else:
+            self.ledger_id = self.ledger_json_path.stem
+
+        # 自动派生独立 SQLite 数据库防踩踏：若传入自定义账本且 db_path 为默认值或 None，自动衍生独立 db
+        if (db_path is None or str(db_path) == "portfolio_state.db") and self.ledger_json_path.name != "portfolio_ledger.json":
+            db_path = self.ledger_json_path.with_suffix(".db")
+        elif db_path is None:
+            db_path = "portfolio_state.db"
+
         if str(db_path) == ":memory:":
             self._is_memory = True
             self._real_mem_conn = sqlite3.connect(":memory:")
@@ -2402,8 +2423,9 @@ class PortfolioManager:
             self.db_path = Path(db_path)
             self._real_mem_conn = None
             self._mem_conn = None
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.ledger_json_path = Path(ledger_json_path)
+        self.ledger_json_path.parent.mkdir(parents=True, exist_ok=True)
         self.clock = TradingClock()
         self.calculator = FeeMatrixCalculator()
 
@@ -4159,39 +4181,52 @@ class PortfolioManager:
     # 底层资产绝对穿透分析 (Look-Through Portfolio Engine)
     # =====================================================================
 
-    def calculate_look_through_industry_exposure(self) -> pd.DataFrame:
+    def calculate_look_through_industry_exposure(
+        self,
+        holdings_override: Optional[Dict[str, Any]] = None
+    ) -> pd.DataFrame:
         """
         穿透计算全组合各行业的实际加权暴露比例 (%)
+        支持传入 holdings_override 自定义持仓字典进行动态穿透
         """
-        total_market_val = sum(h.market_value for h in self.holdings.values())
+        target_holdings = holdings_override if holdings_override is not None else self.holdings
+        total_market_val = sum(getattr(h, "market_value", 0.0) for h in target_holdings.values())
         if total_market_val <= 0:
             return pd.DataFrame(columns=["行业", "暴露金额", "暴露占比(%)"])
 
         industry_totals: Dict[str, float] = {}
 
-        for code, h in self.holdings.items():
-            mv = h.market_value
+        for code, h in target_holdings.items():
+            mv = getattr(h, "market_value", 0.0)
             if mv <= 0:
                 continue
 
             profile = FUND_LOOK_THROUGH_DATA.get(code)
-            if profile and "industries" in profile:
+            if profile and "industries" in profile and profile["industries"]:
                 ind_dict = profile["industries"]
             else:
-                # 智能根据名称推断行业
-                name = h.fund_name
-                if any(k in name for k in ["红利", "低波", "股息"]):
-                    ind_dict = {"银行与金融": 35.0, "煤炭与能源": 30.0, "公用事业": 20.0, "其他": 15.0}
-                elif any(k in name for k in ["芯片", "半导体", "集成电路", "科创"]):
-                    ind_dict = {"电子芯片与半导体": 75.0, "计算机与通信": 15.0, "现金": 10.0}
-                elif any(k in name for k in ["债", "回报", "固收"]):
-                    ind_dict = {"纯债与固定收益": 85.0, "现金与货币": 15.0}
-                elif any(k in name for k in ["黄金"]):
-                    ind_dict = {"黄金与贵金属": 96.0, "现金": 4.0}
-                elif any(k in name for k in ["标普", "美股", "纳指"]):
-                    ind_dict = {"海外科技与信息": 35.0, "海外金融与消费": 35.0, "其他": 30.0}
+                ext_res = self._fetch_external_fund_holdings(code)
+                if ext_res and "industries" in ext_res and ext_res["industries"]:
+                    ind_dict = ext_res["industries"]
                 else:
-                    ind_dict = {"其他大盘蓝筹与成长": 80.0, "现金": 20.0}
+                    # 智能根据名称推断行业
+                    name = getattr(h, "fund_name", "") or ""
+                    if any(k in name for k in ["红利", "低波", "股息", "银行", "金融"]):
+                        ind_dict = {"银行与金融": 50.0, "煤炭与能源": 20.0, "公用事业": 15.0, "其他": 15.0}
+                    elif any(k in name for k in ["白酒", "消费", "主要消费", "食品"]):
+                        ind_dict = {"主要消费与白酒": 80.0, "食品饮料": 15.0, "现金": 5.0}
+                    elif any(k in name for k in ["医药", "医疗", "生物", "健康"]):
+                        ind_dict = {"医药生物与健康": 85.0, "医疗器械": 10.0, "现金": 5.0}
+                    elif any(k in name for k in ["芯片", "半导体", "集成电路", "科创"]):
+                        ind_dict = {"电子芯片与半导体": 75.0, "计算机与通信": 15.0, "现金": 10.0}
+                    elif any(k in name for k in ["债", "回报", "固收"]):
+                        ind_dict = {"纯债与固定收益": 85.0, "现金与货币": 15.0}
+                    elif any(k in name for k in ["黄金"]):
+                        ind_dict = {"黄金与贵金属": 96.0, "现金": 4.0}
+                    elif any(k in name for k in ["标普", "美股", "纳指"]):
+                        ind_dict = {"海外科技与信息": 35.0, "海外金融与消费": 35.0, "其他": 30.0}
+                    else:
+                        ind_dict = {"其他大盘蓝筹与成长": 80.0, "现金": 20.0}
 
             for ind, pct in ind_dict.items():
                 amt = mv * (pct / 100.0)
@@ -4260,12 +4295,17 @@ class PortfolioManager:
 
         return None
 
-    def calculate_stock_overlap_matrix(self) -> Dict[str, Any]:
+    def calculate_stock_overlap_matrix(
+        self,
+        holdings_override: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         动态计算持仓基金间的前十大重仓股重合度矩阵与假分散风险预警
         严禁使用假股票名欺骗矩阵；未获取到重仓股的主动基明确标记为待穿透
+        支持传入 holdings_override
         """
-        active_funds = [code for code, h in self.holdings.items() if h.market_value > 0]
+        target_holdings = holdings_override if holdings_override is not None else self.holdings
+        active_funds = [code for code, h in target_holdings.items() if getattr(h, "market_value", 0.0) > 0]
         pending_external_funds = []
         stock_sets = {}
         for c in active_funds:
@@ -4283,7 +4323,7 @@ class PortfolioManager:
         if len(active_funds) < 2:
             single_alerts = []
             for c in pending_external_funds:
-                fund_n = self.holdings[c].fund_name if c in self.holdings else c
+                fund_n = getattr(target_holdings[c], "fund_name", c) if c in target_holdings else c
                 single_alerts.append({
                     "fund1": c,
                     "fund2": "",
@@ -4292,14 +4332,14 @@ class PortfolioManager:
                     "warning_msg": f"ℹ️ **待穿透外部主动基**：标的【{c} {fund_n}】暂未获取到最新前十大重仓股明细，已在重合度矩阵中独立隔离，杜绝假重合。"
                 })
             return {
-                "funds": active_funds,
-                "matrix": np.array([[1.0]]),
+                "funds": [f"{c} {getattr(target_holdings.get(c), 'fund_name', c)[:6]}" for c in active_funds] if active_funds else [],
+                "matrix": np.array([[1.0]]) if active_funds else np.zeros((0, 0)),
                 "alerts": single_alerts,
                 "pending_external_funds": pending_external_funds,
                 "max_non_diag_unexcused": 0.0
             }
 
-        fund_labels = [f"{c} {self.holdings[c].fund_name[:6]}" for c in active_funds]
+        fund_labels = [f"{c} {getattr(target_holdings.get(c), 'fund_name', c)[:6]}" for c in active_funds]
         n = len(active_funds)
         matrix = np.ones((n, n), dtype=float)
         alerts = []
@@ -4397,7 +4437,7 @@ class PortfolioManager:
         max_non_diag_unexcused = round(float(max(unexcused_overlaps)), 2) if unexcused_overlaps else 0.0
 
         for c in pending_external_funds:
-            fund_n = self.holdings[c].fund_name if c in self.holdings else c
+            fund_n = getattr(target_holdings[c], "fund_name", c) if c in target_holdings else c
             alerts.append({
                 "fund1": c,
                 "fund2": "",
@@ -4416,14 +4456,19 @@ class PortfolioManager:
             "max_non_diag_unexcused": max_non_diag_unexcused
         }
 
-    def get_portfolio_look_through_stocks(self, as_df: bool = False) -> Any:
+    def get_portfolio_look_through_stocks(
+        self,
+        as_df: bool = False,
+        holdings_override: Optional[Dict[str, Any]] = None
+    ) -> Any:
         """
         生成组合底层重仓股穿透排雷大宽表（按股票代码聚合去重）
         - 按股票代码/标的聚合为唯一行
         - “所属基金”列改为“关联持仓基金（列出持有该股的所有基金代码）”
         - 新增“占组合总市值比例(%)”列，按组合持仓占比降序排列
         """
-        active_holdings = [h for h in self.holdings.values() if h.market_value > 0]
+        target_holdings = holdings_override if holdings_override is not None else self.holdings
+        active_holdings = [h for h in target_holdings.values() if getattr(h, "market_value", 0.0) > 0]
         total_mv = sum(h.market_value for h in active_holdings)
         if total_mv <= 0 or not active_holdings:
             empty_cols = [
@@ -4515,43 +4560,34 @@ class PortfolioManager:
         rows.sort(key=lambda r: r["占组合总市值比例(%)"], reverse=True)
         return pd.DataFrame(rows) if as_df else rows
 
-    def get_portfolio_look_through_stocks_df(self) -> pd.DataFrame:
+    def get_portfolio_look_through_stocks_df(
+        self,
+        holdings_override: Optional[Dict[str, Any]] = None
+    ) -> pd.DataFrame:
         """返回 DataFrame 格式的底层重仓股穿透排雷大宽表"""
-        return self.get_portfolio_look_through_stocks(as_df=True)
+        return self.get_portfolio_look_through_stocks(as_df=True, holdings_override=holdings_override)
 
     # =====================================================================
     # 全局统一资产分类解析器 (Unified Fund Asset Class Classifier)
     # =====================================================================
 
+    @classmethod
     def classify_fund_asset_class(
-        self,
+        cls,
         fund_code: Optional[str] = None,
         fund_name: Optional[str] = None
     ) -> str:
         """
         全局统一资产分类解析器 (Unified Fund Asset Class Classifier)
         根据基金代码、基金名称、跟踪指数、投资类型与底层重仓行业，
-        自动将任意基金动态归类至 9 大标准资产类别之一：
-        - "纯债固收"
-        - "黄金对冲"
-        - "美股海外对冲"
-        - "A股红利高股息"
-        - "A股红利低波"
-        - "科技成长进攻"
-        - "中小盘成长"
-        - "中盘均衡"
-        - "核心蓝筹"
-        无法识别兜底为 "其他权益资产"（严禁输出 "其他存量资产"）。
+        自动将任意基金动态归类至标准资产类别。
         支持类级别与实例级别灵活调用。
         """
-        if not isinstance(self, PortfolioManager):
-            actual_code = str(self)
-            actual_name = fund_code if isinstance(fund_code, str) else None
-            return PortfolioManager()._do_classify_asset_class(actual_code, actual_name)
-        return self._do_classify_asset_class(str(fund_code or ""), fund_name)
+        return cls._do_classify_asset_class(str(fund_code or ""), fund_name)
 
+    @classmethod
     def _do_classify_asset_class(
-        self,
+        cls,
         fund_code: str,
         fund_name: Optional[str] = None
     ) -> str:
@@ -4561,14 +4597,15 @@ class PortfolioManager:
         if cache_key in _CLASSIFY_ASSET_CLASS_CACHE:
             return _CLASSIFY_ASSET_CLASS_CACHE[cache_key]
 
-        res = self._compute_asset_class_category(code, name)
+        res = cls._compute_asset_class_category(code, name)
         _CLASSIFY_ASSET_CLASS_CACHE[cache_key] = res
         if code and (code, "") not in _CLASSIFY_ASSET_CLASS_CACHE:
             _CLASSIFY_ASSET_CLASS_CACHE[(code, "")] = res
         return res
 
+    @classmethod
     def _compute_asset_class_category(
-        self,
+        cls,
         code: str,
         name: str
     ) -> str:
@@ -4577,9 +4614,7 @@ class PortfolioManager:
         fund_type = ""
 
         if not name and code:
-            if hasattr(self, "holdings") and code in self.holdings:
-                name = self.holdings[code].fund_name
-            elif code in CORE_STRATEGY_POOL:
+            if code in CORE_STRATEGY_POOL:
                 name = CORE_STRATEGY_POOL[code].get("fund_name", "")
             elif code in EXTENDED_FUND_CATALOG:
                 name = EXTENDED_FUND_CATALOG[code].get("fund_name", "")
@@ -5312,7 +5347,10 @@ class PortfolioManager:
             "diagnosis_summary": summary
         }
 
-    def calculate_portfolio_penetration_risk(self) -> Dict[str, Any]:
+    def calculate_portfolio_penetration_risk(
+        self,
+        holdings_override: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         计算当前持仓投资组合的整体加权穿透风险指数 (Portfolio Penetration Risk Index: 0.0 ~ 100.0)
 
@@ -5324,7 +5362,8 @@ class PortfolioManager:
           * 20.0 ~ 45.0 或存在 1 只 🔴 预警标的: 🟡 关注 (Watch)
           * > 45.0 或存在 >= 2 只 🔴 预警标的: 🔴 预警 (Danger)
         """
-        active_holdings = [h for h in self.holdings.values() if h.market_value > 0]
+        target_holdings = holdings_override if holdings_override is not None else self.holdings
+        active_holdings = [h for h in target_holdings.values() if getattr(h, "market_value", 0.0) > 0]
         total_mv = sum(h.market_value for h in active_holdings)
 
         if total_mv <= 0 or not active_holdings:
@@ -7439,3 +7478,11 @@ compute_fund_six_dimension_score = PortfolioManager.compute_fund_six_dimension_s
 calculate_fund_six_dimension_score = PortfolioManager.compute_fund_six_dimension_score
 calculate_rebalance_net_utility = PortfolioManager.calculate_rebalance_net_utility
 CUSUMFundChangePointDetector = CUSUMFundChangePointDetector
+
+try:
+    from AGY2_FundAdvisory.multi_ledger_manager import MultiLedgerManager
+except ImportError:
+    try:
+        from multi_ledger_manager import MultiLedgerManager
+    except ImportError:
+        MultiLedgerManager = None

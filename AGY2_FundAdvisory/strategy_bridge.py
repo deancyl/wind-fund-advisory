@@ -3563,29 +3563,58 @@ class StrategyBridge:
             else:
                 target_weights_funds[a_replace_target] = round(target_weights_funds.get(a_replace_target, 0.0) + c_w, 4)
 
-        total_market_val = sum(getattr(h, 'market_value', 0.0) for h in current_holdings.values())
-        total_equity = total_market_val + available_cash
+        # 解析实盘调仓场景模式与新增/提现资金参数 (R3)
+        scenario_mode = kwargs.get("scenario_mode", "standard")
+        new_cash_amount = float(kwargs.get("new_cash_amount", 0.0) or 0.0)
+        withdraw_cash_amount = float(kwargs.get("withdraw_cash_amount", 0.0) or 0.0)
+        freeze_reserved_cash = bool(kwargs.get("freeze_reserved_cash", True))
+        core_anchor_code = kwargs.get("core_anchor_code")
 
-        if total_equity <= 0:
+        # 若未提供 pm 实例，自动根据当前持仓与资金构造临时 PortfolioManager 驱动场景推演
+        if pm is None:
+            try:
+                from portfolio_manager import PortfolioManager
+                pm = PortfolioManager()
+                pm.holdings = dict(current_holdings)
+                pm.available_cash = float(available_cash)
+                pm._recalculate_totals()
+            except Exception:
+                pm = None
+
+        # 冻结分批建仓预留现金硬约束：调仓可用现金扣除 pm.reserved_batch_cash
+        reserved_cash = float(getattr(pm, "reserved_batch_cash", 0.0)) if (freeze_reserved_cash and pm is not None) else 0.0
+        effective_avail_cash = max(0.0, available_cash - reserved_cash)
+
+        total_market_val = sum(getattr(h, 'market_value', 0.0) for h in current_holdings.values())
+        total_equity = total_market_val + effective_avail_cash
+
+        if total_equity <= 0 and new_cash_amount <= 0:
             return {
                 "total_equity": 0.0,
                 "available_cash": round(available_cash, 2),
+                "effective_available_cash": round(effective_avail_cash, 2),
                 "items": [],
-                "target_weights_funds": target_weights_funds
+                "orders": [],
+                "target_weights_funds": target_weights_funds,
+                "total_sell_amount": 0.0,
+                "total_buy_amount": 0.0,
+                "total_redemption_fee": 0.0,
+                "scenario_mode": scenario_mode,
+                "pm_plan": None
             }
 
-        # 若提供了 pm 实例，优先基于真实执行沙盒计划对齐路由与裁剪份额
+        # 基于真实执行沙盒计划驱动四大场景模式
         pm_plan = None
         if pm is not None and hasattr(pm, "generate_scenario_rebalance_plan"):
             try:
                 pm_plan = pm.generate_scenario_rebalance_plan(
                     target_weights=target_weights_funds,
-                    scenario_mode=kwargs.get("scenario_mode", "standard"),
-                    new_cash_amount=float(kwargs.get("new_cash_amount", 0.0)),
-                    withdraw_cash_amount=float(kwargs.get("withdraw_cash_amount", 0.0)),
-                    freeze_reserved_cash=bool(kwargs.get("freeze_reserved_cash", True)),
+                    scenario_mode=scenario_mode,
+                    new_cash_amount=new_cash_amount,
+                    withdraw_cash_amount=withdraw_cash_amount,
+                    freeze_reserved_cash=freeze_reserved_cash,
                     min_buffer_pct=buffer_pct,
-                    core_anchor_code=kwargs.get("core_anchor_code")
+                    core_anchor_code=core_anchor_code
                 )
             except Exception:
                 pm_plan = None
@@ -3616,7 +3645,7 @@ class StrategyBridge:
             mv = getattr(h, 'market_value', 0.0)
             current_weights[code] = (mv / total_equity) if total_equity > 0 else 0.0
 
-        all_codes = set(list(current_weights.keys()) + list(target_weights_funds.keys()))
+        all_codes = sorted(list(set(list(current_weights.keys()) + list(target_weights_funds.keys()) + list(buy_action_map.keys()) + list(sell_action_map.keys()))))
 
         snapshot = cls.get_latest_market_snapshot()
         radar = snapshot.get("dual_track_radar", {})
@@ -3664,8 +3693,91 @@ class StrategyBridge:
             elif h and hasattr(h, 'holding_days'):
                 h_holding_days = getattr(h, 'holding_days', 0)
 
-            # 判定动作与路由
-            if c_replace and code == c_code_clean and diff_w < 0:
+            # 判定动作与路由（区分四大场景模式）
+            if scenario_mode == "new_cash_only":
+                # 新资注入免赎补仓：卖出严格为 0，零赎回费，仅增量买入补短板
+                target_equity_new = total_market_val + new_cash_amount
+                if code in buy_action_map:
+                    b_act = buy_action_map[code]
+                    b_amt = float(b_act["amount"])
+                    action = "BUY"
+                    diff_amount = b_amt
+                    est_fee = 0.0
+                    route_code = "PRIORITY_2_CASH_ADVANCE"
+                    action_text = f"建议买入 +¥{b_amt:,.2f}"
+                    safety_warning = b_act.get("staged_advice", "【新资注入】增量资金定向补仓，零摩擦成本建仓")
+                    t_w = round((mv + b_amt) / target_equity_new, 4) if target_equity_new > 0 else 0.0
+                    diff_w = round(t_w - c_w, 4)
+                else:
+                    action = "HOLD"
+                    diff_amount = 0.0
+                    est_fee = 0.0
+                    route_code = "NO_ACTION"
+                    action_text = "维持当前仓位"
+                    safety_warning = ""
+                    t_w = round(mv / target_equity_new, 4) if target_equity_new > 0 else c_w
+                    diff_w = round(t_w - c_w, 4)
+            elif scenario_mode == "withdraw_cash_only":
+                # 智能低损耗提现：买入严格为 0，按免赎优先级赎回，严禁卖出<7天标的
+                target_equity_wd = max(1.0, total_market_val - withdraw_cash_amount)
+                if code in sell_action_map:
+                    s_act = sell_action_map[code]
+                    s_amt = float(s_act["amount"])
+                    action = "SELL"
+                    diff_amount = -s_amt
+                    est_fee = float(s_act.get("redemption_fee", round(s_amt * 0.005, 2)))
+                    route_code = routes_by_code.get(code, ("SELL_TO_CASH", est_fee))[0]
+                    action_text = f"建议减仓 -¥{s_amt:,.2f}"
+                    safety_warning = s_act.get("staged_advice", "【智能低损耗提现】优先级排布卖出，规避惩罚费率")
+                    t_w = round(max(0.0, mv - s_amt) / target_equity_wd, 4)
+                    diff_w = round(t_w - c_w, 4)
+                else:
+                    action = "HOLD"
+                    diff_amount = 0.0
+                    est_fee = 0.0
+                    route_code = "NO_ACTION"
+                    if h_holding_days < 7:
+                        action_text = "7天安全锁拦截 (暂停卖出)"
+                        safety_warning = "🔴【7天安全红线拦截】全部份额未满7天，已强力阻断本次卖出，防止触发1.50%惩罚扣费！"
+                    else:
+                        action_text = "维持当前仓位"
+                        safety_warning = ""
+                    t_w = round(mv / target_equity_wd, 4)
+                    diff_w = round(t_w - c_w, 4)
+            elif scenario_mode == "sweep_tail_and_c_class":
+                # 尾部碎片与C类一键归拢
+                if code in sell_action_map:
+                    s_act = sell_action_map[code]
+                    s_amt = float(s_act["amount"])
+                    action = "SELL"
+                    diff_amount = -s_amt
+                    est_fee = float(s_act.get("redemption_fee", round(s_amt * 0.005, 2)))
+                    route_code = "SELL_TO_CASH"
+                    action_text = f"建议减仓 -¥{s_amt:,.2f}"
+                    safety_warning = s_act.get("staged_advice", "【碎片与C类归拢】尾部碎片及高费率C类清仓，资金集中流入核心底仓")
+                    t_w = 0.0
+                    diff_w = round(t_w - c_w, 4)
+                elif code in buy_action_map:
+                    b_act = buy_action_map[code]
+                    b_amt = float(b_act["amount"])
+                    action = "BUY"
+                    diff_amount = b_amt
+                    est_fee = round(b_amt * 0.0015, 2)
+                    route_code = "PRIORITY_2_CASH_ADVANCE"
+                    action_text = f"建议买入 +¥{b_amt:,.2f}"
+                    safety_warning = b_act.get("staged_advice", "【归拢买入】全额回收资金集中增持底仓")
+                    t_w = round((mv + b_amt) / total_equity, 4) if total_equity > 0 else 0.0
+                    diff_w = round(t_w - c_w, 4)
+                else:
+                    action = "HOLD"
+                    diff_amount = 0.0
+                    est_fee = 0.0
+                    route_code = "NO_ACTION"
+                    action_text = "维持当前仓位"
+                    safety_warning = ""
+                    t_w = c_w
+                    diff_w = 0.0
+            elif c_replace and code == c_code_clean and diff_w < 0:
                 action = "SELL"
                 action_text = f"🔄 C转A零费率置换 (-¥{abs(diff_amount):,.2f})"
                 safety_warning = "🔄【C转A零费率置换】高费率C类份额择机置换为A类底仓，节约年化销售服务费！"
@@ -3813,6 +3925,9 @@ class StrategyBridge:
                 "target_weight_pct": round(t_w * 100.0, 2),
                 "diff_weight_pct": round(diff_w * 100.0, 2),
                 "diff_amount": round(diff_amount, 2),
+                "amount": abs(round(diff_amount, 2)),
+                "buy_amount": round(diff_amount, 2) if action == "BUY" else 0.0,
+                "sell_amount": abs(round(diff_amount, 2)) if action == "SELL" else 0.0,
                 "action": action,
                 "action_text": action_text,
                 "est_fee": est_fee,
@@ -3833,16 +3948,33 @@ class StrategyBridge:
         items.sort(key=lambda x: abs(x["diff_amount"]), reverse=True)
 
         any_crowd_warn = any(it.get("crowding_warning") for it in items)
+
+        total_sell = sum(it["amount"] for it in items if it.get("action") == "SELL")
+        total_buy = sum(it["amount"] for it in items if it.get("action") == "BUY")
+        total_red_fee = sum(float(it.get("est_fee", 0.0)) for it in items if it.get("action") == "SELL")
+        if scenario_mode == "new_cash_only":
+            total_sell = 0.0
+            total_red_fee = 0.0
+        elif scenario_mode == "withdraw_cash_only":
+            total_buy = 0.0
+
         return {
             "total_equity": round(total_equity, 2),
             "available_cash": round(available_cash, 2),
+            "effective_available_cash": round(effective_avail_cash, 2),
             "items": items,
+            "orders": items,
             "target_weights_funds": target_weights_funds,
             "defensive_triggered": is_defensive,
             "defensive_advice": defensive_advice if is_defensive else "",
             "crowding_warning_detected": any_crowd_warn,
             "crowding_caution": "抱团松动踩踏高危：严禁单笔重仓追高！建议执行分批定投或下调增配目标" if any_crowd_warn else "",
-            "dual_track_radar": radar
+            "dual_track_radar": radar,
+            "total_sell_amount": round(total_sell, 2),
+            "total_buy_amount": round(total_buy, 2),
+            "total_redemption_fee": round(total_red_fee, 2),
+            "scenario_mode": scenario_mode,
+            "pm_plan": pm_plan
         }
 
     @classmethod
@@ -6177,6 +6309,13 @@ class StrategyBridge:
                 locked_funds = []
         locked_funds_set = set(locked_funds or [])
 
+        # 解析实盘调仓场景模式与资金参数 (R3)
+        scenario_mode = kwargs.get("scenario_mode", "standard")
+        new_cash_amount = float(kwargs.get("new_cash_amount", 0.0) or 0.0)
+        withdraw_cash_amount = float(kwargs.get("withdraw_cash_amount", 0.0) or 0.0)
+        freeze_reserved_cash = bool(kwargs.get("freeze_reserved_cash", True))
+        core_anchor_code = kwargs.get("core_anchor_code")
+
         pending_take_profit = kwargs.get("pending_take_profit")
         if pending_take_profit is None:
             try:
@@ -6289,68 +6428,105 @@ class StrategyBridge:
             sell_actions = []
             buy_actions = []
 
-            for code in all_codes:
-                c_w = cur_w.get(code, 0.0)
-                t_w = target_weights.get(code, 0.0)
-                diff_w = t_w - c_w
-                diff_amount = diff_w * total_equity
+            if scenario_mode in ("new_cash_only", "withdraw_cash_only", "sweep_tail_and_c_class"):
+                plan = pm.generate_scenario_rebalance_plan(
+                    target_weights=target_weights,
+                    scenario_mode=scenario_mode,
+                    new_cash_amount=new_cash_amount,
+                    withdraw_cash_amount=withdraw_cash_amount,
+                    freeze_reserved_cash=freeze_reserved_cash,
+                    min_buffer_pct=(b_ratio if is_gentle else 0.0),
+                    core_anchor_code=core_anchor_code
+                ) if (pm is not None and hasattr(pm, "generate_scenario_rebalance_plan")) else None
 
-                meta = pm.resolve_fund_meta(code) if hasattr(pm, 'resolve_fund_meta') else {}
-                h = holdings.get(code)
-                h_shares = getattr(h, 'shares', 0.0) if h else 0.0
-                nav = getattr(h, 'current_nav', 1.0) if h else 1.0
-                if nav <= 0:
-                    nav = 1.0
+                raw_sells = plan.get("sell_actions", []) if plan else []
+                raw_buys = plan.get("buy_actions", []) if plan else []
 
-                if abs(diff_w) < min_buffer:
-                    continue
+                for s in raw_sells:
+                    if s.get("holding") is None:
+                        s["holding"] = holdings.get(s["fund_code"])
+                    if "current_nav" not in s and s.get("est_nav"):
+                        s["current_nav"] = s["est_nav"]
+                    if "company" not in s:
+                        meta = pm.resolve_fund_meta(s["fund_code"]) if hasattr(pm, 'resolve_fund_meta') else {}
+                        s["company"] = meta.get("company", "")
+                    if "diff_w" not in s:
+                        s["diff_w"] = -(s["amount"] / total_equity) if total_equity > 0 else 0.0
 
-                if diff_amount < -10.0:
-                    desired_shares = min(h_shares, round(abs(diff_amount) / nav, 2))
-                    if code in locked_funds_set:
-                        sell_shares = 0.0
-                    elif is_gentle:
-                        h_days = 30
-                        if h and hasattr(h, 'batches') and h.batches:
-                            h_days = min((getattr(b, 'holding_days', 0) for b in h.batches), default=0)
-                        elif h and hasattr(h, 'holding_days'):
-                            h_days = getattr(h, 'holding_days', 0)
-                        s_class = getattr(h, 'share_class', meta.get("share_class", "A"))
-                        if s_class == "C" and 23 <= h_days < 30:
+                for b in raw_buys:
+                    if "company" not in b:
+                        meta = pm.resolve_fund_meta(b["fund_code"]) if hasattr(pm, 'resolve_fund_meta') else {}
+                        b["company"] = meta.get("company", "")
+                    if "share_class" not in b:
+                        b["share_class"] = "A"
+                    if "diff_w" not in b:
+                        b["diff_w"] = (b["amount"] / total_equity) if total_equity > 0 else 0.0
+
+                sell_actions = raw_sells
+                buy_actions = raw_buys
+            else:
+                for code in all_codes:
+                    c_w = cur_w.get(code, 0.0)
+                    t_w = target_weights.get(code, 0.0)
+                    diff_w = t_w - c_w
+                    diff_amount = diff_w * total_equity
+
+                    meta = pm.resolve_fund_meta(code) if hasattr(pm, 'resolve_fund_meta') else {}
+                    h = holdings.get(code)
+                    h_shares = getattr(h, 'shares', 0.0) if h else 0.0
+                    nav = getattr(h, 'current_nav', 1.0) if h else 1.0
+                    if nav <= 0:
+                        nav = 1.0
+
+                    if abs(diff_w) < min_buffer:
+                        continue
+
+                    if diff_amount < -10.0:
+                        desired_shares = min(h_shares, round(abs(diff_amount) / nav, 2))
+                        if code in locked_funds_set:
                             sell_shares = 0.0
-                        else:
-                            penalty_free_shares = pm.get_penalty_free_redeemable_shares(code) if hasattr(pm, 'get_penalty_free_redeemable_shares') else h_shares
-                            sell_shares = min(penalty_free_shares, desired_shares)
-                            if penalty_free_shares <= 1e-4:
+                        elif is_gentle:
+                            h_days = 30
+                            if h and hasattr(h, 'batches') and h.batches:
+                                h_days = min((getattr(b, 'holding_days', 0) for b in h.batches), default=0)
+                            elif h and hasattr(h, 'holding_days'):
+                                h_days = getattr(h, 'holding_days', 0)
+                            s_class = getattr(h, 'share_class', meta.get("share_class", "A"))
+                            if s_class == "C" and 23 <= h_days < 30:
                                 sell_shares = 0.0
-                    else:
-                        sell_shares = desired_shares
+                            else:
+                                penalty_free_shares = pm.get_penalty_free_redeemable_shares(code) if hasattr(pm, 'get_penalty_free_redeemable_shares') else h_shares
+                                sell_shares = min(penalty_free_shares, desired_shares)
+                                if penalty_free_shares <= 1e-4:
+                                    sell_shares = 0.0
+                        else:
+                            sell_shares = desired_shares
 
-                    sell_amt = round(sell_shares * nav, 2)
-                    if sell_shares > 0 or (not is_gentle and code not in locked_funds_set):
-                        sell_actions.append({
-                            "action": "SELL",
+                        sell_amt = round(sell_shares * nav, 2)
+                        if sell_shares > 0 or (not is_gentle and code not in locked_funds_set):
+                            sell_actions.append({
+                                "action": "SELL",
+                                "fund_code": code,
+                                "fund_name": getattr(h, 'fund_name', meta.get("fund_name", f"基金_{code}")),
+                                "company": getattr(h, 'company', meta.get("company", "")),
+                                "share_class": getattr(h, 'share_class', meta.get("share_class", "A")),
+                                "shares": sell_shares,
+                                "amount": sell_amt,
+                                "current_nav": nav,
+                                "diff_w": diff_w,
+                                "holding": h
+                            })
+                    elif diff_amount > 10.0:
+                        buy_amount = round(diff_amount, 2)
+                        buy_actions.append({
+                            "action": "BUY",
                             "fund_code": code,
-                            "fund_name": getattr(h, 'fund_name', meta.get("fund_name", f"基金_{code}")),
-                            "company": getattr(h, 'company', meta.get("company", "")),
-                            "share_class": getattr(h, 'share_class', meta.get("share_class", "A")),
-                            "shares": sell_shares,
-                            "amount": sell_amt,
-                            "current_nav": nav,
-                            "diff_w": diff_w,
-                            "holding": h
+                            "fund_name": meta.get("fund_name", f"基金_{code}"),
+                            "company": meta.get("company", ""),
+                            "share_class": meta.get("share_class", "A"),
+                            "amount": buy_amount,
+                            "diff_w": diff_w
                         })
-                elif diff_amount > 10.0:
-                    buy_amount = round(diff_amount, 2)
-                    buy_actions.append({
-                        "action": "BUY",
-                        "fund_code": code,
-                        "fund_name": meta.get("fund_name", f"基金_{code}"),
-                        "company": meta.get("company", ""),
-                        "share_class": meta.get("share_class", "A"),
-                        "amount": buy_amount,
-                        "diff_w": diff_w
-                    })
 
             # 计算卖出 FIFO 赎回费与 7 天惩罚费
             redemption_fee = 0.0
@@ -6399,7 +6575,9 @@ class StrategyBridge:
 
             rem_sells = copy.deepcopy(sell_actions)
             rem_buys = copy.deepcopy(buy_actions)
-            rem_cash = available_cash
+            rem_cash = new_cash_amount if scenario_mode == "new_cash_only" else (
+                max(0.0, available_cash - getattr(pm, "reserved_batch_cash", 0.0)) if (freeze_reserved_cash and pm is not None) else available_cash
+            )
 
             # 1. 优先同公司 SWITCH
             for s in rem_sells:
@@ -6575,11 +6753,40 @@ class StrategyBridge:
                 daily_gain = total_equity * (annual_rate / 365.0)
                 payback_days = max(1, math.ceil(total_fee / daily_gain)) if daily_gain > 0 else 30
 
-            in_transit_amount = round(in_transit_amount, 2)
-            in_transit_pct = round((in_transit_amount / total_equity) * 100.0, 2) if total_equity > 0 else 0.0
-            lock_days = "T+2 ~ T+4 交易日" if in_transit_amount > 0 else "0天 (同公司转换/现金直达)"
-            switch_saved_amount = round(switch_saved_amount, 2)
-            missed_rally_cost_est = round(in_transit_amount * (vol_before / 100.0) * np.sqrt(2.0 / 250.0), 2) if in_transit_amount > 0 else 0.0
+            if scenario_mode == "new_cash_only":
+                in_transit_amount = 0.0
+                in_transit_pct = 0.0
+                lock_days = "0天 (新资直接申购)"
+                switch_saved_amount = 0.0
+                missed_rally_cost_est = 0.0
+                payback_days = 0
+                mode_title = f"{'温和' if is_gentle else '全额'}新资注入免赎补仓 (¥{new_cash_amount:,.2f})"
+                lockup_reset_text = "新注入资金将锁定 7 天 1.50% 惩罚性赎回费率；若为 A 类份额，免赎回费持有期将重新从第 0 天起算（需满 180 天方可免赎）。"
+            elif scenario_mode == "withdraw_cash_only":
+                in_transit_amount = 0.0
+                in_transit_pct = 0.0
+                lock_days = "T+2 到账"
+                switch_saved_amount = 0.0
+                missed_rally_cost_est = 0.0
+                payback_days = 0
+                mode_title = f"{'智能' if is_gentle else '快速'}低损耗提现 (¥{withdraw_cash_amount:,.2f})"
+                lockup_reset_text = "提现赎回模式下无新增申购买入，不重置任何持有期锁仓。"
+            elif scenario_mode == "sweep_tail_and_c_class":
+                in_transit_amount = round(in_transit_amount, 2)
+                in_transit_pct = round((in_transit_amount / total_equity) * 100.0, 2) if total_equity > 0 else 0.0
+                lock_days = "T+2 ~ T+4 交易日" if in_transit_amount > 0 else "0天 (同公司转换/现金直达)"
+                switch_saved_amount = round(switch_saved_amount, 2)
+                missed_rally_cost_est = round(in_transit_amount * (vol_before / 100.0) * np.sqrt(2.0 / 250.0), 2) if in_transit_amount > 0 else 0.0
+                mode_title = "尾部碎片与C类一键归拢"
+                lockup_reset_text = "归拢增持的底仓将重新锁定 7 天惩罚期；原碎片及 C 类锁仓已通过赎回清理注销。"
+            else:
+                in_transit_amount = round(in_transit_amount, 2)
+                in_transit_pct = round((in_transit_amount / total_equity) * 100.0, 2) if total_equity > 0 else 0.0
+                lock_days = "T+2 ~ T+4 交易日" if in_transit_amount > 0 else "0天 (同公司转换/现金直达)"
+                switch_saved_amount = round(switch_saved_amount, 2)
+                missed_rally_cost_est = round(in_transit_amount * (vol_before / 100.0) * np.sqrt(2.0 / 250.0), 2) if in_transit_amount > 0 else 0.0
+                mode_title = "温和免伤调仓 (3%缓冲区+安全裁剪)" if is_gentle else "强行一步到位调仓 (0%缓冲区+全额对齐)"
+                lockup_reset_text = "新买入资金将重新锁定 7 天 (7天) 1.50% 惩罚性赎回费率；若为 A 类份额，免赎回费持有期将重新从第 0 天起算（需满 180 天方可免赎）。"
 
             total_new_buys = round(sum(b["amount"] for b in buy_actions), 2)
 
@@ -6610,7 +6817,7 @@ class StrategyBridge:
                 },
                 "lockup_reset": {
                     "new_buy_amount": total_new_buys,
-                    "reset_warning_text": "新买入资金将重新锁定 7 天 (7天) 1.50% 惩罚性赎回费率；若为 A 类份额，免赎回费持有期将重新从第 0 天起算（需满 180 天方可免赎）。"
+                    "reset_warning_text": lockup_reset_text
                 }
             }
 

@@ -1,0 +1,22 @@
+{
+  "version": "AGY2_PORTFOLIO_V2",
+  "takeover_mode": "A",
+  "baseline_date": "2026-11-05",
+  "baseline_equity": 60000.0,
+  "available_cash": 60000.0,
+  "in_transit_cash": 0.0,
+  "total_market_value": 0,
+  "total_equity": 60000.0,
+  "peak_equity": 60000.0,
+  "max_drawdown_pct": 0.0,
+  "benchmark_code": "000300.SH",
+  "benchmark_baseline_nav": 1.0,
+  "benchmark_current_nav": 1.0,
+  "portfolio_return_pct": 0.0,
+  "benchmark_return_pct": 0.0,
+  "alpha_return_pct": 0.0,
+  "holdings": [],
+  "pending_orders": [],
+  "staged_batch_plans": [],
+  "reserved_batch_cash": 0.0
+}

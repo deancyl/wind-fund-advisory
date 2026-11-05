@@ -3,192 +3,49 @@
   "takeover_mode": "B",
   "baseline_date": "2026-11-05",
   "baseline_equity": 180945.0,
-  "available_cash": 35800.0,
+  "available_cash": 10000.0,
   "in_transit_cash": 10500.0,
-  "total_market_value": 145145.0,
-  "total_equity": 191445.0,
+  "reserved_batch_cash": 0.0,
+  "total_market_value": 10000.0,
+  "total_equity": 30500.0,
   "peak_equity": 191445.0,
-  "max_drawdown_pct": 0.0,
+  "max_drawdown_pct": 84.07,
   "benchmark_code": "000300.SH",
   "benchmark_baseline_nav": 1.0,
   "benchmark_current_nav": 1.0,
-  "portfolio_return_pct": 5.8,
+  "portfolio_return_pct": -83.14,
   "benchmark_return_pct": 0.0,
-  "alpha_return_pct": 5.8,
+  "alpha_return_pct": -83.14,
   "holdings": [
     {
-      "fund_code": "005561",
-      "fund_name": "创金合信中证红利低波动指数A",
+      "fund_code": "002351",
+      "fund_name": "易方达裕祥回报债券A",
       "share_class": "A",
-      "shares": 40000.0,
-      "cost_price": 1.12,
-      "current_nav": 1.258,
-      "market_value": 50320.0,
-      "cost_basis": 44800.0,
-      "floating_pnl": 5520.0,
-      "floating_pnl_pct": 12.32,
-      "first_buy_date": "2026-04-09",
+      "shares": 10000.0,
+      "cost_price": 1.0,
+      "current_nav": 1.0,
+      "market_value": 10000.0,
+      "cost_basis": 10000.0,
+      "floating_pnl": 0.0,
+      "floating_pnl_pct": 0.0,
+      "first_buy_date": "2026-07-29",
       "dividend_method": "cash",
       "batches": [
         {
-          "batch_id": "B_FIFO_005561_001",
-          "buy_date": "2026-04-09",
-          "shares": 40000.0,
-          "cost_nav": 1.12,
-          "fee": 6.0,
-          "holding_days": 210,
-          "safety_lock": false,
-          "notes": "战略底仓 (长持已免赎回费)"
-        }
-      ],
-      "company": "创金合信基金",
-      "is_core_strategy": true,
-      "transition_tag": "核心策略底仓"
-    },
-    {
-      "fund_code": "100032",
-      "fund_name": "富国中证红利指数增强A",
-      "share_class": "A",
-      "shares": 35000.0,
-      "cost_price": 0.985,
-      "current_nav": 1.082,
-      "market_value": 37870.0,
-      "cost_basis": 34475.0,
-      "floating_pnl": 3395.0,
-      "floating_pnl_pct": 9.85,
-      "first_buy_date": "2026-08-07",
-      "dividend_method": "cash",
-      "batches": [
-        {
-          "batch_id": "B_FIFO_100032_001",
-          "buy_date": "2026-08-07",
-          "shares": 35000.0,
-          "cost_nav": 0.985,
-          "fee": 5.0,
-          "holding_days": 90,
-          "safety_lock": false,
-          "notes": "高股息周期价值底仓"
-        }
-      ],
-      "company": "富国基金",
-      "is_core_strategy": true,
-      "transition_tag": "核心策略底仓"
-    },
-    {
-      "fund_code": "011612",
-      "fund_name": "华夏科创50ETF联接A",
-      "share_class": "A",
-      "shares": 15000.0,
-      "cost_price": 0.92,
-      "current_nav": 0.915,
-      "market_value": 13725.0,
-      "cost_basis": 13800.0,
-      "floating_pnl": -75.0,
-      "floating_pnl_pct": -0.54,
-      "first_buy_date": "2026-11-02",
-      "dividend_method": "cash",
-      "batches": [
-        {
-          "batch_id": "B_FIFO_011612_001",
-          "buy_date": "2026-11-02",
-          "shares": 15000.0,
-          "cost_nav": 0.92,
-          "fee": 15.0,
-          "holding_days": 3,
-          "safety_lock": true,
-          "notes": "🔴 刚买3天新入观察仓 (7天锁)"
-        }
-      ],
-      "company": "华夏基金",
-      "is_core_strategy": true,
-      "transition_tag": "核心策略底仓"
-    },
-    {
-      "fund_code": "011613",
-      "fund_name": "华夏上证科创板50成份ETF联接C",
-      "share_class": "C",
-      "shares": 22000.0,
-      "cost_price": 0.94,
-      "current_nav": 0.925,
-      "market_value": 20350.0,
-      "cost_basis": 20680.0,
-      "floating_pnl": -330.0,
-      "floating_pnl_pct": -1.6,
-      "first_buy_date": "2026-10-08",
-      "dividend_method": "cash",
-      "batches": [
-        {
-          "batch_id": "B_FIFO_011613_001",
-          "buy_date": "2026-10-08",
-          "shares": 22000.0,
-          "cost_nav": 0.94,
+          "batch_id": "B_MANUAL_002351_001",
+          "buy_date": "2026-07-29",
+          "shares": 10000.0,
+          "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 28,
+          "holding_days": 99,
           "safety_lock": false,
-          "notes": "🟡 战术C类 (已持28天，再等2天免赎回费)"
+          "notes": "手动新增持仓"
         }
       ],
-      "company": "华夏基金",
+      "company": "易方达基金",
       "is_core_strategy": true,
-      "transition_tag": "核心策略底仓"
-    },
-    {
-      "fund_code": "013841",
-      "fund_name": "银华集成电路混合C",
-      "share_class": "C",
-      "shares": 12000.0,
-      "cost_price": 1.05,
-      "current_nav": 0.88,
-      "market_value": 10560.0,
-      "cost_basis": 12600.0,
-      "floating_pnl": -2040.0,
-      "floating_pnl_pct": -16.19,
-      "first_buy_date": "2026-09-26",
-      "dividend_method": "cash",
-      "batches": [
-        {
-          "batch_id": "B_FIFO_013841_001",
-          "buy_date": "2026-09-26",
-          "shares": 12000.0,
-          "cost_nav": 1.05,
-          "fee": 0.0,
-          "holding_days": 40,
-          "safety_lock": false,
-          "notes": "深套非标战术仓 (待反弹阶梯减亏)"
-        }
-      ],
-      "company": "银华基金",
-      "is_core_strategy": true,
-      "transition_tag": "核心策略底仓"
-    },
-    {
-      "fund_code": "001071",
-      "fund_name": "摩根标普500指数(QDII)人民币A",
-      "share_class": "A",
-      "shares": 8000.0,
-      "cost_price": 1.45,
-      "current_nav": 1.54,
-      "market_value": 12320.0,
-      "cost_basis": 11600.0,
-      "floating_pnl": 720.0,
-      "floating_pnl_pct": 6.21,
-      "first_buy_date": "2026-09-06",
-      "dividend_method": "cash",
-      "batches": [
-        {
-          "batch_id": "B_FIFO_001071_001",
-          "buy_date": "2026-09-06",
-          "shares": 8000.0,
-          "cost_nav": 1.45,
-          "fee": 12.0,
-          "holding_days": 60,
-          "safety_lock": false,
-          "notes": "全球对冲配置"
-        }
-      ],
-      "company": "摩根基金",
-      "is_core_strategy": true,
-      "transition_tag": "核心策略底仓"
+      "transition_tag": "核心策略底仓",
+      "rebalance_intent": "normal"
     }
   ],
   "pending_orders": [
@@ -304,5 +161,5 @@
       "notes": "未突破前停泊吃息，放量站上进攻线右侧确认时全额进攻。"
     }
   ],
-  "updated_at": "2026-11-05 15:36:56"
+  "updated_at": "2026-11-06 00:07:32"
 }

@@ -40,6 +40,15 @@ importlib.reload(trading_clock_fee)
 from trading_clock_fee import TradingClock, FeeMatrixCalculator
 import portfolio_manager
 importlib.reload(portfolio_manager)
+try:
+    import multi_ledger_manager
+    importlib.reload(multi_ledger_manager)
+    from multi_ledger_manager import MultiLedgerManager
+except Exception:
+    try:
+        from portfolio_manager import MultiLedgerManager
+    except Exception:
+        MultiLedgerManager = None
 from portfolio_manager import (
     PortfolioManager,
     CORE_STRATEGY_POOL,
@@ -1362,12 +1371,74 @@ def apply_theme_to_plotly_figure(fig: go.Figure, theme_mode: Optional[str] = Non
     )
     return fig
 
-if "pm" not in st.session_state:
-    st.session_state.pm = PortfolioManager()
+if "mlm" not in st.session_state:
+    st.session_state.mlm = MultiLedgerManager.get_instance() if MultiLedgerManager else None
+if "active_ledger_id" not in st.session_state:
+    st.session_state.active_ledger_id = st.session_state.mlm.get_active_ledger_id() if st.session_state.mlm else "main_live"
+
+_cur_lid = st.session_state.active_ledger_id
+if "pm" not in st.session_state or getattr(st.session_state.pm, "ledger_id", None) != _cur_lid:
+    if st.session_state.mlm:
+        try:
+            st.session_state.pm = st.session_state.mlm.get_pm(_cur_lid)
+        except KeyError:
+            # 容错自愈：当 active_ledger_id 已损坏或已删除时，平滑自愈回退至 main_live
+            st.session_state.active_ledger_id = "main_live"
+            st.session_state.sel_tab2_active_ledger = "main_live"
+            st.session_state.pm = st.session_state.mlm.get_pm("main_live")
+    else:
+        st.session_state.pm = PortfolioManager()
 
 pm: PortfolioManager = st.session_state.pm
 clock = pm.clock
 calc = pm.calculator
+
+# 风险策略档位 -> 期望年化收益率基准映射表（双向映射绝对自洽，严禁 C2 设为 10.0 防漂移）
+TIER_TARGET_RETURN_MAP = {
+    "C1": 6.5,
+    "C2": 9.0,   # 7.0 <= 9.0 < 10.0 -> map_slider_to_tier 严格返回 C2
+    "C3": 15.0,  # 10.0 <= 15.0 < 16.0 -> map_slider_to_tier 严格返回 C3
+    "C4": 22.0,  # 16.0 <= 22.0 < 30.0 -> map_slider_to_tier 严格返回 C4
+    "C5": 50.0,  # 50.0 >= 30.0 -> map_slider_to_tier 严格返回 C5
+}
+
+def switch_active_ledger(target_ledger_id: str):
+    mlm_inst = st.session_state.get("mlm") or (MultiLedgerManager.get_instance() if MultiLedgerManager else None)
+    if "pm" in st.session_state and st.session_state.pm:
+        try:
+            st.session_state.pm.save_state(record_snapshot=True)
+        except Exception:
+            pass
+
+    st.session_state.active_ledger_id = target_ledger_id
+    st.session_state.sel_tab2_active_ledger = target_ledger_id
+    if mlm_inst:
+        mlm_inst.set_active_ledger_id(target_ledger_id)
+        try:
+            new_pm = mlm_inst.get_pm(target_ledger_id)
+        except KeyError:
+            target_ledger_id = "main_live"
+            st.session_state.active_ledger_id = "main_live"
+            st.session_state.sel_tab2_active_ledger = "main_live"
+            new_pm = mlm_inst.get_pm("main_live")
+
+        st.session_state.pm = new_pm
+        meta = mlm_inst.get_ledger_meta(target_ledger_id) or {}
+        target_tier = str(meta.get("default_tier", "C3")).upper()
+        if target_tier not in TIER_TARGET_RETURN_MAP:
+            target_tier = "C3"
+        st.session_state.active_tier_val = target_tier
+        target_ret = TIER_TARGET_RETURN_MAP.get(target_tier, 15.0)
+        st.session_state.target_return_val = target_ret
+        st.session_state.slider_target_return = target_ret
+
+    st.session_state.tab2_diag_cache = None
+    st.session_state.tab2_rebal_cache = None
+    st.session_state.tab2_diagnosed = False
+    st.session_state.tab2_rebalanced = False
+    st.session_state.tab2_trigger_diagnose = False
+    st.session_state.tab2_trigger_rebalance = False
+    st.rerun()
 
 # 实时拉取最新策略大脑快照 (首屏 auto_sync=False 纯本地秒级直开)
 snapshot = StrategyBridge.get_latest_market_snapshot(force_reload=False, auto_sync=False) or {}
@@ -1869,20 +1940,28 @@ def _cached_find_historical_analogs(top_k: int = 3):
     return StrategyBridge.find_historical_analogs(top_k=top_k)
 
 @st.cache_data(ttl=300)
-def _cached_look_through_industry(holdings_repr: str):
-    return pm.calculate_look_through_industry_exposure()
+def _cached_look_through_industry(holdings_items: tuple):
+    cur_pm = st.session_state.get("pm") or pm
+    h_dict = {c: HoldingItem(fund_code=c, fund_name=fn, shares=sh, cost_nav=cn, current_nav=nav) for c, fn, sh, cn, nav in holdings_items} if holdings_items else None
+    return cur_pm.calculate_look_through_industry_exposure(holdings_override=h_dict)
 
 @st.cache_data(ttl=300)
-def _cached_stock_overlap(holdings_repr: str):
-    return pm.calculate_stock_overlap_matrix()
+def _cached_stock_overlap(holdings_items: tuple):
+    cur_pm = st.session_state.get("pm") or pm
+    h_dict = {c: HoldingItem(fund_code=c, fund_name=fn, shares=sh, cost_nav=cn, current_nav=nav) for c, fn, sh, cn, nav in holdings_items} if holdings_items else None
+    return cur_pm.calculate_stock_overlap_matrix(holdings_override=h_dict)
 
 @st.cache_data(ttl=300)
-def _cached_penetration_risk(holdings_repr: str):
-    return pm.calculate_portfolio_penetration_risk()
+def _cached_penetration_risk(holdings_items: tuple):
+    cur_pm = st.session_state.get("pm") or pm
+    h_dict = {c: HoldingItem(fund_code=c, fund_name=fn, shares=sh, cost_nav=cn, current_nav=nav) for c, fn, sh, cn, nav in holdings_items} if holdings_items else None
+    return cur_pm.calculate_portfolio_penetration_risk(holdings_override=h_dict)
 
 @st.cache_data(ttl=300)
-def _cached_stocks_df(holdings_repr: str):
-    return pm.get_portfolio_look_through_stocks_df()
+def _cached_stocks_df(holdings_items: tuple):
+    cur_pm = st.session_state.get("pm") or pm
+    h_dict = {c: HoldingItem(fund_code=c, fund_name=fn, shares=sh, cost_nav=cn, current_nav=nav) for c, fn, sh, cn, nav in holdings_items} if holdings_items else None
+    return cur_pm.get_portfolio_look_through_stocks_df(holdings_override=h_dict)
 
 
 
@@ -2017,112 +2096,150 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         _f_metas[_c] = {}
                 report = sentry.inspect_portfolio(pm_instance.holdings, snapshot_dict, fund_metadata=_f_metas)
 
-                if report.get("all_passed"):
-                    st.markdown("""
-                    <div class="decision-card" style="border-left: 4px solid var(--color-down); padding: 12px 14px;">
-                        <div style="font-weight: 700; color: var(--color-down); font-size: 13px; margin-bottom: 4px;">🟢 主动风控巡检全通</div>
-                        <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.6;">
-                            持仓批次无惩罚锁仓 ｜ 赛道无超买拥挤 ｜ 零迷你基清盘风险 ｜ 大盘运行于安全区间
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    alerts_to_show = report.get("alerts", [])[:4]
-                    for i, alert in enumerate(alerts_to_show):
-                        border_c = "var(--color-up)" if alert["level"] == "red" else ("var(--color-down)" if alert["level"] == "green_notice" else "var(--accent-primary)")
-                        badge_icon = "🔴" if alert["level"] == "red" else ("🟢" if alert["level"] == "green_notice" else "🟡")
-                        st.markdown(f"""
-                        <div class="decision-card" style="border-left: 3px solid {border_c}; padding: 8px 10px; margin-bottom: 4px;">
-                            <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">
-                                {badge_icon} {alert['title']}
-                            </div>
-                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 2px;">
-                                {alert['desc']}
-                            </div>
-                            <div style="font-size: 11px; color: {border_c}; font-weight: 600;">
-                                💡 建议: {alert['action']}
+                with st.container(height=300):
+                    if report.get("all_passed"):
+                        st.markdown("""
+                        <div class="decision-card" style="border-left: 4px solid var(--color-down); padding: 12px 14px;">
+                            <div style="font-weight: 700; color: var(--color-down); font-size: 13px; margin-bottom: 4px;">🟢 主动风控巡检全通</div>
+                            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.6;">
+                                持仓批次无惩罚锁仓 ｜ 赛道无超买拥挤 ｜ 零迷你基清盘风险 ｜ 大盘运行于安全区间
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
+                    else:
+                        all_alerts = report.get("alerts", [])
+                        lock_alerts = [a for a in all_alerts if a.get("action_type") == "lock_shares"]
+                        other_alerts = [a for a in all_alerts if a.get("action_type") != "lock_shares"]
 
-                        act_type = alert.get("action_type")
-                        fcode = alert.get("fund_code", "")
-                        fname = alert.get("fund_name", fcode)
-
-                        if act_type == "lock_shares":
-                            btn_lbl = f"🔒 锁定【{fcode or '未满7天标的'}】调仓下界"
-                        elif act_type == "countdown_hold":
-                            btn_lbl = f"⏳ 暂缓【{fcode}】调仓倒计时"
-                        elif act_type == "switch_a_class":
-                            btn_lbl = f"🔄 择机置换【{fcode}】为A类"
-                        elif act_type == "take_profit":
-                            btn_lbl = f"📉 生成【{fcode or '超买标的'}】阶梯止盈单"
-                        elif act_type == "deep_loss_rebalance":
-                            btn_lbl = f"💼 查看【{fcode}】反弹减亏诊断"
-                        elif act_type == "rebalance_sector":
-                            btn_lbl = "⚖️ 平衡赛道敞口"
-                        elif act_type == "replace_fund":
-                            btn_lbl = f"🚨 置换【{fcode}】为标杆公募"
-                        elif act_type == "defense_mode":
-                            btn_lbl = "🛡️ 启动防守预案"
-                        elif act_type == "offense_mode":
-                            btn_lbl = "🚀 查看进攻主线"
-                        else:
-                            btn_lbl = "⚡ 立即处置"
-
-                        if st.button(btn_lbl, key=f"btn_sentry_act_{i}_{fcode}_{act_type}", use_container_width=True, type="secondary"):
-                            if act_type == "lock_shares":
+                        # 1. 若同属未满 7 天惩罚锁仓标的 >= 2 只，行内聚合折叠为单张紧凑聚合卡片
+                        if len(lock_alerts) >= 2:
+                            lock_codes = [a.get("fund_code", "") for a in lock_alerts if a.get("fund_code")]
+                            lock_names = [f"{a.get('fund_code')} ({a.get('fund_name', a.get('fund_code'))[:5]})" for a in lock_alerts]
+                            st.markdown(f"""
+                            <div class="decision-card" style="border-left: 3px solid var(--color-up); padding: 8px 10px; margin-bottom: 6px;">
+                                <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">
+                                    🔴【未满7天锁定期硬阻断】共 {len(lock_alerts)} 只标的持有未满7天
+                                </div>
+                                <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 2px;">
+                                    包含标的: {', '.join(lock_names)}。未满 7 天赎回将直接触发证监会规定的 1.50% 巨额惩罚性扣款！
+                                </div>
+                                <div style="font-size: 11px; color: var(--color-up); font-weight: 600;">
+                                    💡 建议: 一键锁定持仓下界，严禁盲目减持，待各标的持有满 7 天后再行操作。
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            if st.button(f"🔒 一键批量锁定这 {len(lock_alerts)} 只标的调仓下界", key="btn_batch_lock_all_7d", use_container_width=True, type="primary"):
                                 if "tab2_locked_funds" not in st.session_state:
                                     st.session_state.tab2_locked_funds = []
-                                if fcode and fcode not in st.session_state.tab2_locked_funds:
-                                    st.session_state.tab2_locked_funds.append(fcode)
+                                for fc in lock_codes:
+                                    if fc and fc not in st.session_state.tab2_locked_funds:
+                                        st.session_state.tab2_locked_funds.append(fc)
                                 st.session_state.tab2_diagnosed = True
                                 st.session_state.tab2_rebalanced = True
                                 st.session_state.tab2_rebal_cache = None
                                 st.session_state.tab2_trigger_diagnose = False
                                 st.session_state.tab2_trigger_rebalance = False
-                                st.toast(f"🔒 已锁定标的【{fcode}】持仓下界，已在【💼 持仓调仓】生成调仓保护单！")
+                                st.toast(f"🔒 已一键批量锁定 {len(lock_codes)} 只标的持仓下界，已在【💼 持仓调仓】生效！")
                                 st.rerun()
-                            elif act_type == "take_profit":
-                                st.session_state.tab2_pending_take_profit = {"fund_code": fcode, "ratio": 0.40}
-                                st.session_state.tab2_diagnosed = True
-                                st.session_state.tab2_rebalanced = True
-                                st.session_state.tab2_rebal_cache = None
-                                st.session_state.tab2_trigger_diagnose = False
-                                st.session_state.tab2_trigger_rebalance = False
-                                st.toast(f"📉 已生成【{fcode}】阶梯止盈单（建议减持40%），已在【💼 持仓调仓】更新调仓方案！")
-                                st.rerun()
-                            elif act_type == "deep_loss_rebalance":
-                                st.session_state.tab2_diagnosed = True
-                                st.session_state.tab2_rebalanced = True
-                                st.session_state.tab2_rebal_cache = None
-                                st.session_state.tab2_trigger_diagnose = False
-                                st.session_state.tab2_trigger_rebalance = False
-                                st.toast(f"💼 正在为深套标的【{fcode}】生成反弹抽均线阶梯减亏诊断，已在【💼 持仓调仓】就绪！")
-                                st.rerun()
+                        elif len(lock_alerts) == 1:
+                            other_alerts = lock_alerts + other_alerts
+
+                        # 2. 渲染其他单标的预警
+                        for i, alert in enumerate(other_alerts[:3]):
+                            border_c = "var(--color-up)" if alert["level"] == "red" else ("var(--color-down)" if alert["level"] == "green_notice" else "var(--accent-primary)")
+                            badge_icon = "🔴" if alert["level"] == "red" else ("🟢" if alert["level"] == "green_notice" else "🟡")
+                            st.markdown(f"""
+                            <div class="decision-card" style="border-left: 3px solid {border_c}; padding: 8px 10px; margin-bottom: 4px;">
+                                <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">
+                                    {badge_icon} {alert['title']}
+                                </div>
+                                <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 2px;">
+                                    {alert['desc']}
+                                </div>
+                                <div style="font-size: 11px; color: {border_c}; font-weight: 600;">
+                                    💡 建议: {alert['action']}
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                            act_type = alert.get("action_type")
+                            fcode = alert.get("fund_code", "")
+                            fname = alert.get("fund_name", fcode)
+
+                            if act_type == "lock_shares":
+                                btn_lbl = f"🔒 锁定【{fcode or '未满7天标的'}】调仓下界"
                             elif act_type == "countdown_hold":
-                                st.session_state.tab2_diagnosed = True
-                                st.session_state.tab2_rebalanced = True
-                                st.session_state.tab2_rebal_cache = None
-                                st.toast(f"⏳ 已为【{fcode}】设置免赎倒计时保护，建议持有满 30 天后再行操作")
-                                st.rerun()
+                                btn_lbl = f"⏳ 暂缓【{fcode}】调仓倒计时"
                             elif act_type == "switch_a_class":
-                                st.session_state.tab2_c_replace = fcode
-                                st.session_state.tab2_diagnosed = True
-                                st.session_state.tab2_rebalanced = True
-                                st.session_state.tab2_rebal_cache = None
-                                st.session_state.tab2_trigger_diagnose = False
-                                st.session_state.tab2_trigger_rebalance = False
-                                st.toast(f"🔄 已激活【{fcode}】C类零费率置换指令，已在【💼 持仓调仓】更新！")
-                                st.rerun()
+                                btn_lbl = f"🔄 择机置换【{fcode}】为A类"
+                            elif act_type == "take_profit":
+                                btn_lbl = f"📉 生成【{fcode or '超买标的'}】阶梯止盈单"
+                            elif act_type == "deep_loss_rebalance":
+                                btn_lbl = f"💼 查看【{fcode}】反弹减亏诊断"
+                            elif act_type == "rebalance_sector":
+                                btn_lbl = "⚖️ 平衡赛道敞口"
+                            elif act_type == "replace_fund":
+                                btn_lbl = f"🚨 置换【{fcode}】为标杆公募"
+                            elif act_type == "defense_mode":
+                                btn_lbl = "🛡️ 启动防守预案"
+                            elif act_type == "offense_mode":
+                                btn_lbl = "🚀 查看进攻主线"
                             else:
-                                st.session_state.tab2_diagnosed = True
-                                st.session_state.tab2_rebalanced = True
-                                st.session_state.tab2_rebal_cache = None
-                                st.session_state.tab2_trigger_diagnose = False
-                                st.session_state.tab2_trigger_rebalance = False
-                                st.toast(f"⚡ 请前往【💼 持仓调仓】Tab 查看针对【{fcode}】的调仓建议")
-                                st.rerun()
+                                btn_lbl = "⚡ 立即处置"
+
+                            if st.button(btn_lbl, key=f"btn_sentry_act_{i}_{fcode}_{act_type}", use_container_width=True, type="secondary"):
+                                if act_type == "lock_shares":
+                                    if "tab2_locked_funds" not in st.session_state:
+                                        st.session_state.tab2_locked_funds = []
+                                    if fcode and fcode not in st.session_state.tab2_locked_funds:
+                                        st.session_state.tab2_locked_funds.append(fcode)
+                                    st.session_state.tab2_diagnosed = True
+                                    st.session_state.tab2_rebalanced = True
+                                    st.session_state.tab2_rebal_cache = None
+                                    st.session_state.tab2_trigger_diagnose = False
+                                    st.session_state.tab2_trigger_rebalance = False
+                                    st.toast(f"🔒 已锁定标的【{fcode}】持仓下界，已在【💼 持仓调仓】生成调仓保护单！")
+                                    st.rerun()
+                                elif act_type == "take_profit":
+                                    st.session_state.tab2_pending_take_profit = {"fund_code": fcode, "ratio": 0.40}
+                                    st.session_state.tab2_diagnosed = True
+                                    st.session_state.tab2_rebalanced = True
+                                    st.session_state.tab2_rebal_cache = None
+                                    st.session_state.tab2_trigger_diagnose = False
+                                    st.session_state.tab2_trigger_rebalance = False
+                                    st.toast(f"📉 已生成【{fcode}】阶梯止盈单（建议减持40%），已在【💼 持仓调仓】更新调仓方案！")
+                                    st.rerun()
+                                elif act_type == "deep_loss_rebalance":
+                                    st.session_state.tab2_diagnosed = True
+                                    st.session_state.tab2_rebalanced = True
+                                    st.session_state.tab2_rebal_cache = None
+                                    st.session_state.tab2_trigger_diagnose = False
+                                    st.session_state.tab2_trigger_rebalance = False
+                                    st.toast(f"💼 正在为深套标的【{fcode}】生成反弹抽均线阶梯减亏诊断，已在【💼 持仓调仓】就绪！")
+                                    st.rerun()
+                                elif act_type == "countdown_hold":
+                                    st.session_state.tab2_diagnosed = True
+                                    st.session_state.tab2_rebalanced = True
+                                    st.session_state.tab2_rebal_cache = None
+                                    st.toast(f"⏳ 已为【{fcode}】设置免赎倒计时保护，建议持有满 30 天后再行操作")
+                                    st.rerun()
+                                elif act_type == "switch_a_class":
+                                    st.session_state.tab2_c_replace = fcode
+                                    st.session_state.tab2_diagnosed = True
+                                    st.session_state.tab2_rebalanced = True
+                                    st.session_state.tab2_rebal_cache = None
+                                    st.session_state.tab2_trigger_diagnose = False
+                                    st.session_state.tab2_trigger_rebalance = False
+                                    st.toast(f"🔄 已激活【{fcode}】C类零费率置换指令，已在【💼 持仓调仓】更新！")
+                                    st.rerun()
+                                else:
+                                    st.session_state.tab2_diagnosed = True
+                                    st.session_state.tab2_rebalanced = True
+                                    st.session_state.tab2_rebal_cache = None
+                                    st.session_state.tab2_trigger_diagnose = False
+                                    st.session_state.tab2_trigger_rebalance = False
+                                    st.toast(f"⚡ 请前往【💼 持仓调仓】Tab 查看针对【{fcode}】的调仓建议")
+                                    st.rerun()
     except Exception as e:
         st.caption(f"（双翼看板加载提示: {e}）")
 
@@ -3198,9 +3315,13 @@ with tab_zero_start:
                 st.caption("您可以直接复制下方文本发送给微信或记事本，对照手机银行、天天基金、蚂蚁财富一分钟完成买入：")
                 st.code(active_cheat_sheet_text, language="text")
 
-            col_btn_set_hold, col_btn_to_bt = st.columns([5, 5])
-            with col_btn_set_hold:
-                if st.button("🚀 设为初始持仓", type="primary", use_container_width=True, key="btn_apply_bp_tier"):
+            col_btn_save_cur, col_btn_save_new, col_btn_to_bt = st.columns([3.6, 3.6, 2.8])
+            with col_btn_save_cur:
+                mlm_inst = st.session_state.get("mlm") or (MultiLedgerManager.get_instance() if MultiLedgerManager else None)
+                cur_lid = st.session_state.get("active_ledger_id", "main_live")
+                cur_meta = mlm_inst.get_ledger_meta(cur_lid) if mlm_inst else {}
+                cur_name = (cur_meta or {}).get("name", "当前账本")
+                if st.button(f"📥 覆盖写入当前激活账本 ({cur_name})", type="primary", use_container_width=True, key="btn_apply_bp_tier"):
                     plan_data = three_step_plan if "稳健三步" in cap_deployment_mode else (dca_plan if "智能定投" in cap_deployment_mode and 'dca_plan' in locals() else None)
                     res_apply = pm.apply_zero_start_blueprint(
                         blueprint,
@@ -3208,8 +3329,42 @@ with tab_zero_start:
                         deployment_plan=plan_data
                     )
                     st.balloons()
-                    st.success(f"已成功将 ¥{res_apply['total_capital']:,.2f} 建仓方案（模式：{cap_deployment_mode.split('（')[0]}）写入为初始持仓，配置 {res_apply['funds_count']} 只基金。可用现金池 ¥{pm.available_cash:,.2f}。")
+                    st.success(f"已成功将 ¥{res_apply['total_capital']:,.2f} 建仓方案（模式：{cap_deployment_mode.split('（')[0]}）写入【{cur_name}】，配置 {res_apply['funds_count']} 只基金。可用现金池 ¥{pm.available_cash:,.2f}。")
                     st.rerun()
+
+            with col_btn_save_new:
+                with st.popover("🆕 另存为全新独立账本", use_container_width=True):
+                    st.markdown("##### 🆕 另存为全新独立账本")
+                    st.caption("创建新账本并直接将本次建仓方案写入，绝不影响主实盘或其他存量账本。")
+                    save_new_name = st.text_input("新账本名称", value=f"新资建仓_{datetime.now().strftime('%m%d_%H%M')}", key="t1_save_new_name")
+                    save_new_type = st.selectbox("账本类型", ["沙盒演练 (sandbox)", "家庭专项 (family)", "独立实盘 (live)"], key="t1_save_new_type")
+                    save_new_type_code = "sandbox" if "sandbox" in save_new_type else ("family" if "family" in save_new_type else "live")
+                    t_val = st.session_state.get("active_tier_val", "C3")
+                    tier_idx = ["C1", "C2", "C3", "C4", "C5"].index(t_val) if t_val in ["C1", "C2", "C3", "C4", "C5"] else 2
+                    save_new_tier = st.selectbox("专属风险档位", ["C1", "C2", "C3", "C4", "C5"], index=tier_idx, key="t1_save_new_tier")
+
+                    if st.button("输入新账本名称一键创建并写入持仓", type="primary", use_container_width=True, key="btn_confirm_save_new_ledger"):
+                        if mlm_inst:
+                            total_cap = float(blueprint.get("total_capital", 100000.0))
+                            new_lid = mlm_inst.create_ledger(
+                                name=save_new_name.strip() or f"建仓方案_{datetime.now().strftime('%m%d_%H%M')}",
+                                base_cash=total_cap,
+                                ledger_type=save_new_type_code,
+                                default_tier=save_new_tier,
+                                description="由新资建仓一键生成"
+                            )
+                            new_pm = mlm_inst.get_pm(new_lid)
+                            plan_data = three_step_plan if "稳健三步" in cap_deployment_mode else (dca_plan if "智能定投" in cap_deployment_mode and 'dca_plan' in locals() else None)
+                            res_apply = new_pm.apply_zero_start_blueprint(
+                                blueprint,
+                                cap_deployment_mode=cap_deployment_mode,
+                                deployment_plan=plan_data
+                            )
+                            new_pm.save_state(record_snapshot=True)
+                            switch_active_ledger(new_lid)
+                            st.balloons()
+                            st.success(f"已成功创建新账本【{save_new_name}】并写入持仓！")
+                            st.rerun()
 
             with col_btn_to_bt:
                 if st.button("📈 送入穿透回测", type="secondary", use_container_width=True, key="btn_send_bp_to_bt"):
@@ -3323,6 +3478,131 @@ with tab_holdings_and_rebalance:
         # 步骤一：当前持仓账本
         # ---------------------------------------------------------
         st.markdown("### 步骤一：持仓账本")
+
+        # 🗄️ 多账本管理吧台 (单行：选择器 + 新建 + 克隆 + 管理)
+        mlm_inst = st.session_state.get("mlm") or (MultiLedgerManager.get_instance() if MultiLedgerManager else None)
+        if mlm_inst:
+            all_ledgers = mlm_inst.list_ledgers()
+            avail_lids = [l["id"] for l in all_ledgers]
+
+            # 防御性清洗：若控件键残存已删除或非法账本 ID，立即重置为 main_live，杜绝 Streamlit ValueError 白屏崩溃
+            if "sel_tab2_active_ledger" in st.session_state:
+                if st.session_state.sel_tab2_active_ledger not in avail_lids:
+                    st.session_state.sel_tab2_active_ledger = "main_live" if "main_live" in avail_lids else (avail_lids[0] if avail_lids else "main_live")
+
+            active_lid = st.session_state.get("active_ledger_id", "main_live")
+            if active_lid not in avail_lids:
+                active_lid = "main_live" if "main_live" in avail_lids else (avail_lids[0] if avail_lids else "main_live")
+                st.session_state.active_ledger_id = active_lid
+
+            active_idx = next((i for i, l in enumerate(all_ledgers) if l["id"] == active_lid), 0)
+
+            def _fmt_ledger_choice(lid: str) -> str:
+                m = mlm_inst.get_ledger_meta(lid) or {}
+                t_map = {"live": "🟢 [实盘]", "family": "👨‍👩‍👧 [家庭]", "sandbox": "🧪 [沙盒]"}
+                tag = t_map.get(m.get("type", "sandbox"), "🧪 [沙盒]")
+                try:
+                    p_i = mlm_inst.get_pm(lid)
+                    eq = float(p_i.total_equity)
+                except Exception:
+                    eq = 0.0
+                return f"{tag} {m.get('name', lid)} (¥{eq:,.0f})"
+
+            col_led_sel, col_led_new, col_led_clone, col_led_mgr = st.columns([4.2, 1.8, 1.8, 2.2])
+            with col_led_sel:
+                selected_lid = st.selectbox(
+                    "切换账本",
+                    options=[l["id"] for l in all_ledgers],
+                    index=active_idx,
+                    format_func=_fmt_ledger_choice,
+                    key="sel_tab2_active_ledger",
+                    label_visibility="collapsed"
+                )
+                if selected_lid != active_lid:
+                    switch_active_ledger(selected_lid)
+
+            with col_led_new:
+                with st.popover("➕ 新建账本", use_container_width=True):
+                    st.markdown("##### ➕ 新建独立账本")
+                    st.caption("创建全新资产账本，独立管理持仓与调仓计划。")
+                    n_name = st.text_input("账本名称", placeholder="例如：子女教育金", key="pop_new_ledger_name")
+                    n_cash = st.number_input("初始可用现金 (元)", min_value=0.0, value=100000.0, step=10000.0, key="pop_new_ledger_cash")
+                    n_type_label = st.selectbox("账本类型", ["沙盒演练 (sandbox)", "家庭专项 (family)", "独立实盘 (live)"], key="pop_new_ledger_type")
+                    n_type = "sandbox" if "sandbox" in n_type_label else ("family" if "family" in n_type_label else "live")
+                    n_tier = st.selectbox("专属风险档位", ["C1", "C2", "C3", "C4", "C5"], index=2, key="pop_new_ledger_tier")
+                    if st.button("确认创建并切换", type="primary", use_container_width=True, key="btn_confirm_create_ledger"):
+                        new_id = mlm_inst.create_ledger(
+                            name=n_name.strip() or f"新账本_{datetime.now().strftime('%m%d_%H%M')}",
+                            base_cash=n_cash,
+                            ledger_type=n_type,
+                            default_tier=n_tier
+                        )
+                        switch_active_ledger(new_id)
+                        st.toast("✅ 成功创建账本并已切换！")
+                        st.rerun()
+
+            with col_led_clone:
+                with st.popover("📋 克隆当前副本", use_container_width=True):
+                    st.markdown("##### 📋 克隆当前账本副本")
+                    st.caption("深拷贝当前账本所有持仓与批次，作为独立沙盒进行无风险演练。")
+                    cur_m = mlm_inst.get_ledger_meta(active_lid) or {}
+                    cl_name = st.text_input("副本账本名称", value=f"{cur_m.get('name', '账本')} - 副本", key="pop_clone_ledger_name")
+                    cl_type_label = st.selectbox("副本类型", ["沙盒演练 (sandbox)", "家庭专项 (family)", "独立实盘 (live)"], key="pop_clone_ledger_type")
+                    cl_type = "sandbox" if "sandbox" in cl_type_label else ("family" if "family" in cl_type_label else "live")
+                    if st.button("一键克隆并切换", type="primary", use_container_width=True, key="btn_confirm_clone_ledger"):
+                        clone_id = mlm_inst.clone_ledger(
+                            src_id=active_lid,
+                            target_name=cl_name.strip() or f"{cur_m.get('name', '账本')} - 副本",
+                            ledger_type=cl_type
+                        )
+                        switch_active_ledger(clone_id)
+                        st.toast("✅ 成功克隆账本并已切换！")
+                        st.rerun()
+
+            with col_led_mgr:
+                with st.popover("⚙️ 账本管理", use_container_width=True):
+                    st.markdown("##### ⚙️ 账本管理与资产汇总")
+                    cur_m = mlm_inst.get_ledger_meta(active_lid) or {}
+                    
+                    st.markdown("**✏️ 重命名当前账本**")
+                    ren_name = st.text_input("新名称", value=cur_m.get("name", ""), key="pop_rename_ledger_input")
+                    if st.button("保存名称修改", key="btn_save_rename_ledger", use_container_width=True):
+                        if ren_name.strip():
+                            mlm_inst.rename_ledger(active_lid, ren_name.strip())
+                            st.toast("✅ 账本名称已更新！")
+                            st.rerun()
+
+                    st.divider()
+
+                    st.markdown("**🗑️ 删除账本**")
+                    if cur_m.get("is_protected", False) or active_lid == "main_live":
+                        st.info("🛡️ **主实盘账本受系统物理保护，禁止删除。**")
+                    else:
+                        del_confirm = st.checkbox("确认永久删除当前账本及其全部持仓数据", key="chk_confirm_delete_ledger")
+                        if st.button("🗑️ 确认删除当前账本", type="primary", use_container_width=True, disabled=not del_confirm, key="btn_confirm_delete_ledger"):
+                            mlm_inst.delete_ledger(active_lid)
+                            switch_active_ledger("main_live")
+                            st.toast("🗑️ 已删除账本，自动回退至主实盘！")
+                            st.rerun()
+
+                    st.divider()
+
+                    with st.expander("👨‍👩‍👧‍👦 查看全账本家庭资产汇总表", expanded=False):
+                        all_sum = mlm_inst.get_all_ledgers_summary()
+                        col_s1, col_s2, col_s3 = st.columns(3)
+                        col_s1.metric("家庭总资产", f"¥{all_sum['total_equity']:,.2f}")
+                        col_s2.metric("全账本浮盈", f"¥{all_sum['total_floating_pnl']:+,.2f}")
+                        col_s3.metric("总持仓只数", f"{all_sum['total_funds']} 只")
+                        st.dataframe(all_sum["df"], use_container_width=True, hide_index=True)
+
+            # 沙盒独立环境黄色醒目提示条
+            cur_meta = mlm_inst.get_ledger_meta(active_lid) or {}
+            if cur_meta.get("type") == "sandbox":
+                safe_markdown_html("""
+                <div style="background: rgba(234, 179, 8, 0.15); border-left: 4px solid #eab308; padding: 10px 14px; border-radius: 6px; margin-top: 6px; margin-bottom: 12px; font-size: 13px; color: var(--text-primary);">
+                    🧪 <b>当前为独立沙盒环境，任何调仓与录基演练均隔离存储，绝不影响主实盘</b>
+                </div>
+                """)
 
         # 🗄️ 账本环境管理与风控横幅（归位于此，彻底消除侧边栏重复）
         _tot_base_eq = sum(h.market_value for h in pm.holdings.values()) + pm.available_cash + pm.in_transit_cash
@@ -4359,37 +4639,6 @@ with tab_holdings_and_rebalance:
                 else:
                     st.caption(f"已选用【核心指数全天候策略池】（{active_tier}档位，已应用自定义备选替换）作为调仓目标。")
 
-            cur_pool_sig = (chosen_target_pool, tuple(sorted(tier_target_w.items())))
-            if st.session_state.get("tab2_last_pool_sig") != cur_pool_sig:
-                st.session_state.tab2_rebal_cache = None
-                st.session_state.tab2_last_pool_sig = cur_pool_sig
-
-            if st.session_state.get("tab2_trigger_rebalance", False) or st.session_state.get("tab2_rebal_cache") is None:
-                _cur_buf = float(st.session_state.get("rebalance_buffer_pct", 3.0))
-                acc_reb = ActiveComputationConsole("智能调仓模拟精算", total_steps=4, step_labels=[
-                    "步骤 1: 锁定期与 <7天 惩罚费防线核算",
-                    f"步骤 2: {_cur_buf:.1f}% 缓冲阈值偏离度过滤",
-                    "步骤 3: 温和调仓 vs 强制调仓路径生成",
-                    "步骤 4: 四大真实后果量化账单精算"
-                ])
-                acc_reb.update_step(0, "核算先进先出锁定期与 7 天 1.5% 惩罚费防线...", progress_pct=25)
-                sim_res = StrategyBridge.simulate_rebalance_modes_and_consequences(
-                    pm,
-                    active_tier=active_tier,
-                    target_weights=tier_target_w,
-                    min_buffer_pct=(_cur_buf / 100.0),
-                    locked_funds=st.session_state.get("tab2_locked_funds"),
-                    pending_take_profit=st.session_state.get("tab2_pending_take_profit"),
-                    c_replace=st.session_state.get("tab2_c_replace")
-                )
-                acc_reb.update_step(3, "调仓路径与账单精算完成", progress_pct=100)
-                acc_reb.complete("调仓模拟完成")
-                st.session_state.tab2_rebal_cache = sim_res
-                st.session_state.tab2_trigger_rebalance = False
-
-            sim_res = st.session_state.get("tab2_rebal_cache")
-            cur_buf_val = float(st.session_state.get("rebalance_buffer_pct", 3.0))
-            
             # ── 🎛️ 四大实盘调仓场景模式 (场景意图驱动) ──
             safe_markdown_html("""
             <div style="background: var(--bg-surface); border: 1.5px solid var(--accent-primary); border-radius: 8px; padding: 10px 14px; margin: 12px 0 8px 0;">
@@ -4448,6 +4697,54 @@ with tab_holdings_and_rebalance:
                     anchor_target_code = sel_anchor.split(" - ")[0]
                 with c_sc_in2:
                     st.caption("💡 一键清理占比 <3% 尾部碎片与满 30 天高费率 C 类，回收资金全额增持底仓！")
+
+            cur_buf_val = float(st.session_state.get("rebalance_buffer_pct", 3.0))
+            cur_pool_sig = (
+                chosen_target_pool,
+                tuple(sorted(tier_target_w.items())),
+                scenario_key,
+                float(new_cash_val),
+                float(withdraw_cash_val),
+                bool(freeze_reserved_chk),
+                str(anchor_target_code),
+                float(cur_buf_val),
+                tuple(sorted(st.session_state.get("tab2_locked_funds") or [])),
+                str(st.session_state.get("tab2_pending_take_profit")),
+                str(st.session_state.get("tab2_c_replace"))
+            )
+            if st.session_state.get("tab2_last_pool_sig") != cur_pool_sig:
+                st.session_state.tab2_rebal_cache = None
+                st.session_state.tab2_last_pool_sig = cur_pool_sig
+
+            if st.session_state.get("tab2_trigger_rebalance", False) or st.session_state.get("tab2_rebal_cache") is None:
+                _cur_buf = float(st.session_state.get("rebalance_buffer_pct", 3.0))
+                acc_reb = ActiveComputationConsole("智能调仓模拟精算", total_steps=4, step_labels=[
+                    "步骤 1: 锁定期与 <7天 惩罚费防线核算",
+                    f"步骤 2: {_cur_buf:.1f}% 缓冲阈值偏离度过滤",
+                    "步骤 3: 温和调仓 vs 强制调仓路径生成",
+                    "步骤 4: 四大真实后果量化账单精算"
+                ])
+                acc_reb.update_step(0, "核算先进先出锁定期与 7 天 1.5% 惩罚费防线...", progress_pct=25)
+                sim_res = StrategyBridge.simulate_rebalance_modes_and_consequences(
+                    pm,
+                    active_tier=active_tier,
+                    target_weights=tier_target_w,
+                    min_buffer_pct=(_cur_buf / 100.0),
+                    locked_funds=st.session_state.get("tab2_locked_funds"),
+                    pending_take_profit=st.session_state.get("tab2_pending_take_profit"),
+                    c_replace=st.session_state.get("tab2_c_replace"),
+                    scenario_mode=scenario_key,
+                    new_cash_amount=new_cash_val,
+                    withdraw_cash_amount=withdraw_cash_val,
+                    freeze_reserved_cash=freeze_reserved_chk,
+                    core_anchor_code=anchor_target_code
+                )
+                acc_reb.update_step(3, "调仓路径与账单精算完成", progress_pct=100)
+                acc_reb.complete("调仓模拟完成")
+                st.session_state.tab2_rebal_cache = sim_res
+                st.session_state.tab2_trigger_rebalance = False
+
+            sim_res = st.session_state.get("tab2_rebal_cache")
 
             col_b_mode, col_b_slider = st.columns([6.2, 3.8])
             with col_b_mode:
@@ -4579,16 +4876,22 @@ with tab_holdings_and_rebalance:
             rebal_mode_param = "forced" if sel_mode_key == "mode_forced" else "gentle"
 
             _cur_buf = float(st.session_state.get("rebalance_buffer_pct", 3.0))
+            effective_avail_cash = max(0.0, pm.available_cash - getattr(pm, "reserved_batch_cash", 0.0)) if freeze_reserved_chk else pm.available_cash
             ai_orders_res = StrategyBridge.generate_ai_rebalance_orders(
                 current_holdings=pm.holdings,
-                available_cash=pm.available_cash,
+                available_cash=effective_avail_cash,
                 target_weights_funds=tier_target_w,
                 pm=pm,
                 mode=rebal_mode_param,
                 min_buffer_pct=_cur_buf,
                 locked_funds=st.session_state.get("tab2_locked_funds"),
                 pending_take_profit=st.session_state.get("tab2_pending_take_profit"),
-                c_replace=st.session_state.get("tab2_c_replace")
+                c_replace=st.session_state.get("tab2_c_replace"),
+                scenario_mode=scenario_key,
+                new_cash_amount=new_cash_val,
+                withdraw_cash_amount=withdraw_cash_val,
+                freeze_reserved_cash=freeze_reserved_chk,
+                core_anchor_code=anchor_target_code
             )
             items = ai_orders_res.get("items", [])
 
@@ -5130,6 +5433,21 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
     st.caption("系统通过 4 维特征向量（ERP估值分位、MA20偏离、DR007利率、期权波动率）在 2018~2026 年大样本中匹配历史同温层行情：")
 
     analog_tab2 = _cached_find_historical_analogs(top_k=3)
+    matches_list = analog_tab2.get("matches", [])
+    n_matches = len(matches_list)
+    if n_matches > 0:
+        win_count = sum(1 for m in matches_list if m.get("strategy_ret_60d", 0.0) > m.get("h300_ret_60d", 0.0))
+        win_rate_60d = (win_count / n_matches) * 100.0
+        avg_excess_60d = sum(m.get("strategy_ret_60d", 0.0) - m.get("h300_ret_60d", 0.0) for m in matches_list) / n_matches
+        avg_abs_ret_60d = sum(m.get("strategy_ret_60d", 0.0) for m in matches_list) / n_matches
+        avg_mdd_60d = sum(abs(m.get("strategy_mdd_60d", 0.0)) for m in matches_list) / n_matches
+        win_rate_desc = (
+            f"历史 {n_matches} 次高度相似情景中，后 60 交易日策略跑赢沪深300相对超额胜率达 <b>{win_rate_60d:.1f}%</b>，"
+            f"平均相对超额 <b>{avg_excess_60d:+.2f}%</b>，策略平均绝对收益率 <b>{avg_abs_ret_60d:+.2f}%</b>"
+            f"（平均最大回撤仅 <b>{avg_mdd_60d:.1f}%</b>），明显战胜纯宽基基准。"
+        )
+    else:
+        win_rate_desc = "历史相似行情样本计算中..."
     
     # ── 🧭 历史同温层综合启示与今日操作指南横幅 ──
     safe_markdown_html(f"""
@@ -5139,7 +5457,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
         </div>
         <div style="font-size:12px; color:var(--text-primary); line-height:1.6;">
             <b>【当前同温层状态】</b>{analog_tab2.get('summary_text', '当前大盘处于宏观磨底与估值高性价比击球区')}<br>
-            <b>【实盘胜率启示】</b>历史 3 次高度相似情景中，后 60 交易日策略平均胜率达 <b>100.0%</b>，平均绝对收益 <b>+8.5%</b>，明显战胜纯宽基基准。<br>
+            <b>【实盘胜率启示】</b>{win_rate_desc}<br>
             <b>【今日操作指南】</b>权益资产不宜恐慌割肉，维持底仓高股息与纯债压舱，增量资金逢回抽均线支撑位分批定投，严禁追高超买赛道。
         </div>
     </div>
@@ -5149,6 +5467,20 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
         st.markdown("##### 📊 历史情景表现与镜鉴明细")
         col_t2_1, col_t2_2, col_t2_3 = st.columns(3)
         for col_item, m in zip([col_t2_1, col_t2_2, col_t2_3], analog_tab2["matches"]):
+            s_ret = m.get("strategy_ret_60d", 0.0)
+            h_ret = m.get("h300_ret_60d", 0.0)
+            mdd_abs = abs(m.get("strategy_mdd_60d", 0.0))
+            diff_outperform = s_ret - h_ret
+
+            if s_ret > 0 and h_ret > 0:
+                card_meaning = f"右侧顺势共振：底部击球区反弹期紧跟主升浪，兼顾进攻弹性与低回撤（最大回撤仅 {mdd_abs:.1f}%）"
+            elif h_ret <= 0 and s_ret > h_ret:
+                card_meaning = f"逆势抗跌护盾：大盘阴跌寻底期，凭借红利与纯债底仓大幅跑赢大盘 +{diff_outperform:.2f}%，守住本金安全垫"
+            elif h_ret > 0 and s_ret <= h_ret:
+                card_meaning = "防守底仓代价：急跌反抽期高配纯债避险导致短期弹性收敛，但换取了熊市下半场极高本金安全度"
+            else:
+                card_meaning = f"极端下行冲击：市场流动性承压阶段，凭借纯债与高股息底仓实现超额防御 +{diff_outperform:.2f}%，最大回撤 {mdd_abs:.1f}%"
+
             with col_item:
                 safe_markdown_html(f"""
                 <div class="decision-card">
@@ -5162,7 +5494,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
                         - <b>当时大类配置</b>：{m['alloc_desc']}
                     </div>
                     <div style="font-size:10.5px; color:var(--accent-primary); font-weight:600; margin-top:6px; border-top:1px dashed var(--border-subtle); padding-top:4px;">
-                        💡 历史镜鉴意义：高股息与纯债底仓有效缓冲市场剧震，并在右侧反弹中实现超额Alpha。
+                        💡 历史镜鉴意义：{card_meaning}。
                     </div>
                 </div>
                 """)
@@ -5326,8 +5658,8 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
 
         with col_chart_right:
             st.markdown("##### 🏭 行业穿透暴露")
-            _h_repr = str(sorted((c, h.shares, h.current_nav) for c, h in active_examine_holdings.items()))
-            df_ind = _cached_look_through_industry(_h_repr)
+            _h_items = tuple(sorted((c, getattr(h, "fund_name", c), float(getattr(h, "shares", 0.0)), float(getattr(h, "cost_price", getattr(h, "cost_nav", 1.0))), float(getattr(h, "current_nav", 1.0))) for c, h in active_examine_holdings.items()))
+            df_ind = _cached_look_through_industry(_h_items)
             if not df_ind.empty:
                 fig_ind_b = px.bar(df_ind, x="暴露占比(%)", y="行业", orientation="h", color="暴露占比(%)", color_continuous_scale="Viridis", text_auto=".1f%")
                 fig_ind_b.update_layout(margin=dict(t=15, b=10, l=10, r=10), height=320, yaxis={'categoryorder':'total ascending'})
@@ -5382,7 +5714,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
         # 重仓股交叉重合度检测 (宽屏 height=360 自适应渲染，消除图 4 挤压)
         st.markdown("---")
         st.markdown("#### ⚠️ 重仓交叉热力")
-        overlap_res = _cached_stock_overlap(_h_repr)
+        overlap_res = _cached_stock_overlap(_h_items)
         max_unexcused = float(overlap_res.get("max_non_diag_unexcused", 0.0))
         alerts = overlap_res.get("alerts", [])
 
@@ -5410,7 +5742,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
         st.markdown("---")
         st.markdown("#### 🛡️ 底层排雷宽表")
         if len(active_examine_holdings) > 0:
-            port_risk = _cached_penetration_risk(_h_repr)
+            port_risk = _cached_penetration_risk(_h_items)
             c_pr1, c_pr2, c_pr3 = st.columns(3)
             with c_pr1:
                 st.metric("组合加权排雷风险指数", f"{port_risk['portfolio_risk_index']:.1f} / 100", delta=port_risk['risk_badge'])
@@ -5419,7 +5751,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
             with c_pr3:
                 st.metric("🟡 关注警戒重仓股数", f"{port_risk['watch_stock_count']} 只")
 
-            df_scr = _cached_stocks_df(_h_repr)
+            df_scr = _cached_stocks_df(_h_items)
             if not df_scr.empty:
                 disp_cols = [
                     "关联持仓基金", "股票代码", "股票名称", "占组合总市值比例(%)",
@@ -5448,8 +5780,9 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
         st.markdown("#### 📡 聪明钱与拥挤")
         if len(active_examine_holdings) > 0:
             crowd_rows = []
-            for code, h in pm.holdings.items():
-                c_info = pm.get_fund_smart_money_crowding(code)
+            cur_pm = st.session_state.get("pm") or pm
+            for code, h in active_examine_holdings.items():
+                c_info = cur_pm.get_fund_smart_money_crowding(code)
                 crowd_rows.append({
                     "基金代码": code,
                     "基金名称": h.fund_name,
