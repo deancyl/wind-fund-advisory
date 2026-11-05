@@ -16,6 +16,10 @@ from typing import Dict, List, Any, Optional, Tuple, Union
 from datetime import datetime
 import pandas as pd
 import numpy as np
+from pathlib import Path
+
+CURRENT_DIR = Path(__file__).resolve().parent
+WORKSPACE_ROOT = CURRENT_DIR.parent if CURRENT_DIR.name == "AGY2_FundAdvisory" else CURRENT_DIR
 
 # 14 大核心宽基与细分赛道映射全景字典（元数据架构，彻底剥离静态假常量）
 RADAR_SECTOR_CATALOG: Dict[str, Dict[str, Any]] = {
@@ -229,10 +233,10 @@ class OpportunityRadarEngine:
 
     @staticmethod
     def _resolve_cache_dir() -> str:
-        for p in ["data/cache", "AGY2_FundAdvisory/data/cache"]:
-            if os.path.exists(p):
-                return p
-        return "data/cache"
+        for p in [WORKSPACE_ROOT / "data" / "cache", WORKSPACE_ROOT / "AGY2_FundAdvisory" / "data" / "cache"]:
+            if p.exists():
+                return str(p)
+        return str(WORKSPACE_ROOT / "data" / "cache")
 
     def _load_valuation_cache(self) -> Dict[str, Any]:
         val_path = os.path.join(self.cache_dir, "index_valuation.json")
@@ -245,24 +249,24 @@ class OpportunityRadarEngine:
         return {}
 
     def _calc_dynamic_sector_metrics(self) -> Dict[str, Dict[str, float]]:
-        """从本地行情对齐矩阵与指数日线动态精算真实 20 日 ER、Bias20、Slope20 与拥挤度评分"""
+        """从本地行情对齐矩阵与指数日线动态精算真实 20 日 ER、Bias20、Slope20 与拥挤度评分 (基于 WORKSPACE_ROOT 绝对路径)"""
         metrics = {}
         try:
             mat_path = None
             for p in [
-                "data/processed/aligned_matrix_total_return.parquet",
-                "data/aligned_matrix_total_return.parquet",
-                "AGY2_FundAdvisory/data/aligned_matrix_total_return.parquet"
+                WORKSPACE_ROOT / "data/processed/aligned_matrix_total_return.parquet",
+                WORKSPACE_ROOT / "data/aligned_matrix_total_return.parquet",
+                WORKSPACE_ROOT / "AGY2_FundAdvisory/data/aligned_matrix_total_return.parquet"
             ]:
-                if os.path.exists(p):
+                if p.exists():
                     mat_path = p
                     break
             df_mat = pd.read_parquet(mat_path) if mat_path else None
             cols = df_mat.columns.tolist() if df_mat is not None else []
 
             global_df = None
-            global_path = "data/global/global_indices.parquet"
-            if os.path.exists(global_path):
+            global_path = WORKSPACE_ROOT / "data/global/global_indices.parquet"
+            if global_path.exists():
                 try:
                     global_df = pd.read_parquet(global_path)
                 except Exception:
@@ -272,15 +276,17 @@ class OpportunityRadarEngine:
                 s = None
                 # 优先读取细分行业/赛道独立日线 parquet (如 000685 半导体、000933 医药、000932 白酒、399986 银行)
                 fb = meta.get("fallback_parquet")
-                if fb and os.path.exists(fb):
-                    try:
-                        fdf = pd.read_parquet(fb)
-                        if "close" in fdf.columns:
-                            s = fdf["close"].dropna().values.astype(float)
-                        elif "收盘" in fdf.columns:
-                            s = fdf["收盘"].dropna().values.astype(float)
-                    except Exception:
-                        s = None
+                if fb:
+                    fb_p = WORKSPACE_ROOT / fb if not os.path.isabs(fb) else Path(fb)
+                    if fb_p.exists():
+                        try:
+                            fdf = pd.read_parquet(fb_p)
+                            if "close" in fdf.columns:
+                                s = fdf["close"].dropna().values.astype(float)
+                            elif "收盘" in fdf.columns:
+                                s = fdf["收盘"].dropna().values.astype(float)
+                        except Exception:
+                            s = None
 
                 # 若无细分日线或长度不足，从大盘行情对齐矩阵提取
                 if (s is None or len(s) < 25) and df_mat is not None:
@@ -391,12 +397,12 @@ class OpportunityRadarEngine:
         m_col = meta.get("matrix_col")
         if m_col:
             for p in [
-                "data/processed/aligned_matrix_total_return.parquet",
-                "data/processed/aligned_market_matrix.parquet",
-                "data/processed/aligned_matrix.parquet",
-                "data/processed/market_matrix.parquet"
+                WORKSPACE_ROOT / "data/processed/aligned_matrix_total_return.parquet",
+                WORKSPACE_ROOT / "data/processed/aligned_market_matrix.parquet",
+                WORKSPACE_ROOT / "data/processed/aligned_matrix.parquet",
+                WORKSPACE_ROOT / "data/processed/market_matrix.parquet"
             ]:
-                if os.path.exists(p):
+                if p.exists():
                     try:
                         fdf = pd.read_parquet(p)
                         if m_col in fdf.columns:

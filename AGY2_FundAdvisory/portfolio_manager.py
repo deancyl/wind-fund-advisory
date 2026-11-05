@@ -4595,7 +4595,19 @@ class PortfolioManager:
                     if name:
                         break
 
-        # 从 DuckDB 湖仓进一步补充基金全称与类型
+        # 从本地元数据引擎与 DuckDB 进一步补充基金真实名称与类型
+        if code:
+            try:
+                from data_loader import get_fund_metadata
+                meta = get_fund_metadata(code)
+                if meta:
+                    if not name:
+                        name = meta.get("fund_name", "")
+                    if not fund_type:
+                        fund_type = meta.get("fund_type", "")
+            except Exception:
+                pass
+
         if code:
             try:
                 import duckdb
@@ -4611,6 +4623,7 @@ class PortfolioManager:
                             name = str(df_c.iloc[0].get("fund_name", "") or "")
                         if not fund_type:
                             fund_type = str(df_c.iloc[0].get("fund_type", "") or "")
+                    conn.close()
             except Exception:
                 pass
 
@@ -4619,14 +4632,14 @@ class PortfolioManager:
             track = str(lk.get("track_index", "") or lk.get("underlying_index", "") or "")
             sector = str(lk.get("sector", "") or lk.get("sector_name", "") or "")
 
-        text = f"{name} {track} {sector}".strip()
+        text = f"{name} {track} {sector} {fund_type}".strip()
 
-        # 1. 黄金对冲
-        if any(k in text for k in ["黄金", "AU9999", "金ETF", "上海金", "贵金属"]):
-            return "黄金对冲"
+        # 1. 黄金抗通胀
+        if any(k in text for k in ["黄金", "AU9999", "金ETF", "上海金", "贵金属", "金条", "黄金基金"]):
+            return "黄金抗通胀"
 
-        # 2. 纯债固收 (排除含转债的混合债)
-        is_bond_type = fund_type in ["债券型", "中短债", "纯债", "货币型", "固收"]
+        # 2. 纯债固收 (排除含转债的二级债基与高风险混合债)
+        is_bond_type = any(k in fund_type for k in ["债券型", "中短债", "纯债", "货币型", "固收"])
         is_bond_name = any(k in text for k in [
             "纯债", "裕祥", "稳益", "短债", "中短债", "超短债", "信用债",
             "国债", "存单", "同业存单", "货币", "理财", "固收", "回报债券", "现金", "债A", "债C"
@@ -4634,8 +4647,7 @@ class PortfolioManager:
         if (is_bond_type or is_bond_name) and not any(k in text for k in ["可转债", "转债"]):
             return "纯债固收"
 
-        # 3. 标普中国A股红利等境内A股指数资产特殊保护 (如 501029 华宝标普中国A股红利机会)
-        # 凡同时包含("标普"或"S&P") 与 ("中国"或"A股"或"中国A股") 与 ("红利"或"高股息")，优先认定为A股红利，严禁误判为美股海外对冲
+        # 3. 标普中国A股红利等境内A股指数资产特殊保护
         is_china_ashare_dividend = (
             ("标普" in text or "S&P" in text)
             and any(k in text for k in ["中国", "A股", "中国A股"])
@@ -4643,71 +4655,94 @@ class PortfolioManager:
         )
         if is_china_ashare_dividend:
             if any(k in text for k in ["红利低波", "红利低波动", "红利质量低波", "低波红利", "低波动红利"]):
-                return "A股红利低波"
-            return "A股红利高股息"
+                return "红利低波防守"
+            return "高股息价值"
 
-        # 4. 美股海外对冲
+        # 4. 全球海外配置 (美股、全球QDII、港股离岸互联)
         is_qdii_type = (fund_type == "QDII")
         is_overseas_name = any(k in text for k in [
             "标普", "纳斯达克", "美股", "纳指", "海外", "全球", "QDII",
-            "德国", "日经", "法兰克福", "道琼斯", "恒生", "港股", "互联", "中概", "S&P", "NASDAQ"
+            "德国", "日经", "法兰克福", "道琼斯", "恒生", "港股", "互联", "中概", "S&P", "NASDAQ", "离岸"
         ])
         if is_qdii_type or is_overseas_name:
-            return "美股海外对冲"
+            return "全球海外配置"
 
-        # 5. A股红利低波 (低波动红利优先匹配)
+        # 5. 红利低波防守 (低波动红利优先匹配)
         if any(k in text for k in ["红利低波", "红利低波动", "红利质量低波", "低波红利", "低波动红利"]):
-            return "A股红利低波"
+            return "红利低波防守"
 
-        # 6. A股红利高股息
-        if any(k in text for k in ["红利", "高股息", "股息", "红利价值", "红利成长", "红利机会", "红利质量"]):
-            return "A股红利高股息"
+        # 6. 高股息价值 (红利高股息与银行金融)
+        if any(k in text for k in ["红利", "高股息", "股息", "红利价值", "红利成长", "红利机会", "红利质量", "银行", "中证银行", "高分红", "央企红利"]):
+            return "高股息价值"
 
-        # 7. 科技成长进攻
+        # 7. 硬科技与半导体 (科创50、半导体、人工智能)
         if any(k in text for k in [
             "科创", "半导体", "集成电路", "芯片", "信息技术", "信创",
             "人工智能", "AI", "计算机", "软件", "电子", "前沿科技",
-            "通信", "大数据", "成长进攻", "数字经济"
+            "通信", "大数据", "成长进攻", "数字经济", "算力", "光刻机"
         ]):
-            return "科技成长进攻"
+            return "硬科技与半导体"
 
-        # 8. 中小盘成长
+        # 8. 医药医疗健康 (医药、医疗器械、创新药、生物)
         if any(k in text for k in [
-            "1000", "2000", "中证1000", "国证2000", "中证2000",
-            "中小盘", "小盘", "创业板", "创业50", "专精特新", "新兴成长"
+            "医药", "医疗", "生物", "健康", "创新药", "中药", "疫苗", "器械", "生物医药", "精准医疗"
         ]):
-            return "中小盘成长"
+            return "医药医疗健康"
 
-        # 9. 中盘均衡
-        if any(k in text for k in ["500", "中证500", "中盘", "均衡", "中证A500", "A500", "MSCI中国A500"]):
-            return "中盘均衡"
-
-        # 10. 核心蓝筹
+        # 9. 大消费与白酒 (食品饮料、白酒、传统消费)
         if any(k in text for k in [
-            "300", "沪深300", "上证50", "蓝筹", "A50", "中证100",
-            "中证800", "大盘", "核心资产", "核心蓝筹", "央企"
+            "白酒", "酒", "消费", "食品", "饮料", "主要消费", "必需消费", "家电", "零售"
         ]):
-            return "核心蓝筹"
+            return "大消费与白酒"
 
-        # 进一步基于底层重仓股穿透特征辅助判定
+        # 10. 中盘与中小成长 (中证500、1000、创业板、制造、新能源等)
+        if any(k in text for k in [
+            "500", "中证500", "1000", "2000", "中证1000", "国证2000", "中证2000",
+            "中小盘", "小盘", "中盘", "创业板", "创业50", "专精特新", "新兴成长",
+            "光伏", "新能源", "电力", "绿色能源", "锂电", "高端制造", "高端装备", "军工", "新材料"
+        ]):
+            return "中盘与中小成长"
+
+        # 11. 核心蓝筹基石 (沪深300、A50、A500、大盘蓝筹)
+        if any(k in text for k in [
+            "300", "沪深300", "上证50", "蓝筹", "A50", "A500", "中证A500", "中证100",
+            "中证800", "大盘", "核心资产", "核心蓝筹", "央企", "龙头", "MSCI中国"
+        ]):
+            return "核心蓝筹基石"
+
+        # 进一步基于底层重仓股穿透特征精准判定
         top_stocks = []
         if code and code in FUND_LOOK_THROUGH_DATA and FUND_LOOK_THROUGH_DATA[code].get("top_stocks"):
             top_stocks = FUND_LOOK_THROUGH_DATA[code]["top_stocks"]
         if top_stocks:
             top_str = " ".join(str(s) for s in top_stocks)
-            if any(k in top_str for k in ["国债", "存单", "特国", "农发", "国开"]):
+            if any(k in top_str for k in ["国债", "存单", "特国", "农发", "国开", "政策金融"]):
                 return "纯债固收"
             if any(k in top_str for k in ["黄金", "AU9999"]):
-                return "黄金对冲"
-            if any(k in top_str for k in ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"]):
-                return "美股海外对冲"
+                return "黄金抗通胀"
+            if any(k in top_str for k in ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "TSLA"]):
+                return "全球海外配置"
             if any(k in top_str for k in ["中微公司", "澜起科技", "中芯国际", "北方华创", "寒武纪", "海光信息"]):
-                return "科技成长进攻"
-            if any(k in top_str for k in ["贵州茅台", "中国平安", "招商银行", "五粮液", "长江电力"]):
-                return "核心蓝筹"
+                return "硬科技与半导体"
+            if any(k in top_str for k in ["恒瑞医药", "药明康德", "迈瑞医疗", "片仔癀", "云南白药"]):
+                return "医药医疗健康"
+            if any(k in top_str for k in ["贵州茅台", "五粮液", "泸州老窖", "山西汾酒", "海天味业"]):
+                return "大消费与白酒"
+            if any(k in top_str for k in ["宁德时代", "比亚迪", "汇川技术", "阳光电源", "亿纬锂能"]):
+                return "中盘与中小成长"
+            if any(k in top_str for k in ["中国平安", "招商银行", "工商银行", "长江电力", "中国移动"]):
+                return "核心蓝筹基石"
 
-        # 兜底返回"其他权益资产"，绝对不输出"其他存量资产"
-        return "其他权益资产"
+        # 终极智能兜底：若名称含有成长/价值，智能归入中盘成长或核心蓝筹，绝对杜绝输出粗暴的“其他权益资产”
+        if any(k in text for k in ["价值", "稳健", "红利", "收益", "平衡"]):
+            return "高股息价值"
+        elif any(k in text for k in ["成长", "精选", "创新", "先锋", "积极", "优势", "优选"]):
+            return "中盘与中小成长"
+        elif any(k in text for k in ["混合", "股票", "灵活"]):
+            return "核心蓝筹基石"
+
+        return "核心蓝筹基石"
+
 
     # =====================================================================
     # 真实多因子六维量化选基评分与正规化 (Genuine 6D Quant Scoring)
@@ -7404,4 +7439,3 @@ compute_fund_six_dimension_score = PortfolioManager.compute_fund_six_dimension_s
 calculate_fund_six_dimension_score = PortfolioManager.compute_fund_six_dimension_score
 calculate_rebalance_net_utility = PortfolioManager.calculate_rebalance_net_utility
 CUSUMFundChangePointDetector = CUSUMFundChangePointDetector
-
