@@ -3,25 +3,40 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "wind-advisor"
-version = "0.1.0"
-description = "Wind 投顾终端机制解析、数据抽取与智能投顾建议引擎"
-authors = [
-    { name = "Advisor Analytics Team" }
-]
+name = "agy2-fund-advisory"
+version = "2.0.0"
+description = "AGY2 全天候智能投顾与公募基金量化接管系统 (Open-Source Quantitative Fund Advisory & Execution System)"
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [
+    { name = "Quantitative Systems Engineering Team" }
+]
+keywords = [
+    "quantitative-finance",
+    "fund-advisory",
+    "asset-allocation",
+    "hrp",
+    "cvar",
+    "portfolio-optimization",
+    "risk-parity",
+    "streamlit"
+]
 dependencies = [
     "pandas>=2.0.0",
     "numpy>=1.24.0",
+    "scipy>=1.10.0",
     "requests>=2.28.0",
     "pydantic>=2.0.0",
+    "pyarrow>=12.0.0",
+    "streamlit>=1.30.0",
+    "plotly>=5.15.0",
     "rich>=13.0.0",
-    "psutil>=5.9.0"
+    "psutil>=5.9.0",
+    "akshare>=1.12.0"
 ]
 
 [project.scripts]
-wind-advisor = "wind_cli:main"
+agy2-advisor = "AGY2_FundAdvisory.app_gui:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

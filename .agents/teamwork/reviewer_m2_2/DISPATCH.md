@@ -1,23 +1,31 @@
-# Dispatch for Reviewer 2 (M2)
+# DISPATCH - Reviewer M2-2 (Color Purge, Dynamic PnL Colors & Layout Consistency)
+- Task: Verify Milestone 2 Features 7, 8, 10 in AGY2_FundAdvisory/app_gui.py
+- Working directory: .agents/teamwork/reviewer_m2_2/
+- Original request: d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+- Scope document: d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
+- Worker handoff: d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m2\handoff.md
 
-Scope: Independent review of Milestone 2 (R4 & R5) for correctness, robustness, interface conformance, and edge case resilience.
-Target files: data_loader.py, strategy_bridge.py, portfolio_manager.py
-See orchestrator prompt for details.
-## 2026-10-30T02:25:57Z
-Sender: 7eb668ae-6843-4834-9b3d-3455ac86af88
-Priority: MESSAGE_PRIORITY_HIGH
-Content:
-You are Reviewer 2 for Milestone 2 of the AGY2_FundAdvisory project.
-Your working directory is d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_2\
-You MUST read d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md first before starting work.
-Also read d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md and d:\Google\Workspace\Wind\.agents\teamwork\worker_agent2_m2\handoff.md.
-Working directory for code is d:\Google\Workspace\Wind\AGY2_FundAdvisory.
+## 2026-11-04T11:46:48Z
+你作为专业代码审查员（Reviewer M2-2），对 Milestone 2（Features 7, 8, 10: 颜色清洗、动态涨跌色联动、顶部行情带与侧边栏）执行独立、客观、严谨的代码审查与测试复核。
 
-Mission:
-Independently review Milestone 2 changes in data_loader.py, strategy_bridge.py, and portfolio_manager.py for correctness, completeness, robustness, and edge cases:
-1. R4: Math behind EWMA volatility and correlation matrix; numerical stability of inverse vol weighting (scaling factor clipping, zero vol defense); C1-C5 monotonicity across bull, bear, and oscillating regimes.
-2. R5: Net utility calculation Delta U; FIFO fee precision; T+1 SWITCH vs cross-company in-transit friction; interception logic in rebalance plan and order submission; +5.0 points convenience bonus in scoring.
-3. Run tests to independently verify:
-   $env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"; python -m pytest tests/test_m2_r4_r5_optimization.py tests/test_stress_quant_model_challenger.py tests/test_dynamic_risk_and_metrics.py -v
-4. Write your review verdict (APPROVE or REQUEST_CHANGES) with clear evidence in d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_2\handoff.md.
-5. Send message to orchestrator with your verdict.
+【必须阅读的上下文文件】
+1. 原始需求文件：d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+2. 架构与里程碑规范：d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
+3. 工作区准则：d:\Google\Workspace\Wind\GEMINI.md
+4. Worker 交付报告：d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m2\handoff.md
+5. 目标实现文件：d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py
+
+【你的工作目录】
+d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_2\
+请在你的工作目录下维护 BRIEFING.md、progress.md，并在完成审查后输出 handoff.md。
+
+【审查重点】
+1. Feature 7（色彩字面量清理与动态多配色联动）：扫描确认 safe_markdown_html 与 Plotly 图表中已消除 `#ffffff`、`#f8fafc`、`#0f172a` 等硬编码十六进制颜色；Python 端动态计算的盈亏颜色（`pnl_c`、`pnl_color` 等）及 Plotly 涨跌色必须动态读取当前激活的 `active_co["color_up"]` 与 `active_co["color_down"]`，支持 A 股红涨绿跌与国际绿涨红跌全站实时联动。
+2. Feature 10（顶部行情带与侧边栏职责）：
+   - 顶部 4 张核心状态卡下方全宽呈现 6 大指数行情带（展示真实估值标签、点位与涨跌幅）；
+   - 左侧边栏移除阻塞主线程的逐个 SVG 分时微图循环请求，聚焦于四大控盘职责，且首个按钮 `at.sidebar.button[0]` 保持为载入演示组合（兼容既有自动化测试）。
+3. 运行验证命令：
+   - `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_deep_remodel_final.py -v"`
+   - `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_infra.py -v"`
+   - 校验 4 个裁判文件的 SHA-256 哈希是否完好。
+4. 在 handoff.md 中明确给出 Verdict：APPROVE 或 REQUEST_CHANGES，并使用 send_message 向 orchestrator (c98181d5-8d61-4839-8d62-5dbcef7c85af) 发送完成通知。

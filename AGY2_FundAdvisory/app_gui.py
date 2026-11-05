@@ -834,7 +834,9 @@ st.markdown(f"""
     .sidebar-index-pt {{
         font-size: 13px;
         font-weight: 700;
-        font-family: monospace;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.2px;
         color: var(--text-primary) !important;
         text-align: right;
     }}
@@ -1385,7 +1387,7 @@ with st.sidebar:
             <div class="sidebar-index-right">
                 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 1px;">
                     <span class="sidebar-index-pt">{pt_fmt}</span>
-                    <span style="font-size: 10px; font-family: monospace; color: var(--text-muted);">{chg_amt_str}</span>
+                    <span style="font-size: 10px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-variant-numeric: tabular-nums; color: var(--text-muted);">{chg_amt_str}</span>
                 </div>
                 <span class="sidebar-index-badge {c_badge_cls}">{c_sign}{c_pct:.2f}%</span>
             </div>

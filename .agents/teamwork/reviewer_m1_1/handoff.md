@@ -1,142 +1,155 @@
-# Handoff & Review Report — Milestone 1 (Online Learning & Schmidt Hysteresis)
+# Review & Adversarial Quality Handoff Report: Milestone 1 (Features 1-5)
 
-**Reviewer**: Reviewer 1 (`reviewer_m1_1`, Archetype: reviewer_and_critic)  
-**Date**: 2026-10-30T01:55:00Z  
-**Reviewed Target**: Milestone 1 Implementation by `worker_agent1_m1_gen2`  
-**Target Code**: `AGY2_FundAdvisory/strategy_bridge.py`  
+**Reviewer**: Reviewer M1-1 (`reviewer_and_critic`)  
+**Working Directory**: `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1`  
+**Milestone Reviewed**: Milestone 1: 免费开源真实数据底座升级与持久化缓存 (Features 1-5)  
+**Parent Agent Conversation ID**: `c98181d5-8d61-4839-8d62-5dbcef7c85af`  
 **Verdict**: **APPROVE**  
+**Timestamp**: 2026-11-04T10:32:00Z  
 
 ---
 
-## 1. Observation (客观观察与证据链)
+## 1. Observation (客观观察与实测记录)
 
-### 1.1 诚实性与基建只读红线检查 (Integrity & Read-Only Invariants)
-- 系统 4 个裁判基建文件通过 `git status -s` 确认状态：
-  ```
-  git status -s AGY2_FundAdvisory/judge_engine.py AGY2_FundAdvisory/holdout_vault.py AGY2_FundAdvisory/AGENT_SPEC.md AGY2_FundAdvisory/tests/test_infra.py
-  # 输出为空，哈希 100% 完整未改动
-  ```
-- 源码中未发现任何硬编码测试预期结果（Hardcoded test results）、虚假门面实现（Facade/Dummy implementation）或未来函数日期作弊。
-
-### 1.2 R2 算法实现 (`OnlineExpertWeightUpdater` in `strategy_bridge.py:926-1170`)
-- **四大正交流派定义** (L939)：`EXPERT_NAMES = ["trend_momentum", "erp_macro", "ma_contrarian", "liquidity_basis"]`，分别对接动量、ERP利差、宽度乖离回归与资金面衍生品基差。
-- **纯因果滚动净效用计算** (L1106)：
-  $$u_{i, t} = r_{i, t} - 0.5 \lambda \sigma_{i, t}^2 - c \cdot \text{Turnover}_{i, t}$$
-  其中 $r_{i, t}$ 基于昨日截面目标权重乘今日真实收益率，$\sigma_{i, t}^2$ 为近20日滚动样本方差，$\text{Turnover}_{i, t}$ 为权重变动曼哈顿距离。
-- **对数平滑数值抗溢出乘性更新** (L1113-1121)：
-  $$\log P_{i, t+1} \propto \gamma \log P_{i, t} + \eta u_{i, t}$$
-  采用 $\max(\log)$ 平移技巧计算指数并归一化，完全免疫浮点数溢出与下溢。
-- **严格归一化修正** (L1123-1127)：对四舍五入后产生的尾差加至最大权重项，确保 `sum(weights) == 1.0000` 绝对恒定。
-
-### 1.3 R3 算法实现 (`SchmidtHysteresisBuffer` in `strategy_bridge.py:1202-1331`)
-- **非对称双阈值迟滞转移** (L1247-1286)：
-  - 从非进攻态切入进攻态：要求 $\text{bias\_20} \ge +1.2\%$ 或 $Z_t \ge +0.60$；
-  - 从进攻态跌落退出：要求 $\text{bias\_20} \le -1.5\%$ 或 $Z_t < +0.20$；
-  - 噪音死区 $[-1.5\%, +1.2\%]$ 内牢固锁定原有状态不变。
-- **连续仓位门控函数** (L1287-1294)：$g(Z_t) = 1 / (1 + \exp(-k \cdot Z_t))$，带 $[-50.0, 50.0]$ 输入截断保护。
-- **双向变盘触发线** (L1297-1330)：`get_hysteresis_trigger_lines` 严格保证 `breakdown_line < c300_price < surge_line`。
-
-### 1.4 自动化测试与对抗性压力测试运行结果
-- **官方独立复现命令**：
-  ```powershell
-  Set-Location "d:\Google\Workspace\Wind\AGY2_FundAdvisory"; $env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"; python -m pytest tests/test_strategy_bridge.py tests/test_infra.py -v
-  ```
-  **实测输出**：`24 passed, 2 warnings in 18.05s`（既有 9 项测试 + 15 项裁判基建因果测试 100% 通过）。
-- **扩展回归套件**（含风险档位与指标）：
-  ```powershell
-  python -m pytest tests/test_dynamic_risk_and_metrics.py tests/test_strategy_bridge.py tests/test_infra.py -v
-  ```
-  **实测输出**：`47 passed, 2 warnings in 22.17s`。
-- **独立编写对抗性质询脚本 (`adversarial_test.py`)**：
-  - 测试组 1（施密特迟滞状态转移与 100 次高频震荡防打脸）：PASS
-  - 测试组 2（Sigmoid 极值抗溢出与单调性）：PASS
-  - 测试组 3（双向变盘线防反向倒挂）：PASS
-  - 测试组 4（在线专家自学习敏感性、受控牛市权重自适应扩张）：PASS
-  - 测试组 5（快照注入与契约接口访问）：PASS
-
----
-
-## 2. Logic Chain (推理链条与证据推导)
-
-1. **依据 Observation 1.1**:
-   4 个受保护的裁判基建文件（含 AST 检查与 holdout 保险箱）哈希未受改动，且代码中无写死假数据。这排除了作弊与诚信违规风险。
-2. **依据 Observation 1.2**:
-   `OnlineExpertWeightUpdater` 真实接入 4 个正交流派，数学公式与因果时序完全对齐 R2 规格要求。采用对数平滑与残差补偿技术，解决了浮点溢出与权重和漂移的痛点。
-3. **依据 Observation 1.3**:
-   `SchmidtHysteresisBuffer` 提供了完备的迟滞状态机、Sigmoid 连续映射与非对称触发线，完美杜绝了均线微幅震荡锯齿打脸（Whipsaw）现象。
-4. **依据 Observation 1.4**:
-   独立复现官方用例（24 项）、全量回归套件（47 项）以及 5 大对抗性质询测试组全部录得 100% 通过，证明代码鲁棒性、因果演绎正确性与接口向下兼容性均达标。
-
----
-
-## 3. Caveats (局限性与防御性发现)
-
-1. **变盘线在极小尺度输入下的保留位精度 (Minor Finding)**:
-   - 现象：`get_hysteresis_trigger_lines` 内部使用 `round(..., 1)` 保留 1 位小数。对于沪深300指数点位（3000~5000），1位小数（0.1点）对应 ~0.0025%，足以保证 1.2% 上轨严格高于现价。然而，若未来有模块将归一化净值（如 NAV=1.0000）误传入该函数，`1.0 * 1.012 = 1.012` 会被四舍五入为 `1.0` 导致倒挂。
-   - 评估：当前生产代码仅传入沪深300点位指数 `c300_price`，不存在实际风险。
-   - 建议：未来可按数值量级自适应小数位（若 price < 100 则保留 4 位）。
-2. **快照中点位指数与全收益指数的口径区分 (Consistency Note)**:
-   - 现象：在 `snapshot` 中，`c300` 对应 Parquet 历史时序的 Total Return 全收益点位（~5999.6），而 `c300_price` 对应即时行情点位指数（~3993.8）。
-   - 评估：`surge_line` 与 `breakdown_line` 均严格锚定 `c300_price`，满足 `breakdown_line < c300_price < surge_line`。下游 UI 步骤面板在展示双向触发线时，必须读取 `c300_price` 而非 `c300`。
-
----
-
-## 4. Conclusion & Quality Review (结论与质量审查裁决)
-
-### 4.1 质量审查报告 (Quality Review Summary)
-- **Verdict**: **APPROVE (批准通过)**
-- **Findings**:
-  - `[Minor]` `get_hysteresis_trigger_lines` 精度四舍五入建议增加对低价区间的自适应保护。
-  - `[Minor]` `snapshot` 中区分全收益指数 `c300` 与实时点位 `c300_price` 的使用文档注解。
-- **Verified Claims**:
-  - R2 在线乘性权重自更新公式正确性与数值稳定性 $\rightarrow$ 验证通过
-  - K=4 正交流派真实动态权重输出与历史各阶段自适应定调 $\rightarrow$ 验证通过
-  - 权重和归一化 `sum(weights) == 1.0000` $\rightarrow$ 验证通过
-  - R3 施密特非对称迟滞环进入/退出阈值与噪音死区防横跳 $\rightarrow$ 验证通过
-  - Sigmoid 连续仓位门控单调性与防溢出截断 $\rightarrow$ 验证通过
-  - 双向变盘线 `breakdown_line < c300_price < surge_line` $\rightarrow$ 验证通过
-  - 4 个裁判基建文件只读红线完整性 $\rightarrow$ 验证通过
-- **Coverage Gaps**: 无。核心算法全部覆盖并对抗验证。
-- **Unverified Items**: 0 项。
-
----
-
-## 5. Adversarial Challenge Report (对抗性质询报告)
-
-- **Overall Risk Assessment**: **LOW (低风险)**
-
-### 5.1 挑战 1: 极端噪音震荡环境下的状态机横跳攻防 (Schmidt Anti-Whipsaw)
-- **挑战场景**: 构造沪深300在 MA20 附近 $[-1.4\%, +1.1\%]$ 连续交替震荡 100 个周期的噪音序列。
-- **预期行为**: 无论系统初始处于防守态还是进攻态，均不得触发频繁换手。
-- **实测结果**: 状态保持率 100%，触发次数为 0，彻底根除追涨杀跌。
-
-### 5.2 挑战 2: 在线专家权重更新的数值上溢与极端学习率压测 (Numerical Stability)
-- **挑战场景**: 设定极端高学习率 $\eta=30.0$ 与极高收益输入，检验指数求和是否抛出 `OverflowError`。
-- **实测结果**: 依托 `max_log` 平移对数技巧，算法在任意数值下均保持平稳输出，权重严格非负且和为 1.0000。
-
-### 5.3 挑战 3: 空时序与异常截面鲁棒性 (Boundary Robustness)
-- **挑战场景**: 传入空 DataFrame 或仅有 3 行时序的异常数据。
-- **实测结果**: 平滑触发安全保底机制，返回等权 0.25 且 `sum_weights=1.0`，无未捕获异常抛出。
-
----
-
-## 6. Verification Method (独立验证命令清单)
-
-第三方可执行以下命令独立复现本报告全部结论：
+### 1.1 裁判基建物理只读红线与哈希审计
+独立执行 PowerShell 哈希命令与 Git 状态核验：
 ```powershell
-# 1. 语法检查
-python -m py_compile AGY2_FundAdvisory/strategy_bridge.py
-
-# 2. 官方指定测试套件独立复现 (24 passed)
-Set-Location "d:\Google\Workspace\Wind\AGY2_FundAdvisory"
-$env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"
-python -m pytest tests/test_strategy_bridge.py tests/test_infra.py -v
-
-# 3. 运行 Reviewer 独立对抗性压力测试套件
-python "d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\adversarial_test.py"
+Get-FileHash tests/test_infra.py, AGY2_FundAdvisory/judge_engine.py, AGY2_FundAdvisory/holdout_vault.py, AGY2_FundAdvisory/AGENT_SPEC.md, AGY2_FundAdvisory/tests/test_infra.py -Algorithm SHA256 | Format-Table -AutoSize
 ```
+输出结果（与官方基准哈希 100% 逐字吻合）：
+```
+Algorithm Hash                                                             Path
+--------- ----                                                             ----
+SHA256    48BEE0DA300D7C0A0848EC1376E4B9B2E55224D2736081713B4340F0362CD100 D:\Google\Workspace\Wind\tests\test_infra.py
+SHA256    76F930371176DE7EE6A413174B030101E3210AC6E037F5D10FE229AF31CC07BE D:\Google\Workspace\Wind\AGY2_FundAdvisory\judge_engine.py
+SHA256    88122EAF647040A410E2FD95DA81077DB10149A498A47340FF40B670BD031D2A D:\Google\Workspace\Wind\AGY2_FundAdvisory\holdout_vault.py
+SHA256    A346586F9BD2DC0EE83E665BD18E7A6471464C9F7B658E392B989B800CD63957 D:\Google\Workspace\Wind\AGY2_FundAdvisory\AGENT_SPEC.md
+SHA256    B8D781BE8135BE05CF61E62E4B534E359985AD880F27FFB61228A33DF6B02A6A D:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_infra.py
+```
+执行 `git status --porcelain tests/test_infra.py AGY2_FundAdvisory/judge_engine.py AGY2_FundAdvisory/holdout_vault.py AGY2_FundAdvisory/AGENT_SPEC.md AGY2_FundAdvisory/tests/test_infra.py`：返回空，无任何改动。
 
-**失效判定条件 (Invalidation Conditions)**:
-- `tests/test_strategy_bridge.py` 或 `tests/test_infra.py` 任一测试挂起或报错；
-- 4 专家权重和不等于 1.0000；
-- 施密特双向变盘线出现倒挂 (`breakdown_line >= c300_price` 或 `surge_line <= c300_price`)。
+### 1.2 独立自动化测试执行结果
+1. **Root 基建裁判测试**:
+   `py -3 -m pytest tests/test_infra.py`
+   -> `14 passed in 5.52s`
+2. **Milestone 1 针对性单元测试**:
+   `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_m1_open_data_and_cache.py -v"`
+   -> `6 passed in 1.79s`
+   - `test_feature1_market_breadth_and_turnover`: PASSED
+   - `test_feature2_real_index_valuation_engine`: PASSED
+   - `test_feature3_fund_purchase_parquet_cache`: PASSED
+   - `test_feature4_fund_metadata_extraction_and_liquidation`: PASSED
+   - `test_feature5_market_screener_candidate_pool_restored`: PASSED
+   - `test_no_fake_constants_in_source_code`: PASSED
+3. **AGY2 子模块裁判测试**:
+   `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_infra.py -v"`
+   -> `15 passed in 5.55s`
+4. **端到端全量回归测试**:
+   `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_deep_remodel_final.py -v"`
+   -> `10 passed, 21 warnings in 58.37s` (100% 通过)
+
+### 1.3 源码清障与假常数真实查杀核验
+执行全局 grep 扫描：
+- `INDEX_PE_METAS`: 仅出现于项目文档与断言其彻底清除的测试文件中，生产业务源码中已彻底清除（0 处遗留）。
+- `3210` / `1780`: 在 `data_loader.py` 与 `app_gui.py` 中 0 处出现，假涨跌家数已彻底清除。
+
+### 1.4 真实数据缓存与文件内容核验
+1. `data/cache/market_breadth.json`:
+   包含真实的东财实时统计：`total_turnover = 20,376.94 亿`, `up_count = 4,396`, `down_count = 771`, `flat_count = 128`, `up_pct = 83.0%`, `sentiment_label = "多方绝对主导"`, `source = "eastmoney_realtime"`。
+2. `data/cache/index_valuation.json`:
+   双键覆盖 000300, 000905, 000852, 000016, 000922, H30269, 000688, 518880, 513500。
+   沪深300 PE 12.8 (67%适中)，中证红利 PE 8.8 (90%过热)，黄金ETF大宗避险无PE。
+3. `data/cache/fund_purchase.parquet`:
+   行数 27,964，包含 `['基金代码', '基金简称', '申购状态', '赎回状态', '日累计限定金额']`。实测磁盘单次读取 36.80ms，多次平均读取 4.28ms（严格 <50ms）。
+4. `data/cache/funds/000001_meta.json`:
+   提取华夏成长元数据：规模 29.19 亿、经理郑晓辉（任职 14.9 年、任期回报 8.3%）、股债现金配比（股票 78.21%、债券 20.82%、现金 0.45%）、前十大重仓股票列表、清盘风险 `false`。
+5. `MarketScreener.build_candidate_pool()`:
+   全市场候选池恢复至 7,362 只（>= 7,000）；空 DataFrame 自动被 `SmartCacheManager` 拦截保存与加载。
+
+---
+
+## 2. Logic Chain (推理链条与证据闭环)
+
+1. **Feature 1 (东财全市场宽度与量能)**:
+   - *观察*: `fetch_market_turnover_and_sentiment()` 通过东财官方推送接口抓取 `secids=1.000001,0.399001` 的 `f6, f104, f105, f106` 字段，落盘至 `data/cache/market_breadth.json`。
+   - *因果推导*: 无论在线或本地缓存降级，UI Card 3 与状态条读取的均是真实两市交易规模与涨跌多空比；在完全断网且无缓存时平滑降级至 `0.0 亿 / 数据同步中`，杜绝了 `3210/1780` 等误导性假数字。
+2. **Feature 2 (真实指数估值分位数与百分位引擎)**:
+   - *观察*: `IndexValuationEngine` 整合 `akshare` 滚动 PE、中证指数官网历史序列、DuckDB `v_index_valuations` 与本地 Parquet 序列，动态精算近 120 个月/历史长周期百分位。
+   - *因果推导*: 彻底取代废弃的 `INDEX_PE_METAS` 静态字典；落盘为双键索引（代码与 `secid` 双向兼容），冷启动 <0.5ms，为顶部指数行情带提供了真实的 `PE 12.8 (67%适中)` 估值胶囊徽章。
+3. **Feature 3 (全市场基金真实限购金额与 Parquet 缓存)**:
+   - *观察*: `FundPurchaseCacheManager` 读取 `ak.fund_purchase_em()` 并标准化为 27,964 只基金的极简 Parquet 文件，并在内存维护哈希字典。
+   - *因果推导*: 避免了在线同步等待 16 秒的卡顿，实测 Parquet 读取 4.28ms (<50ms)，内存单只基金查询仅 0.0027ms；通过在 `portfolio_manager.py` 与 `portfolio_optimizer.py` 中直接调用，使单日限购过滤基于全市场真实数据即时生效。
+4. **Feature 4 (基金本体排雷与季报重仓元数据提取)**:
+   - *观察*: `FundMetadataManager` 正则与 JSON 解析天天基金接口返回的 JS 变量，提取规模、经理任期回报、股债比例与重仓股，带 24h 磁盘 TTL 缓存，且具备本地 `fund_managers.parquet` 兜底。
+   - *因果推导*: 当且仅当 `aum < 0.5` 亿时标记清盘风险，并在优化建仓交割单 `order_sheet` 中自动前置注入 `🚨【清盘预警】规模仅 {aum:.2f} 亿`，守住了公募基金法定清盘红线。
+5. **Feature 5 (候选池成立日期修复与 0 行拦截)**:
+   - *观察*: `market_screener.py` 修复了 `(merged["inception_date"].isna()) | (merged["inception_date"] <= cutoff_date)` 容错分支，并建立了 Tier 0~Tier 2 的湖仓多级兜底；`SmartCacheManager` 物理拦截空 DataFrame 的存取。
+   - *因果推导*: 解决了历史因为 `inception_date` 缺失导致 7,000+ 候选池整体被过滤归零的严重缺陷，全市场选基引擎恢复至 7,362 只正常运转。
+
+---
+
+## 3. Adversarial Review & Stress Test (对抗性质询与压力测试)
+
+作为批判者（Critic），针对新模块的边界输入、极端环境与潜在故障模式进行了专项压力测试：
+
+| 压力测试场景 | 输入 / 攻击载荷 | 预期防御行为 | 实际运行结果 | 结论 |
+|---|---|---|---|---|
+| **极端空值与非法基金代码** | `fund_code = ""`、`"abc"`、`"999999"` 查询限额与元数据 | 零异常抛出，返回安全兜底结构 | 自动规范化为 `000000` / `000abc`，返回开放申购 / 默认兜底字典，耗时 < 0.01ms | **PASS** |
+| **磁盘缓存文件被物理损坏** | 模拟损坏的 `market_breadth.json`（写入乱码） | `try ... except` 拦截，平滑 fallback 至冷启动结构 | 成功捕获异常，返回 `0.0 亿 / 数据同步中`，0 崩毁 | **PASS** |
+| **冷热缓存读取性能极限压测** | 连续 100 次 `get_fund_quota` 与 5 次 Parquet 磁盘读取 | Parquet < 50ms，内存查询 < 0.1ms | Parquet 均值 4.28ms，内存查询均值 0.0027ms (2.7μs) | **PASS** |
+| **清盘红线临界值判定** | `aum = 0.50` vs `0.49` vs `None` vs `<0` | `0.49` 触发清盘预警，`0.50` 及以上安全放行，`None` 安全放行 | `aum=0.49` -> `liquidation_risk=True`；`aum=0.50` -> `False`；`aum=None` -> `False` | **PASS** |
+| **中证红利指数代码对齐** | 检查 `index_defs` 中中证红利映射代码 | 严格映射 `000922`，严禁偷换为上证红利 `000015` | `index_defs` 中严格采用 `000922` 与对应 parquet，完全合规 | **PASS** |
+
+### 健壮性建议（非阻断）：
+1. **天天基金外网接口超时防御**: `FundMetadataManager.fetch_from_tiantian` 默认超时设为 3.0s。虽然本地有 24h TTL 缓存，但在全市场批量扫描候选池时，建议优先通过后台异步预热或批量拉取，避免在主工作台单线程同步发起多只基金的外网请求。
+2. **天天基金前端 JS 变量兼容性**: 天天基金若前端大改版（如变量名变更），`_extract_var` 会提取为空并降级至本地 `fund_managers.parquet` 湖仓。建议在 Milestone 4 中加入针对天天基金接口活性的健康探针测试。
+
+---
+
+## 4. Integrity Check (诚实性与防作弊审查)
+
+经全面审查，本项目实施符合最高诚信标准：
+1. **无硬编码测试结果**: 业务逻辑中无针对测试用例输入返回固定硬编码值的行为。
+2. **无空壳/伪装实现 (No Facade)**: 数据加载、缓存管理、限额过滤、清盘排雷均为全功能真实实现。
+3. **无绕过核心任务行为**: 东财接口、AkShare/CSI 估值、Parquet 缓存、天天基金元数据均完整落地。
+4. **无伪造输出/自证其罪**: 所有测试命令与哈希均由本审查员在独立会话中实际运行并直接捕获。
+5. **裁判基建完好**: 5 个裁判基建文件内容与 SHA256 哈希 100% 保持只读锁定状态。
+
+---
+
+## 5. Conclusion (评审裁决)
+
+**Verdict**: **APPROVE**  
+Milestone 1 (Features 1-5) 达到了工业级真实数据底座与持久化缓存的要求：
+- 真实量能与多空宽度上线，假常数 `3210/1780` 彻底清零；
+- 真实指数估值引擎上线，静态硬编码字典 `INDEX_PE_METAS` 彻底清除；
+- 全市场基金申购限额 Parquet 缓存极速高效（4.28ms < 50ms），打通限额风控；
+- 基金本体排雷与季报重仓元数据提取及清盘预警真实有效；
+- 候选池成立日期 Bug 修复，全市场标的恢复至 7,362 只并杜绝空表污染；
+- 裁判文件 100% 保持原样，自动化回归与针对性测试 100% 通过。
+
+---
+
+## 6. Verification Method (独立复现与验证指引)
+
+任何后续智能体或人工审查员均可按以下步骤复现核验：
+1. **裁判文件哈希锁定验证**:
+   ```powershell
+   Get-FileHash tests/test_infra.py, AGY2_FundAdvisory/judge_engine.py, AGY2_FundAdvisory/holdout_vault.py, AGY2_FundAdvisory/AGENT_SPEC.md, AGY2_FundAdvisory/tests/test_infra.py -Algorithm SHA256 | Format-Table -AutoSize
+   ```
+2. **运行 M1 针对性测试**:
+   ```cmd
+   cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_m1_open_data_and_cache.py -v"
+   ```
+3. **运行裁判基建与全量回归测试**:
+   ```powershell
+   py -3 -m pytest tests/test_infra.py
+   cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_infra.py -v"
+   cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_deep_remodel_final.py -v"
+   ```
+4. **验证源码无假常数**:
+   ```powershell
+   git grep "INDEX_PE_METAS" AGY2_FundAdvisory/data_loader.py AGY2_FundAdvisory/app_gui.py
+   git grep "3210" AGY2_FundAdvisory/data_loader.py AGY2_FundAdvisory/app_gui.py
+   git grep "1780" AGY2_FundAdvisory/data_loader.py AGY2_FundAdvisory/app_gui.py
+   ```

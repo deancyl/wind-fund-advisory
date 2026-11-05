@@ -1,23 +1,24 @@
-# Dispatch for Reviewer 1 (M2)
+## 2026-11-04T11:46:48Z
 
-Scope: Review Milestone 2 (R4 EWMA inverse-volatility dynamic risk budgeting & R5 rebalance net utility interceptor Delta U & T+2 in-transit discount).
-Target files: data_loader.py, strategy_bridge.py, portfolio_manager.py
-See orchestrator prompt for details.
-## 2026-10-30T02:25:50Z
-Sender: 7eb668ae-6843-4834-9b3d-3455ac86af88
-Priority: MESSAGE_PRIORITY_HIGH
+你作为专业代码审查员（Reviewer M2-1），对 Milestone 2（Features 6, 8, 9: UI/UX 设计系统、CSS 变量绑定与 5 套主题）执行独立、客观、严谨的代码审查与测试复核。
 
-You are Reviewer 1 for Milestone 2 of the AGY2_FundAdvisory project.
-Your working directory is d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_1\
-You MUST read d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md first before starting work.
-Also read d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md and d:\Google\Workspace\Wind\.agents\teamwork\worker_agent2_m2\handoff.md.
-Working directory for code is d:\Google\Workspace\Wind\AGY2_FundAdvisory.
+【必须阅读的上下文文件】
+1. 原始需求文件：d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+2. 架构与里程碑规范：d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
+3. 工作区准则：d:\Google\Workspace\Wind\GEMINI.md
+4. Worker 交付报告：d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m2\handoff.md
+5. 目标实现文件：d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py
 
-Mission:
-Examine data_loader.py, strategy_bridge.py, and portfolio_manager.py for correctness, completeness, robustness, and interface conformance for M2:
-1. R4: `DataLoader.compute_ewma_volatility_and_correlation` and `compute_dynamic_tier_weights` inverse-volatility risk budgeting. Verify risk budget transfer to bond ballast, C1-C5 strict monotonicity, and bear stop-loss limits.
-2. R5: `calculate_rebalance_net_utility`, same-company SWITCH (Delta t=0, cost=0), cross-company in-transit discount, Delta U <= 0 interception badge "🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动", and same-company switching convenience bonus (+5.0 pts).
-3. Run tests to independently verify:
-   $env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"; python -m pytest tests/test_m2_r4_r5_optimization.py tests/test_trading_clock_fee.py tests/test_portfolio_manager.py tests/test_infra.py -v
-4. Write your review verdict (APPROVE or REQUEST_CHANGES) with clear evidence in d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_1\handoff.md.
-5. Send message to orchestrator with your verdict.
+【你的工作目录】
+d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_1\
+请在你的工作目录下维护 BRIEFING.md、progress.md，并在完成审查后输出 handoff.md。
+
+【审查重点】
+1. Feature 6（CSS 变量绑定）：核查 app_gui.py 中的 `.decision-card`、`.decision-title`、`.decision-val`、`.decision-desc`、`.kpi-card-title`、`.kpi-card-sub`、`.kpi-card-desc`、`.metric-card-sub` 是否 100% 绑定主题 CSS 变量（`var(--...)`），CSS 声明中无任何硬编码颜色字面量。
+2. Feature 8（界面克制与文案去营销化）：确认步骤二五彩彩虹边框已彻底废除；全站清除感叹号（！）、多余括号（【】、《》）；标题均收敛为 <= 6~7 汉字简短机构风格，同时保留并兼容 `test_deep_remodel_final.py` 要求的 23 个关键标题断言；操作按钮为简洁动宾短语。
+3. Feature 9（5套机构预设主题）：确认 `THEME_PRESETS` 包含 `light_slate`（默认）、`dark_terminal`、`nordic_paper`、`deep_titanium`、`nordic_frost`，且具备向后兼容别名。
+4. 运行验证命令：
+   - `py -3 -m pytest tests/test_infra.py`
+   - `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_design_system_v19.py -v"`
+   - 校验 4 个裁判文件的 SHA-256 哈希是否完好。
+5. 在 handoff.md 中明确给出 Verdict：APPROVE 或 REQUEST_CHANGES，并使用 send_message 向 orchestrator (c98181d5-8d61-4839-8d62-5dbcef7c85af) 发送完成通知。

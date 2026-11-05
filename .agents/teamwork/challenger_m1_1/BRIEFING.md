@@ -1,7 +1,7 @@
-# BRIEFING — 2026-10-30T01:52:30Z
+# BRIEFING — 2026-11-04T10:30:00Z
 
 ## Mission
-Empirically verify the correctness and stress resilience of M1 (strategy_bridge.py)
+Adversarially stress-test and benchmark Milestone 1: Data Freshness, Latency & Fallback Stress (Cold start < 50ms/< 5ms, offline network resilience, 3210/1780 & INDEX_PE_METAS absence)
 
 ## 🔒 My Identity
 - Archetype: empirical challenger
@@ -17,38 +17,39 @@ Empirically verify the correctness and stress resilience of M1 (strategy_bridge.
 - No source/test files in .agents/teamwork/
 
 ## Current Parent
-- Conversation ID: 7eb668ae-6843-4834-9b3d-3455ac86af88
-- Updated: 2026-10-30T01:46:09Z
+- Conversation ID: c98181d5-8d61-4839-8d62-5dbcef7c85af
+- Updated: 2026-11-04T10:24:16Z
 
 ## Review Scope
-- **Files to review**: d:\Google\Workspace\Wind\AGY2_FundAdvisory\strategy_bridge.py, and associated files
-- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md
-- **Review criteria**: Correctness, stress resilience, weight normalization (sum=1), monotonic weight updates, Schmidt hysteresis state lock under noise (+-0.5%), breakout line assertions
+- **Files to review**: `AGY2_FundAdvisory/data_loader.py`, `AGY2_FundAdvisory/cache_manager.py`, `AGY2_FundAdvisory/market_screener.py`, `AGY2_FundAdvisory/portfolio_manager.py`, `AGY2_FundAdvisory/portfolio_optimizer.py`, `AGY2_FundAdvisory/app_gui.py`
+- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md, GEMINI.md
+- **Review criteria**:
+  1. Cold start & latency benchmark: `FundPurchaseCacheManager.get_fund_quota` cold start < 50ms, `FundMetadataManager.get_fund_metadata` cached retrieval < 5ms.
+  2. Network offline simulation: EastMoney push2 endpoint failure fallback, AkShare failure fallback for `fetch_or_calc_index_valuations`.
+  3. Code scan: Absence of fake constants `3210`, `1780`, and `INDEX_PE_METAS`.
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - H1: In historical slices (len 10 to 1000, window 10 to 120), OnlineExpertWeightUpdater weights sum strictly to 1.0000 within 1e-5 -> CONFIRMED (100% pass across all 28 slice combinations).
-  - H2: An expert with higher risk-adjusted net utility receives monotonically increasing weight across iterative steps -> CONFIRMED (strict mathematical and simulated monotonicity verified).
-  - H3: SchmidtHysteresisBuffer in defensive/attack mode under noisy price oscillation within MA20 +- 0.5% maintains state lock with 0 flips -> CONFIRMED (0 flips in both defensive and attack regimes).
-  - H4: Across realistic price ranges (800 to 12000) and m20 ratios (0.70 to 1.30), trigger lines satisfy surge_line > c300_price and breakdown_line < c300_price -> CONFIRMED (121 grid points tested, all satisfied).
-  - H5: Extreme parameter stress (gamma in [0.5, 0.999], eta in [0.1, 50.0]) produces non-NaN, non-Inf, strictly normalized weights -> CONFIRMED.
-  - H6: Missing core benchmark asset columns in input DataFrame raises KeyError as expected by underlying island dependencies -> CONFIRMED.
+  - H1: `FundPurchaseCacheManager.get_fund_quota` cold read from disk is strictly < 50ms -> REJECTED. Measured 113.49ms avg / 146.98ms max due to 27,964-row `itertuples` loop in `_update_memory_cache`.
+  - H2: `FundMetadataManager.get_fund_metadata` cached retrieval is strictly < 5ms -> CONFIRMED. Measured 0.19ms avg / 0.33ms max across 50 runs.
+  - H3: Total network disconnection on EastMoney push2 does not crash `fetch_market_turnover_and_sentiment` and falls back gracefully -> CONFIRMED. Handled URLError, TimeoutError, ConnectionRefusedError, HTTP 500, corrupt JSON, empty responses with 0 crashes.
+  - H4: Total network disconnection / akshare failure does not crash `fetch_or_calc_index_valuations` and falls back gracefully -> CONFIRMED. Handled AkShare failure and simultaneous DuckDB failure with 0 crashes.
+  - H5: Codebase is 100% free of fake constants `3210`, `1780` and `INDEX_PE_METAS` -> CONFIRMED. 0 instances of `INDEX_PE_METAS` in Python files; 0 instances of `3210/1780` in market breadth/valuation code.
 - **Vulnerabilities found**:
-  - Input dependency boundary: Underlying orthogonal island strategies assume existence of core benchmark columns ('STAR50_STITCH', 'H00300', 'H00922'). If an incomplete DataFrame lacking these core columns is passed, KeyError is raised. This is an expected invariant of the standard asset lakehouse matrix.
+  - `FundPurchaseCacheManager.get_fund_quota` cold start bottleneck: `cache_manager.py:477` loops over 27,964 rows with `itertuples(index=False)` in pure Python, causing cold start time (113~147ms) to exceed the < 50ms limit.
 - **Untested angles**:
-  - Downstream Streamlit UI integration (deferred to Milestone 3).
-  - Dynamic risk parity and portfolio rebalance net utility interceptor (deferred to Milestone 2).
+  - None within Milestone 1 scope.
 
 ## Loaded Skills
 - None requested in dispatch
 
 ## Key Decisions Made
-- Created dedicated test suite `tests/test_adversarial_m1_stress.py` containing 186 empirical stress tests covering mathematical monotonicity, deadzone stability, trigger line inequalities, and parameter robustness.
-- Verified 210/210 tests passed across `test_strategy_bridge.py`, `test_infra.py`, and `test_adversarial_m1_stress.py`.
-- Formulated final verdict: APPROVE.
+- Created dedicated empirical adversarial test suite `AGY2_FundAdvisory/tests/test_challenger_m1_adversarial.py` (18 test cases).
+- Discovered empirical latency violation on `FundPurchaseCacheManager.get_fund_quota` cold start.
+- Formulated final verdict: REQUEST_CHANGES.
 
 ## Artifact Index
 - d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\BRIEFING.md — Situational awareness
 - d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\progress.md — Liveness and progress tracking
-- d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\handoff.md — Final challenge report with verdict APPROVE
-- d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_adversarial_m1_stress.py — 186 empirical adversarial stress tests
+- d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\handoff.md — Final challenge report with verdict REQUEST_CHANGES
+- d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_challenger_m1_adversarial.py — Empirical adversarial stress test suite

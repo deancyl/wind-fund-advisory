@@ -1,30 +1,19 @@
-# Progress Tracking
-
 ## Current Status
-Last visited: 2026-11-03T03:12:05Z
-- [x] Phase 0: Survey codebase with 3 Explorers (R1-R5 mapping & baseline tests) [DONE: 100% PASS]
-- [x] Phase 1: Milestone Decomposition & Test Plan (PROJECT.md updated with M1-M4) [DONE]
-- [x] Phase 2: Implementation & Verification Iteration Loops [DONE]
-  - [x] M1: R1 & R2 Adaptive SNR Kalman & Momentum Accel Exhaustion in strategy_bridge.py [GATE PASS: All Approvals, Clean Audit]
-  - [x] M2: R3 RMT Marchenko-Pastur & Ledoit-Wolf Shrinkage in data_loader.py & portfolio_optimizer.py, R4 in winrate_engine.py [GATE PASS: All Approvals, Clean Audit]
-  - [x] M3: R5 UI Refinement & Interaction Protection in app_gui.py [GATE PASS: All Approvals, Clean Audit]
-- [x] Phase 3: Final E2E Regression, Hash Verification & Streamlit Service 8501 Health [GATE PASS: 167/167 tests passed, 4 referee SHA256 matched, 8501 OK]
+Last visited: 2026-11-04T11:40:00Z (Heartbeat check #4: Worker Prod M2 running actively, replace_file_content at 11:39:23Z)
+
+- [x] Received dispatch message and recorded in DISPATCH.md & ORIGINAL_REQUEST.md
+- [x] Step 0: Survey codebase with 3 parallel Explorers (R1-R5) [COMPLETED]
+- [x] Step 1: Synthesize survey results and update PROJECT.md Feature Inventory & Milestones [COMPLETED]
+- [/] Step 2: Milestone Iteration Loops
+  - [x] Milestone 1: 免费开源真实数据底座升级与持久化缓存 (Features 1-5, R2) [GATE PASSED]
+    - [x] Iteration 1: Worker Prod M1 completed code. Auditor: CLEAN, Reviewers: APPROVE, Challenger 2: APPROVE, Challenger 1: REQUEST_CHANGES (cold start 113ms > 50ms) -> Gate: FAIL
+    - [x] Iteration 2: Worker Remediation M1 implemented FundQuotaDict, dropping latency to 14.29ms (<50ms limit), passing 18/18 tests
+    - [x] Reviewer Fix M1 re-verified remediation: APPROVE (14.34ms cold start, 2.46µs warm, 5/5 referee hashes intact)
+    - [x] Gate M1 PASSED
+  - [/] Milestone 2: 全局 UI/UX 多配色设计系统重构与 5 套高定主题 (Features 6-10, R1) [IN_PROGRESS: Worker Prod M2 implementing]
+  - [ ] Milestone 3: 实装三大投顾核心业务模块 (Features 11-13, R3)
+  - [ ] Milestone 4: 物理红线哈希审计、全套自动化回归测试与服务重启 (Features 14-16, R4, R5)
+- [ ] Step 3: End-to-End Regression, Service Restart & Final Report
 
 ## Iteration Status
-Current iteration: 7 / 32
-
-## Milestones
-- [x] Survey & Architecture Mapping (R1-R5) [DONE]
-- [x] M1: R1 & R2 Adaptive SNR Kalman & Momentum Accel Exhaustion in strategy_bridge.py [DONE - GATE PASS]
-- [x] M2: R3 RMT Marchenko-Pastur & Ledoit-Wolf Shrinkage in data_loader.py & portfolio_optimizer.py, R4 in winrate_engine.py [DONE - GATE PASS]
-- [x] M3: R5 UI Refinement & Interaction Protection in app_gui.py [DONE - GATE PASS]
-- [x] M4: Full E2E Integration, Baseline & Refinement Tests, Read-only Hash Audit & Service Health [DONE - GATE PASS]
-
-## Retrospective Notes
-- **What worked**:
-  1. Survey phase using 3 parallel Explorers cleanly decoupled mathematical design from implementation and avoided thrashing.
-  2. Module boundary separation (M1 strategy_bridge, M2 data_loader/portfolio_optimizer/winrate_engine, M3 app_gui, M4 E2E) ensured 0 write collisions.
-  3. Strict Gate Verification (2 Reviewers, 2 empirical Challengers, 1 Forensic Auditor per milestone) proved 100% robust and caught zero integrity slips.
-  4. AppTest and Streamlit testing avoided module reload issues by using string-based patch paths per user rules.
-- **Lessons learned**:
-  - Keep test suites modular; running targeted subsets first before full regression keeps cycle time under control.
+Current iteration: 2 / 32

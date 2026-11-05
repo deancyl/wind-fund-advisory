@@ -1,56 +1,47 @@
-# BRIEFING — 2026-10-30T02:35:50Z
+# BRIEFING — 2026-11-04T11:47:00Z
 
 ## Mission
-Adversarially challenge and stress-test Milestone 2 of AGY2_FundAdvisory for boundary and edge cases (EWMA fallback, rebalance utility boundary, QDII cross-company transfer delay, order generation & interception badge), running empirical verification tests, and issuing an APPROVE/REJECT verdict.
+对 Milestone 2 在多 Tab 交互、侧边栏控盘联动与持仓编辑场景下的健壮性执行经验性质询与对抗性验证。
 
 ## 🔒 My Identity
-- Archetype: empirical challenger
+- Archetype: empirical_challenger
 - Roles: critic, specialist
-- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_2\
-- Original parent: 7eb668ae-6843-4834-9b3d-3455ac86af88
-- Milestone: Milestone 2 (AGY2_FundAdvisory)
-- Instance: 2 of 2
+- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_2
+- Original parent: c98181d5-8d61-4839-8d62-5dbcef7c85af
+- Milestone: Milestone 2 Review
+- Instance: 2 of 2 (Challenger M2-2)
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code. Report failures as findings.
-- Empirical verification mandatory — must run tests and code directly; do not rely on claims.
-- Never write tests/code inside `.agents/teamwork/`. Code directory is `d:\Google\Workspace\Wind\AGY2_FundAdvisory`.
-- Reply in Chinese.
+- Review-only — 严禁擅自修改业务实现代码（发现问题必须记录为 findings 并要求修复）
+- 必须基于真实测试运行与对抗场景实测验证，不盲从 Worker 声称
+- .agents/teamwork/ 目录仅存放元数据，不得放置源码或测试脚本
+- 所有回复与沟通必须使用中文
 
 ## Current Parent
-- Conversation ID: 7eb668ae-6843-4834-9b3d-3455ac86af88
-- Updated: 2026-10-30T02:35:50Z
+- Conversation ID: c98181d5-8d61-4839-8d62-5dbcef7c85af
+- Updated: not yet
 
 ## Review Scope
 - **Files to review**:
-  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\data_loader.py`
-  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\strategy_bridge.py`
-  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\portfolio_manager.py`
-- **Interface contracts**: `d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md`
-- **Review criteria**: Boundary resilience, crash avoidance, QDII transfer timing, interception safety, net utility stability.
+  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py`
+  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_adversarial_m3_challenger2_interactive.py`
+  - `d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m2\handoff.md`
+- **Interface contracts**: `PROJECT.md`, `GEMINI.md`
+- **Review criteria**: 多 Tab 交互一致性、侧边栏联动稳定性、持仓编辑份额反算与 FIFO 批次安全性、0 白屏/0 异常。
 
 ## Key Decisions Made
-- [2026-10-30T02:27:00Z] Initialized briefing and plan to execute empirical boundary/stress tests.
-- [2026-10-30T02:31:00Z] Authored 17 adversarial stress tests in `tests/test_adversarial_m2_challenger2.py`.
-- [2026-10-30T02:34:00Z] Executed full regression suite (111 tests 100% passed).
-- [2026-10-30T02:35:50Z] Verdict determined as APPROVE, with an architectural caveat regarding one-way QDII `from_code` detection.
-
-## Attack Surface
-- **Hypotheses tested**:
-  1. `DataLoader.compute_ewma_volatility_and_correlation`: Tested None, empty df, <5 rows, 5-9 rows, NaN returns, constant prices -> All gracefully fell back to safe prior series/identity matrix without crash.
-  2. `calculate_rebalance_net_utility`: Tested 0.0 amount, negative amount, 1 billion extreme amount -> Handled without ZeroDivisionError or overflow; 0/negative clamped to 0.0 with automatic interception badge.
-  3. QDII cross-company transfers (050025, 001071): Verified Delta t_arrive is 4 days when purchasing QDII or swapping QDII funds; in-transit cost is scaled by sqrt(2).
-  4. Order generation and safety: Verified intercepted routes (`should_intercept=True`) are excluded from `executable_routes`, present in `intercepted_routes`, tagged with badge, and completely rejected by `submit_rebalance_orders`.
-- **Vulnerabilities found**:
-  - Subtle asymmetry in QDII detection in `portfolio_manager.py` line 4718: When transferring FROM a QDII fund (e.g. 050025) to a domestic non-QDII fund (e.g. 011612), `delta_t_arrive` evaluates to 2 days instead of 4 days because `is_qdii` only checks `to_meta` / `to_code`. In real mutual fund operations, redeeming a QDII fund takes 4~6 days for funds to arrive in cash. Recommended for Agent-2 or subsequent cleanup to check `from_meta` / `from_code` as well.
-- **Untested angles**:
-  - Live socket network disconnect during remote Eastmoney sync (mocked / cached in unit test environment).
-
-## Loaded Skills
-- None loaded.
+- 初始化审查环境，准备阅读上下文及运行测试。
 
 ## Artifact Index
-- `d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_2\DISPATCH.md` — Ingested dispatch message
-- `d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_2\progress.md` — Liveness and execution progress tracker
-- `d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_2\handoff.md` — Final empirical challenge report & verdict
-- `d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_adversarial_m2_challenger2.py` — Adversarial test suite (17 tests)
+- `DISPATCH.md` — 调度指令记录
+- `BRIEFING.md` — 持续记忆与审查范围
+- `progress.md` — 执行进度与心跳
+- `handoff.md` — 审查报告
+
+## Attack Surface
+- **Hypotheses tested**: 待测试（多 Tab 切换异常、侧边栏参数极值、持仓编辑反算越界、批次拆分破坏 FIFO 约束）
+- **Vulnerabilities found**: 待测试
+- **Untested angles**: 待测试
+
+## Loaded Skills
+- None requested in dispatch.

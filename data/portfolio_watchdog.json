@@ -1,8 +1,16 @@
 {
-  "timestamp": "2026-11-04 19:58:22",
-  "all_passed": true,
-  "has_danger": false,
+  "timestamp": "2026-11-05 09:20:55",
+  "all_passed": false,
+  "has_danger": true,
   "has_warning": false,
-  "alerts": [],
-  "summary": "主动风控巡检全通"
+  "alerts": [
+    {
+      "level": "red",
+      "dimension": "FIFO批次锁仓",
+      "title": "【华夏科创50ETF联接A (011612)】持有仅 3 天（≤3天）",
+      "desc": "严禁赎回！未满 7 天赎回将直接触发证监会规定的 1.50% 巨额惩罚性扣款！",
+      "action": "暂缓赎回，待持有满 7 天后再行操作。"
+    }
+  ],
+  "summary": "发现 1 项风险与提示项"
 }

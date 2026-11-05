@@ -1,7 +1,7 @@
 {
   "version": "AGY2_PORTFOLIO_V2",
   "takeover_mode": "B",
-  "baseline_date": "2026-11-04",
+  "baseline_date": "2026-11-05",
   "baseline_equity": 180945.0,
   "available_cash": 35800.0,
   "in_transit_cash": 10500.0,
@@ -27,12 +27,12 @@
       "cost_basis": 44800.0,
       "floating_pnl": 5520.0,
       "floating_pnl_pct": 12.32,
-      "first_buy_date": "2026-04-08",
+      "first_buy_date": "2026-04-09",
       "dividend_method": "cash",
       "batches": [
         {
           "batch_id": "B_FIFO_005561_001",
-          "buy_date": "2026-04-08",
+          "buy_date": "2026-04-09",
           "shares": 40000.0,
           "cost_nav": 1.12,
           "fee": 6.0,
@@ -56,12 +56,12 @@
       "cost_basis": 34475.0,
       "floating_pnl": 3395.0,
       "floating_pnl_pct": 9.85,
-      "first_buy_date": "2026-08-06",
+      "first_buy_date": "2026-08-07",
       "dividend_method": "cash",
       "batches": [
         {
           "batch_id": "B_FIFO_100032_001",
-          "buy_date": "2026-08-06",
+          "buy_date": "2026-08-07",
           "shares": 35000.0,
           "cost_nav": 0.985,
           "fee": 5.0,
@@ -85,12 +85,12 @@
       "cost_basis": 13800.0,
       "floating_pnl": -75.0,
       "floating_pnl_pct": -0.54,
-      "first_buy_date": "2026-11-01",
+      "first_buy_date": "2026-11-02",
       "dividend_method": "cash",
       "batches": [
         {
           "batch_id": "B_FIFO_011612_001",
-          "buy_date": "2026-11-01",
+          "buy_date": "2026-11-02",
           "shares": 15000.0,
           "cost_nav": 0.92,
           "fee": 15.0,
@@ -114,12 +114,12 @@
       "cost_basis": 20680.0,
       "floating_pnl": -330.0,
       "floating_pnl_pct": -1.6,
-      "first_buy_date": "2026-10-07",
+      "first_buy_date": "2026-10-08",
       "dividend_method": "cash",
       "batches": [
         {
           "batch_id": "B_FIFO_011613_001",
-          "buy_date": "2026-10-07",
+          "buy_date": "2026-10-08",
           "shares": 22000.0,
           "cost_nav": 0.94,
           "fee": 0.0,
@@ -143,12 +143,12 @@
       "cost_basis": 12600.0,
       "floating_pnl": -2040.0,
       "floating_pnl_pct": -16.19,
-      "first_buy_date": "2026-09-25",
+      "first_buy_date": "2026-09-26",
       "dividend_method": "cash",
       "batches": [
         {
           "batch_id": "B_FIFO_013841_001",
-          "buy_date": "2026-09-25",
+          "buy_date": "2026-09-26",
           "shares": 12000.0,
           "cost_nav": 1.05,
           "fee": 0.0,
@@ -172,12 +172,12 @@
       "cost_basis": 11600.0,
       "floating_pnl": 720.0,
       "floating_pnl_pct": 6.21,
-      "first_buy_date": "2026-09-05",
+      "first_buy_date": "2026-09-06",
       "dividend_method": "cash",
       "batches": [
         {
           "batch_id": "B_FIFO_001071_001",
-          "buy_date": "2026-09-05",
+          "buy_date": "2026-09-06",
           "shares": 8000.0,
           "cost_nav": 1.45,
           "fee": 12.0,
@@ -194,7 +194,7 @@
   "pending_orders": [
     {
       "order_id": "ORD_DEMO_REDEMPTION_001",
-      "created_at": "2026-11-03 14:40:00",
+      "created_at": "2026-11-04 14:40:00",
       "effective_trade_date": "2026-11-05",
       "action": "SELL",
       "fund_code": "018757",
@@ -212,5 +212,5 @@
       "notes": "部分稳益债基赎回腾挪款在途"
     }
   ],
-  "updated_at": "2026-11-04 19:40:04"
+  "updated_at": "2026-11-05 09:20:55"
 }

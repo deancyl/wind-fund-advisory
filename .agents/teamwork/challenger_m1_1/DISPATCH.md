@@ -1,17 +1,47 @@
-## 2026-10-30T01:46:09Z
-You are Challenger 1 for Milestone 1 of the AGY2_FundAdvisory project.
-Your working directory is d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\
-You MUST read d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md first before starting work.
-Also read d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md and d:\Google\Workspace\Wind\.agents\teamwork\worker_agent1_m1_gen2\handoff.md.
-Working directory for code is d:\Google\Workspace\Wind\AGY2_FundAdvisory.
+# Task Assignment: Challenger M1-1 (Data Freshness, Latency & Fallback Stress Challenger)
 
-Mission:
-Empirically verify the correctness and stress resilience of M1 (strategy_bridge.py):
-1. Test OnlineExpertWeightUpdater:
-   - Feed synthetic and historical market slices; assert weights sum to 1.0000 within 1e-5.
-   - Assert that an expert with higher risk-adjusted net utility receives monotonically increasing weight.
-2. Test SchmidtHysteresisBuffer:
-   - Construct a noisy test price series oscillating within MA20 +- 0.5% (e.g. +0.3%, -0.4%, +0.5%, -0.3%); assert the hysteresis buffer maintains state lock with 0 flips.
-   - Assert breakout trigger lines: surge_line > c300_price and breakdown_line < c300_price across all realistic price ranges.
-3. Write your empirical challenge report and verdict (APPROVE or REJECT) in d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\handoff.md.
-4. Send message to orchestrator with your verdict.
+## Authoritative Request File
+`d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md` (MUST read completely before proceeding)
+`d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md` (Master Architecture & Milestone Contracts)
+`d:\Google\Workspace\Wind\GEMINI.md` (Workspace Rules)
+`d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m1\handoff.md` (Worker M1 Handoff Report)
+
+## Scope & Adversarial Challenge Objective
+You are Challenger M1-1 for Milestone 1. Adversarially stress-test the data engine and caching layer:
+1. **Cold Start & Latency Stress**:
+   - Write a stress script or test to measure `FundPurchaseCacheManager.get_fund_quota` cold start time. Is it strictly < 50ms?
+   - Measure `FundMetadataManager.get_fund_metadata` cached retrieval. Is it strictly < 5ms?
+2. **Network Offline / Disconnection Simulation**:
+   - Disconnect or mock failure of EastMoney push2 endpoint: does `fetch_market_turnover_and_sentiment` gracefully fallback to `data/cache/market_breadth.json` without throwing unhandled exceptions?
+   - Disconnect or mock failure of `akshare`: does `fetch_or_calc_index_valuations` gracefully fallback without crashing?
+3. **Absence of Fake Constants**:
+   - Execute regex or AST scan across the entire repo (`AGY2_FundAdvisory/` and root):
+     * Check if `3210` or `1780` exist in any market breadth logic.
+     * Check if `INDEX_PE_METAS` exists anywhere in Python files.
+4. Give a clear verdict: `APPROVE` or `REQUEST_CHANGES`.
+
+## Working Directory
+`d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1/`
+
+## Output Requirements
+Write your full challenge report to:
+`d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\handoff.md`
+Then call `send_message` to parent.
+
+
+## 2026-11-04T10:24:16Z
+[Message] timestamp=2026-11-04T10:24:16Z sender=c98181d5-8d61-4839-8d62-5dbcef7c85af priority=MESSAGE_PRIORITY_HIGH content=You are Challenger M1-1 for Milestone 1.
+Working directory: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1/
+Read your task dispatch file: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\DISPATCH.md
+Read the authoritative request file: d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+Read master architecture: d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
+Read Worker Prod M1 Handoff: d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m1\handoff.md
+Read workspace rules: d:\Google\Workspace\Wind\GEMINI.md
+
+Adversarially challenge Milestone 1:
+1. Benchmark cold start and latency: verify FundPurchaseCacheManager read < 50ms, FundMetadataManager read < 5ms.
+2. Test network offline / disconnection simulation: simulate failure of push2 EastMoney and akshare, verify graceful fallback without crashes.
+3. Code scan: verify 3210/1780 and INDEX_PE_METAS are completely absent from codebase.
+Write your challenge report and clear verdict (APPROVE or REQUEST_CHANGES) to:
+d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\handoff.md
+Notify parent when done via send_message. You are read-only; DO NOT modify any source code files.

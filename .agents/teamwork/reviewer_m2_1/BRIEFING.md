@@ -1,67 +1,46 @@
-# BRIEFING — 2026-10-30T02:30:00Z
+# BRIEFING — 2026-11-04T11:47:00Z
 
 ## Mission
-Review Milestone 2 (R4 EWMA inverse-volatility risk budgeting & R5 rebalance net utility interceptor) implementation in AGY2_FundAdvisory for correctness, robustness, integrity, and interface conformance.
+对 Milestone 2（Features 6, 8, 9: UI/UX 设计系统、CSS 变量绑定与 5 套主题）执行独立、客观、严谨的代码审查与测试复核。
 
 ## 🔒 My Identity
 - Archetype: reviewer_critic
 - Roles: reviewer, critic
-- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_1
-- Original parent: 7eb668ae-6843-4834-9b3d-3455ac86af88
-- Milestone: Milestone 2 (R4 & R5)
-- Instance: 1 of 2
+- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_1\
+- Original parent: c98181d5-8d61-4839-8d62-5dbcef7c85af
+- Milestone: Milestone 2 (Features 6, 8, 9)
+- Instance: 1 of 1
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code
-- Check for integrity violations (hardcoding, facades, shortcuts, fake tests)
-- Adhere to GEMINI.md and user_global rules
-- Deliver verdict to orchestrator via send_message and handoff.md
+- Review-only — 严禁直接修改生产代码或测试代码
+- 严查作弊与完整性违规（硬编码测试期望、虚假实现、绕过测试、篡改裁判文件）
+- 全程使用中文回复
+- 遵循工作区准则与 5-Component Handoff Protocol
 
 ## Current Parent
-- Conversation ID: 7eb668ae-6843-4834-9b3d-3455ac86af88
-- Updated: 2026-10-30T02:26:00Z
+- Conversation ID: c98181d5-8d61-4839-8d62-5dbcef7c85af
+- Updated: 2026-11-04T11:47:00Z
 
 ## Review Scope
-- **Files to review**:
-  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\data_loader.py`
-  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\strategy_bridge.py`
-  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\portfolio_manager.py`
-- **Interface contracts**:
-  - `d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md`
-  - `d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md`
-  - `d:\Google\Workspace\Wind\.agents\teamwork\worker_agent2_m2\handoff.md`
-- **Review criteria**: correctness, completeness, robustness, interface conformance, adversarial stress-testing
-
-## Review Checklist
-- **Items reviewed**:
-  - `data_loader.py`: `DataLoader.compute_ewma_volatility_and_correlation`
-  - `strategy_bridge.py`: `compute_dynamic_tier_weights`, inverse vol scaling, bond ballast transfer, C1-C5 monotonicity bounds, bear stop-loss bounds
-  - `portfolio_manager.py`: `calculate_rebalance_net_utility`, same-company SWITCH (delta_t=0, in-transit cost=0), cross-company in-transit discount, interception badge, order filtering, same-company switching convenience bonus (+5.0 pts)
-  - 4 referee files: verified 100% untouched via git diff
-  - Test suites: 56 core + M2 tests passed, 15 strategy_bridge + challenger stress tests passed
-  - Adversarial tests: edge-case pricing series, flat prices, extreme outliers, zero amount, self-switching, negative volatility fallbacks, FIFO <7d redemption penalty
-- **Verdict**: APPROVE
-- **Unverified claims**: None. All claims independently verified.
-
-## Attack Surface
-- **Hypotheses tested**:
-  - Flat prices (0 variance) causing sqrt(0) or division by zero -> Passed (clip to 1e-8)
-  - Extreme volatility pulse (annualized vol > 1000%) -> Passed (properly scales down equity and transfers to pure bond)
-  - Monotonicity collapse under extreme market regimes -> Passed (disjoint bounds strictly guarantee C1 < C2 < C3 < C4 < C5)
-  - Bear regime stop-loss violation -> Passed (C4 equity <= 0.55, C5 equity <= 0.70 strictly respected)
-  - Self-switching and zero amount edge cases -> Passed (properly intercepted with delta U <= 0)
-  - Negative market volatility in snapshot -> Passed (fallback to 0.18)
-  - FIFO holding period <7 days redemption penalty -> Passed (1.50% penalty strictly applied)
-  - Same-company convenience bonus -> Passed (+5.0 pts given only to holdings company matches)
-- **Vulnerabilities found**: None critical. Minor caveats documented regarding proxy index universe expansion.
-- **Untested angles**: M3 CUSUM features (out of scope for M2).
+- **Files to review**: d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py
+- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md, GEMINI.md, worker_prod_m2/handoff.md
+- **Review criteria**: CSS 变量 100% 绑定、去营销化与彩虹边框废除、简短机构风格标题、5套预设主题与向后兼容、测试通过与裁判文件完整性
 
 ## Key Decisions Made
-- Confirmed full compliance with R4 & R5 requirements.
-- Confirmed zero integrity violations, no hardcoded cheating, no facades.
-- Approved Milestone 2 work product.
+- 启动对 Milestone 2 的独立复核与对抗性审查
 
 ## Artifact Index
-- `handoff.md` — Final review report
-- `progress.md` — Progress heartbeat
-- `DISPATCH.md` — Dispatch log
+- d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_1\DISPATCH.md
+- d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_1\progress.md
+- d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_1\BRIEFING.md
+- d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_1\handoff.md
+
+## Review Checklist
+- **Items reviewed**: 待审阅
+- **Verdict**: pending
+- **Unverified claims**: Feature 6 CSS变量绑定、Feature 8 文案克制与去彩虹边框、Feature 9 5套主题与兼容别名、测试命令通过、4个裁判文件哈希
+
+## Attack Surface
+- **Hypotheses tested**: 待测试
+- **Vulnerabilities found**: 待发现
+- **Untested angles**: CSS 变量解析泄漏、硬编码颜色未清空、断言容错作弊、主题别名回退异常
