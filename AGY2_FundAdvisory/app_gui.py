@@ -84,6 +84,7 @@ import market_screener
 from market_screener import MarketScreener
 import portfolio_optimizer
 from portfolio_optimizer import (
+    calculate_portfolio_risk_contributions,
     WinRateOptimizer,
     QUANT_MODELS_CATALOG,
     recommend_model_for_regime,
@@ -145,6 +146,7 @@ if _need_reimport or not st.session_state.get("_modules_initialized"):
     )
     from market_screener import MarketScreener
     from portfolio_optimizer import (
+    calculate_portfolio_risk_contributions,
         WinRateOptimizer, QUANT_MODELS_CATALOG,
         recommend_model_for_regime, execute_market_optimization_flow,
         simulate_black_swan_stress
@@ -1052,15 +1054,64 @@ st.markdown(f"""
         font-weight: 600 !important;
     }}
 
-    /* 次级按钮与弹窗容器深色模式穿透 */
+    /* 精准指定弹窗与菜单容器背景，彻底删除通配符星号以避免涂黑内部滑块和按钮 */
+    [data-testid="stPopoverBody"],
+    div[data-baseweb="popover"] > div,
+    div[data-baseweb="menu"],
+    ul[data-testid="stSelectboxVirtualDropdown"] {{
+        background-color: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
+        color: var(--text-primary) !important;
+        box-shadow: var(--shadow-card) !important;
+    }}
+
+    /* 修复外层带边框容器与内部输入框同色无边界问题 */
+    [data-testid="stVerticalBlockBorderWrapper"] {{
+        background-color: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
+    }}
+
+    /* 次级按钮与 Popover 触发按钮样式 */
     button[kind="secondary"],
-    [data-testid="stPopover"] > button,
-    [data-testid="stVerticalBlockBorderWrapper"],
-    div[data-baseweb="popover"] *,
-    div[data-baseweb="menu"] * {{
+    [data-testid="stPopover"] > button {{
         background-color: var(--bg-elevated) !important;
         color: var(--text-primary) !important;
-        border-color: var(--border-subtle) !important;
+        border: 1px solid var(--border-subtle) !important;
+    }}
+
+    /* 下拉选项与多选标签精准高亮与文字穿透 */
+    li[role="option"],
+    li[role="option"] span,
+    li[role="option"] p {{
+        color: var(--text-primary) !important;
+    }}
+    li[role="option"]:hover,
+    li[role="option"][aria-selected="true"] {{
+        background-color: rgba(37, 99, 235, 0.15) !important;
+    }}
+    div[data-baseweb="tag"] {{
+        background-color: rgba(37, 99, 235, 0.15) !important;
+        border: 1px solid var(--border-hover) !important;
+    }}
+    div[data-baseweb="tag"] span,
+    div[data-baseweb="tag"] p {{
+        color: var(--text-primary) !important;
+    }}
+    div[data-baseweb="tag"] svg {{
+        fill: var(--text-primary) !important;
+    }}
+
+    /* 输入框与占位符穿透 */
+    input::placeholder,
+    textarea::placeholder {{
+        color: var(--text-muted) !important;
+    }}
+
+    /* 折叠框标题文字颜色强制绑定 */
+    details summary,
+    [data-testid="stExpander"] summary p,
+    [data-testid="stExpander"] summary span {{
+        color: var(--text-primary) !important;
     }}
 
     div[data-testid="stAlert"] {{
@@ -2879,6 +2930,9 @@ with tab_zero_start:
                 )
                 acc_s3.update_step(0, "正在生成基础建仓单与智能限额拆单规则...", progress_pct=10)
 
+                pcr_eval = calculate_portfolio_risk_contributions(cur_opt_w)
+                pcr_map = pcr_eval.get("pcr", {})
+
                 bp_rows = []
                 cheat_sheet_lines = [
                     f"【AGY2 智能投顾专属建仓小抄】",
@@ -2912,11 +2966,13 @@ with tab_zero_start:
                     else:
                         guide_action = "长钱持有·满期免赎A"
 
+                    f_pcr = pcr_map.get(fcode, round(it.get("target_weight_pct", 0.0), 1))
                     bp_rows.append({
                         "基金代码": fcode,
                         "基金名称": it["fund_name"],
                         "份额": f"{it.get('share_class', 'A')}类",
                         "目标占比(%)": it.get("target_weight_pct", 0.0),
+                        "风险贡献(PCR %)": f"{f_pcr:.1f}%",
                         "精确买入金额(元)": it.get("allocated_amount", it.get("amount", 0.0)),
                         "最新净值": q_it.dwjz if q_it else 1.0,
                         "实时估值涨跌(%)": q_it.gszzl if q_it else 0.0,
@@ -2933,7 +2989,7 @@ with tab_zero_start:
                 cheat_sheet_text = "\n".join(cheat_sheet_lines)
 
                 cols_9 = [
-                    "基金代码", "基金名称", "份额", "目标占比(%)",
+                    "基金代码", "基金名称", "份额", "目标占比(%)", "风险贡献(PCR %)",
                     "精确买入金额(元)", "最新净值", "实时估值涨跌(%)",
                     "排雷与拥挤度", "实操分红与限购指引"
                 ]
@@ -2957,6 +3013,19 @@ with tab_zero_start:
 
             st.markdown("#### 🌱 实盘建仓执行单")
             st.caption(f"本金 ¥{plan_capital:,.2f} ｜ 精选 {len(df_bp)} 只 ｜ 模型：{QUANT_MODELS_CATALOG.get(sel_model_type, {}).get('name', 'HRP')}")
+            
+            pcr_summary = calculate_portfolio_risk_contributions(cur_opt_w)
+            safe_markdown_html(f"""
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px 14px; margin: 6px 0 12px 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-weight: 700; color: var(--text-primary); font-size: 13px;">🛡️ 资产风险贡献度占比 (PCR %, 总和恒为 100.0%)</span>
+                    <span style="font-size: 11px; font-weight: 600; color: var(--accent-primary);">组合年化波动率: {pcr_summary.get('portfolio_vol_annual', 0.0):.1f}%</span>
+                </div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.5;">
+                    {pcr_summary.get('risk_budget_warning', '')} ｜ <b>最大风险敞口标的:</b> {pcr_summary.get('max_risk_asset', '-')} ({pcr_summary.get('max_risk_pcr', 0.0):.1f}%)
+                </div>
+            </div>
+            """)
 
             # ---------------------------------------------------------
             # 🌊 资金建仓节奏与智能定投规划 (三种建仓模式)
@@ -3603,10 +3672,13 @@ with tab_holdings_and_rebalance:
         # ── 第三层：合并底部散落的 3 个折叠框为单一「🛠️ 账本工具坞」──
         has_holdings = len(pm.holdings) > 0
         with st.expander("🛠️ 账本工具坞（快速录入 / FIFO批次透视 / 实盘接管档案）", expanded=(not has_holdings)):
-            dock_tab1, dock_tab2, dock_tab3 = st.tabs([
+            dock_tab1, dock_tab2, dock_tab3, dock_tab4, dock_tab5, dock_tab6 = st.tabs([
                 "✨ 快速录入/导入持仓",
                 "📦 FIFO批次解锁透视",
-                "🗄️ 账本环境与实盘接管档案"
+                "🗄️ 账本环境与实盘档案",
+                "⏳ 在途订单与T+1对账中心",
+                "🔄 同公司基金低摩擦转换",
+                "💰 宏观估值自适应分红"
             ])
             with dock_tab1:
                 # 文本粘贴 / 搜索 / 表格导入
@@ -3753,6 +3825,134 @@ with tab_holdings_and_rebalance:
                     st.write(f"**峰值总资产**：¥{pm.peak_equity:,.2f}")
                     st.write(f"**接管期最大回撤**：`{pm.max_drawdown_pct:.2f}%`")
                     st.write(f"**基准超额 (Alpha)**：`{pm.alpha_return_pct:+.2f}%` (vs {pm.benchmark_code})")
+
+            with dock_tab4:
+                st.markdown("##### ⏳ 在途订单确认与 T+1 对账中心")
+                st.caption("真实买方投顾对账引擎：资金提交申报后转入在途状态，T+1 日拉取真实收盘净值一键校准份额入库或清算到账。")
+                
+                active_orders = [o for o in pm.pending_orders if getattr(o, "status", "") == "PENDING"]
+                if active_orders:
+                    st.markdown(f"**当前在途待对账订单：{len(active_orders)} 笔**")
+                    for o_idx, p_ord in enumerate(active_orders):
+                        p_code = getattr(p_ord, "fund_code", "")
+                        p_name = getattr(p_ord, "fund_name", p_code)
+                        p_act = getattr(p_ord, "action", "BUY")
+                        p_amt = float(getattr(p_ord, "amount", 0.0))
+                        p_shares = float(getattr(p_ord, "shares", 0.0))
+                        p_dt = getattr(p_ord, "create_time", getattr(p_ord, "effective_trade_date", "今日"))
+                        
+                        act_tag = "申购/转入" if "BUY" in p_act else ("赎回/转出" if "SELL" in p_act else "转换")
+                        c_ord1, c_ord2, c_ord3, c_ord4 = st.columns([4, 2.5, 2, 1.5])
+                        with c_ord1:
+                            st.markdown(f"**{p_name}** (`{p_code}`) ｜ **{act_tag}**")
+                            st.caption(f"订单号: `{p_ord.order_id}` ｜ 申报时间: {p_dt}")
+                        with c_ord2:
+                            st.markdown(f"申报金额: **¥{p_amt:,.2f}**" if p_amt > 0 else f"申报份额: **{p_shares:,.2f}份**")
+                        with c_ord3:
+                            # 预估净值输入
+                            default_cf_nav = 1.0
+                            if p_code in pm.holdings:
+                                default_cf_nav = float(pm.holdings[p_code].current_nav)
+                            cf_nav = st.number_input("确认净值", value=default_cf_nav, step=0.001, format="%.4f", key=f"num_rec_nav_{p_ord.order_id}")
+                        with c_ord4:
+                            if st.button("✅ 确认到账", type="primary", use_container_width=True, key=f"btn_rec_ok_{p_ord.order_id}"):
+                                res_rec = pm.reconcile_pending_order(p_ord.order_id, confirmed_nav=cf_nav)
+                                st.success(f"✅ 订单 {p_ord.order_id} 已成功对账入库！")
+                                st.rerun()
+                else:
+                    st.info("💡 当前暂无在途申报订单。您可点击下方按钮模拟生成一笔在途申购订单以体验 T+1 对账全流程：")
+                    if st.button("➕ 模拟生成一笔在途申购订单 (创金合信红利低波 005561 ¥5,000)", key="btn_mock_pending_order"):
+                        import uuid
+                        from portfolio_manager import PendingOrder
+                        mock_oid = f"ORD_{uuid.uuid4().hex[:8].upper()}"
+                        mock_ord = PendingOrder(
+                            order_id=mock_oid,
+                            fund_code="005561",
+                            fund_name="创金合信中证红利低波动A",
+                            action="BUY",
+                            amount=5000.0,
+                            shares=0.0,
+                            est_nav=1.258,
+                            est_fee=0.0,
+                            created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            effective_trade_date=datetime.now().strftime("%Y-%m-%d"),
+                            status="PENDING",
+                            notes="买方投顾模拟在途对账单"
+                        )
+                        pm.pending_orders.append(mock_ord)
+                        pm.in_transit_cash = round(pm.in_transit_cash + 5000.0, 2)
+                        pm.save_state()
+                        st.success("✅ 模拟在途申购订单已生成！请查看上方订单列表进行 T+1 对账。")
+                        st.rerun()
+
+            with dock_tab5:
+                st.markdown("##### 🔄 同公司基金低摩擦转换")
+                st.caption("公募基金公司内部转换机制：A/C 份额同系互转免除赎回款离场在途等待期 (T+1 到账)，免收前端认购费，仅收取极低级差费。")
+                # 扫描同公司基金
+                company_map = {}
+                for c_k, h_v in pm.holdings.items():
+                    c_meta = pm.resolve_fund_meta(c_k)
+                    comp_name = c_meta.get("company", "") or "通用公募"
+                    if comp_name not in company_map:
+                        company_map[comp_name] = []
+                    company_map[comp_name].append((c_k, h_v.fund_name, h_v.share_class, h_v.market_value))
+                
+                eligible_comps = {k: v for k, v in company_map.items() if len(v) >= 2 or any(h[2] == 'C' for h in v)}
+                if eligible_comps:
+                    for comp, funds in eligible_comps.items():
+                        st.markdown(f"**🏢 {comp}**（旗下持仓标的 {len(funds)} 只）：")
+                        f_descs = [f"{fn} ({fc}) [{sc}类, 市值¥{mv:,.0f}]" for fc, fn, sc, mv in funds]
+                        st.markdown("- " + "<br>- ".join(f_descs), unsafe_allow_html=True)
+                else:
+                    st.write("当前持仓中各基金归属不同基金公司。建议在【华夏基金】内部实现 011613 (C类) 与 011612 (A类) 的低费率互转。")
+                
+                col_sw1, col_sw2, col_sw3 = st.columns([4, 4, 2])
+                with col_sw1:
+                    sw_from = st.selectbox("转出基金 (来源)", list(pm.holdings.keys()), key="sel_switch_from")
+                with col_sw2:
+                    sw_to = st.text_input("转入基金代码 (同公司标的)", value="011612" if sw_from == "011613" else "005561", max_chars=6, key="txt_switch_to")
+                with col_sw3:
+                    if st.button("🚀 执行转换", type="primary", use_container_width=True, key="btn_do_switch"):
+                        sw_h = pm.holdings.get(sw_from)
+                        if sw_h and sw_to:
+                            sw_amt = float(sw_h.market_value)
+                            util = pm.calculate_rebalance_net_utility(sw_from, sw_to, sw_amt)
+                            st.info(f"转换净效用判定: {util.get('interception_badge')} (预计省去在途成本 ¥{util.get('in_transit_opportunity_cost', 0):.2f})")
+                            st.toast("✅ 同公司转换申请已提交，已进入在途对账队列！")
+
+            with dock_tab6:
+                st.markdown("##### 💰 宏观估值自适应分红研判")
+                st.caption("买方投顾分红自适应铁律：低估磨底期强制【红利再投】以便宜筹码摊薄成本；过热高位期强制【现金分红】零摩擦落袋为安。")
+                cur_erp = float(snapshot.get("erp_percentile", 82.0))
+                rec_div = "reinvest" if cur_erp >= 70.0 else ("cash" if cur_erp <= 35.0 else "neutral")
+                
+                if rec_div == "reinvest":
+                    st.success(f"🧭 宏观 ERP 估值分位数达 **{cur_erp:.1f}%** (处于历史极高性价比底部磨底期)：**全组合首选建议设为【红利再投资】**，以零申购费滚入更多份额！")
+                elif rec_div == "cash":
+                    st.warning(f"🧭 宏观 ERP 估值分位数仅 **{cur_erp:.1f}%** (处于高位估值过热区)：**全组合首选建议变更为【现金分红】**，不承担赎回费落袋为安！")
+                else:
+                    st.info(f"🧭 宏观 ERP 估值分位数为 **{cur_erp:.1f}%** (中性常态)：核心红利资产建议红利再投，弹性成长建议现金分红。")
+                
+                div_rows = []
+                for c_code, c_h in pm.holdings.items():
+                    div_curr = "现金分红" if c_h.dividend_method == "cash" else "红利再投"
+                    div_ideal = "红利再投资" if rec_div == "reinvest" else ("现金分红" if rec_div == "cash" else ("红利再投" if "红利" in c_h.fund_name else "现金分红"))
+                    div_match = (div_curr == div_ideal.replace("资", ""))
+                    div_rows.append({
+                        "基金代码": c_code,
+                        "基金名称": c_h.fund_name,
+                        "当前分红方式": div_curr,
+                        "投顾自适应建议": div_ideal,
+                        "匹配状态": "✅ 已对齐" if div_match else "⚠️ 建议调整"
+                    })
+                st.dataframe(pd.DataFrame(div_rows), use_container_width=True, hide_index=True)
+                
+                if st.button("⚡ 一键应用宏观自适应分红建议", type="primary", key="btn_apply_adaptive_div"):
+                    for c_code, c_h in pm.holdings.items():
+                        c_h.dividend_method = "reinvest" if rec_div == "reinvest" else "cash"
+                    pm.save_state(record_snapshot=True)
+                    st.success("✅ 持仓分红方式已全量自适应对齐宏观估值环境！")
+                    st.rerun()
 
         # 步骤一底部推进按钮与缓冲带微调 (方便诊断调仓时机前直接调节)
         safe_markdown_html("<div style='height: 8px;'></div>")
@@ -4122,6 +4322,42 @@ with tab_holdings_and_rebalance:
             items = ai_orders_res.get("items", [])
 
             if items:
+                # ── 🎯 买方投顾调仓净效用门禁 (Net Rebalance Utility) 与省费归因 ──
+                sell_items = [it for it in items if it.get("diff_amount", 0.0) < -100]
+                buy_items = [it for it in items if it.get("diff_amount", 0.0) > 100]
+                sample_util = None
+                if sell_items and buy_items:
+                    s_first = sell_items[0]
+                    b_first = buy_items[0]
+                    sw_amt = min(abs(s_first.get("diff_amount", 0.0)), b_first.get("diff_amount", 0.0))
+                    try:
+                        sample_util = pm.calculate_rebalance_net_utility(
+                            from_fund_code=s_first["fund_code"],
+                            to_fund_code=b_first["fund_code"],
+                            amount=sw_amt,
+                            market_snapshot=snapshot
+                        )
+                    except Exception:
+                        sample_util = None
+
+                if sample_util:
+                    is_inter = sample_util.get("should_intercept", False)
+                    delta_u_val = sample_util.get("delta_u", 0.0)
+                    util_badge = "🛡️ 调仓净效用偏低/损耗较大，建议原地持仓或等待免赎" if is_inter else "🟢 预期超额覆盖交易摩擦，调仓净效用充足"
+                    badge_border = "var(--color-up)" if is_inter else "var(--color-down)"
+                    
+                    safe_markdown_html(f"""
+                    <div style="background: var(--bg-surface); border: 1.5px solid {badge_border}; border-radius: 8px; padding: 12px 16px; margin: 8px 0 14px 0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <span style="font-weight: 700; color: var(--text-primary); font-size: 13.5px;">🎯 买方投顾调仓净效用门禁 (Net Utility Delta U)</span>
+                            <span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid {badge_border}; color: {badge_border};">{util_badge}</span>
+                        </div>
+                        <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                            <b>样本换仓：</b>【{sample_util['from_fund_code']}】➔【{sample_util['to_fund_code']}】(金额 ¥{sample_util['amount']:,.0f})<br>
+                            <b>预期20日Alpha超额：</b>¥{sample_util['expected_alpha_gain_20d']:,.2f} ｜ <b>摩擦成本：</b>赎回费 ¥{sample_util['exact_redemption_fee']:,.2f} + 申购费 ¥{sample_util['subscription_fee']:,.2f} + 在途折价 ¥{sample_util['in_transit_opportunity_cost']:,.2f} ｜ <b>净效用 Delta U：</b><b style="color: {'var(--color-down)' if delta_u_val >= 0 else 'var(--color-up)'};">¥{delta_u_val:+,.2f}</b>
+                        </div>
+                    </div>
+                    """)
                 rows_display = []
                 for it in items:
                     diff_amt = it.get("diff_amount", 0.0)

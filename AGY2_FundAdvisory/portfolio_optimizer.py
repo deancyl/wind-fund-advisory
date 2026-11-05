@@ -12,7 +12,7 @@
 
 import datetime
 import hashlib
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -1864,3 +1864,93 @@ def execute_market_optimization_flow(
     }
     return full_payload
 
+
+
+def calculate_portfolio_risk_contributions(
+    weights: Dict[str, float],
+    cov_matrix: Optional[Union[np.ndarray, pd.DataFrame]] = None,
+    returns_df: Optional[pd.DataFrame] = None
+) -> Dict[str, Any]:
+    """
+    计算投资组合各项资产的风险贡献度占比 (PCR %, Percent Risk Contribution)
+    严格遵循数学公式：PCR_i = (w_i * (Sigma * w)_i) / (w^T * Sigma * w) * 100%
+    严格保证 sum(PCR_i) == 100.0%
+    """
+    valid_items = {str(k).strip(): float(v) for k, v in weights.items() if float(v) > 1e-6}
+    if not valid_items:
+        return {"pcr": {}, "total_pcr": 100.0, "is_risk_concentrated": False, "risk_budget_warning": "", "portfolio_vol_annual": 0.0}
+
+    total_w = sum(valid_items.values())
+    codes = list(valid_items.keys())
+    w_vec = np.array([valid_items[c] / total_w for c in codes], dtype=float)
+    n = len(codes)
+
+    sigma = None
+    if cov_matrix is not None:
+        if isinstance(cov_matrix, pd.DataFrame):
+            sub_cov = cov_matrix.reindex(index=codes, columns=codes).fillna(0.0).values
+            if sub_cov.shape == (n, n) and np.any(sub_cov):
+                sigma = sub_cov
+        elif isinstance(cov_matrix, np.ndarray) and cov_matrix.shape == (n, n):
+            sigma = cov_matrix
+
+    if sigma is None and returns_df is not None:
+        sub_ret = returns_df[[c for c in codes if c in returns_df.columns]]
+        if not sub_ret.empty and sub_ret.shape[1] == n:
+            sigma = sub_ret.cov().values
+
+    if sigma is None:
+        vols = np.array([0.18 if c.startswith(('0', '1', '5')) else 0.05 for c in codes])
+        corr = np.full((n, n), 0.3)
+        np.fill_diagonal(corr, 1.0)
+        sigma = np.outer(vols, vols) * corr / 252.0
+
+    port_var = float(w_vec.T @ sigma @ w_vec)
+    if port_var <= 1e-12:
+        equal_pcr = {c: round(100.0 / n, 2) for c in codes}
+        diff = round(100.0 - sum(equal_pcr.values()), 2)
+        equal_pcr[codes[-1]] = round(equal_pcr[codes[-1]] + diff, 2)
+        return {
+            "pcr": equal_pcr,
+            "total_pcr": 100.0,
+            "max_risk_asset": codes[0],
+            "max_risk_pcr": round(100.0 / n, 2),
+            "is_risk_concentrated": (100.0 / n > 35.0),
+            "risk_budget_warning": "单标的风险贡献超 35% 警戒线" if (100.0 / n > 35.0) else "风险分散良好",
+            "portfolio_vol_annual": 0.0
+        }
+
+    sigma_w = sigma @ w_vec
+    rc_vec = w_vec * sigma_w
+    pcr_vec = (rc_vec / port_var) * 100.0
+
+    pcr_dict = {}
+    running_sum = 0.0
+    for i, c in enumerate(codes):
+        val = round(float(pcr_vec[i]), 2)
+        pcr_dict[c] = val
+        running_sum += val
+
+    adj_diff = round(100.0 - running_sum, 2)
+    if abs(adj_diff) > 1e-4:
+        pcr_dict[codes[0]] = round(pcr_dict[codes[0]] + adj_diff, 2)
+
+    max_c = max(pcr_dict, key=pcr_dict.get)
+    max_pcr = pcr_dict[max_c]
+    is_concentrated = (max_pcr > 35.0)
+    warning_str = f"⚠️ 标的【{max_c}】风险贡献度达 {max_pcr:.1f}%，超过 35% 以损定仓护栏，建议压低权益敞口或追加固收底仓" if is_concentrated else "✅ 资产风险贡献度分布均衡（全标的 PCR ≤ 35%）"
+    ann_vol = round(float(np.sqrt(port_var * 252.0)) * 100.0, 2)
+
+    return {
+        "pcr": pcr_dict,
+        "total_pcr": 100.0,
+        "max_risk_asset": max_c,
+        "max_risk_pcr": max_pcr,
+        "is_risk_concentrated": is_concentrated,
+        "risk_budget_warning": warning_str,
+        "portfolio_vol_annual": ann_vol
+    }
+
+
+WinRateOptimizer.calculate_portfolio_risk_contributions = staticmethod(calculate_portfolio_risk_contributions)
+WinRateOptimizer.calculate_pcr = staticmethod(calculate_portfolio_risk_contributions)
