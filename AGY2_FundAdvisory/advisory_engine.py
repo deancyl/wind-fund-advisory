@@ -26,12 +26,13 @@ RADAR_SECTOR_CATALOG: Dict[str, Dict[str, Any]] = {
     "dividend_low_vol": {
         "sector_id": "dividend_low_vol",
         "name": "红利低波",
-        "benchmark_index": "000978",
+        "benchmark_index": "H30269",
         "symbol": "H30269",
-        "index_code": "000978",
+        "index_code": "H30269",
         "cs_code": "H30269",
         "matrix_col": "H30269",
         "category": "本土权益防御",
+        "fallback_parquet": "data/processed/csindex_H30269.parquet",
         "top_fund_code": "005561",
         "top_fund_name": "创金合信红利低波A",
         "default_fund": {"code": "005561", "name": "创金合信红利低波A", "share_class": "A"},
@@ -274,7 +275,7 @@ class OpportunityRadarEngine:
 
             for sec_id, meta in RADAR_SECTOR_CATALOG.items():
                 s = None
-                # 优先读取细分行业/赛道独立日线 parquet (如 000685 半导体、000933 医药、000932 白酒、399986 银行)
+                # 1. 优先读取细分行业/赛道独立日线 parquet (如 000685 半导体、000933 医药、000932 白酒、399986 银行)
                 fb = meta.get("fallback_parquet")
                 if fb:
                     fb_p = WORKSPACE_ROOT / fb if not os.path.isabs(fb) else Path(fb)
@@ -288,7 +289,47 @@ class OpportunityRadarEngine:
                         except Exception:
                             s = None
 
-                # 若无细分日线或长度不足，从大盘行情对齐矩阵提取
+                # 2. 二级真数据回退：若独立日线缺失，从赛道标杆/优选基金日线缓存提取真实净值序列
+                if s is None or len(s) < 25:
+                    top_code = meta.get("top_fund_code") or meta.get("default_fund", {}).get("code")
+                    if top_code:
+                        for nc_p in [
+                            WORKSPACE_ROOT / "data/cache/market_screener/nav_cache" / f"{top_code}.parquet",
+                            WORKSPACE_ROOT / "data/nav_cache" / f"{top_code}.parquet",
+                            WORKSPACE_ROOT / "AGY2_FundAdvisory/data/nav_cache" / f"{top_code}.parquet"
+                        ]:
+                            if nc_p.exists():
+                                try:
+                                    ncdf = pd.read_parquet(nc_p)
+                                    if "nav" in ncdf.columns:
+                                        s = ncdf["nav"].dropna().values.astype(float)
+                                        break
+                                    elif "close" in ncdf.columns:
+                                        s = ncdf["close"].dropna().values.astype(float)
+                                        break
+                                except Exception:
+                                    pass
+
+                # 3. 三级真数据回退：若仍不足，从 DuckDB 查询历史真实净值日度序列
+                if (s is None or len(s) < 25):
+                    try:
+                        import duckdb
+                        db_path = WORKSPACE_ROOT / "data/storage.duckdb"
+                        if db_path.exists():
+                            top_code = meta.get("top_fund_code") or meta.get("default_fund", {}).get("code")
+                            if top_code:
+                                conn = duckdb.connect(str(db_path), read_only=True)
+                                q_res = conn.execute(
+                                    "SELECT nav FROM v_fund_nav_history WHERE symbol = ? OR symbol = ? ORDER BY trade_date ASC",
+                                    (top_code, f"{top_code}.OF")
+                                ).df()
+                                if not q_res.empty and "nav" in q_res.columns:
+                                    s = q_res["nav"].dropna().values.astype(float)
+                                conn.close()
+                    except Exception:
+                        pass
+
+                # 4. 四级真数据回退：若无细分日线或长度不足，从大盘行情对齐矩阵提取
                 if (s is None or len(s) < 25) and df_mat is not None:
                     m_col = meta.get("matrix_col")
                     if m_col and m_col in cols:
@@ -301,7 +342,7 @@ class OpportunityRadarEngine:
                                 s = df_mat[c].dropna().values.astype(float)
                                 break
 
-                # 若仍不足，从全球指数表提取
+                # 5. 五级真数据回退：从全球指数表提取
                 if (s is None or len(s) < 25) and global_df is not None:
                     idx_c = meta.get("benchmark_index") or meta.get("index_code")
                     if idx_c and "index_code" in global_df.columns:
@@ -316,10 +357,39 @@ class OpportunityRadarEngine:
                     sum_diff = sum(diffs)
                     er = float(np.clip(abs(p_t - p_t20) / sum_diff if sum_diff > 1e-8 else 0.5, 0.1, 0.95))
                     ma20 = float(np.mean(s[-20:]))
+
+                    # 对红利类标的平滑除权脉冲，避免全收益指数在集中分红月产生虚假正乖离
+                    if sec_id in ("dividend_low_vol", "csi_dividend", "banking_dividend") and len(s) >= 30:
+                        daily_returns = np.diff(s[-25:]) / s[-25:-1]
+                        # 剔除单日分红再投资脉冲 (>2.5% 或 >3.0*sigma_hist) 对均线与点位的虚假跳空扭曲
+                        sigma_hist = float(np.std(daily_returns)) if len(daily_returns) > 5 else 0.01
+                        threshold = max(0.025, 3.0 * sigma_hist)
+                        normal_returns = np.clip(daily_returns, -threshold, threshold)
+                        reconstructed_s = [s[-25]]
+                        for r in normal_returns:
+                            reconstructed_s.append(reconstructed_s[-1] * (1.0 + r))
+                        s_eff = np.array(reconstructed_s)
+                        p_t = float(s_eff[-1])
+                        p_t20 = float(s_eff[-20])
+                        ma20 = float(np.mean(s_eff[-20:]))
+                        diffs = [abs(s_eff[-k] - s_eff[-k-1]) for k in range(1, 20)]
+                        sum_diff = sum(diffs)
+                        er = float(np.clip(abs(p_t - p_t20) / sum_diff if sum_diff > 1e-8 else 0.5, 0.1, 0.95))
+
                     bias = float(((p_t - ma20) / ma20) * 100.0) if ma20 > 1e-8 else 0.0
                     ma20_prev = float(np.mean(s[-25:-5])) if len(s) >= 25 else ma20
                     slope = float(((ma20 - ma20_prev) / ma20_prev) * 50.0 * 100.0) if ma20_prev > 1e-8 else 0.0
-                    crowd = float(np.clip(92.0 - 2.5 * max(0.0, bias - 2.0) + (1.0 - er) * 4.0, 45.0, 96.0))
+
+                    # 拥挤度评分：融合短期波动放大倍率 (Vol Ratio 近5日波动 / 近60日波动) 与乖离率动态精算
+                    if len(s) >= 40:
+                        d_rets = np.diff(s[-40:]) / s[-40:-1]
+                        vol_5 = float(np.std(d_rets[-5:])) if len(d_rets) >= 5 else 0.01
+                        vol_long = float(np.std(d_rets)) if len(d_rets) >= 20 else 0.01
+                        vol_ratio = vol_5 / vol_long if vol_long > 1e-6 else 1.0
+                    else:
+                        vol_ratio = 1.0
+
+                    crowd = float(np.clip(91.0 - 2.2 * max(0.0, bias - 1.5) - 6.0 * max(0.0, vol_ratio - 1.1) + (1.0 - er) * 3.5, 42.0, 96.0))
 
                     metrics[sec_id] = {
                         "er_20": round(float(er), 2),
@@ -346,16 +416,7 @@ class OpportunityRadarEngine:
         if not val_map:
             val_map = self.valuation_cache or {}
 
-        # 特殊无 PE 与固收赛道专业中枢锚定
-        if sec_id in ("pure_bond", "bond"):
-            return 40.0  # 利率稳健·防守底仓，严禁拿长牛收盘价算出 99%
-        elif sec_id in ("domestic_gold", "gold"):
-            return 52.0  # 抗通胀对冲·无PE
-        elif sec_id in ("dividend_low_vol", "csi_dividend", "banking_dividend"):
-            # 结合 PB 与股息风险溢价 (DRP) 校准至低估/适中区间 (32%~45%)
-            pass
-
-        # 匹配候选代码 (对齐侧边栏走廊)
+        # 匹配候选代码 (对齐侧边栏走廊与官方指数估值)
         candidates = [
             meta.get("benchmark_index"),
             meta.get("symbol"),

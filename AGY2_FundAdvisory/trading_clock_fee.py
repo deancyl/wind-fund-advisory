@@ -285,12 +285,32 @@ class TradingClock:
                 "allow_immediate_exec": False
             }
 
+    @staticmethod
+    def is_qdii_fund(fund_code: str, fund_name: str = "") -> bool:
+        """识别是否为跨时区 QDII 基金"""
+        c = str(fund_code or "").strip().zfill(6)
+        n = str(fund_name or "").strip()
+        if c in ("050025", "001071", "013402", "006075", "006479", "017436", "017437"):
+            return True
+        if any(k in n for k in ["QDII", "标普", "纳斯达克", "美股", "纳指", "恒生", "海外", "全球"]):
+            return True
+        return False
+
     def calculate_settlement_dates(
         self,
         order_dt: Optional[datetime] = None,
         confirm_cycle: str = "T+1",
-        arrive_cycle: str = "T+2"
+        arrive_cycle: str = "T+2",
+        fund_code: Optional[str] = None,
+        fund_name: str = ""
     ) -> Dict[str, str]:
+        """
+        推算交易的生效交易日 T、份额确认日与资金到账日
+        自动识别 QDII 跨时区基金并应用 T+2 确认 / T+7 到账专属交割规则
+        """
+        if fund_code and self.is_qdii_fund(fund_code, fund_name):
+            confirm_cycle = "T+2"
+            arrive_cycle = "T+7"
         """
         推算一笔交易的生效交易日 T、份额确认日与资金到账日
         """
@@ -620,3 +640,7 @@ class FeeMatrixCalculator:
             "diff_pct": diff_pct,
             "delta_amount": delta_amount
         }
+
+
+# 全局兼容导出别名
+TradingClockFee = TradingClock

@@ -51,6 +51,8 @@ except Exception:
         MultiLedgerManager = None
 from portfolio_manager import (
     PortfolioManager,
+    FundHolding,
+    HoldingItem,
     CORE_STRATEGY_POOL,
     EXTENDED_FUND_CATALOG,
     SECTOR_FUND_SELECTION,
@@ -1942,25 +1944,25 @@ def _cached_find_historical_analogs(top_k: int = 3):
 @st.cache_data(ttl=300)
 def _cached_look_through_industry(holdings_items: tuple):
     cur_pm = st.session_state.get("pm") or pm
-    h_dict = {c: HoldingItem(fund_code=c, fund_name=fn, shares=sh, cost_nav=cn, current_nav=nav) for c, fn, sh, cn, nav in holdings_items} if holdings_items else None
+    h_dict = {c: HoldingItem(fund_code=c, fund_name=fn, shares=sh, cost_price=cn, current_nav=nav, cost_nav=cn, market_value=round(sh*nav, 2)) for c, fn, sh, cn, nav in holdings_items} if holdings_items else None
     return cur_pm.calculate_look_through_industry_exposure(holdings_override=h_dict)
 
 @st.cache_data(ttl=300)
 def _cached_stock_overlap(holdings_items: tuple):
     cur_pm = st.session_state.get("pm") or pm
-    h_dict = {c: HoldingItem(fund_code=c, fund_name=fn, shares=sh, cost_nav=cn, current_nav=nav) for c, fn, sh, cn, nav in holdings_items} if holdings_items else None
+    h_dict = {c: HoldingItem(fund_code=c, fund_name=fn, shares=sh, cost_price=cn, current_nav=nav, cost_nav=cn, market_value=round(sh*nav, 2)) for c, fn, sh, cn, nav in holdings_items} if holdings_items else None
     return cur_pm.calculate_stock_overlap_matrix(holdings_override=h_dict)
 
 @st.cache_data(ttl=300)
 def _cached_penetration_risk(holdings_items: tuple):
     cur_pm = st.session_state.get("pm") or pm
-    h_dict = {c: HoldingItem(fund_code=c, fund_name=fn, shares=sh, cost_nav=cn, current_nav=nav) for c, fn, sh, cn, nav in holdings_items} if holdings_items else None
+    h_dict = {c: HoldingItem(fund_code=c, fund_name=fn, shares=sh, cost_price=cn, current_nav=nav, cost_nav=cn, market_value=round(sh*nav, 2)) for c, fn, sh, cn, nav in holdings_items} if holdings_items else None
     return cur_pm.calculate_portfolio_penetration_risk(holdings_override=h_dict)
 
 @st.cache_data(ttl=300)
 def _cached_stocks_df(holdings_items: tuple):
     cur_pm = st.session_state.get("pm") or pm
-    h_dict = {c: HoldingItem(fund_code=c, fund_name=fn, shares=sh, cost_nav=cn, current_nav=nav) for c, fn, sh, cn, nav in holdings_items} if holdings_items else None
+    h_dict = {c: HoldingItem(fund_code=c, fund_name=fn, shares=sh, cost_price=cn, current_nav=nav, cost_nav=cn, market_value=round(sh*nav, 2)) for c, fn, sh, cn, nav in holdings_items} if holdings_items else None
     return cur_pm.get_portfolio_look_through_stocks_df(holdings_override=h_dict)
 
 
@@ -2725,7 +2727,7 @@ with tab_zero_start:
                             <span style="font-size: 12px; font-weight: 500; color: var(--text-muted);">(全历史 {_uncond_wr:.1f}%)</span>
                         </div>
                         <div style="font-size: 12px; color: var(--text-secondary); font-weight: 500;">
-                            保本率 <b>{_no_loss:.0f}%</b> ｜ 跑赢货基 <b>{_beat_cash:.0f}%</b> ｜ 中位年化 <b>{_med_ann:.1f}%</b>
+                            正收益概率 <b>{_no_loss:.0f}%</b> ｜ 跑赢货基 <b>{_beat_cash:.0f}%</b> ｜ 中位年化 <b>{_med_ann:.1f}%</b>
                         </div>
                     </div>
                     """)
@@ -2733,7 +2735,7 @@ with tab_zero_start:
             with st.expander("ℹ️ 量化数学定义：多维胜率与尾部底线 (CVaR)", expanded=False):
                 st.markdown(r"""
                 - **达标胜率**：在历史所有滚动持有期窗口中，组合真实年化收益率 $\ge$ 用户设定目标年化收益率的加权百分比；
-                - **保本率 (收益 $\ge 0\%$)**：持有期满本金不亏损的概率。纯债配置较高时此项较高，但不可与“达标胜率”混为一谈；
+                - **正收益概率 (收益 $\ge 0\%$)**：持有期满本金不亏损的概率（本金安全率）。纯债配置较高时此项较高，但不可与“达标胜率”混为一谈；
                 - **跑赢货基率 (收益 $\ge 1.8\%$)**：年化净收益超越同期货币基金与现金管理的概率，反映承担波动是否获得有效流动性溢价；
                 - **95% 尾部底线 (CVaR)**：在历史最极端的 5% 尾部黑天鹅行情中，组合的平均亏损底线，杜绝深度套牢。
                 """)
@@ -3406,6 +3408,91 @@ def _safe_str(val, default="cash") -> str:
         return str(default)
     return s
 
+def _commit_edited_holdings_table(edited_df: pd.DataFrame, pm_inst) -> tuple:
+    """
+    统一提纯的表格未保存修改自动同步入库核心函数：
+    双向自适应反算市值/份额/成本价，联网补齐真实净值与名称，杜绝丢数。
+    """
+    if edited_df is None or edited_df.empty:
+        return [], []
+    valid_codes = set()
+    error_msgs = []
+    success_codes = []
+    for _, row in edited_df.iterrows():
+        raw_code = _safe_str(row.get("基金代码"), "")
+        if not raw_code:
+            continue
+        code_s = raw_code.zfill(6)
+        if not code_s.isdigit() or len(code_s) != 6:
+            error_msgs.append(f"标的代码 [{raw_code}] 格式不合法（必须为6位纯数字），已跳过")
+            continue
+
+        valid_codes.add(code_s)
+        old_h = pm_inst.holdings.get(code_s)
+        new_mkt = _safe_float(row.get("当前市值(元)"), 0.0)
+        new_shares = _safe_float(row.get("持仓份额"), 0.0)
+
+        quote = fetch_realtime_fund_quote(code_s)
+        real_nav = float(quote.dwjz if (quote and quote.dwjz > 0) else _safe_float(row.get("当前净值"), 1.0))
+        if real_nav <= 0:
+            real_nav = 1.0
+
+        real_name = quote.name if (quote and quote.name and not quote.name.startswith("公募基金_")) else None
+        h_days = _safe_int(row.get("最短持有天数"), 30)
+        div_m = _safe_str(row.get("分红方式"), "cash")
+
+        row_pnl = _safe_float(row.get("累计盈亏(元)"), None)
+        row_cost = _safe_float(row.get("持仓成本价"), 0.0)
+        old_pnl = float(old_h.floating_pnl) if old_h else None
+
+        if row_pnl is not None and (old_pnl is None or abs(row_pnl - old_pnl) > 0.5):
+            cost = max(0.01, round((new_mkt - row_pnl) / (new_shares if new_shares > 0 else (new_mkt / real_nav)), 4)) if new_mkt > 0 else real_nav
+        elif row_cost > 0:
+            cost = row_cost
+        else:
+            cost = float(old_h.cost_price if (old_h and old_h.cost_price > 0) else real_nav)
+
+        if old_h:
+            old_mkt = float(old_h.market_value)
+            old_shares = float(old_h.shares)
+            if abs(new_mkt - old_mkt) > 1.0 and abs(new_shares - old_shares) <= 0.01:
+                final_shares = round(new_mkt / real_nav, 2)
+            elif abs(new_shares - old_shares) > 0.01:
+                final_shares = new_shares
+            else:
+                final_shares = new_shares
+        else:
+            if new_mkt > 0 and new_shares <= 0:
+                final_shares = round(new_mkt / real_nav, 2)
+            elif new_shares > 0:
+                final_shares = new_shares
+            else:
+                final_shares = round(new_mkt / real_nav, 2) if new_mkt > 0 else 1000.0
+
+        pm_inst.add_or_update_holding(
+            fund_code=code_s,
+            shares=final_shares,
+            nav=real_nav,
+            cost_price=cost,
+            holding_days=h_days,
+            dividend_method=div_m,
+            fund_name=real_name,
+            notes="代码智能联动与市值反算入库"
+        )
+        intent_raw = str(row.get("调仓意愿", "正常参与"))
+        intent_key = "lock" if "锁" in intent_raw else ("liquidate" if "清" in intent_raw else "normal")
+        if code_s in pm_inst.holdings:
+            pm_inst.holdings[code_s].rebalance_intent = intent_key
+        success_codes.append(code_s)
+
+    for exist_c in list(pm_inst.holdings.keys()):
+        if exist_c not in valid_codes:
+            pm_inst.delete_holding(exist_c)
+
+    pm_inst.save_state(record_snapshot=True)
+    return success_codes, error_msgs
+
+
 with tab_holdings_and_rebalance:
     try:
         active_tier = st.session_state.get("active_tier_val", "C3")
@@ -3976,93 +4063,12 @@ with tab_holdings_and_rebalance:
             col_op1, col_op2, col_op3, col_op4, col_op5 = st.columns(5)
             with col_op1:
                 if st.button("💾 保存修改并入库", type="primary", use_container_width=True, key="btn_save_holdings_tab2"):
-                    valid_codes = set()
-                    error_msgs = []
-                    success_codes = []
                     with st.spinner("🔄 正在智能补齐基金名称、最新净值与盘中估值..."):
-                        for _, row in edited_table.iterrows():
-                            raw_code = _safe_str(row.get("基金代码"), "")
-                            if not raw_code:
-                                continue
-                            code_s = raw_code.zfill(6)
-                            if not code_s.isdigit() or len(code_s) != 6:
-                                error_msgs.append(f"标的代码 [{raw_code}] 格式不合法（必须为6位纯数字），已跳过")
-                                continue
-
-                            valid_codes.add(code_s)
-                            old_h = pm.holdings.get(code_s)
-                            new_mkt = _safe_float(row.get("当前市值(元)"), 0.0)
-                            new_shares = _safe_float(row.get("持仓份额"), 0.0)
-
-                            # 核心联动：若代码变动或新加入标的，自动联网拉取真实净值与元数据
-                            quote = fetch_realtime_fund_quote(code_s)
-                            real_nav = float(quote.dwjz if (quote and quote.dwjz > 0) else _safe_float(row.get("当前净值"), 1.0))
-                            if real_nav <= 0:
-                                real_nav = 1.0
-
-                            # 真实基金名称补齐
-                            real_name = quote.name if (quote and quote.name and not quote.name.startswith("公募基金_")) else None
-
-                            h_days = _safe_int(row.get("最短持有天数"), 30)
-                            div_m = _safe_str(row.get("分红方式"), "cash")
-
-                            # 四向自适应反算：改累计盈亏反算成本价，改成本价反算盈亏
-                            row_pnl = _safe_float(row.get("累计盈亏(元)"), None)
-                            row_cost = _safe_float(row.get("持仓成本价"), 0.0)
-                            old_pnl = float(old_h.floating_pnl) if old_h else None
-
-                            if row_pnl is not None and (old_pnl is None or abs(row_pnl - old_pnl) > 0.5):
-                                # 用户双击修改了累计盈亏(元)，反算加权成本价
-                                cost = max(0.01, round((new_mkt - row_pnl) / (new_shares if new_shares > 0 else (new_mkt / real_nav)), 4)) if new_mkt > 0 else real_nav
-                            elif row_cost > 0:
-                                cost = row_cost
-                            else:
-                                cost = float(old_h.cost_price if (old_h and old_h.cost_price > 0) else real_nav)
-
-                            # 双向自适应反算：改市值算份额，改份额算市值
-                            if old_h:
-                                old_mkt = float(old_h.market_value)
-                                old_shares = float(old_h.shares)
-                                if abs(new_mkt - old_mkt) > 1.0 and abs(new_shares - old_shares) <= 0.01:
-                                    final_shares = round(new_mkt / real_nav, 2)
-                                elif abs(new_shares - old_shares) > 0.01:
-                                    final_shares = new_shares
-                                else:
-                                    final_shares = new_shares
-                            else:
-                                if new_mkt > 0 and new_shares <= 0:
-                                    final_shares = round(new_mkt / real_nav, 2)
-                                elif new_shares > 0:
-                                    final_shares = new_shares
-                                else:
-                                    final_shares = round(new_mkt / real_nav, 2) if new_mkt > 0 else 1000.0
-
-                            pm.add_or_update_holding(
-                                fund_code=code_s,
-                                shares=final_shares,
-                                nav=real_nav,
-                                cost_price=cost,
-                                holding_days=h_days,
-                                dividend_method=div_m,
-                                fund_name=real_name,
-                                notes="代码智能联动与市值反算入库"
-                            )
-                            # 同步调仓意愿
-                            intent_raw = str(row.get("调仓意愿", "正常参与"))
-                            intent_key = "lock" if "锁" in intent_raw else ("liquidate" if "清" in intent_raw else "normal")
-                            if code_s in pm.holdings:
-                                pm.holdings[code_s].rebalance_intent = intent_key
-                            success_codes.append(code_s)
-
-                        for exist_c in list(pm.holdings.keys()):
-                            if exist_c not in valid_codes:
-                                pm.delete_holding(exist_c)
-
+                        success_codes, error_msgs = _commit_edited_holdings_table(edited_table, pm)
                         st.session_state.tab2_diag_cache = None
                         st.session_state.tab2_rebal_cache = None
                         st.session_state.tab2_diagnosed = False
                         st.session_state.tab2_rebalanced = False
-
                     if error_msgs:
                         for em in error_msgs:
                             st.warning(f"⚠️ {em}")
@@ -4307,7 +4313,7 @@ with tab_holdings_and_rebalance:
                         st.rerun()
 
                 st.markdown("---")
-                st.markdown("##### 📋 实盘接管基准档案")
+                st.markdown("##### 📋 实盘接管基准档案与净值曲线")
                 col_arch1, col_arch2 = st.columns(2)
                 with col_arch1:
                     st.write(f"**接管模式**：{'模式 A (极简冷启动)' if pm.takeover_mode == 'A' else '模式 B (账本热接管)'}")
@@ -4317,6 +4323,32 @@ with tab_holdings_and_rebalance:
                     st.write(f"**峰值总资产**：¥{pm.peak_equity:,.2f}")
                     st.write(f"**接管期最大回撤**：`{pm.max_drawdown_pct:.2f}%`")
                     st.write(f"**基准超额 (Alpha)**：`{pm.alpha_return_pct:+.2f}%` (vs {pm.benchmark_code})")
+
+                # 绘制《实盘账户累计净值 vs 沪深300基准走势图》
+                nav_records = getattr(pm, "nav_history", []) or []
+                if not nav_records:
+                    nav_records = [
+                        {"date": pm.baseline_date, "account_nav": 1.0000, "benchmark_nav": 1.0000},
+                        {"date": datetime.now().strftime("%Y-%m-%d"), "account_nav": round(1.0 + pm.portfolio_return_pct/100.0, 4), "benchmark_nav": round(1.0 + pm.benchmark_return_pct/100.0, 4)}
+                    ]
+
+                df_nav_curve = pd.DataFrame(nav_records)
+                if not df_nav_curve.empty and "date" in df_nav_curve.columns:
+                    fig_nav = px.line(
+                        df_nav_curve,
+                        x="date",
+                        y=["account_nav", "benchmark_nav"],
+                        labels={"date": "日期", "value": "累计单位净值", "variable": "对比曲线"},
+                        title=f"📈 实盘账户累计净值走势 (接管至今 Alpha: {pm.alpha_return_pct:+.2f}%)",
+                        color_discrete_map={"account_nav": "#38bdf8", "benchmark_nav": "#94a3b8"}
+                    )
+                    fig_nav.update_layout(
+                        margin=dict(t=35, b=10, l=10, r=10),
+                        height=260,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    )
+                    apply_theme_to_plotly_figure(fig_nav)
+                    st.plotly_chart(fig_nav, use_container_width=True)
 
             with dock_tab4:
                 st.markdown("##### ⏳ 在途订单确认与 T+1 对账中心")
@@ -4451,6 +4483,9 @@ with tab_holdings_and_rebalance:
         col_t2_btn1, col_t2_buf_bot, col_t2_btn2 = st.columns([3.5, 4.0, 2.5])
         with col_t2_btn1:
             if st.button("🔍 诊断今日调仓时机", type="primary", use_container_width=True, key="btn_tab2_diagnose"):
+                # 💡 自动拦截并同步表格未保存修改，杜绝丢数
+                if "edited_table" in locals() and edited_table is not None:
+                    _commit_edited_holdings_table(edited_table, pm)
                 st.session_state.tab2_diagnosed = True
                 st.session_state.tab2_trigger_diagnose = True
                 st.rerun()
@@ -5064,6 +5099,20 @@ with tab_holdings_and_rebalance:
                         st.session_state.selected_secondary_weights = tier_target_w
                         st.session_state.tab3_backtest_activated = True
                         st.success("✅ 已将调仓前后组合送入组合回测，请切换至 Tab 3 查看双曲线对比。")
+
+                # 一键跟单打卡闭环按钮
+                safe_markdown_html("<div style='height: 8px;'></div>")
+                if st.button("✅ 我已在手机端按此方案下单 ➔ 一键将调仓单同步至当前账本持仓", type="primary", use_container_width=True, key="btn_confirm_follow_rebalance_tab2"):
+                    with st.spinner("🔄 正在执行调仓账本同步与净值打卡..."):
+                        up_cnt = pm.apply_rebalance_orders_to_holdings(rows_display)
+                        st.session_state.tab2_diag_cache = None
+                        st.session_state.tab2_rebal_cache = None
+                        st.session_state.tab2_diagnosed = False
+                        st.session_state.tab2_rebalanced = False
+                        st.session_state.tab2_trigger_diagnose = False
+                    st.balloons()
+                    st.success(f"🎉 成功同步！已将 {up_cnt} 笔调仓执行单记账入库，实盘账户净值走势已打卡！")
+                    st.rerun()
 
     except Exception as e:
         st.error(f"⚠️ 【💼 持仓调仓】渲染出现局部异常: {e}")

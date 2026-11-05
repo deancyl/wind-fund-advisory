@@ -222,7 +222,7 @@ class IndexValuationEngine:
             {"code": "000852", "secid": "1.000852", "name": "中证1000", "type": "broad_lg", "lg_name": "中证1000", "cs_code": "000852", "duck_code": "000852.SH", "parquet": "data/processed/csindex_H00852.parquet", "aliases": ["H00852"]},
             {"code": "000016", "secid": "1.000016", "name": "上证50", "type": "broad_lg", "lg_name": "上证50", "cs_code": "000016", "duck_code": "000016.SH", "parquet": "data/processed/indices/000016.SH.parquet", "aliases": []},
             {"code": "000922", "secid": "1.000922", "name": "中证红利", "type": "cs_parquet", "cs_code": "000922", "parquet": "data/processed/csindex_H00922.parquet", "aliases": ["H00922"]},
-            {"code": "H30269", "secid": "0.H30269", "name": "红利低波", "type": "cs_parquet", "cs_code": "H30269", "parquet": "data/processed/csindex_H30269.parquet", "aliases": ["000978"]},
+            {"code": "H30269", "secid": "0.H30269", "name": "红利低波", "type": "cs_parquet", "cs_code": "H30269", "parquet": "data/processed/csindex_H30269.parquet", "aliases": ["930955"]},
             {"code": "000688", "secid": "1.000688", "name": "科创50", "type": "sector_parquet", "cs_code": "000688", "parquet": "data/processed/indices/000688.SH.parquet", "aliases": ["STAR50_STITCH"]},
             {"code": "000685", "secid": "1.000685", "name": "半导体芯片", "type": "sector_parquet", "cs_code": "000685", "parquet": "data/processed/indices/000685.SH.parquet", "aliases": ["980017"]},
             {"code": "000933", "secid": "1.000933", "name": "医药医疗", "type": "sector_parquet", "cs_code": "000933", "parquet": "data/processed/indices/000933.SH.parquet", "aliases": []},

@@ -276,6 +276,21 @@ class FundHolding:
     is_core_strategy: bool = False # 是否属于 AGY2 核心策略池
     transition_tag: str = ""      # 换仓过渡标签
     rebalance_intent: str = "normal" # 调仓意愿: normal(正常参与) | lock(锁定禁卖) | liquidate(优先清仓)
+    cost_nav: float = 0.0         # 兼容参数别名 (等同 cost_price)
+
+    def __post_init__(self):
+        if self.cost_nav and self.cost_price == 1.0 and self.cost_nav != 1.0:
+            self.cost_price = self.cost_nav
+        if self.market_value <= 0.0 and self.shares > 0.0:
+            self.market_value = round(self.shares * self.current_nav, 2)
+        if self.cost_basis <= 0.0 and self.shares > 0.0:
+            self.cost_basis = round(self.shares * self.cost_price, 2)
+        if self.cost_basis > 0.0 and self.floating_pnl == 0.0 and self.market_value > 0.0:
+            self.floating_pnl = round(self.market_value - self.cost_basis, 2)
+            self.floating_pnl_pct = round((self.floating_pnl / self.cost_basis) * 100.0, 2)
+
+# 全局兼容类型别名，确保 HoldingItem 与 FundHolding 完全等价
+HoldingItem = FundHolding
 
 
 @dataclass
@@ -2379,6 +2394,33 @@ def replace_restricted_funds_with_alternatives(
 # =====================================================================
 
 class PortfolioManager:
+    @staticmethod
+    def is_qdii_fund(fund_code: str, fund_name: str = "") -> bool:
+        """识别是否为跨时区 QDII 基金"""
+        c = str(fund_code or "").strip().zfill(6)
+        n = str(fund_name or "").strip()
+        if c in ("050025", "001071", "013402", "006075", "006479", "017436", "017437"):
+            return True
+        if any(k in n for k in ["QDII", "标普", "纳斯达克", "美股", "纳指", "恒生", "海外", "全球"]):
+            return True
+        return False
+
+    @staticmethod
+    def get_fund_valuation_reliability_tag(fund_code: str, fund_name: str = "") -> str:
+        """根据基金类型动态附加盘中估值可信度标识"""
+        c = str(fund_code or "").strip().zfill(6)
+        n = str(fund_name or "").strip()
+        if c in ("050025", "001071") or any(k in n for k in ["标普", "纳斯达克", "美股", "纳指"]):
+            return "美股休市·看隔夜期指"
+        elif c in ("013402",) or any(k in n for k in ["恒生", "港股"]):
+            return "港股盘中高准度"
+        elif any(k in n for k in ["债", "固收", "裕祥", "稳益", "理财", "存单"]):
+            return "债基看久期票息"
+        elif any(k in n for k in ["指数", "ETF", "联接", "300", "500", "1000", "红利", "低波", "科创", "芯片", "半导体", "黄金"]):
+            return "指数高准度"
+        else:
+            return "季报重仓估算"
+
     """实盘基金投资组合接管与智能投顾管理核心引擎"""
 
     _get_sector_alternatives = staticmethod(_get_sector_alternatives)
@@ -2435,6 +2477,7 @@ class PortfolioManager:
         self.available_cash: float = 0.0
         self.in_transit_cash: float = 0.0
         self.staged_batch_plans: List[Dict[str, Any]] = []
+        self.nav_history: List[Dict[str, Any]] = []
         self.baseline_date: str = datetime.now().strftime("%Y-%m-%d")
         self.baseline_equity: float = 0.0
         self.takeover_mode: str = "A" # A (极简冷启动) 或 B (账本热接管)
@@ -2741,6 +2784,29 @@ class PortfolioManager:
         持久化当前运行态至 SQLite 与 JSON，并自动记录 Undo 快照
         """
         self._recalculate_totals()
+        # 记录实盘净值记账历史 (Realized Account NAV Curve)
+        today_s = datetime.now().strftime("%Y-%m-%d")
+        total_market_val = sum(h.market_value for h in self.holdings.values())
+        cur_tot_equity = total_market_val + self.available_cash + self.in_transit_cash
+        b_eq = float(self.baseline_equity) if self.baseline_equity > 0 else float(cur_tot_equity or 100000.0)
+        acct_nav = round(cur_tot_equity / b_eq, 4) if b_eq > 0 else 1.0000
+        bm_base = float(self.benchmark_baseline_nav or 1.0)
+        bm_nav = round((self.benchmark_current_nav or 1.0) / (bm_base if bm_base > 0 else 1.0), 4)
+
+        if not hasattr(self, "nav_history") or self.nav_history is None:
+            self.nav_history = []
+        if self.nav_history and self.nav_history[-1].get("date") == today_s:
+            self.nav_history[-1]["total_equity"] = round(cur_tot_equity, 2)
+            self.nav_history[-1]["account_nav"] = acct_nav
+            self.nav_history[-1]["benchmark_nav"] = bm_nav
+        else:
+            self.nav_history.append({
+                "date": today_s,
+                "total_equity": round(cur_tot_equity, 2),
+                "account_nav": acct_nav,
+                "benchmark_nav": bm_nav
+            })
+
         state_dict = self._export_state_dict()
 
         conn = self._get_db_connection()
@@ -2986,6 +3052,7 @@ class PortfolioManager:
             "holdings": holdings_list,
             "pending_orders": orders_list,
             "staged_batch_plans": copy.deepcopy(self.staged_batch_plans),
+            "nav_history": copy.deepcopy(getattr(self, "nav_history", [])),
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
@@ -2998,6 +3065,7 @@ class PortfolioManager:
         self.in_transit_cash = float(state.get("in_transit_cash", 0.0))
         self.reserved_batch_cash = float(state.get("reserved_batch_cash", 0.0))
         self.staged_batch_plans = copy.deepcopy(state.get("staged_batch_plans", []))
+        self.nav_history = copy.deepcopy(state.get("nav_history", []))
         self.peak_equity = float(state.get("peak_equity", self.baseline_equity))
         self.max_drawdown_pct = float(state.get("max_drawdown_pct", 0.0))
         self.benchmark_code = state.get("benchmark_code", "000300.SH")
@@ -6087,11 +6155,18 @@ class PortfolioManager:
             s_comp = s["company"]
             s_code = s["fund_code"]
 
+            # QDII 基金跨时区清算，严禁列入同公司 T+1 转换候选
+            if self.is_qdii_fund(s_code, s.get("fund_name", "")):
+                continue
+
             for b_idx, b in enumerate(buy_actions):
                 if b_idx in matched_buys:
                     continue
                 b_comp = b["company"]
                 b_code = b["fund_code"]
+
+                if self.is_qdii_fund(b_code, b.get("fund_name", "")):
+                    continue
 
                 if s_comp and b_comp and s_comp == b_comp:
                     # 同公司匹配成功！
@@ -6267,6 +6342,60 @@ class PortfolioManager:
             "in_transit_cash": self.in_transit_cash
         }
 
+
+    def apply_rebalance_orders_to_holdings(
+        self,
+        orders_rows: List[Dict[str, Any]]
+    ) -> int:
+        """
+        一键跟单打卡：将前端调仓执行单行结果真实记账入库，完成投后闭环
+        """
+        updated_count = 0
+        for r in orders_rows:
+            fcode = str(r.get("基金代码") or "").strip().zfill(6)
+            if not fcode or not fcode.isdigit():
+                continue
+            fname = r.get("基金名称", fcode)
+            action_desc = r.get("建议操作", "")
+            amt_chg = float(r.get("建议调仓金额(元)", 0.0))
+
+            cur_h = self.holdings.get(fcode)
+            real_nav = float(cur_h.current_nav if cur_h else 1.0)
+            if real_nav <= 0:
+                real_nav = 1.0
+
+            if "清仓" in action_desc:
+                self.delete_holding(fcode)
+                self.available_cash += float(cur_h.market_value if cur_h else 0.0)
+                updated_count += 1
+            elif "减持" in action_desc and cur_h:
+                sell_amt = min(abs(amt_chg), float(cur_h.market_value))
+                sell_shares = round(sell_amt / real_nav, 2)
+                cur_h.shares = max(0.0, round(cur_h.shares - sell_shares, 2))
+                cur_h.market_value = round(cur_h.shares * real_nav, 2)
+                self.available_cash += sell_amt
+                updated_count += 1
+            elif "增持" in action_desc or "建仓" in action_desc:
+                buy_amt = abs(amt_chg)
+                buy_shares = round(buy_amt / real_nav, 2)
+                if cur_h:
+                    cur_h.shares = round(cur_h.shares + buy_shares, 2)
+                    cur_h.market_value = round(cur_h.shares * real_nav, 2)
+                else:
+                    self.add_or_update_holding(
+                        fund_code=fcode,
+                        shares=buy_shares,
+                        nav=real_nav,
+                        cost_price=real_nav,
+                        holding_days=1,
+                        fund_name=fname,
+                        notes="调仓一键跟单执行建仓"
+                    )
+                self.available_cash = max(0.0, round(self.available_cash - buy_amt, 2))
+                updated_count += 1
+
+        self.save_state(record_snapshot=True)
+        return updated_count
 
     def generate_scenario_rebalance_plan(
         self,

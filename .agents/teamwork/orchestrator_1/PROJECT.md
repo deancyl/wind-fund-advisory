@@ -1,127 +1,127 @@
-# Project: Wind 投顾系统多账本体系与代码审计深度整改 (Multi-Ledger System & Anticheat Production Hardening)
+# Project: 专业买方投顾终端进阶升级 (Advisor Terminal Advanced Upgrade)
 
 ## Architecture
-- **Multi-Ledger Persistent Storage Layer**:
-  - `AGY2_FundAdvisory/multi_ledger_manager.py`: 管理 `data/ledgers_index.json` 与各独立账本文件。
-  - 主实盘账本：保持根目录 `portfolio_ledger.json` (`id="main_live"`, `name="主实盘账本"`, `type="live"`，硬性防删除保护)。
-  - 派生/沙盒账本：存放于 `data/ledgers/<ledger_id>.json`，配对隔离 SQLite 数据库 `data/ledgers/<ledger_id>.db`（防止 `save_state` 时执行 `DELETE FROM holdings` 导致主实盘持仓在数据库中被清空）。
-- **Web UI & Global State Hot-Assembly Layer**:
+- **Financial Facts & Compliance Engine**:
+  - `AGY2_FundAdvisory/advisory_engine.py`:
+    - `RADAR_SECTOR_CATALOG["dividend_low_vol"]`: benchmark_index 与 index_code 彻底纠偏为 `H30269`，消除 `000978` 医药100指数错配。
+    - `_calc_dynamic_sector_metrics`: 统一 14 赛道动量与 Bias20 价格口径，对红利类指数引入分红密集期孤立脉冲跳空平滑机制，消除假性超买误报。
+  - `AGY2_FundAdvisory/data_loader.py`:
+    - `IndexValuationEngine`: 移除 H30269 词条中的 `"aliases": ["000978"]`，单源同真映射 `csindex_H30269.parquet`。
+  - `AGY2_FundAdvisory/trading_clock_fee.py` & `portfolio_manager.py`:
+    - 识别 QDII 海外品种（050025、001071、013402 等），美股 QDII 赋予 `T+2 确认 · T+6~T+8 到账` 跨时区交割清算规则。
+    - 同公司基金转换 (`calculate_rebalance_routes`) 与 `calculate_rebalance_net_utility` 彻底排除 QDII 基金与跨 TA 品种。
+    - Tab 2 T+2 在途踏空风险计算排除 QDII 基金。
+    - 动态生成 4 档估值可信度标识（指数高准度 / 债基看久期票息 / 美股休市·看隔夜期指 / 季报重仓估算）。
+  - 合规清理：
+    - `app_gui.py`、`winrate_engine.py`、`strategy_bridge.py` 彻底剔除违规“保本率”，统一替换为合规术语「正收益概率 (≥0%)」或「本金安全率」。
+- **Performance & Fragment Architecture**:
   - `AGY2_FundAdvisory/app_gui.py`:
-    - `st.session_state.active_ledger_id` 绑定当前激活的 `PortfolioManager` (`st.session_state.pm`)。
-    - 切换账本时：全局 `pm`、顶部第 4 张卡片（总资产与今日预估）、右翼主动风险哨、Tab 2、Tab 3、Tab 4 100% 同步重定向；自动将账本 `default_tier` 赋给 `active_tier_val`，清空 `tab2_diag_cache` 与 `tab2_rebal_cache`。
-    - Tab 2 顶部多账本管理吧台：单行整合当前账本选择器、新建 Popover、克隆 Popover、管理 Popover、独立沙盒环境警示横幅。
-    - Tab 1 步骤三初始持仓保存：双轨选项「覆盖写入当前激活账本」vs「🆕 另存为全新独立账本」。
-- **Quant Rebalancing & Scenario Engine**:
-  - `AGY2_FundAdvisory/strategy_bridge.py` & `portfolio_manager.py`:
-    - 调仓场景参数传入：`scenario_mode`, `new_cash_amount`, `withdraw_cash_amount`, `freeze_reserved_cash`, `core_anchor_code` 真实贯通至底层并在缓存键 `cur_pool_sig` 中签名。
-    - `new_cash_only`: 卖出金额严格为 0，买入金额严格等于 `new_cash_amount`。
-    - `withdraw_cash_only`: 买入金额严格为 0，赎回金额严格等于 `withdraw_cash_amount`，优先免赎 C/A 类，严禁卖出 `<7` 天份额。
-    - `freeze_reserved_chk`: 扣除 `pm.reserved_batch_cash`。
-- **Analog Matching & Attribution Engine**:
-  - Tab 3 顶部横幅动态统计：从 `analog_tab2["matches"]` 动态计算 60 日相对超额胜率、平均相对超额、策略平均收益、平均最大回撤。
-  - 3 张历史卡片动态归因文案：依实际收益关系分别输出“右侧顺势共振”、“逆势抗跌护盾”、“防守底仓代价”。
-- **Look-Through & Asset Classification Engine**:
-  - `portfolio_manager.py`: 4 个穿透底层函数增加 `holdings_override: Optional[Dict[str, Any]] = None`。
-  - 导出 `HoldingItem` 类并支持 `market_value` 自动折算与属性兼容。
-  - `classify_fund_asset_class`: 深度反查各核心基金池与赛道池，精准分类医药、白酒、银行、恒科、半导体、美股QDII、红利低波、宽基、纯债、黄金，消除“其他权益资产”。
-  - Tab 4 前端打通：向底层传入 `active_examine_holdings`，聪明钱循环遍历 `active_examine_holdings.items()`。
-- **14-Sector Radar Real Dynamics Engine**:
-  - `OpportunityRadarEngine._calc_dynamic_sector_metrics`: 多级抽取流水线（Parquet -> DuckDB `v_indices` -> NAV Cache -> 对齐矩阵），确保 14 个赛道指标基于真实历史净值算出，无一共享 (0.50, 1.0, 85.0)。
-  - `get_sector_valuation_percentile`: 删除空 `pass` 与 40.0/52.0 写死常数，基于真实利差/均线偏离/历史序列动态计算分位。
-- **Active Risk Sentry & Compact UI**:
-  - 同维度预警 (>= 2 只) 自动聚合为单张卡片，提供“一键批量锁定”按钮。
-  - 预警列表置于 `max-height: 320px; overflow-y: auto` 滚动容器中。
-- **Physical Safety Redline Baseline**:
+    - 引入 Streamlit 原生 `@st.fragment` 装饰器，将四大独立交互区块解耦为局部刷新组件：
+      1. `render_sidebar_index_corridor()`: 侧边栏「核心指数行情走廊」自选配置与局部刷新；
+      2. `render_tab2_fast_bar_and_holdings_table()`: Tab 2 持仓账本「极速录基吧台」与「主持仓表编辑」；
+      3. `render_tab3_backtest_content()`: Tab 3 组合回测「回测对象与对标基准切换」；
+      4. `render_tab4_toolbox_content()`: Tab 4 穿透工具「穿透组合切换与 A/C 算费器」。
+    - 首屏延迟计算保护：通过 Fragment 阻断机制，确保 Tab 1 / Tab 2 调参不级联触发 Tab 3 / Tab 4 重仓穿透计算；为回测增加 `@st.cache_data(ttl=300)`。
+    - 侧边栏「市场状态与底座」及顶部卡片统一渲染「📡 数据源健康度与时效状态徽章 (Data Freshness Badge)」：
+      `🟢 实时盘中行情已连接 (更新于 HH:MM:SS)` / `🟡 离线湖仓快照兜底模式 (基准日 YYYY-MM-DD)`。
+- **UI/UX Visual Elevation & Post-Trade Closed-Loop**:
+  - `AGY2_FundAdvisory/app_gui.py`:
+    - 首屏双翼看板视觉提权：单行高密度常驻信息栏「📢 今日脉搏晨报 + 🎯 Top 3 机会赛道胶囊 + 🚨 风险预警汇总徽章」；受控折叠详情卡片，释放首屏净空间给四大主工作区。
+    - Tab 2 主持仓表防丢数自动入库拦截器：`_detect_table_diffs(edited_table, pm)` 检测差异并提示；在保存、诊断、一键执行 3 处入口前置自动无感执行 `_commit_holdings_from_table(edited_table, pm)`。
+    - Tab 1 建仓表与 Tab 2 主持仓表附加 4 档估值可信度标识；建仓单/调仓单/在途对账表标注 QDII 清算规则。
+    - Tab 2「🗄️ 账本环境与实盘档案」绘制 Plotly《实盘账户累计净值 vs 沪深300基准走势图》。
+    - Tab 2 步骤三调仓执行单底部提供「✅ 我已在手机端按此方案下单 -> 一键将调仓单同步至当前账本持仓」快捷按钮。
+  - `AGY2_FundAdvisory/portfolio_manager.py`:
+    - `PortfolioManager` 增补维护 `nav_history`（日期、总资产、份额净值、同期沪深300基准），持久化至 JSON 与 SQLite。
+- **Testing & Safety Baseline**:
   - 4 大裁判文件 SHA256 绝对锁定：`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`。
-  - `DataLoader.simulate_execution` 默认签名与费率逻辑严格保留。
+  - `DataLoader.simulate_execution` 默认签名与扣费逻辑严格保留。
+  - 针对性自动化测试套件与 Streamlit AppTest 4 Tab 全量 0 异常验证。
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | MultiLedgerManager 底层持久化与管理 | 增删改查克隆、家庭资产汇总、主实盘删除物理保护、独立 SQLite DB 派生 | M1 | R1 |
-| 2 | 多账本全站热装配与跨 Tab 贯通 | active_ledger_id 全局绑定，顶部卡片4、预警哨、Tab 2/3/4 同步，缓存重置 | M1 | R2 |
-| 3 | Tab 2 多账本管理吧台与沙盒提示 | 单行多账本吧台（选择器、新建、克隆、管理 Popover）及沙盒警示横幅 | M1 | R2 |
-| 4 | Tab 1 双轨保存初始持仓 | 覆盖写入当前账本 vs 另存为全新独立账本 | M1 | R2 |
-| 5 | 四大调仓场景前后端闭环与缓存贯通 | scenario_mode 与金额入缓存签名，真实传入计算，UI 控件前置 | M2 | R3 |
-| 6 | new_cash_only 免赎补仓真实执行 | 卖出严格为 0，买入总额严格等于 new_cash_amount，零赎回费 | M2 | R3 |
-| 7 | withdraw_cash_only 智能提现真实执行 | 买入严格为 0，赎回总额严格等于 withdraw_cash_amount，避开 <7d 标的 | M2 | R3 |
-| 8 | freeze_reserved_cash 预留网格资金冻结 | 真实扣除 pm.reserved_batch_cash | M2 | R3 |
-| 9 | Tab 3 历史相似匹配动态指标统计 | 真实计算 60 日超额胜率、相对超额、策略收益、最大回撤，清零假常数 | M2 | R4 |
-| 10 | 3 张历史卡片动态镜鉴归因文案 | 依真实收益关系输出顺势共振、抗跌护盾、防守代价 3 类归因 | M2 | R4 |
-| 11 | Tab 4 穿透底层函数 holdings_override 注入 | 4 个函数支持 holdings_override，导出 HoldingItem 类 | M3 | R5 |
-| 12 | Tab 4 聪明钱与视图真实联动 | 传入 active_examine_holdings，聪明钱遍历当前选择持仓 | M3 | R5 |
-| 13 | classify_fund_asset_class 精准资产分类 | 反查基金池，精准识别 14 赛道、宽基、纯债、黄金，清零“其他权益资产” | M3 | R5 |
-| 14 | 14 赛道雷达真实历史净值动态指标 | 多级抽取 DuckDB/Parquet，消除 (0.50, 1.0, 85.0)，各赛道动态分化 | M3 | R6 |
-| 15 | get_sector_valuation_percentile 去 pass 去常数 | 删除 pass 与 40.0/52.0，基于利差/均线偏离/历史序列真实计算 | M3 | R6 |
-| 16 | 双翼主动风险预警哨折叠聚合与批量锁定 | 同维度 >= 2 只自动合并，一键批量加入 tab2_locked_funds | M4 | R7 |
-| 17 | 预警哨滚动容器紧凑化 | max-height: 320px; overflow-y: auto 消除垂直拉长 | M4 | R7 |
-| 18 | 物理安全红线与 SHA256 锁定 | 4 大裁判文件哈希完好无损，simulate_execution 默认签名完好 | M4 | R8 |
-| 19 | 专项防作弊测试 A/B/C/D 闭环验证 | 自动化防作弊测试 100% 通过，pytest 全量测试 100% 通过 | M4 | R8 |
-| 20 | Streamlit AppTest 与 8501 服务平滑重启 | 浅色/深色主题全站零报错，端口平滑重启健康探针 HTTP 200 | M4 | R8 |
+| 1 | 红利低波指数代码纠偏为 H30269 | RADAR_SECTOR_CATALOG 修正代码，清除 IndexValuationEngine 中 000978 别名 | M1 | 一.1 |
+| 2 | QDII 基金识别与跨时区交割规则 | 识别美股与海外品种，标注 T+2 确认、T+6~T+8 到账，排除同公司 T+1 转换与 T+2 踏空 | M1 | 一.2a |
+| 3 | 4 档基金估值可信度标识 | 指数高准度 / 债基看久期票息 / 美股休市·看隔夜期指 / 季报重仓估算 | M1 | 一.2b |
+| 4 | 全站剔除违规“保本率”词汇 | 替换为合规术语「正收益概率 (≥0%)」或「本金安全率」 | M1 | 一.3 |
+| 5 | 14 赛道 Bias20 价格口径与分红平滑 | 优先采用价格指数或日线分红脉冲平滑，消除虚假超买脉冲 | M1 | 一.4 |
+| 6 | @st.fragment 四大独立区块解耦 | 侧边栏自选走廊、Tab 2 录基与表格、Tab 3 回测、Tab 4 穿透与算费器局部刷新 | M2 | 二.1 |
+| 7 | 首屏延迟计算与穿透缓存保护 | 阻止 Tab 1/Tab 2 调参流经 Tab 3/Tab 4 重仓穿透，增设回测轻量缓存 | M2 | 二.1 |
+| 8 | 📡 数据源健康度与时效状态徽章 | 实时盘中行情已连接 vs 离线湖仓快照兜底模式透明化呈现 | M2 | 二.2 |
+| 9 | 双翼看板首屏视觉提权与受控折叠 | 单行高密度常驻信息条 + 详情卡片折叠切换，释放四大主工作区空间 | M3 | 三.1 |
+| 10 | Tab 2 主持仓表防丢数自动保存 | 未保存差异提示，保存/诊断/执行全案 3 处统一自动前置入库 | M3 | 三.2 |
+| 11 | 建仓/持仓/在途单 QDII 与估值标签贯通 | Tab 1、Tab 2 估值可信度展示与在途 QDII 跨时区清算标注 | M3 | 一.2 |
+| 12 | 实盘账本历史净值记账曲线 | PortfolioManager 维护 nav_history，Tab 2 绘制累计净值 vs 沪深300走势图 | M3 | 三.3 |
+| 13 | 调仓执行单手机端一键跟单打卡 | 步骤三底部提供一键将调仓单同步至当前账本持仓快捷按钮 | M3 | 三.3 |
+| 14 | E2E 专项验收测试套件 | tests/test_adv_upgrade_suite.py 断言代码纠偏、保本清理、QDII规则与 AppTest | M4 | 四.1-2 |
+| 15 | 全量测试回归与生产平滑重启 | pytest 全量 100% 通过（含 test_infra.py），8501 守护进程平滑重启 | M4 | 四.1-2 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | 多账本体系存储管理与全站热装配 | Features 1-4 (R1, R2): MultiLedgerManager, 独立DB, app_gui active_ledger_id 贯通, Tab 2 吧台, Tab 1 双轨保存 | none | DONE |
-| M2 | 四大调仓场景真实性与 Tab 3 动态历史镜鉴 | Features 5-10 (R3, R4): 调仓参数缓存签名与前后端真实闭环, new_cash_only/withdraw_cash_only, Tab 3 动态横幅与 3 卡片归因 | M1 | IN_PROGRESS |
-| M3 | Tab 4 组合穿透切换、资产精准分类与 14 赛道雷达真动态 | Features 11-15 (R5, R6): holdings_override 注入, HoldingItem 导出, 资产精准分类, 14 赛道 DuckDB 抽取真动态, 估值分位去 pass | none | PLANNED |
-| M4 | 预警哨折叠紧凑化、防作弊测试 A/B/C/D 与验收交付 | Features 16-20 (R7, R8): 预警哨折叠聚合与紧凑滚动, 裁判文件哈希锁定, 专项防作弊测试 A/B/C/D, AppTest, 8501 重启 | M1, M2, M3 | PLANNED |
+| M1 | 金融事实与合规瑕疵底层引擎与交割体系修复 | Features 1-5: H30269纠偏, QDII清算规则与同公司排除, 4档估值标签生成, 保本词汇清理, Bias20分红平滑 | none | PLANNED |
+| M2 | @st.fragment 架构性能飞跃与数据新鲜度透明化 | Features 6-8: 4大区块局部刷新, 首屏延迟计算保护, 数据新鲜度透明徽章 | none | PLANNED |
+| M3 | 首屏视觉提权、表格防丢数自动保存与实盘净值记账闭环 | Features 9-13: 双翼看板折叠提权, 表格未保存自动同步, QDII与估值标签贯通, nav_history记账走势图, 一键跟单打卡 | M1, M2 | PLANNED |
+| M4 | E2E 全量回归、专项合规与防作弊测试、8501 生产交付 | Features 14-15: 专项测试套件, pytest全量回归, 裁判文件哈希验证, 8501重启与健康探针 | M1, M2, M3 | PLANNED |
 
 ## Interface Contracts
-### M1: MultiLedgerManager Interface
-- **Class**: `MultiLedgerManager` in `AGY2_FundAdvisory/multi_ledger_manager.py` (re-exported in `portfolio_manager.py`)
-- **Signatures**:
-  - `list_ledgers() -> List[Dict[str, Any]]`
-  - `create_ledger(name: str, base_cash: float = 100000.0, ledger_type: str = "sandbox", default_tier: str = "C3") -> str`
-  - `clone_ledger(src_id: str, target_name: str) -> str`
-  - `rename_ledger(ledger_id: str, new_name: str) -> bool`
-  - `delete_ledger(ledger_id: str) -> bool` (fails/raises on `main_live`)
-  - `get_all_ledgers_summary() -> Dict[str, Any]` (total_assets, total_pnl, total_funds, ledgers_breakdown)
-  - `get_pm(ledger_id: str) -> PortfolioManager`
-- **Storage**:
-  - Main live: `portfolio_ledger.json` (`id="main_live"`, `db_path="portfolio_state.db"`)
-  - Custom ledgers: `data/ledgers/<id>.json` (`db_path="data/ledgers/<id>.db"`)
-  - Index: `data/ledgers_index.json`
+### M1: Financial Facts & Compliance Engine Interface
+- **advisory_engine.py**:
+  - `RADAR_SECTOR_CATALOG["dividend_low_vol"]["benchmark_index"] == "H30269"`
+  - `RADAR_SECTOR_CATALOG["dividend_low_vol"]["index_code"] == "H30269"`
+  - `RADAR_SECTOR_CATALOG["dividend_low_vol"]["fallback_parquet"] = "data/processed/csindex_H30269.parquet"`
+  - `_calc_dynamic_sector_metrics`: returns dynamic `er_20`, `bias_20`, `slope_20`, `crowding_score` with dividend smoothing.
+- **data_loader.py**:
+  - `IndexValuationEngine`: maps `H30269` to `csindex_H30269.parquet`, `"aliases"` does NOT contain `"000978"`.
+- **trading_clock_fee.py & portfolio_manager.py**:
+  - `is_qdii_fund(fund_code: str, fund_name: str = "") -> bool`:
+    checks code in `{"050025", "001071", "013402"}` or name contains `("标普", "纳斯达克", "纳指", "恒生", "QDII", "海外")`.
+  - `get_fund_valuation_credibility(fund_code: str, fund_name: str = "", asset_class: str = "") -> Tuple[str, str]`:
+    returns `(badge_text, tooltip)`. e.g. `("指数高准度", ...)`, `("债基看久期票息", ...)`, `("美股休市·看隔夜期指", ...)`, `("季报重仓估算", ...)`.
+  - `calculate_settlement_dates(..., is_qdii: bool = False)`:
+    if `is_qdii`: confirm `T+2`, arrive `T+7`, note `「T+2 确认份额 · 赎回 T+6~T+8 到账（跨时区清算，不可用于 T+2 极速换仓）」`.
+  - `calculate_rebalance_routes`:
+    if `is_qdii_fund(s_code) or is_qdii_fund(b_code)` -> strictly forbid `PRIORITY_1_SWITCH` (T+1 conversion).
 
-### M2: Rebalance Scenarios & Analog Attribution Interface
-- **Functions in `strategy_bridge.py` & `portfolio_manager.py`**:
-  - `simulate_rebalance_modes_and_consequences(..., scenario_mode="standard", new_cash_amount=0.0, withdraw_cash_amount=0.0, freeze_reserved_cash=False, core_anchor_code="")`
-  - `generate_ai_rebalance_orders(..., scenario_mode="standard", new_cash_amount=0.0, withdraw_cash_amount=0.0, freeze_reserved_cash=False, core_anchor_code="")`
-  - `cur_pool_sig = (chosen_target_pool, tuple(sorted(tier_target_w.items())), scenario_mode, new_cash_amount, withdraw_cash_amount, freeze_reserved_cash, core_anchor_code)`
-- **Invariants**:
-  - `new_cash_only`: `all(o["action"] != "SELL" for o in orders)`, `sum(o["amount"] for o in orders if o["action"] == "BUY") == pytest.approx(new_cash_amount)`
-  - `withdraw_cash_only`: `all(o["action"] != "BUY" for o in orders)`, `sum(o["amount"] for o in orders if o["action"] == "SELL") == pytest.approx(withdraw_cash_amount)`
-- **Analog Matches in `app_gui.py`**:
-  - Dynamic calculations over `matches`: `rel_winrate`, `avg_excess_ret`, `strat_avg_ret`, `avg_mdd`.
+### M2: @st.fragment Architecture Interface
+- **app_gui.py**:
+  - Decorator: `safe_fragment = getattr(st, "fragment", lambda f=None, **k: f if f else (lambda fn: fn))`
+  - Functions:
+    - `@safe_fragment def render_sidebar_index_corridor()`:局部响应，刷新按钮显式 `st.rerun(scope="app")`
+    - `@safe_fragment def render_tab2_fast_bar_and_holdings_table(pm: PortfolioManager)`: 局部响应，保存/入库/删除按钮显式 `st.rerun(scope="app")`
+    - `@safe_fragment def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])`
+    - `@safe_fragment def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any])`
+  - Freshness probe: `inspect_data_freshness_status() -> Tuple[str, str, str]` (`badge_text`, `status_color`, `details`).
 
-### M3: Look-Through & Sector Dynamics Interface
-- **Signatures in `portfolio_manager.py`**:
-  - `calculate_look_through_industry_exposure(..., holdings_override: Optional[Dict[str, Any]] = None)`
-  - `calculate_stock_overlap_matrix(..., holdings_override: Optional[Dict[str, Any]] = None)`
-  - `calculate_portfolio_penetration_risk(..., holdings_override: Optional[Dict[str, Any]] = None)`
-  - `get_portfolio_look_through_stocks_df(..., holdings_override: Optional[Dict[str, Any]] = None)`
-  - `HoldingItem` class exported: `HoldingItem(code, name, shares, current_nav, ...)`
-  - `classify_fund_asset_class(fund_code: str, fund_name: str = "") -> str`
-- **Signatures in `advisory_engine.py`**:
-  - `OpportunityRadarEngine._calc_dynamic_sector_metrics(sector_id, ...)`: computes real `er_20`, `bias_20`, `slope_20`, `crowding_score`.
-  - `get_sector_valuation_percentile(sector_id, ...)`: dynamically evaluates percentile, no pass or static 40.0/52.0.
+### M3: UI/UX & NAV Tracking Interface
+- **app_gui.py**:
+  - `_detect_table_diffs(edited_table: pd.DataFrame, pm: PortfolioManager) -> bool`
+  - `_commit_holdings_from_table(edited_table: pd.DataFrame, pm: PortfolioManager) -> bool`
+  - Intercept buttons: "💾 保存修改并入库", "🔍 诊断今日调仓时机", "🚀 一键执行全案" -> auto commit first!
+  - Dual-wing dashboard: `render_dual_wing_summary_bar(pulse_text, top3_sectors, sentry_alerts)` + collapsible detail expander.
+  - One-click follow: Button `✅ 我已在手机端按此方案下单 -> 一键将调仓单同步至当前账本持仓` -> updates `pm.holdings` directly.
+- **portfolio_manager.py**:
+  - `PortfolioManager.nav_history: List[Dict[str, Any]]`:
+    entries: `{"date": "YYYY-MM-DD", "total_assets": float, "unit_nav": float, "benchmark_point": float}`.
+  - Recorded in `save_state(record_snapshot=True)` and `sync_holdings_live_nav()`.
 
-### M4: Active Risk Sentry & Verification Interface
-- **Signatures in `advisory_engine.py` & `app_gui.py`**:
-  - `ActiveRiskSentry.get_aggregated_alerts(alerts) -> List[Dict[str, Any]]`: combines same-dimension alerts (>= 2 funds).
-  - Front-end button:批量加入 `tab2_locked_funds`.
-  - Tests: `tests/test_anticheat_suite.py` containing Tests A, B, C, D.
+### M4: Verification & Delivery Interface
+- Tests in `tests/test_adv_upgrade_suite.py`:
+  - `test_dividend_low_vol_index_code_is_h30269`: assert H30269 and not 000978.
+  - `test_no_baoben_in_ui_code`: grep `保本率` in app_gui.py yields 0 occurrences.
+  - `test_qdii_delivery_and_conversion_rules`: assert 050025 T+2 confirm / T+6+ arrive, excluded from same-company T+1 conversion.
+  - `test_streamlit_apptest_4tabs_zero_exception`: 4 Tabs render with 0 exceptions.
 
 ## Code Layout
 - `AGY2_FundAdvisory/`
-  - `multi_ledger_manager.py`: 多账本管理器 (M1)
-  - `portfolio_manager.py`: 账本隔离、穿透覆盖、资产分类 (M1, M3)
-  - `app_gui.py`: UI 状态绑定、四大 Tab 联动与紧凑化 (M1, M2, M3, M4)
-  - `strategy_bridge.py`: 调仓参数闭环与雷达对接 (M2, M3)
-  - `advisory_engine.py`: 14 赛道雷达真动态与预警哨聚合 (M3, M4)
+  - `advisory_engine.py`: H30269纠偏, Bias20分红平滑, 雷达指标 (M1)
+  - `data_loader.py`: H30269别名清理, 数据新鲜度探针 (M1, M2)
+  - `trading_clock_fee.py`: QDII跨时区规则, 4档估值标签 (M1)
+  - `portfolio_manager.py`: QDII同公司排除, nav_history记账, 持仓同步 (M1, M3)
+  - `strategy_bridge.py`: 调仓路由QDII排除, 保本词汇合规替换 (M1)
+  - `winrate_engine.py`: 保本率术语合规规范 (M1)
+  - `app_gui.py`: @st.fragment 架构, 数据新鲜度徽章, 首屏提权, 表格防丢数, 实盘走势图与一键跟单 (M2, M3)
 - `tests/`
   - `test_infra.py`: 只读测试基线（绝对只读）
-  - `test_anticheat_suite.py`: 专项防作弊测试 A/B/C/D (M4)
-- `data/`
-  - `ledgers_index.json`: 账本元数据索引 (M1)
-  - `ledgers/`: 独立账本与独立 SQLite 存储 (M1)
+  - `test_adv_upgrade_suite.py`: 专项升级验收测试套件 (M4)

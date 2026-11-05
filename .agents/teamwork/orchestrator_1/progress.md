@@ -1,17 +1,17 @@
 ## Current Status
-Last visited: 2026-11-05T15:47:15Z
+Last visited: 2026-11-05T16:36:30Z
 - [x] Phase 0: Survey codebase with 3 parallel Explorers (completed)
-  - [x] Explorer 1 (1c048965): MultiLedgerManager architecture (R1, R2) & app_gui.py cross-tab synchronization [completed]
-  - [x] Explorer 2 (0dfb97f4): Four rebalancing scenarios (R3), dynamic analog attribution (R4), risk sentry aggregation (R7) [completed]
-  - [x] Explorer 3 (5a0360bc): Tab 4 look-through holdings override & fund classification (R5), 14-sector radar dynamic calculations (R6) [completed]
+  - [x] Explorer 1 (a4ca295b): 修正 4 项金融事实错误与监管合规瑕疵 [completed]
+  - [x] Explorer 2 (ea4cbb9d): 架构级性能飞跃：引入 @st.fragment 局部刷新与数据新鲜度透明化 [completed]
+  - [x] Explorer 3 (e37d9fbb): UI/UX 体验治理与实盘净值记账投后闭环、测试基线规划 [completed]
 - [x] Phase 1: Synthesize survey findings into PROJECT.md & TEST_INFRA.md (completed)
-- [/] Phase 2: Dual Track Execution
-  - [x] E2E Testing Track: Anticheat Test Suite delivered in `tests/test_anticheat_suite.py` [completed: test_writer_r9_e2e]
-  - [x] Milestone 1: MultiLedgerManager Storage & App_GUI Hot-Assembly (R1, R2) [completed / GATE PASS]
-  - [/] Milestone 2: Tab 2 Four Rebalance Scenarios & Tab 3 Dynamic Analog Attribution (R3, R4) [Worker complete, M2 Gate in-progress: Reviewers 1 & 2, Challengers 1 & 2, Auditor]
-  - [ ] Milestone 3: Tab 4 Penetration Holdings Override, Asset Classification & 14-Sector Radar Dynamics (R5, R6)
-  - [ ] Milestone 4: Active Risk Sentry Aggregation, Verification & Final Audit (R7, R8)
+- [/] Phase 2: Dual Track Execution (in-progress)
+  - [/] E2E Testing Track: 专项验收测试套件 tests/test_adv_upgrade_suite.py (1426b4a4) [in-progress: drafting test cases]
+  - [/] Milestone 1: 修正金融事实与合规瑕疵 (H30269代码、QDII交割规则与估值标签、去除保本率、动量价格口径) (eac64e2c) [in-progress: modifying advisory_engine/trading_clock_fee/portfolio_manager]
+  - [ ] Milestone 2: 性能与架构飞跃 (@st.fragment局部刷新与数据源时效透明徽章)
+  - [ ] Milestone 3: UI/UX 体验治理与投后闭环 (首屏提权双翼折叠、表格未保存自动同步、实盘净值曲线与跟单打卡)
+  - [ ] Milestone 4: 全量测试验证、防作弊审计与 8501 生产交付
 - [ ] Phase 3: Final Verification, Victory Audit, & Reporting to Sentinel
 
 ## Iteration Status
-Current iteration: 3 / 32
+Current iteration: 2 / 32
