@@ -244,3 +244,24 @@ def test_smart_dca_multiplier_bounds():
     )
     assert 0.00 <= dca_high["multiplier"] <= 0.50, f"高估超买乘数应在 0.0~0.5，实际: {dca_high['multiplier']}"
     assert dca_high["actual_deduction"] < dca_high["base_per_period"]
+
+
+def test_risk_sentry_real_pm_holdings_dict():
+    """验证传入真实 PortfolioManager 的 pm.holdings (Dict[str, FundHolding]) 绝对不抛异常并准确识别风险"""
+    from AGY2_FundAdvisory.portfolio_manager import PortfolioManager
+    pm = PortfolioManager()
+    pm.load_demo_portfolio()
+
+    sentry = ActiveRiskSentry()
+    snapshot = {"c300_point": 4101.34, "trigger_lines": {"surge_line": 4192.0, "breakdown_line": 4034.0}}
+    fund_meta = {
+        "001184": {"aum_billion": 0.35},
+        "011613": {"aum_billion": 22.0}
+    }
+
+    # 关键断言：直接传入真实 pm.holdings (Dict[str, FundHolding]) 字典，严禁抛出任何 AttributeError
+    report = sentry.inspect_portfolio(pm.holdings, snapshot, fund_meta)
+    assert not report["all_passed"]
+    assert report["has_danger"] is True
+    alert_titles = " ".join(a["title"] for a in report["alerts"])
+    assert "≤3天" in alert_titles or "已满 7 天" in alert_titles or "清盘警戒线" in alert_titles

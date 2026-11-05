@@ -4381,6 +4381,22 @@ class StrategyBridge:
                 new_w[rep_code] = round(new_w.get(rep_code, 0.0) + w_val, 4)
             opt_weights = new_w
 
+        # ── 🔭 强制纳入机会雷达精选基金 (radar_selected_funds) ──
+        radar_funds = kwargs.get("radar_selected_funds") or []
+        if radar_funds:
+            for rf_code in radar_funds:
+                if rf_code and rf_code not in opt_weights:
+                    candidate_keys = [k for k in opt_weights.keys() if k not in ["002351", "000086", "H11009"]]
+                    if candidate_keys:
+                        min_k = min(candidate_keys, key=lambda k: opt_weights[k])
+                        orig_w = opt_weights.pop(min_k)
+                        opt_weights[rf_code] = orig_w
+                    else:
+                        opt_weights[rf_code] = round(1.0 / (len(opt_weights) + 1), 4)
+            tot_w = sum(opt_weights.values())
+            if tot_w > 0:
+                opt_weights = {k: round(v / tot_w, 4) for k, v in opt_weights.items()}
+
         # ── 🛡️ 实盘交易风控护栏：单日限购过滤自动替换 ──
         _limit_th = 0.0
         if purchase_limit_filter:

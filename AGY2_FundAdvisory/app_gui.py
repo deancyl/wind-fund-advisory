@@ -744,6 +744,86 @@ st.markdown(f"""
         line-height: 1.3;
     }}
 
+    
+    /* 侧边栏垂直行情走廊卡片流 (Sidebar Index Corridor Cards) */
+    .sidebar-index-card {{
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border-subtle) !important;
+        border-radius: 8px;
+        padding: 9px 12px;
+        margin-bottom: 8px;
+        box-shadow: var(--shadow-card) !important;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        transition: all 0.2s ease;
+        box-sizing: border-box;
+    }}
+    .sidebar-index-card:hover {{
+        border-color: var(--border-hover) !important;
+        background: var(--bg-elevated) !important;
+    }}
+    .sidebar-index-left {{
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }}
+    .sidebar-index-name-row {{
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }}
+    .sidebar-index-name {{
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--text-primary) !important;
+        white-space: nowrap;
+    }}
+    .sidebar-index-code {{
+        font-size: 11px;
+        font-family: monospace;
+        color: var(--text-muted) !important;
+    }}
+    .sidebar-index-right {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+    }}
+    .sidebar-index-pt {{
+        font-size: 13px;
+        font-weight: 700;
+        font-family: monospace;
+        color: var(--text-primary) !important;
+        text-align: right;
+    }}
+    .sidebar-index-badge {{
+        font-size: 11px;
+        font-weight: 700;
+        font-family: monospace;
+        border-radius: 4px;
+        padding: 2px 6px;
+        line-height: 1.2;
+        white-space: nowrap;
+    }}
+    .sidebar-index-badge-up {{
+        color: var(--color-up) !important;
+        background: var(--bg-up) !important;
+        border: 1px solid var(--border-up) !important;
+    }}
+    .sidebar-index-badge-down {{
+        color: var(--color-down) !important;
+        background: var(--bg-down) !important;
+        border: 1px solid var(--border-down) !important;
+    }}
+    .sidebar-index-badge-flat {{
+        color: var(--color-flat) !important;
+        background: var(--bg-elevated) !important;
+        border: 1px solid var(--border-subtle) !important;
+    }}
+    
     /* 顶部行情带真实估值分位标签微胶囊 */
     .index-pill-val-badge, .index-pill-val-tag {{
         font-size: 11px;
@@ -984,11 +1064,66 @@ if "rebalance_buffer_pct" not in st.session_state:
     st.session_state.rebalance_buffer_pct = 3.0
 
 # -------------------------------------------------------------
-# 侧边栏：【🧭 全局领航台】（无局部操作，纯粹跨 Tab 领航仪表盘）
+# 宏观状态与盯盘数据提前预计算 (供侧边栏与主看板双向单源同真)
+# -------------------------------------------------------------
+clock_status = market_status = clock.get_market_window_status(datetime.now())
+intraday_eval = StrategyBridge.evaluate_intraday_signal()
+rebal_grid = snapshot.get("rebal_grid") or StrategyBridge.get_rebalance_grid_status()
+if pm.total_equity <= 0:
+    pm._recalculate_totals()
+total_cur_equity = float(getattr(pm, "total_equity", 0.0))
+pnl_today = pm.calculate_intraday_pnl()
+est_pnl = pnl_today.get("total_est_pnl", 0.0)
+est_pnl_pct = pnl_today.get("total_est_pnl_pct", 0.0)
+pnl_color = active_co["color_up"] if est_pnl >= 0 else active_co["color_down"]
+
+c300_disp = intraday_eval.get("realtime_c300", snapshot.get("c300_price", snapshot.get('c300', 4053.0)))
+bias_disp = intraday_eval.get("bias_m20", snapshot.get('bias_20', 0.0))
+m20_disp = intraday_eval.get("m20", snapshot.get("m20_price", snapshot.get('m20', 4140.0)))
+m60_disp = intraday_eval.get("m60", snapshot.get("m60_price", snapshot.get('m60', 3962.0)))
+erp_pct = snapshot.get("erp_percentile", 81.9)
+erp_val = snapshot.get("erp_val", 5.82)
+dr007_val = snapshot.get("dr007", 1.39)
+dr007_bp = snapshot.get("dr007_spread_bp", -11.1)
+opt_iv = float(snapshot.get("option_iv_pct", 19.4))
+ic_basis = float(snapshot.get("ic_annualized_basis_rate", 17.9))
+days_to_next = rebal_grid.get("days_to_next", rebal_grid.get("days_to_grid", 3))
+
+snr = float(snapshot.get("er_snr", 0.65))
+accel = float(snapshot.get("mom_accel", 0.0))
+eff_w = snapshot.get("effective_momentum_window", 60)
+mom_exhaustion = bool(snapshot.get("momentum_exhaustion_warning", False))
+exhaustion_text = snapshot.get("momentum_exhaustion_text") or "「⚡ 动量衰竭预警：暂停追高进攻标的，新增资金转入红利/纯债缓冲」"
+
+raw_mkt_state = str(snapshot.get('market_state', '震荡收息期'))
+if any(k in raw_mkt_state for k in ["震荡", "收息", "慢牛"]):
+    vernacular_state = "🟢 震荡收息期"
+elif any(k in raw_mkt_state for k in ["科技", "主升", "进攻"]):
+    vernacular_state = "🔥 科技主升浪"
+elif any(k in raw_mkt_state for k in ["熊", "防守", "破位"]):
+    vernacular_state = "🛡️ 熊市防守期"
+else:
+    vernacular_state = f"🟢 {raw_mkt_state[:6]}"
+st_color = snapshot.get('state_color', active_co['color_down'])
+
+mb_data = fetch_market_turnover_and_sentiment()
+t_str = mb_data.get("turnover_str", "-- 亿")
+u_pct = mb_data.get("up_pct", 50.0)
+u_cnt = mb_data.get("up_count", 0)
+d_cnt = mb_data.get("down_count", 0)
+
+_t2_mkt = sum(getattr(h, "shares", 0.0) * getattr(h, "current_nav", 1.0) for h in pm.holdings.values()) if pm.holdings else 0.0
+_t2_cost = sum(getattr(h, "shares", 0.0) * getattr(h, "cost_price", getattr(h, "current_nav", 1.0)) for h in pm.holdings.values()) if pm.holdings else 0.0
+_t2_pnl = _t2_mkt - _t2_cost
+_t2_pnl_pct = (_t2_pnl / _t2_cost * 100.0) if _t2_cost > 0 else 0.0
+tot_pnl_color = active_co["color_up"] if _t2_pnl >= 0 else active_co["color_down"]
+
+# -------------------------------------------------------------
+# 侧边栏：【🧭 全局领航台】（仅保留外观色彩 + 市场状态与底座 + 核心指数行情走廊）
 # -------------------------------------------------------------
 with st.sidebar:
     st.subheader("🧭 全局领航台")
-    st.caption("全局控盘中枢与实盘风控护栏")
+    st.caption("市场状态与核心指数行情走廊")
     st.markdown("---")
 
     # 1. 🎨 外观与色彩 (5 大高定主题 + 2 套涨跌模式)
@@ -1043,215 +1178,137 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    # 2. 🎯 全局目标联动 (风险策略档位 + 期望年化收益率滑块，与 Tab 1 双向实时同步)
-    st.markdown("##### 🎯 全局目标联动")
-    tier_labels = ["C1 安稳保守型", "C2 稳健固收+型", "C3 平衡进取型", "C4 成长进攻型", "C5 极限高Beta追击型"]
-    tier_code_to_idx = {"C1": 0, "C2": 1, "C3": 2, "C4": 3, "C5": 4}
 
-    cur_tier = str(st.session_state.get("active_tier_val", "C3")).upper()
-    cur_ret = float(st.session_state.get("target_return_val", 15.0))
-    cur_idx = tier_code_to_idx.get(cur_tier, 2)
-
-    def _sync_sidebar_tier_change():
-        sel_label = st.session_state.sb_tier_selector
-        new_tier = sel_label[:2]
-        st.session_state.active_tier_val = new_tier
-        def_ret = float(RISK_TIERS_CONFIG.get(new_tier, {}).get("default_target", 15.0))
-        st.session_state.target_return_val = def_ret
-        st.session_state.sb_target_return_slider = def_ret
-        st.session_state.slider_target_return = def_ret
-        # 物理失效关联缓存
-        st.session_state.tab2_diag_cache = None
-        st.session_state.tab2_rebal_cache = None
-        st.session_state.tab1_sim_cache = None
-        st.session_state.tab1_step3_cache = None
-
-    def _sync_sidebar_return_change():
-        new_ret = float(st.session_state.sb_target_return_slider)
-        st.session_state.target_return_val = new_ret
-        new_tier = map_slider_to_tier(new_ret)
-        st.session_state.active_tier_val = new_tier
-        st.session_state.sb_tier_selector = tier_labels[tier_code_to_idx.get(new_tier, 2)]
-        st.session_state.slider_target_return = new_ret
-        # 物理失效关联缓存
-        st.session_state.tab2_diag_cache = None
-        st.session_state.tab2_rebal_cache = None
-        st.session_state.tab1_sim_cache = None
-        st.session_state.tab1_step3_cache = None
-
-    if "sb_tier_selector" not in st.session_state or not st.session_state.sb_tier_selector.startswith(cur_tier):
-        st.session_state.sb_tier_selector = tier_labels[cur_idx]
-    if "sb_target_return_slider" not in st.session_state or abs(float(st.session_state.sb_target_return_slider) - cur_ret) > 1e-4:
-        st.session_state.sb_target_return_slider = cur_ret
-
-    st.selectbox(
-        "风险策略档位",
-        tier_labels,
-        key="sb_tier_selector",
-        on_change=_sync_sidebar_tier_change,
-        help="快速切换 C1~C5 风险策略档位，自动联动调整预期年化收益率与策略定权模型"
-    )
-
-    st.slider(
-        "期望年化目标收益率 (%)",
-        min_value=5.0,
-        max_value=100.0,
-        step=1.0,
-        format="%.0f%%",
-        key="sb_target_return_slider",
-        on_change=_sync_sidebar_return_change,
-        help="拖动微调预期年化收益率，与档位及跨 Tab 实时双向联动"
-    )
-
-    cur_tier_meta = RISK_TIERS_CONFIG.get(cur_tier, RISK_TIERS_CONFIG["C3"])
-    _num_f = int(st.session_state.get("tab1_num_funds", 6))
-    _m_type = st.session_state.get("tab1_model_type", "hrp_cvar")
-    _m_name = QUANT_MODELS_CATALOG.get(_m_type, {}).get("name", "鲁棒双核HRP")
+    # 2. 🕒 市场状态与底座
+    st.markdown("##### 🕒 市场状态与底座")
+    clock_color = active_co['color_down'] if market_status.is_golden_window else (active_co['color_up'] if market_status.is_after_market else active_th['accent_primary'])
+    clock_title = "🟢 14:30黄金窗口" if market_status.is_golden_window else ("🟡 盘后已关账" if market_status.is_after_market else "🔵 盘中观察期")
+    total_days = snapshot.get("total_days", 2142)
+    latest_date = snapshot.get("latest_date", "2026-11-04")
 
     safe_markdown_html(f"""
-    <div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 8px 10px; margin-top: 6px; margin-bottom: 8px; font-size: 11px; line-height: 1.5; color: var(--text-secondary);">
-        <div><b>定权模型</b>：{_m_name}（{_num_f}只优选配置）</div>
-        <div><b>资产锚点</b>：{cur_tier_meta['core_assets']}</div>
-        <div><b>权益中枢</b>：{cur_tier_meta['equity_range_str']} ｜ <b>回撤上限</b>：{cur_tier_meta['max_drawdown_limit']}</div>
+    <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; box-shadow: var(--shadow-card);">
+        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px;">
+            <span style="color: var(--text-secondary);">交易时钟</span>
+            <span style="color: {clock_color}; font-weight: 700;">{clock_title}（倒计时 {market_status.countdown_str}）</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px;">
+            <span style="color: var(--text-secondary);">市场定调</span>
+            <span style="color: {st_color}; font-weight: 700;">{vernacular_state} ｜ 信噪比: {snr:.2f}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px;">
+            <span style="color: var(--text-secondary);">攻防红线</span>
+            <span style="color: var(--accent-primary); font-weight: 600;">破 {surge_line:,.0f} 进攻 ｜ 跌 {breakdown_line:,.0f} 防守</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px;">
+            <span style="color: var(--text-secondary);">湖仓底座</span>
+            <span style="color: var(--text-muted); font-family: monospace;">{latest_date}（{total_days:,} 交易日跨牛熊）</span>
+        </div>
+        <div style="border-top: 1px dashed var(--border-subtle); padding-top: 6px; margin-top: 4px;">
+            <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px;">
+                <span style="color: var(--text-secondary);">两市成交: <b style="color: var(--text-primary);">{t_str}</b></span>
+                <span style="color: var(--text-secondary);">多方占比: <b style="color: var(--color-up);">{u_pct}%</b></span>
+            </div>
+            <div style="width: 100%; height: 4px; background: var(--bg-down); border-radius: 2px; overflow: hidden; display: flex;">
+                <div style="width: {u_pct}%; height: 100%; background: var(--color-up);"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-top: 3px;">
+                <span>涨 {u_cnt} 家</span>
+                <span>平 {mb_data.get('flat_count', 0)} 家</span>
+                <span>跌 {d_cnt} 家</span>
+            </div>
+        </div>
     </div>
     """)
 
     st.markdown("---")
-    # 3. 🛡️ 交易风控护栏
-    st.markdown("##### 🛡️ 交易风控护栏")
 
-    quota_options = [
-        "不限 (自动拆单承接)",
-        "过滤日限额 < ¥1,000 标的",
-        "过滤日限额 < ¥5,000 标的"
-    ]
-    cur_quota_val = st.session_state.get("purchase_limit_filter", quota_options[0])
-    cur_q_idx = quota_options.index(cur_quota_val) if cur_quota_val in quota_options else 0
+    # 3. 📊 核心指数行情走廊 (垂直卡片流，完美复刻截图交互)
+    col_sb_title, col_sb_opt, col_sb_rf = st.columns([5.5, 2.5, 2.0])
+    with col_sb_title:
+        st.markdown("##### 📊 核心指数行情走廊")
+    with col_sb_opt:
+        with st.popover("⚙️", help="增删指数与切换风格预设"):
+            st.caption("行情走廊指数配置")
+            all_avail_indices = {
+                "000300": "沪深300",
+                "000688": "科创50",
+                "000922": "中证红利",
+                "000905": "中证500",
+                "000852": "中证1000",
+                "518880": "黄金ETF",
+                "399006": "创业板指",
+                "000016": "上证50",
+                "HKTECH": "恒生科技",
+                "NDX": "纳斯达克100"
+            }
+            default_keys = ["000300", "000688", "000922", "000905", "000852", "518880"]
+            if "sb_selected_corridor_indices" not in st.session_state:
+                st.session_state.sb_selected_corridor_indices = default_keys
+            sel_corridor_keys = st.multiselect(
+                "显示标的",
+                options=list(all_avail_indices.keys()),
+                default=st.session_state.sb_selected_corridor_indices,
+                format_func=lambda k: f"{all_avail_indices.get(k, k)} ({k})",
+                key="ms_corridor_indices"
+            )
+            st.session_state.sb_selected_corridor_indices = sel_corridor_keys or default_keys
 
-    def _sync_quota_filter_change():
-        st.session_state.purchase_limit_filter = st.session_state.sb_purchase_limit_filter
-        st.session_state.tab1_sim_cache = None
-        st.session_state.tab1_step3_cache = None
-
-    if "sb_purchase_limit_filter" not in st.session_state or st.session_state.sb_purchase_limit_filter != cur_quota_val:
-        st.session_state.sb_purchase_limit_filter = cur_quota_val
-
-    st.selectbox(
-        "单日限购过滤阈值",
-        quota_options,
-        index=cur_q_idx,
-        key="sb_purchase_limit_filter",
-        on_change=_sync_quota_filter_change,
-        help="开启过滤后，选基与建仓单将自动用同赛道不限购备选基金替换受限标的"
-    )
-
-    def _sync_rebal_buffer_change():
-        st.session_state.rebalance_buffer_pct = float(st.session_state.sb_rebalance_buffer_slider)
-        st.session_state.tab2_diag_cache = None
-        st.session_state.tab2_rebal_cache = None
-
-    cur_buf_val = float(st.session_state.get("rebalance_buffer_pct", 3.0))
-    if "sb_rebalance_buffer_slider" not in st.session_state or abs(float(st.session_state.sb_rebalance_buffer_slider) - cur_buf_val) > 1e-4:
-        st.session_state.sb_rebalance_buffer_slider = cur_buf_val
-
-    st.slider(
-        "免折腾调仓缓冲带 (%)",
-        min_value=1.0,
-        max_value=5.0,
-        step=0.5,
-        format="%.1f%%",
-        key="sb_rebalance_buffer_slider",
-        on_change=_sync_rebal_buffer_change,
-        help="控制 Tab 2 调仓裁决与温和调仓过滤的最小偏离阈值。低于此阈值的微小偏离将自动维持现状，杜绝无效换仓摩擦"
-    )
-
-    st.markdown("---")
-    # 4. 🗄️ 账本环境管理
-    st.markdown("##### 🗄️ 账本环境管理")
-
-    col_sb_env1, col_sb_env2 = st.columns(2)
-    with col_sb_env1:
-        if st.button("🚀 载入演示组合", use_container_width=True, help="注入包含冷启动、7天锁、待满期、深套基的完整演示组合", key="btn_sb_load_demo"):
-            demo_res = pm.load_demo_portfolio()
-            st.session_state.tab2_diag_cache = None
-            st.session_state.tab2_rebal_cache = None
-            st.session_state.tab2_diagnosed = False
-            st.session_state.tab2_rebalanced = False
-            st.session_state.tab2_trigger_diagnose = False
-            st.session_state.tab2_trigger_rebalance = False
-            st.success("演示组合已载入")
+    with col_sb_rf:
+        if st.button("🔄", key="btn_refresh_all_live_quotes", help="极速刷新实时行情", use_container_width=True):
+            clear_realtime_cache()
+            fetch_batch_realtime_indices(use_cache=False)
+            fetch_market_turnover_and_sentiment(force_refresh=True)
+            fetch_or_calc_index_valuations(force_refresh=True)
+            pm.sync_holdings_live_nav(use_intraday_gsz=True)
+            StrategyBridge._cached_snapshot = None
+            StrategyBridge._cached_matrix = None
+            StrategyBridge.get_latest_market_snapshot(force_reload=True, auto_sync=False)
             st.rerun()
 
-    with col_sb_env2:
-        if st.button("↩️ 撤销上次修改", use_container_width=True, help="撤销上一步操作并回滚快照", key="btn_sb_undo"):
-            _undo_ok = pm.undo()
-            if _undo_ok:
-                st.session_state.tab2_diag_cache = None
-                st.session_state.tab2_rebal_cache = None
-                st.session_state.tab2_diagnosed = False
-                st.session_state.tab2_rebalanced = False
-                st.session_state.tab2_trigger_diagnose = False
-                st.session_state.tab2_trigger_rebalance = False
-                st.info("已成功回滚至上一快照")
-                st.rerun()
-            else:
-                st.warning("暂无更早快照可撤销")
+    # 拉取当前批次实时指数行情与估值
+    active_corridor_list = fetch_batch_realtime_indices(use_cache=True)
+    corridor_val_map = fetch_or_calc_index_valuations(force_refresh=False)
+    target_idx_codes = set(st.session_state.get("sb_selected_corridor_indices", ["000300", "000688", "000922", "000905", "000852", "518880"]))
 
-    if st.button("🔄 全局同步估值", use_container_width=True, type="primary", key="btn_sidebar_refresh_all"):
-        clear_realtime_cache()
-        fetch_batch_realtime_indices(use_cache=False)
-        pm.sync_holdings_live_nav(use_intraday_gsz=True)
-        StrategyBridge._cached_snapshot = None
-        StrategyBridge._cached_matrix = None
-        StrategyBridge.get_latest_market_snapshot(force_reload=True, auto_sync=False)
-        st.success("全局行情与估值已刷新")
-        st.rerun()
+    rendered_count = 0
+    corridor_cards_html = []
+    for idx_item in active_corridor_list:
+        icode = idx_item["code"]
+        if icode not in target_idx_codes:
+            continue
+        rendered_count += 1
+        c_pct = idx_item["change_pct"]
+        c_badge_cls = "sidebar-index-badge-up" if c_pct > 0 else ("sidebar-index-badge-down" if c_pct < 0 else "sidebar-index-badge-flat")
+        c_sign = "+" if c_pct > 0 else ""
+        pt_fmt = f"{idx_item['point']:,.3f}" if (icode == '518880') else f"{idx_item['point']:,.2f}"
+        v_meta = corridor_val_map.get(icode) or corridor_val_map.get(idx_item.get("secid", "")) or {}
+        v_label = v_meta.get("label", "")
+        v_status = v_meta.get("status", "mid")
+        v_badge_html = f'<span class="index-pill-val-badge val-{v_status}" style="font-size: 10px; margin-left: 4px;">{v_label}</span>' if v_label else ''
 
-    # 资产基线与底座披露
-    _tot_eq = sum(h.market_value for h in pm.holdings.values()) + pm.available_cash + pm.in_transit_cash
-    _mat_date = snapshot.get('latest_date', '2026-11-03')
-    st.caption(
-        f"💼 **资产基线**：¥{_tot_eq:,.2f} ｜ **持仓**：{len(pm.holdings)} 只 ｜ **底座**：{_mat_date} \n"
-        f"🛡️ **风控防线**：7天惩罚费拦截 ｜ 悲观持有天数"
-    )
+        corridor_cards_html.append(f"""
+        <div class="sidebar-index-card">
+            <div class="sidebar-index-left">
+                <div class="sidebar-index-name-row">
+                    <span class="sidebar-index-name">{idx_item['name']}</span>
+                    {v_badge_html}
+                </div>
+                <span class="sidebar-index-code">{icode}</span>
+            </div>
+            <div class="sidebar-index-right">
+                <span class="sidebar-index-pt">{pt_fmt}</span>
+                <span class="sidebar-index-badge {c_badge_cls}">{c_sign}{c_pct:.2f}%</span>
+            </div>
+        </div>
+        """)
+
+    safe_markdown_html("\n".join(corridor_cards_html))
+    st.caption(f"💡 点击右上角 ⚙️ 可自由增删全市场指数。共展示 {rendered_count} 只标的。")
 
 # -------------------------------------------------------------
-# 顶部全局看板：1 行 4 宽卡 + 1 个紧凑刷新按钮 (彻底消灭省略号)
+# 顶部全局看板：1 行 4 宽卡 + 1 个紧凑刷新按钮 (无下方重复行情条)
 # -------------------------------------------------------------
-clock_status = market_status = clock.get_market_window_status(datetime.now())
-intraday_eval = StrategyBridge.evaluate_intraday_signal()
-rebal_grid = snapshot.get("rebal_grid") or StrategyBridge.get_rebalance_grid_status()
-if pm.total_equity <= 0:
-    pm._recalculate_totals()
-total_cur_equity = float(getattr(pm, "total_equity", 0.0))
-pnl_today = pm.calculate_intraday_pnl()
-est_pnl = pnl_today.get("total_est_pnl", 0.0)
-est_pnl_pct = pnl_today.get("total_est_pnl_pct", 0.0)
-pnl_color = active_co["color_up"] if est_pnl >= 0 else active_co["color_down"]
-
-c300_disp = intraday_eval.get("realtime_c300", snapshot.get("c300_price", snapshot.get('c300', 4053.0)))
-bias_disp = intraday_eval.get("bias_m20", snapshot.get('bias_20', 0.0))
-m20_disp = intraday_eval.get("m20", snapshot.get("m20_price", snapshot.get('m20', 4140.0)))
-m60_disp = intraday_eval.get("m60", snapshot.get("m60_price", snapshot.get('m60', 3962.0)))
-trigger_lines = snapshot.get("trigger_lines") or {}
-surge_line = float(trigger_lines.get("surge_line", snapshot.get("surge_line", surge_line)))
-breakdown_line = float(trigger_lines.get("breakdown_line", snapshot.get("breakdown_line", breakdown_line)))
-
-erp_pct = snapshot.get("erp_percentile", 81.9)
-erp_val = snapshot.get("erp_val", 5.82)
-dr007_val = snapshot.get("dr007", 1.39)
-dr007_bp = snapshot.get("dr007_spread_bp", -11.1)
-opt_iv = float(snapshot.get("option_iv_pct", 19.4))
-ic_basis = float(snapshot.get("ic_annualized_basis_rate", 17.9))
-days_to_next = rebal_grid.get("days_to_next", rebal_grid.get("days_to_grid", 3))
-
-# 累计投入成本与浮动盈亏计算
-_t2_mkt = sum(getattr(h, "shares", 0.0) * getattr(h, "current_nav", 1.0) for h in pm.holdings.values()) if pm.holdings else 0.0
-_t2_cost = sum(getattr(h, "shares", 0.0) * getattr(h, "cost_price", getattr(h, "current_nav", 1.0)) for h in pm.holdings.values()) if pm.holdings else 0.0
-_t2_pnl = _t2_mkt - _t2_cost
-_t2_pnl_pct = (_t2_pnl / _t2_cost * 100.0) if _t2_cost > 0 else 0.0
-tot_pnl_color = active_co["color_up"] if _t2_pnl >= 0 else active_co["color_down"]
-
 top_c1, top_c2, top_c3, top_c4 = st.columns(4)
 
 with top_c1:
@@ -1274,23 +1331,6 @@ with top_c1:
     """)
 
 with top_c2:
-    snr = float(snapshot.get("er_snr", 0.65))
-    accel = float(snapshot.get("mom_accel", 0.0))
-    eff_w = snapshot.get("effective_momentum_window", 60)
-    mom_exhaustion = bool(snapshot.get("momentum_exhaustion_warning", False))
-    exhaustion_text = snapshot.get("momentum_exhaustion_text") or "「⚡ 动量衰竭预警：暂停追高进攻标的，新增资金转入红利/纯债缓冲」"
-
-    raw_mkt_state = str(snapshot.get('market_state', '震荡收息期'))
-    if any(k in raw_mkt_state for k in ["震荡", "收息", "慢牛"]):
-        vernacular_state = "🟢 震荡收息期"
-    elif any(k in raw_mkt_state for k in ["科技", "主升", "进攻"]):
-        vernacular_state = "🔥 科技主升浪"
-    elif any(k in raw_mkt_state for k in ["熊", "防守", "破位"]):
-        vernacular_state = "🛡️ 熊市防守期"
-    else:
-        vernacular_state = f"🟢 {raw_mkt_state[:6]}"
-
-    st_color = snapshot.get('state_color', active_co['color_down'])
     c2_tip = f"沪深300现价: {c300_disp:,.1f}\nMA20生命线: {m20_disp:,.0f} (偏离 {bias_disp:+.1f}%)\nMA60中线: {m60_disp:,.0f}\n考夫曼信噪比(ER): {snr:.2f} (自适应窗口 {eff_w}日)\n动量加速度: {accel:+.2f}%\n突破进攻线: 突破 {surge_line:,.0f} 后增配科技成长(科创50/中证1000)\n跌破防守线: 跌破 {breakdown_line:,.0f} 后减仓避险至纯债压舱石"
 
     exhaustion_badge = ""
@@ -1320,11 +1360,6 @@ with top_c2:
 
 with top_c3:
     val_status = "估值极便宜 · 资金充裕" if (erp_pct >= 75 and dr007_bp <= 5) else "估值合理 · 流动性中性"
-    mb_data = fetch_market_turnover_and_sentiment()
-    t_str = mb_data.get("turnover_str", "-- 亿")
-    u_pct = mb_data.get("up_pct", 50.0)
-    u_cnt = mb_data.get("up_count", 0)
-    d_cnt = mb_data.get("down_count", 0)
     c3_tip = (
         f"两市成交额: {t_str} ({mb_data.get('vol_text', '')})\n"
         f"全市场宽度: 上涨 {u_cnt} 家 / 下跌 {d_cnt} 家 (多方占比 {u_pct}% · {mb_data.get('sentiment_label', '')})\n"
@@ -1369,58 +1404,6 @@ with top_c4:
         </div>
     </div>
     """)
-
-# -------------------------------------------------------------
-# 核心市场指数当日实时行情带 (Live Index Ticker Strip)
-# -------------------------------------------------------------
-live_indices_list = fetch_batch_realtime_indices(use_cache=True)
-index_val_map = fetch_or_calc_index_valuations(force_refresh=False)
-pill_html_parts = []
-for idx_item in live_indices_list:
-    c_pct = idx_item["change_pct"]
-    c_cls = "index-pill-chg-up" if c_pct > 0 else ("index-pill-chg-down" if c_pct < 0 else "index-pill-chg-flat")
-    c_sign = "+" if c_pct > 0 else ""
-    pt_fmt = f"{idx_item['point']:,.3f}" if (idx_item['code'] == '518880') else f"{idx_item['point']:,.2f}"
-    v_meta = index_val_map.get(idx_item["code"]) or index_val_map.get(idx_item.get("secid", "")) or {}
-    v_label = v_meta.get("label", "")
-    v_status = v_meta.get("status", "mid")
-    v_badge_html = f'<span class="index-pill-val-badge index-pill-val-tag val-{v_status}">{v_label}</span>' if v_label else '<span class="index-pill-val-badge index-pill-val-tag val-mid">估值适中</span>'
-    pill_html_parts.append(f"""
-        <div class="index-ticker-pill">
-            <span class="index-pill-name">{idx_item['name']}</span>
-            <span class="index-pill-point">{pt_fmt}</span>
-            <span class="{c_cls}">{c_sign}{c_pct:.2f}%</span>
-            {v_badge_html}
-        </div>
-    """)
-
-ticker_inner_html = "\n".join(pill_html_parts)
-strip_col_ticker, strip_col_btn = st.columns([8.4, 1.6])
-
-with strip_col_ticker:
-    safe_markdown_html(f"""
-    <div class="index-ticker-strip">
-        <span style="font-size: 13px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 4px; flex-shrink: 0; white-space: nowrap;">
-            📊 核心指数
-        </span>
-        <div class="index-pills-scroll-wrap">
-            {ticker_inner_html}
-        </div>
-    </div>
-    """)
-
-with strip_col_btn:
-    safe_markdown_html("<div style='height: 4px;'></div>")
-    if st.button("🔄 刷新行情", help="单次批量重新拉取 6 大核心指数点位与全组合最新真实净值", use_container_width=True, type="primary", key="btn_refresh_all_live_quotes"):
-        clear_realtime_cache()
-        fetch_batch_realtime_indices(use_cache=False)
-        fetch_market_turnover_and_sentiment(force_refresh=True)
-        fetch_or_calc_index_valuations(force_refresh=True)
-        pm.sync_holdings_live_nav(use_intraday_gsz=True)
-        StrategyBridge._cached_snapshot = None
-        StrategyBridge._cached_matrix = None
-        StrategyBridge.get_latest_market_snapshot(force_reload=True, auto_sync=False)
-        st.rerun()
 
 # 盘后预案提醒
 latest_plan = pm.get_latest_next_day_plan()
@@ -1520,13 +1503,21 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         if st.button("➕ 入备选池", key=f"btn_add_radar_pool_{sec['sector_id']}", use_container_width=True, type="secondary"):
                             if "custom_candidate_pool" not in st.session_state:
                                 st.session_state.custom_candidate_pool = []
+                            if "radar_selected_funds" not in st.session_state:
+                                st.session_state.radar_selected_funds = []
                             fcode = sec_fund.get("code")
                             if fcode and fcode not in st.session_state.custom_candidate_pool:
                                 st.session_state.custom_candidate_pool.append(fcode)
+                            if fcode and fcode not in st.session_state.radar_selected_funds:
+                                st.session_state.radar_selected_funds.append(fcode)
                             if "custom_fund_overrides" not in st.session_state:
                                 st.session_state.custom_fund_overrides = {}
                             st.session_state.custom_fund_overrides[sec_fund.get("name", fcode)] = fcode
-                            st.toast(f"✅ 已将【{sec_fund.get('name')}】一键纳入备选池！")
+                            # 物理清空下游推演与交割单缓存以强制重新计算
+                            st.session_state.tab1_sim_cache = None
+                            st.session_state.tab1_step3_cache = None
+                            st.session_state.tab1_trigger_sim = True
+                            st.toast(f"✅ 已将【{sec_fund.get('name')}】一键纳入备选池，正在为您重新定权！")
                             st.rerun()
 
             # --- 右翼：主动风险哨 ---
@@ -1639,17 +1630,45 @@ with tab_zero_start:
             )
 
             if tier_mode.startswith("模式 A"):
-                col_s1_left, col_s1_right = st.columns([6, 4])
-                with col_s1_left:
+                tier_labels_all = ["C1 安稳保守型", "C2 稳健固收+型", "C3 平衡进取型", "C4 成长进攻型", "C5 极限高Beta追击型"]
+                tier_code_to_idx_all = {"C1": 0, "C2": 1, "C3": 2, "C4": 3, "C5": 4}
+                cur_tier_now = str(st.session_state.get("active_tier_val", "C3")).upper()
+                cur_ret_now = float(st.session_state.get("target_return_val", 15.0))
+                cur_t_idx = tier_code_to_idx_all.get(cur_tier_now, 2)
+
+                col_s1_tier, col_s1_slider, col_s1_right = st.columns([3.5, 3.5, 3.0])
+
+                with col_s1_tier:
+                    def _sync_tab1_tier_change():
+                        sel_label = st.session_state.tab1_tier_selector
+                        new_tier = sel_label[:2]
+                        st.session_state.active_tier_val = new_tier
+                        def_ret = float(RISK_TIERS_CONFIG.get(new_tier, {}).get("default_target", 15.0))
+                        st.session_state.target_return_val = def_ret
+                        st.session_state.slider_target_return = def_ret
+                        st.session_state.tab2_diag_cache = None
+                        st.session_state.tab2_rebal_cache = None
+                        st.session_state.tab1_sim_cache = None
+                        st.session_state.tab1_step3_cache = None
+
+                    if "tab1_tier_selector" not in st.session_state or not st.session_state.tab1_tier_selector.startswith(cur_tier_now):
+                        st.session_state.tab1_tier_selector = tier_labels_all[cur_t_idx]
+
+                    st.selectbox(
+                        "风险策略档位",
+                        tier_labels_all,
+                        key="tab1_tier_selector",
+                        on_change=_sync_tab1_tier_change,
+                        help="快速切换 C1~C5 风险策略档位，自动联动调整预期年化收益率与策略定权模型"
+                    )
+
+                with col_s1_slider:
                     def _sync_tab1_return_change():
                         val = float(st.session_state.slider_target_return)
                         st.session_state.target_return_val = val
                         tier = map_slider_to_tier(val)
                         st.session_state.active_tier_val = tier
-                        st.session_state.sb_target_return_slider = val
-                        tier_labels_all = ["C1 安稳保守型", "C2 稳健固收+型", "C3 平衡进取型", "C4 成长进攻型", "C5 极限高Beta追击型"]
-                        tier_code_to_idx_all = {"C1": 0, "C2": 1, "C3": 2, "C4": 3, "C5": 4}
-                        st.session_state.sb_tier_selector = tier_labels_all[tier_code_to_idx_all.get(tier, 2)]
+                        st.session_state.tab1_tier_selector = tier_labels_all[tier_code_to_idx_all.get(tier, 2)]
                         st.session_state.tab2_diag_cache = None
                         st.session_state.tab2_rebal_cache = None
                         st.session_state.tab1_sim_cache = None
@@ -1702,6 +1721,18 @@ with tab_zero_start:
                     )
 
                 cur_tier_meta = RISK_TIERS_CONFIG.get(active_tier, RISK_TIERS_CONFIG["C3"])
+                _num_f = int(st.session_state.get("tab1_num_funds", 6))
+                _m_type = st.session_state.get("tab1_model_type", "hrp_cvar")
+                _m_name = QUANT_MODELS_CATALOG.get(_m_type, {}).get("name", "鲁棒双核HRP")
+
+                safe_markdown_html(f"""
+                <div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 8px 12px; margin-top: 8px; margin-bottom: 8px; font-size: 11px; line-height: 1.5; color: var(--text-secondary);">
+                    <div><b>定权模型：</b>{_m_name}（{_num_f}只优选配置）</div>
+                    <div><b>资产锚点：</b>{cur_tier_meta['core_assets']}</div>
+                    <div><b>权益中枢：</b>{cur_tier_meta['equity_range_str']} ｜ <b>回撤上限：</b>{cur_tier_meta['max_drawdown_limit']}</div>
+                </div>
+                """)
+
                 if target_ret_input > 25.0:
                     st.caption(f"⚡ 高收益提示：目标年化 {target_ret_input:.0f}% 对应【{active_tier} {cur_tier_meta['name']}】，历史最大回撤约 {abs(cur_tier_meta['historical_mdd']):.1f}%，解套需 {cur_tier_meta['max_tolerated_months']} 个月，建议长钱长投。")
                 else:
@@ -1842,7 +1873,7 @@ with tab_zero_start:
                 <div style="font-size: 14px; font-weight: 700; color: {rec_title_color}; margin-bottom: 4px;">
                     🧭 宏观环境识别：【{regime_rec['regime_name']}】 ➔ 机构首选推荐：【{rec_name}】{match_hint}
                 </div>
-                <div style="font-size: 12px; color: #334155; line-height: 1.5;">
+                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
                     {regime_rec['reason']}<br>
                     <span style="color: var(--text-muted);">实时四维指标：ERP估值分位 {regime_rec['erp_percentile']:.1f}% ｜ MA20偏离 {regime_rec['bias_20']:+.2f}% ｜ DR007利率 {regime_rec['dr007']:.2f}% ｜ 期权iVIX {regime_rec['ivix']:.1f}%</span>
                 </div>
@@ -1861,10 +1892,10 @@ with tab_zero_start:
                     with col:
                         safe_markdown_html(f"""
                         <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px; height: 100%; box-sizing: border-box;">
-                            <div style="font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 2px;">{m_nm}</div>
+                            <div style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">{m_nm}</div>
                             <div style="font-size: 11px; color: #2563eb; font-weight: 600; margin-bottom: 6px;">{m_tag}</div>
-                            <div style="font-size: 11px; color: #475569; margin-bottom: 4px;"><b>【解决什么】</b><br>{m_prob}</div>
-                            <div style="font-size: 11px; color: #475569; margin-bottom: 4px;"><b>【怎么分配】</b><br>{m_alloc}</div>
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;"><b>【解决什么】</b><br>{m_prob}</div>
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;"><b>【怎么分配】</b><br>{m_alloc}</div>
                             <div style="font-size: 11px; color: #16a34a; font-weight: 500;"><b>【适合行情】</b><br>{m_scen}</div>
                         </div>
                         """)
@@ -1930,6 +1961,7 @@ with tab_zero_start:
                     capital=float(plan_capital),
                     custom_overrides=st.session_state.get("custom_fund_overrides", {}),
                     purchase_limit_filter=st.session_state.get("purchase_limit_filter", "不限 (自动拆单承接)"),
+                    radar_selected_funds=st.session_state.get("radar_selected_funds", []),
                     progress_cb=_sim_cb
                 )
                 acc.complete("真全市场选基与推演完成")
@@ -2430,7 +2462,7 @@ with tab_zero_start:
             )
 
             alloc_list_for_dca = [
-                {"code": it["fund_code"], "name": it["fund_name"], "weight": it["target_weight"] / 100.0}
+                {"code": it["fund_code"], "name": it["fund_name"], "weight": float(it.get("target_weight_pct", it.get("target_weight", 0.0))) / 100.0}
                 for it in blueprint.get("items", [])
             ]
 
@@ -2456,7 +2488,7 @@ with tab_zero_start:
 
             elif "智能定投" in cap_deployment_mode:
                 erp_pct = float(snapshot.get("erp_percentile", 78.0))
-                bias_20 = float(snapshot.get("c300_bias_20", 1.0))
+                bias_20 = float(snapshot.get("c300_bias_20", snapshot.get("bias_20", 1.0)))
                 dca_plan = SmartExecutionDCAEngine.plan_smart_dca(
                     total_capital=float(plan_capital),
                     allocations=alloc_list_for_dca,
@@ -2584,6 +2616,76 @@ with tab_holdings_and_rebalance:
         # 步骤一：当前持仓账本
         # ---------------------------------------------------------
         st.markdown("### 步骤一：持仓账本")
+
+        # 🗄️ 账本环境管理与风控横幅（归位于此，彻底消除侧边栏重复）
+        _tot_base_eq = sum(h.market_value for h in pm.holdings.values()) + pm.available_cash + pm.in_transit_cash
+        _mat_date_str = snapshot.get('latest_date', '2026-11-04')
+        safe_markdown_html(f"""
+        <div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary);">
+            💼 <b>资产基线：</b>¥{_tot_base_eq:,.2f} ｜ <b>持仓标的：</b>{len(pm.holdings)} 只 ｜ <b>底座：</b>{_mat_date_str} ｜ <b>在途现金：</b>¥{pm.in_transit_cash:,.2f}<br>
+            🛡️ <b>风控防线</b>：7天惩罚费拦截 (1.50%惩罚扣除硬阻断) ｜ 悲观持有天数梯级守护
+        </div>
+        """)
+
+        col_t2_env1, col_t2_env2, col_t2_env3, col_t2_buf = st.columns([2.5, 2.5, 2.5, 4.5])
+        with col_t2_env1:
+            if st.button("🚀 载入演示组合", use_container_width=True, help="注入包含冷启动、7天锁、待满期、深套基的完整演示组合", key="btn_tab2_load_demo"):
+                demo_res = pm.load_demo_portfolio()
+                st.session_state.tab2_diag_cache = None
+                st.session_state.tab2_rebal_cache = None
+                st.session_state.tab2_diagnosed = False
+                st.session_state.tab2_rebalanced = False
+                st.session_state.tab2_trigger_diagnose = False
+                st.session_state.tab2_trigger_rebalance = False
+                st.success("演示组合已载入")
+                st.rerun()
+
+        with col_t2_env2:
+            if st.button("↩️ 撤销上次修改", use_container_width=True, help="撤销上一步操作并回滚快照", key="btn_tab2_undo"):
+                _undo_ok = pm.undo()
+                if _undo_ok:
+                    st.session_state.tab2_diag_cache = None
+                    st.session_state.tab2_rebal_cache = None
+                    st.session_state.tab2_diagnosed = False
+                    st.session_state.tab2_rebalanced = False
+                    st.session_state.tab2_trigger_diagnose = False
+                    st.session_state.tab2_trigger_rebalance = False
+                    st.info("已成功回滚至上一快照")
+                    st.rerun()
+                else:
+                    st.warning("暂无更早快照可撤销")
+
+        with col_t2_env3:
+            if st.button("🔄 全局同步估值", use_container_width=True, type="primary", key="btn_tab2_sync"):
+                clear_realtime_cache()
+                fetch_batch_realtime_indices(use_cache=False)
+                pm.sync_holdings_live_nav(use_intraday_gsz=True)
+                StrategyBridge._cached_snapshot = None
+                StrategyBridge._cached_matrix = None
+                StrategyBridge.get_latest_market_snapshot(force_reload=True, auto_sync=False)
+                st.success("全局行情与估值已刷新")
+                st.rerun()
+
+        with col_t2_buf:
+            def _sync_t2_buffer_change():
+                st.session_state.rebalance_buffer_pct = float(st.session_state.tab2_rebal_buffer_slider)
+                st.session_state.tab2_diag_cache = None
+                st.session_state.tab2_rebal_cache = None
+
+            cur_buf_val = float(st.session_state.get("rebalance_buffer_pct", 3.0))
+            if "tab2_rebal_buffer_slider" not in st.session_state or abs(float(st.session_state.tab2_rebal_buffer_slider) - cur_buf_val) > 1e-4:
+                st.session_state.tab2_rebal_buffer_slider = cur_buf_val
+
+            st.slider(
+                "🛡️ 免折腾调仓缓冲带 (%)",
+                min_value=1.0,
+                max_value=5.0,
+                step=0.5,
+                format="%.1f%%",
+                key="tab2_rebal_buffer_slider",
+                on_change=_sync_t2_buffer_change,
+                help="控制 Tab 2 调仓裁决与温和调仓过滤的最小偏离阈值。低于此阈值的微小偏离将自动维持现状，杜绝无效换仓摩擦"
+            )
 
         # ── 第一层：4 张高信息密度资产概览卡（移除上方冗余全宽按钮）──
         _tot_equity = sum(h.market_value for h in pm.holdings.values()) + pm.available_cash + pm.in_transit_cash
@@ -3014,7 +3116,7 @@ with tab_holdings_and_rebalance:
                 # 资产基线与风控防线卡片
                 _tot_eq = sum(h.market_value for h in pm.holdings.values()) + pm.available_cash + pm.in_transit_cash
                 safe_markdown_html(f"""
-                <div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; color: #334155;">
+                <div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; color: var(--text-secondary);">
                     💼 <b>资产基线</b>：¥{_tot_eq:,.2f} ｜ <b>持仓标的</b>：`{len(pm.holdings)} 只` ｜ <b>在途现金</b>：¥{pm.in_transit_cash:,.2f}<br>
                     🛡️ <b>风控防线</b>：7天惩罚费拦截 (1.50%惩罚扣除硬阻断) ｜ 悲观持有天数梯级守护
                 </div>

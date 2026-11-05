@@ -115,11 +115,10 @@ def test_css_card_system_and_no_fake_data():
     assert "fetch_batch_realtime_indices" in gui_text
     assert "btn_refresh_all_live_quotes" in gui_text
 
-    # 4. 侧边栏 4 大分区
+    # 4. 侧边栏重构去重与三大核心模块 (外观色彩 + 市场状态底座 + 核心指数行情走廊)
     assert "##### 🎨 外观与色彩" in gui_text
-    assert "##### 🎯 全局目标联动" in gui_text
-    assert "##### 🛡️ 交易风控护栏" in gui_text
-    assert "##### 🗄️ 账本环境管理" in gui_text
+    assert "##### 🕒 市场状态与底座" in gui_text
+    assert "##### 📊 核心指数行情走廊" in gui_text
 
 
 def test_apptest_theme_and_color_switching():

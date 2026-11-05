@@ -2,8 +2,8 @@
 """
 AGY2_FundAdvisory/advisory_engine.py
 三大核心投顾业务引擎：
-1. OpportunityRadarEngine: 全市场机会雷达（14大赛道扫描、四维量化评分、Top 3 机会甄选与优选公募基金匹配）
-2. ActiveRiskSentry: 主动风险预警哨（FIFO 批次锁仓、超买拥挤、基金清盘排雷与攻防线四维巡检，带全检全通徽章与本地持久化）
+1. OpportunityRadarEngine: 全市场机会雷达（14大赛道扫描、四维量化评分、Top 3 机会甄选与优选公募基金匹配，支持动态序列计算）
+2. ActiveRiskSentry: 主动风险预警哨（支持 Dict[str, HoldingItem] / List[HoldingItem] / List[Dict]，四维全状态巡检与全通徽章）
 3. SmartExecutionDCAEngine: 分批建仓与智能定投算子（一次性、稳健三步分批建仓【金额严格守恒】、估值自适应智能定投）
 
 物理安全红线：严禁触碰 judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py。
@@ -12,8 +12,10 @@ AGY2_FundAdvisory/advisory_engine.py
 import os
 import json
 import math
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Union
 from datetime import datetime
+import pandas as pd
+import numpy as np
 
 # 14 大核心宽基与细分赛道映射全景字典
 RADAR_SECTOR_CATALOG: Dict[str, Dict[str, Any]] = {
@@ -180,6 +182,7 @@ class OpportunityRadarEngine:
     def __init__(self, cache_dir: Optional[str] = None):
         self.cache_dir = cache_dir or self._resolve_cache_dir()
         self.valuation_cache = self._load_valuation_cache()
+        self.dynamic_metrics = self._calc_dynamic_sector_metrics()
 
     @staticmethod
     def _resolve_cache_dir() -> str:
@@ -197,6 +200,52 @@ class OpportunityRadarEngine:
             except Exception:
                 pass
         return {}
+
+    def _calc_dynamic_sector_metrics(self) -> Dict[str, Dict[str, float]]:
+        """从本地行情对齐矩阵动态计算真实 20 日 ER、Bias20 与 Slope20"""
+        metrics = {}
+        try:
+            # 尝试加载历史行情矩阵
+            mat_path = None
+            for p in ["data/aligned_matrix_total_return.parquet", "AGY2_FundAdvisory/data/aligned_matrix_total_return.parquet"]:
+                if os.path.exists(p):
+                    mat_path = p
+                    break
+            if mat_path:
+                df = pd.read_parquet(mat_path)
+                if df is not None and not df.empty:
+                    cols = df.columns.tolist()
+                    for sec_id, meta in RADAR_SECTOR_CATALOG.items():
+                        idx_code = meta.get("index_code", "")
+                        # 查找列
+                        matched_col = None
+                        for c in cols:
+                            if idx_code and (idx_code in str(c)):
+                                matched_col = c
+                                break
+                        if matched_col and len(df[matched_col].dropna()) >= 25:
+                            s = df[matched_col].dropna().values.astype(float)
+                            p_t = float(s[-1])
+                            p_t20 = float(s[-20])
+                            # 1. 考夫曼信噪比 ER20
+                            diffs = [abs(s[-k] - s[-k-1]) for k in range(1, 20)]
+                            sum_diff = sum(diffs)
+                            er = abs(p_t - p_t20) / sum_diff if sum_diff > 1e-8 else meta.get("er_20", 0.5)
+                            # 2. MA20 & Bias20
+                            ma20 = float(np.mean(s[-20:]))
+                            bias = ((p_t - ma20) / ma20) * 100.0 if ma20 > 1e-8 else meta.get("bias_20", 1.0)
+                            # 3. Slope20
+                            ma20_prev = float(np.mean(s[-25:-5]))
+                            slope = ((ma20 - ma20_prev) / ma20_prev) * 50.0 * 100.0 if ma20_prev > 1e-8 else meta.get("slope_20", 5.0)
+
+                            metrics[sec_id] = {
+                                "er_20": round(float(np.clip(er, 0.1, 0.95)), 2),
+                                "bias_20": round(float(bias), 2),
+                                "slope_20": round(float(slope), 2),
+                            }
+        except Exception:
+            pass
+        return metrics
 
     def get_sector_valuation_percentile(self, sec_id: str, meta: Dict[str, Any]) -> float:
         """从真实缓存或元数据获取估值分位数 (0~100)"""
@@ -229,14 +278,16 @@ class OpportunityRadarEngine:
             # 极端低估击球区溢价加权 10%
             s_val = min(100.0, s_val * 1.10)
 
+        # 优先读取真实动态指标
+        dyn = self.dynamic_metrics.get(sec_id, {})
+        er = float(dyn.get("er_20", meta.get("er_20", 0.50)))
+        bias_20 = float(dyn.get("bias_20", meta.get("bias_20", 1.0)))
+        slope_20 = float(dyn.get("slope_20", meta.get("slope_20", 5.0)))
+
         # 2. 考夫曼信噪比 S_er
-        er = float(meta.get("er_20", 0.50))
         s_er = min(100.0, er * 1.6 * 100.0)
 
         # 3. MA20 动量拐点得分 S_mom (落实反超买硬约束 Bias20 > +6%)
-        bias_20 = float(meta.get("bias_20", 1.0))
-        slope_20 = float(meta.get("slope_20", 5.0))
-        
         if bias_20 > 6.0:
             # 均值回归超买惩罚
             s_mom = max(20.0, 75.0 - (bias_20 - 6.0) * 12.0)
@@ -314,27 +365,60 @@ class ActiveRiskSentry:
 
     def inspect_portfolio(
         self,
-        holdings: List[Dict[str, Any]],
+        holdings: Any,
         market_snapshot: Optional[Dict[str, Any]] = None,
         fund_metadata: Optional[Dict[str, Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
-        """执行四维全方位状态主动巡检"""
+        """
+        执行四维全方位状态主动巡检。
+        兼容 holdings 为 Dict[str, HoldingItem], List[HoldingItem], 或 List[Dict]。
+        """
         alerts: List[Dict[str, Any]] = []
         fund_meta = fund_metadata or {}
         snapshot = market_snapshot or {}
 
-        # 1. 维度一：FIFO 批次锁仓与赎回费阶梯巡检
-        for h in holdings:
-            code = h.get("code", "")
-            name = h.get("name", code)
-            batches = h.get("batches", [])
-            holding_days = h.get("holding_days", 30)
-            share_class = h.get("share_class", "A")
+        # 归一化提取 holdings 列表
+        holding_list: List[Any] = []
+        if isinstance(holdings, dict):
+            holding_list = list(holdings.values())
+        elif isinstance(holdings, (list, tuple)):
+            holding_list = list(holdings)
+        else:
+            holding_list = []
 
-            # 悲观天数防线：若无明确 batches 则取 holding_days
+        # 1. 维度一：FIFO 批次锁仓与赎回费阶梯巡检
+        for h in holding_list:
+            if isinstance(h, dict):
+                code = str(h.get("code") or h.get("fund_code") or "")
+                name = str(h.get("name") or h.get("fund_name") or code)
+                batches = h.get("batches", []) or []
+                holding_days = int(h.get("holding_days", 30))
+                share_class = str(h.get("share_class", "A")).upper()
+                bias_20 = float(h.get("bias_20", 0.0))
+            else:
+                code = str(getattr(h, "fund_code", None) or getattr(h, "code", "") or "")
+                name = str(getattr(h, "fund_name", None) or getattr(h, "name", code) or code)
+                batches = getattr(h, "batches", []) or []
+                holding_days = int(getattr(h, "holding_days", 30))
+                share_class = str(getattr(h, "share_class", "A")).upper()
+                bias_20 = float(getattr(h, "bias_20", 0.0))
+
+            # 悲观天数防线：若有 batches 则取最小天数，否则取 holding_days
             min_days = holding_days
             if batches:
-                min_days = min((b.get("holding_days", 30) for b in batches), default=holding_days)
+                batch_days_list = []
+                for b in batches:
+                    if isinstance(b, dict):
+                        b_day = b.get("holding_days")
+                    else:
+                        b_day = getattr(b, "holding_days", None)
+                    if b_day is not None:
+                        try:
+                            batch_days_list.append(int(b_day))
+                        except (ValueError, TypeError):
+                            pass
+                if batch_days_list:
+                    min_days = min(batch_days_list)
 
             # 规则 1.1: <= 3天 极端锁仓禁卖警报
             if min_days <= 3:
@@ -365,11 +449,7 @@ class ActiveRiskSentry:
                     "action": "建议逢高置换为优质 A 类底仓或无费率标的。",
                 })
 
-        # 2. 维度二：赛道拥挤与超买预警
-        for h in holdings:
-            code = h.get("code", "")
-            name = h.get("name", code)
-            bias_20 = float(h.get("bias_20", 0.0))
+            # 2. 维度二：赛道拥挤与超买预警 (Bias20 > +6.0%)
             if bias_20 > 6.0:
                 alerts.append({
                     "level": "red",
@@ -379,12 +459,25 @@ class ActiveRiskSentry:
                     "action": "严禁单笔满仓追高，建议逢高阶梯兑现利润或设置止盈。",
                 })
 
-        # 3. 维度三：基金本体排雷预警 (迷你基规模 < 0.5亿)
-        for h in holdings:
-            code = h.get("code", "")
-            name = h.get("name", code)
+            # 3. 维度三：基金本体排雷预警 (迷你基规模 < 0.5亿)
             meta = fund_meta.get(code, {})
-            aum = meta.get("aum_billion", 2.5)  # 默认 2.5 亿安全
+            aum = meta.get("aum_billion")
+            if aum is None:
+                raw_aum = meta.get("aum", meta.get("asset_size"))
+                if raw_aum is not None:
+                    try:
+                        f_aum = float(raw_aum)
+                        aum = f_aum / 1e8 if f_aum > 100000 else f_aum
+                    except (ValueError, TypeError):
+                        aum = 2.5
+                else:
+                    aum = 2.5
+            else:
+                try:
+                    aum = float(aum)
+                except (ValueError, TypeError):
+                    aum = 2.5
+
             if aum < 0.50:
                 alerts.append({
                     "level": "red",
@@ -396,9 +489,9 @@ class ActiveRiskSentry:
 
         # 4. 维度四：大盘攻防线预警
         trigger_lines = snapshot.get("trigger_lines", {})
-        surge_line = float(trigger_lines.get("surge_line", 4192.0))
-        breakdown_line = float(trigger_lines.get("breakdown_line", 4034.0))
-        c300_point = float(snapshot.get("c300_point", 4101.34))
+        surge_line = float(trigger_lines.get("surge_line", snapshot.get("surge_line", 4192.0)))
+        breakdown_line = float(trigger_lines.get("breakdown_line", snapshot.get("breakdown_line", 4034.0)))
+        c300_point = float(snapshot.get("c300_point", snapshot.get("c300_price", snapshot.get("c300", 4101.34))))
 
         if c300_point < breakdown_line:
             alerts.append({
@@ -453,14 +546,14 @@ class SmartExecutionDCAEngine:
     ) -> Dict[str, Any]:
         """模式一：⚡ 一次性建仓（按目标比例今日全额买入，资金分厘守恒）"""
         total_c = float(total_capital)
-        total_w = sum(a.get("weight", 0.0) for a in allocations)
+        total_w = sum(float(a.get("weight", 0.0)) for a in allocations)
         if total_w <= 0:
             total_w = 1.0
 
         orders = []
         allocated_sum = 0.0
         for i, a in enumerate(allocations):
-            w = a.get("weight", 0.0) / total_w
+            w = float(a.get("weight", 0.0)) / total_w
             # 最后一只标的吸收尾差
             if i == len(allocations) - 1:
                 amt = round(total_c - allocated_sum, 2)
@@ -477,7 +570,6 @@ class SmartExecutionDCAEngine:
                 "execution_timing": "今日 15:00 前",
             })
 
-        # 严格守恒校验
         sum_orders = round(sum(o["order_amount"] for o in orders), 2)
         assert abs(sum_orders - total_c) < 1e-4, f"金额守恒违背: {sum_orders} != {total_c}"
 
@@ -502,8 +594,8 @@ class SmartExecutionDCAEngine:
         total_c = float(total_capital)
         snapshot = market_snapshot or {}
         trigger_lines = snapshot.get("trigger_lines", {})
-        surge_line = float(trigger_lines.get("surge_line", 4192.0))
-        breakdown_line = float(trigger_lines.get("breakdown_line", 4034.0))
+        surge_line = float(trigger_lines.get("surge_line", snapshot.get("surge_line", 4192.0)))
+        breakdown_line = float(trigger_lines.get("breakdown_line", snapshot.get("breakdown_line", 4034.0)))
 
         # 1. 拆解总本金：50% / 30% / 20%
         c1 = round(total_c * 0.50, 2)
@@ -514,8 +606,10 @@ class SmartExecutionDCAEngine:
         b1_orders = []
         b1_sum = 0.0
         n_alloc = len(allocations)
+        total_w = sum(float(a.get("weight", 0.0)) for a in allocations) or 1.0
+
         for i, a in enumerate(allocations):
-            w = a.get("weight", 1.0 / max(1, n_alloc))
+            w = float(a.get("weight", 1.0 / max(1, n_alloc))) / total_w
             if i == n_alloc - 1:
                 amt = round(c1 - b1_sum, 2)
             else:
@@ -532,7 +626,7 @@ class SmartExecutionDCAEngine:
         b2_orders = []
         b2_sum = 0.0
         for i, a in enumerate(allocations):
-            w = a.get("weight", 1.0 / max(1, n_alloc))
+            w = float(a.get("weight", 1.0 / max(1, n_alloc))) / total_w
             if i == n_alloc - 1:
                 amt = round(c2 - b2_sum, 2)
             else:
@@ -549,7 +643,7 @@ class SmartExecutionDCAEngine:
         b3_orders = []
         b3_sum = 0.0
         for i, a in enumerate(allocations):
-            w = a.get("weight", 1.0 / max(1, n_alloc))
+            w = float(a.get("weight", 1.0 / max(1, n_alloc))) / total_w
             if i == n_alloc - 1:
                 amt = round(c3 - b3_sum, 2)
             else:
@@ -562,7 +656,6 @@ class SmartExecutionDCAEngine:
                 "trigger_condition": f"沪深300放量站上 {surge_line:,.0f} 进攻线确认时加仓",
             })
 
-        # 守恒断言校验
         batch_sum = round(c1 + c2 + c3, 2)
         assert abs(batch_sum - total_c) < 1e-4, f"资金守恒破坏: {batch_sum} != {total_c}"
 
@@ -570,6 +663,9 @@ class SmartExecutionDCAEngine:
             "mode": "three_step_batches",
             "mode_name": "🌊 稳健三步分批建仓",
             "total_capital": total_c,
+            "b1_amount": c1,
+            "b2_amount": c2,
+            "b3_amount": c3,
             "batches": [
                 {
                     "step": 1,
@@ -635,16 +731,16 @@ class SmartExecutionDCAEngine:
             valuation_status = "估值适中中性 (基准平稳定投)"
             multiplier_tag = "🟢 1.0x 标准定投"
 
-        # 确保乘数在 [0.0, 2.0] 范围内
         multiplier = max(0.0, min(2.0, multiplier))
         actual_deduction = round(base_per_period * multiplier, 2)
 
         # 各基金本期扣款明细
         n_alloc = len(allocations)
+        total_w = sum(float(a.get("weight", 0.0)) for a in allocations) or 1.0
         fund_orders = []
         allocated_sum = 0.0
         for i, a in enumerate(allocations):
-            w = a.get("weight", 1.0 / max(1, n_alloc))
+            w = float(a.get("weight", 1.0 / max(1, n_alloc))) / total_w
             if i == n_alloc - 1:
                 amt = round(actual_deduction - allocated_sum, 2)
             else:
@@ -654,6 +750,7 @@ class SmartExecutionDCAEngine:
                 "code": a.get("code", ""),
                 "name": a.get("name", ""),
                 "target_weight": round(w * 100.0, 1),
+                "base_amount": round(base_per_period * w, 2),
                 "period_amount": amt,
             })
 
