@@ -275,6 +275,7 @@ class FundHolding:
     company: str = ""             # 基金公司
     is_core_strategy: bool = False # 是否属于 AGY2 核心策略池
     transition_tag: str = ""      # 换仓过渡标签
+    rebalance_intent: str = "normal" # 调仓意愿: normal(正常参与) | lock(锁定禁卖) | liquidate(优先清仓)
 
 
 @dataclass
@@ -1231,14 +1232,6 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
         return []
 
     raw_text = str(text).strip()
-    if "\n" in raw_text:
-        lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
-    elif "；" in raw_text:
-        lines = [l.strip() for l in raw_text.split("；") if l.strip()]
-    elif ";" in raw_text:
-        lines = [l.strip() for l in raw_text.split(";") if l.strip()]
-    else:
-        lines = [raw_text]
 
     NAME_ALIAS_MAP = {
         "科创50C": "011613", "科创50 C": "011613", "华夏科创50C": "011613", "科创50": "011613",
@@ -1259,6 +1252,60 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
         "红利质量": "016440", "纳斯达克": "017436", "稳益增强": "018757",
         "白酒": "161725", "招商白酒": "161725"
     }
+
+    if "\n" in raw_text:
+        raw_lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
+    elif "；" in raw_text:
+        raw_lines = [l.strip() for l in raw_text.split("；") if l.strip()]
+    elif ";" in raw_text:
+        raw_lines = [l.strip() for l in raw_text.split(";") if l.strip()]
+    else:
+        raw_lines = [raw_text]
+
+    # 智能跨行块聚合 (Fund Block Aggregation)
+    def _line_has_id(s: str) -> bool:
+        if re.search(r'\b\d{6}\b', s):
+            return True
+        clean_s = re.sub(r'[\s\(\)（）:：¥元,，]', '', s)
+        if any(stop in clean_s for stop in ["持有金额", "持有收益", "昨日收益", "累计收益", "日收益", "持有天数", "持仓份额"]):
+            return False
+        for a_k in NAME_ALIAS_MAP.keys():
+            if a_k in clean_s:
+                return True
+        return any(w in clean_s for w in ["ETF", "联接", "混合", "债券", "指数", "基金", "价值", "成长", "回报", "精选", "优势"])
+
+    def _line_has_val(s: str) -> bool:
+        rem = re.sub(r'\b\d{6}\b', '', s)
+        return bool(re.search(r'\d+', rem))
+
+    aggregated_blocks = []
+    cur_blk = []
+
+    for l in raw_lines:
+        if not cur_blk:
+            cur_blk.append(l)
+            continue
+        cur_has_id = any(_line_has_id(x) for x in cur_blk)
+        cur_has_val = any(_line_has_val(x) for x in cur_blk)
+        l_has_id = _line_has_id(l)
+
+        if cur_has_id and cur_has_val and l_has_id:
+            aggregated_blocks.append(" ".join(cur_blk))
+            cur_blk = [l]
+        elif l_has_id and not _line_has_val(l) and cur_has_id and not cur_has_val:
+            if any(re.search(r'\b\d{6}\b', x) for x in cur_blk) and re.search(r'\b\d{6}\b', l):
+                aggregated_blocks.append(" ".join(cur_blk))
+                cur_blk = [l]
+            else:
+                cur_blk.append(l)
+        else:
+            cur_blk.append(l)
+
+    if cur_blk:
+        aggregated_blocks.append(" ".join(cur_blk))
+
+    lines = aggregated_blocks
+
 
     parsed_results = []
     combined_pool = {**CORE_STRATEGY_POOL, **EXTENDED_FUND_CATALOG}
@@ -1324,6 +1371,9 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
             amount = float(wan_match.group(1)) * 10000.0
             remain_line = remain_line.replace(wan_match.group(0), " ")
 
+        # 过滤昨日收益等干扰项
+        remain_line = re.sub(r'(?:昨日收益|昨日盈亏|日收益)[^\d+-]*[+-]?[0-9,.]*', ' ', remain_line)
+
         # 检查显式成本/净值
         cost_match = re.search(r'(?:成本|买入净值|成本价)[:：\s]*(\d+\.\d+)', remain_line)
         if cost_match:
@@ -1335,32 +1385,45 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
             explicit_curr_nav = float(curr_match.group(1))
             remain_line = remain_line.replace(curr_match.group(0), " ")
 
-        # 检查浮盈亏 (支持“亏损/浮亏/亏”与“盈利/浮盈/赚/盈”)
-        loss_match = re.search(r'(?:亏损|浮亏|亏|损|跌)[:：\s]*([+-]?\d+(?:\.\d+)?)', remain_line)
+        # 检查百分比收益率 (如: +8.5%, -12.3%, 收益率-8.5%)
+        explicit_pnl_pct = None
+        pct_match = re.search(r'([+-]?\d+(?:\.\d+)?)\s*%', remain_line)
+        if pct_match:
+            explicit_pnl_pct = float(pct_match.group(1))
+            remain_line = remain_line.replace(pct_match.group(0), " ")
+
+        # 优先提取带“持有金额/金额/市值/资产”的数字 (支持千分符逗号)
+        amt_match = re.search(r'(?:持有金额|金额|市值|持有资产|资产)[:：\s]*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)', remain_line)
+        if amt_match:
+            amount = float(amt_match.group(1).replace(',', ''))
+            remain_line = remain_line.replace(amt_match.group(0), " ")
+
+        # 检查浮盈亏金额 (排除“收益率/盈利率/亏损率”，支持千分符逗号)
+        loss_match = re.search(r'(?:亏损(?!率)|浮亏|亏|损|跌)[:：\s]*([+-]?[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)', remain_line)
         if loss_match:
-            loss_val = abs(float(loss_match.group(1)))
+            loss_val = abs(float(loss_match.group(1).replace(',', '')))
             floating_pnl = -loss_val
             remain_line = remain_line.replace(loss_match.group(0), " ")
         else:
-            gain_match = re.search(r'(?:盈利|浮盈|赚|盈|涨)[:：\s]*([+-]?\d+(?:\.\d+)?)', remain_line)
+            gain_match = re.search(r'(?:持有收益(?!率)|累计收益(?!率)|收益(?!率)|盈利(?!率)|浮盈|赚|盈|涨)[:：\s]*([+-]?[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)', remain_line)
             if gain_match:
-                gain_val = abs(float(gain_match.group(1)))
+                gain_val = abs(float(gain_match.group(1).replace(',', '')))
                 floating_pnl = gain_val
                 remain_line = remain_line.replace(gain_match.group(0), " ")
 
         # 检查份额
-        shares_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:份|股)', remain_line)
+        shares_match = re.search(r'([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)\s*(?:份|股)', remain_line)
         if shares_match:
-            shares = float(shares_match.group(1))
+            shares = float(shares_match.group(1).replace(',', ''))
             remain_line = remain_line.replace(shares_match.group(0), " ")
 
         # 检查金额数字：提取剩余所有数字并取首个合理金额
         if amount <= 0:
-            remaining_numbers = re.findall(r'(\d+(?:\.\d+)?)', remain_line)
+            remaining_numbers = re.findall(r'([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)', remain_line)
             valid_nums = []
             for n_s in remaining_numbers:
                 try:
-                    val = float(n_s)
+                    val = float(n_s.replace(',', ''))
                     if val > 0:
                         valid_nums.append(val)
                 except Exception:
@@ -1393,11 +1456,16 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
             cost_price = explicit_cost_nav
             cost_basis = round(shares * cost_price, 2)
             floating_pnl = round(market_value - cost_basis, 2)
+            pnl_pct = round((market_value / cost_basis - 1.0) * 100.0, 2) if cost_basis > 0 else 0.0
+        elif explicit_pnl_pct is not None and abs(floating_pnl) < 1e-4:
+            pnl_pct = explicit_pnl_pct
+            cost_price = round(current_nav / (1.0 + pnl_pct / 100.0), 4) if (1.0 + pnl_pct / 100.0) > 0 else current_nav
+            cost_basis = round(shares * cost_price, 2)
+            floating_pnl = round(market_value - cost_basis, 2)
         else:
             cost_basis = round(max(0.01, market_value - floating_pnl), 2)
             cost_price = round(cost_basis / shares, 4) if shares > 0 else current_nav
-
-        pnl_pct = round((market_value / cost_basis - 1.0) * 100.0, 2) if cost_basis > 0 else 0.0
+            pnl_pct = round((market_value / cost_basis - 1.0) * 100.0, 2) if cost_basis > 0 else 0.0
 
         # 检查持有天数与持有期标签 (支持“持有X天/日”、“X个月”、“X年”、“已持满/满30天/免赎”、“刚买/不满7天”等)
         h_days = 30
@@ -2348,6 +2416,7 @@ class PortfolioManager:
         self.baseline_date: str = datetime.now().strftime("%Y-%m-%d")
         self.baseline_equity: float = 0.0
         self.takeover_mode: str = "A" # A (极简冷启动) 或 B (账本热接管)
+        self.reserved_batch_cash: float = 0.0 # 冻结预留的分批建仓现金 (不参与存量调仓折腾)
 
         # 基准重置与收益回撤追踪指标
         self.peak_equity: float = 0.0
@@ -2881,6 +2950,7 @@ class PortfolioManager:
             "baseline_equity": round(self.baseline_equity, 2),
             "available_cash": round(self.available_cash, 2),
             "in_transit_cash": round(self.in_transit_cash, 2),
+            "reserved_batch_cash": round(getattr(self, "reserved_batch_cash", 0.0), 2),
             "total_market_value": round(total_market_val, 2),
             "total_equity": round(total_equity, 2),
             "peak_equity": round(self.peak_equity, 2),
@@ -2904,6 +2974,7 @@ class PortfolioManager:
         self.baseline_equity = float(state.get("baseline_equity", 0.0))
         self.available_cash = float(state.get("available_cash", 0.0))
         self.in_transit_cash = float(state.get("in_transit_cash", 0.0))
+        self.reserved_batch_cash = float(state.get("reserved_batch_cash", 0.0))
         self.staged_batch_plans = copy.deepcopy(state.get("staged_batch_plans", []))
         self.peak_equity = float(state.get("peak_equity", self.baseline_equity))
         self.max_drawdown_pct = float(state.get("max_drawdown_pct", 0.0))
@@ -3689,14 +3760,17 @@ class PortfolioManager:
 
         self._recalculate_totals()
         if "稳健三步" in cap_deployment_mode or cap_deployment_mode == "three_step":
-            self.available_cash = round(total_cap - self.total_market_value, 2)
+            self.reserved_batch_cash = round(total_cap - self.total_market_value, 2)
+            self.available_cash = self.reserved_batch_cash
             if deployment_plan and "batches" in deployment_plan:
                 self.staged_batch_plans = deployment_plan.get("batches", [])[1:]
         elif "智能定投" in cap_deployment_mode or cap_deployment_mode == "smart_dca":
-            self.available_cash = round(total_cap - self.total_market_value, 2)
+            self.reserved_batch_cash = round(total_cap - self.total_market_value, 2)
+            self.available_cash = self.reserved_batch_cash
             if deployment_plan:
                 self.staged_batch_plans = [deployment_plan]
         else:
+            self.reserved_batch_cash = 0.0
             self.available_cash = 0.0
 
         self.in_transit_cash = 0.0
@@ -5816,14 +5890,23 @@ class PortfolioManager:
         for code, h in self.holdings.items():
             current_weights[code] = h.market_value / total_equity if total_equity > 0 else 0.0
 
-        all_codes = set(list(current_weights.keys()) + list(target_weights.keys()))
+        # 调仓意愿 (rebalance_intent) 响应机制
+        effective_targets = dict(target_weights)
+        for code, h in self.holdings.items():
+            intent = getattr(h, "rebalance_intent", "normal")
+            if intent == "liquidate":
+                effective_targets[code] = 0.0
+            elif intent == "lock":
+                effective_targets[code] = current_weights.get(code, 0.0)
+
+        all_codes = set(list(current_weights.keys()) + list(effective_targets.keys()))
 
         sell_actions = []
         buy_actions = []
 
         for code in all_codes:
             c_w = current_weights.get(code, 0.0)
-            t_w = target_weights.get(code, 0.0)
+            t_w = effective_targets.get(code, 0.0)
 
             # 调仓缓冲阈值偏离度过滤
             actionable_res = FeeMatrixCalculator.is_rebalance_actionable(
@@ -6109,6 +6192,378 @@ class PortfolioManager:
             "available_cash": self.available_cash,
             "in_transit_cash": self.in_transit_cash
         }
+
+
+    def generate_scenario_rebalance_plan(
+        self,
+        target_weights: Dict[str, float],
+        scenario_mode: str = "standard",
+        new_cash_amount: float = 0.0,
+        withdraw_cash_amount: float = 0.0,
+        freeze_reserved_cash: bool = True,
+        min_buffer_pct: float = 3.0,
+        core_anchor_code: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        实盘四大核心调仓意图场景推演引擎：
+        1. standard: ⚖️ 存量标准再平衡 (支持冻结预留建仓现金)
+        2. new_cash_only: 💵 新资注入免赎补仓 (零卖出零赎回费，增量资金补短板)
+        3. withdraw_cash_only: 🏧 智能低损耗提现 (零买入，阶梯费率/意愿赎回，避开<7天惩罚)
+        4. sweep_tail_and_c_class: 🧹 尾部碎片与C类一键归拢至核心底仓
+        """
+        self._recalculate_totals()
+        cur_reserved = getattr(self, "reserved_batch_cash", 0.0)
+
+        # 场景 1：存量标准再平衡
+        if scenario_mode == "standard":
+            orig_cash = self.available_cash
+            if freeze_reserved_cash and cur_reserved > 0:
+                self.available_cash = max(0.0, orig_cash - cur_reserved)
+            try:
+                plan = self.generate_rebalance_plan(target_weights, min_buffer_pct=min_buffer_pct)
+            finally:
+                self.available_cash = orig_cash
+            plan["scenario_mode"] = "standard"
+            plan["scenario_title"] = "⚖️ 存量标准再平衡"
+            plan["freeze_reserved_cash"] = freeze_reserved_cash
+            plan["reserved_batch_cash"] = cur_reserved
+            return plan
+
+        # 场景 2：新资注入免赎补仓 (零卖出零赎回费)
+        elif scenario_mode == "new_cash_only":
+            new_cash = max(0.0, float(new_cash_amount))
+            total_mv = sum(h.market_value for h in self.holdings.values())
+            target_equity = total_mv + new_cash
+
+            # 计算各标的缺口
+            gaps = {}
+            for code, tw in target_weights.items():
+                if tw <= 0:
+                    continue
+                cur_mv = self.holdings[code].market_value if code in self.holdings else 0.0
+                tgt_mv = target_equity * tw
+                gaps[code] = max(0.0, tgt_mv - cur_mv)
+
+            tot_gap = sum(gaps.values())
+            buy_allocations = {}
+            if tot_gap > 1.0:
+                for code, gap in gaps.items():
+                    if gap > 0:
+                        buy_allocations[code] = round(new_cash * (gap / tot_gap), 2)
+            else:
+                for code, tw in target_weights.items():
+                    if tw > 0:
+                        buy_allocations[code] = round(new_cash * tw, 2)
+
+            # 微调舍入误差确保总和严格等于 new_cash
+            diff = round(new_cash - sum(buy_allocations.values()), 2)
+            if buy_allocations and abs(diff) > 0:
+                first_code = list(buy_allocations.keys())[0]
+                buy_allocations[first_code] = round(buy_allocations[first_code] + diff, 2)
+
+            buy_actions = []
+            executable_routes = []
+            settle = self.clock.calculate_settlement_dates()
+
+            for code, amt in buy_allocations.items():
+                if amt < 10.0:
+                    continue
+                meta = self.resolve_fund_meta(code)
+                q = fetch_realtime_fund_quote(code)
+                nav = q.dwjz if (q and q.dwjz > 0) else 1.0
+                shares = round(amt / nav, 4)
+                action_item = {
+                    "action": "BUY",
+                    "fund_code": code,
+                    "fund_name": meta.get("fund_name", f"基金_{code}"),
+                    "share_class": meta.get("share_class", "A"),
+                    "amount": amt,
+                    "shares": shares,
+                    "est_nav": nav,
+                    "channel_fee": 0.0,
+                    "route": "DIRECT_CASH",
+                    "route_desc": "【新资注入】银行卡直接申购入仓（零卖出零赎回损耗）",
+                    "t_arrive_days": 1,
+                    "staged_advice": "增量资金定向补仓，零摩擦成本建仓"
+                }
+                buy_actions.append(action_item)
+                executable_routes.append({
+                    "route_priority": "PRIORITY_NEW_CASH",
+                    "title": f"【新资注入免赎补仓】直接申购 {meta.get('fund_name', code)}",
+                    "fund_code": code,
+                    "fund_name": meta.get("fund_name", code),
+                    "buy_amount": amt,
+                    "advantage": "零卖出、零赎回费，使用新增资金定投补仓！",
+                    "confirm_cycle": "T+1"
+                })
+
+            return {
+                "total_equity": target_equity,
+                "portfolio_equity": target_equity,
+                "sell_actions": [],
+                "buy_actions": buy_actions,
+                "routes": executable_routes,
+                "executable_routes": executable_routes,
+                "intercepted_routes": [],
+                "available_cash": self.available_cash,
+                "in_transit_cash": self.in_transit_cash,
+                "scenario_mode": "new_cash_only",
+                "scenario_title": "💵 新资注入免赎补仓",
+                "summary": f"新资注入免赎补仓：零卖出、零赎回费，已将全额 ¥{new_cash:,.2f} 增量资金精准分配至低配短板标的！",
+                "total_sell_amount": 0.0,
+                "total_buy_amount": round(sum(a["amount"] for a in buy_actions), 2),
+                "total_redemption_fee": 0.0,
+                "total_subscription_fee": 0.0,
+                "est_total_friction_fee": 0.0,
+                "freeze_reserved_cash": freeze_reserved_cash,
+                "reserved_batch_cash": cur_reserved
+            }
+
+        # 场景 3：智能低损耗提现 (零买入避开7天惩罚)
+        elif scenario_mode == "withdraw_cash_only":
+            target_withdraw = max(0.0, float(withdraw_cash_amount))
+            candidates = []
+
+            for code, h in self.holdings.items():
+                free_shares = self.get_penalty_free_redeemable_shares(code)
+                if free_shares <= 1e-4:
+                    continue  # 绝对拦截未满7天或处于安全锁的份额
+                intent = getattr(h, "rebalance_intent", "normal")
+                if intent == "lock":
+                    continue  # 锁定禁卖
+
+                safe_batches = [b for b in h.batches if b.holding_days >= 7 and not b.safety_lock]
+                min_days = min((b.holding_days for b in safe_batches), default=min((b.holding_days for b in h.batches), default=30))
+                s_class = h.share_class
+
+                score = 0.0
+                if intent == "liquidate":
+                    score -= 1000.0  # 意愿优先清仓
+                if s_class == "C" and min_days >= 30:
+                    score -= 500.0   # C类免赎，节省销售服务费
+                elif s_class == "A" and min_days >= 180:
+                    score -= 400.0   # A类免赎
+                elif min_days >= 30:
+                    score -= 200.0
+                else:
+                    score -= 50.0
+
+                candidates.append({
+                    "code": code,
+                    "holding": h,
+                    "free_shares": free_shares,
+                    "score": score,
+                    "min_days": min_days,
+                    "max_val": round(free_shares * h.current_nav, 2)
+                })
+
+            candidates.sort(key=lambda x: x["score"])
+
+            cum_sell = 0.0
+            sell_actions = []
+            executable_routes = []
+            total_fee = 0.0
+            settle = self.clock.calculate_settlement_dates()
+
+            for cand in candidates:
+                if cum_sell >= target_withdraw:
+                    break
+                needed = target_withdraw - cum_sell
+                h = cand["holding"]
+                sell_val = min(cand["max_val"], needed)
+                sell_sh = min(cand["free_shares"], round(sell_val / h.current_nav, 2))
+                if sell_sh <= 0:
+                    continue
+
+                actual_amt = round(sell_sh * h.current_nav, 2)
+                fee_calc = FeeMatrixCalculator.calculate_redemption_fee(
+                    shares=sell_sh,
+                    nav=h.current_nav,
+                    share_class=h.share_class,
+                    holding_days=cand["min_days"]
+                )
+                fee_amt = fee_calc["fee_amount"]
+                total_fee += fee_amt
+                cum_sell += actual_amt
+
+                sell_actions.append({
+                    "action": "SELL",
+                    "fund_code": cand["code"],
+                    "fund_name": h.fund_name,
+                    "share_class": h.share_class,
+                    "shares": sell_sh,
+                    "amount": actual_amt,
+                    "est_nav": h.current_nav,
+                    "holding_days": cand["min_days"],
+                    "redemption_fee": fee_amt,
+                    "fee_rate": fee_calc["fee_rate"],
+                    "staged_advice": f"【智能低损耗提现】优先级排布卖出，规避惩罚费率（持有期 {cand['min_days']} 天）",
+                    "requires_settlement": True,
+                    "t_arrive_days": 2
+                })
+                executable_routes.append({
+                    "route_priority": "SELL_FOR_WITHDRAW",
+                    "title": f"【提现赎回】赎回 {h.fund_name}",
+                    "fund_code": cand["code"],
+                    "fund_name": h.fund_name,
+                    "shares_to_sell": sell_sh,
+                    "sell_amount": actual_amt,
+                    "est_fee": fee_amt,
+                    "net_amount": round(actual_amt - fee_amt, 2),
+                    "advantage": f"免惩罚安全赎回，预计 {settle['arrive_date']} 资金到账。",
+                    "confirm_cycle": "T+1"
+                })
+
+            return {
+                "total_equity": sum(h.market_value for h in self.holdings.values()),
+                "portfolio_equity": sum(h.market_value for h in self.holdings.values()),
+                "sell_actions": sell_actions,
+                "buy_actions": [],
+                "routes": executable_routes,
+                "executable_routes": executable_routes,
+                "intercepted_routes": [],
+                "available_cash": self.available_cash,
+                "in_transit_cash": self.in_transit_cash,
+                "scenario_mode": "withdraw_cash_only",
+                "scenario_title": "🏧 智能低损耗提现",
+                "summary": f"智能低损耗提现：零买入，已按免赎/低费率优先级排布卖出 ¥{cum_sell:,.2f}（目标 ¥{target_withdraw:,.2f}），严格避开未满7天惩罚！",
+                "total_sell_amount": round(cum_sell, 2),
+                "total_buy_amount": 0.0,
+                "total_redemption_fee": round(total_fee, 2),
+                "total_subscription_fee": 0.0,
+                "est_total_friction_fee": round(total_fee, 2),
+                "freeze_reserved_cash": freeze_reserved_cash,
+                "reserved_batch_cash": cur_reserved
+            }
+
+        # 场景 4：尾部碎片与C类一键归拢
+        elif scenario_mode == "sweep_tail_and_c_class":
+            total_mv = sum(h.market_value for h in self.holdings.values())
+            target_anchor = core_anchor_code
+            if not target_anchor or target_anchor not in CORE_STRATEGY_POOL:
+                if target_weights:
+                    target_anchor = max(target_weights.items(), key=lambda x: x[1])[0]
+                else:
+                    target_anchor = "005561"
+
+            sell_actions = []
+            executable_routes = []
+            net_recovered = 0.0
+            total_fee = 0.0
+
+            for code, h in self.holdings.items():
+                if code == target_anchor:
+                    continue
+                intent = getattr(h, "rebalance_intent", "normal")
+                if intent == "lock":
+                    continue
+
+                free_shares = self.get_penalty_free_redeemable_shares(code)
+                if free_shares <= 1e-4:
+                    continue
+
+                safe_batches = [b for b in h.batches if b.holding_days >= 7 and not b.safety_lock]
+                min_days = min((b.holding_days for b in safe_batches), default=min((b.holding_days for b in h.batches), default=30))
+
+                is_tail_fragment = (total_mv > 0 and (h.market_value / total_mv < 0.03)) or (h.market_value < 2000.0)
+                is_mature_c = (h.share_class == "C" and min_days >= 30)
+                is_intent_liq = (intent == "liquidate")
+
+                if is_tail_fragment or is_mature_c or is_intent_liq:
+                    sell_amt = round(free_shares * h.current_nav, 2)
+                    fee_calc = FeeMatrixCalculator.calculate_redemption_fee(
+                        shares=free_shares,
+                        nav=h.current_nav,
+                        share_class=h.share_class,
+                        holding_days=min_days
+                    )
+                    fee_amt = fee_calc["fee_amount"]
+                    net_amt = round(sell_amt - fee_amt, 2)
+                    total_fee += fee_amt
+                    net_recovered += net_amt
+
+                    reason = "优先清仓" if is_intent_liq else ("满期C类免赎清仓" if is_mature_c else "尾部碎片归拢")
+                    sell_actions.append({
+                        "action": "SELL",
+                        "fund_code": code,
+                        "fund_name": h.fund_name,
+                        "share_class": h.share_class,
+                        "shares": free_shares,
+                        "amount": sell_amt,
+                        "est_nav": h.current_nav,
+                        "holding_days": min_days,
+                        "redemption_fee": fee_amt,
+                        "fee_rate": fee_calc["fee_rate"],
+                        "staged_advice": f"【碎片与C类归拢】{reason}，资金集中流入核心底仓",
+                        "requires_settlement": True,
+                        "t_arrive_days": 2
+                    })
+                    executable_routes.append({
+                        "route_priority": "SWEEP_SELL",
+                        "title": f"【清理归拢】赎回 {h.fund_name} ({reason})",
+                        "fund_code": code,
+                        "fund_name": h.fund_name,
+                        "shares_to_sell": free_shares,
+                        "sell_amount": sell_amt,
+                        "est_fee": fee_amt,
+                        "net_amount": net_amt,
+                        "advantage": f"清理碎片与高费率C类，资金流向优质底仓。",
+                        "confirm_cycle": "T+1"
+                    })
+
+            buy_actions = []
+            if net_recovered > 10.0:
+                anchor_meta = self.resolve_fund_meta(target_anchor)
+                q = fetch_realtime_fund_quote(target_anchor)
+                nav = q.dwjz if (q and q.dwjz > 0) else 1.0
+                shares = round(net_recovered / nav, 4)
+                buy_actions.append({
+                    "action": "BUY",
+                    "fund_code": target_anchor,
+                    "fund_name": anchor_meta.get("fund_name", f"基金_{target_anchor}"),
+                    "share_class": anchor_meta.get("share_class", "A"),
+                    "amount": round(net_recovered, 2),
+                    "shares": shares,
+                    "est_nav": nav,
+                    "channel_fee": 0.0,
+                    "route": "DIRECT_CASH",
+                    "route_desc": f"【归拢买入】全额回收资金集中增持底仓【{anchor_meta.get('fund_name', target_anchor)}】",
+                    "t_arrive_days": 1,
+                    "staged_advice": "消除碎片化与销售服务费侵蚀，打造高确定性底仓"
+                })
+                executable_routes.append({
+                    "route_priority": "SWEEP_BUY",
+                    "title": f"【集中增持底仓】申购 {anchor_meta.get('fund_name', target_anchor)}",
+                    "fund_code": target_anchor,
+                    "fund_name": anchor_meta.get("fund_name", target_anchor),
+                    "buy_amount": round(net_recovered, 2),
+                    "advantage": "资金全额汇聚核心底仓，增厚防御垫。",
+                    "confirm_cycle": "T+1"
+                })
+
+            return {
+                "total_equity": total_mv,
+                "portfolio_equity": total_mv,
+                "sell_actions": sell_actions,
+                "buy_actions": buy_actions,
+                "routes": executable_routes,
+                "executable_routes": executable_routes,
+                "intercepted_routes": [],
+                "available_cash": self.available_cash,
+                "in_transit_cash": self.in_transit_cash,
+                "scenario_mode": "sweep_tail_and_c_class",
+                "scenario_title": "🧹 尾部碎片与C类一键归拢",
+                "summary": f"尾部碎片与C类一键归拢：已清理 {len(sell_actions)} 只碎片/满期C类标的，净回收资金 ¥{net_recovered:,.2f} 全部集中增配核心底仓！",
+                "total_sell_amount": round(sum(a["amount"] for a in sell_actions), 2),
+                "total_buy_amount": round(net_recovered, 2),
+                "total_redemption_fee": round(total_fee, 2),
+                "total_subscription_fee": 0.0,
+                "est_total_friction_fee": round(total_fee, 2),
+                "freeze_reserved_cash": freeze_reserved_cash,
+                "reserved_batch_cash": cur_reserved
+            }
+        else:
+            return self.generate_rebalance_plan(target_weights, min_buffer_pct=min_buffer_pct)
 
     def generate_incremental_investment_plan(
         self,

@@ -1120,6 +1120,41 @@ st.markdown(f"""
         color: var(--text-primary) !important;
         border-radius: 8px !important;
     }}
+
+    /* 下拉框当前选中文本与图标深度穿透 */
+    div[data-baseweb="select"] div,
+    div[data-baseweb="select"] span,
+    div[data-baseweb="select"] input {{
+        color: var(--text-primary) !important;
+        -webkit-text-fill-color: var(--text-primary) !important;
+    }}
+    div[data-baseweb="select"] svg {{
+        fill: var(--text-secondary) !important;
+    }}
+
+    /* 多选胶囊标签显式高亮穿透 */
+    span[data-baseweb="tag"],
+    div[data-baseweb="tag"] {{
+        background-color: var(--accent-primary) !important;
+        color: #ffffff !important;
+        border: 1px solid var(--accent-primary) !important;
+    }}
+    span[data-baseweb="tag"] span,
+    span[data-baseweb="tag"] svg,
+    div[data-baseweb="tag"] span,
+    div[data-baseweb="tag"] svg {{
+        color: #ffffff !important;
+        fill: #ffffff !important;
+    }}
+
+    /* 提示框与滑块刻度深度穿透 */
+    div[data-testid="stAlert"] p,
+    div[data-testid="stAlert"] span,
+    [data-testid="stThumbValue"],
+    [data-testid="stTickBarMin"],
+    [data-testid="stTickBarMax"] {{
+        color: var(--text-primary) !important;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -3424,6 +3459,84 @@ with tab_holdings_and_rebalance:
             </div>
             """)
 
+        # ── ⚡ 极速录基吧台 (快速内联录入/更新单只基金) ──
+        with st.container():
+            safe_markdown_html("""
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;">
+                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">
+                    ⚡ 极速录基吧台（5 列紧凑录入，自动联网拉取净值并平账反算成本与份额）
+                </div>
+            </div>
+            """)
+            col_bar_f, col_bar_amt, col_bar_pnl, col_bar_dur, col_bar_btn = st.columns([3.2, 2.2, 2.2, 2.6, 1.6])
+            with col_bar_f:
+                bar_fund_in = st.text_input("基金代码或中文名", value="", placeholder="如 005561 或 红利低波", key="bar_fund_input")
+            with col_bar_amt:
+                bar_amt_in = st.number_input("持有金额 (元)", value=10000.0, step=1000.0, min_value=100.0, key="bar_amt_input")
+            with col_bar_pnl:
+                bar_pnl_in = st.text_input("累计盈亏 (元/%)", value="0.0", placeholder="如 +1200 或 -5%", key="bar_pnl_input")
+            with col_bar_dur:
+                bar_dur_choice = st.selectbox(
+                    "持有期限档位",
+                    ["<7天 (临界观察·惩罚期)", "7-29天 (免惩罚·适中)", "30-179天 (C类免赎)", "≥180天 (A类免赎)", "≥365天 (长跑底仓)"],
+                    index=2,
+                    key="bar_dur_choice"
+                )
+            with col_bar_btn:
+                st.write(" ")
+                st.write(" ")
+                if st.button("➕ 加入账本", type="primary", use_container_width=True, key="btn_bar_add_holding"):
+                    raw_in = bar_fund_in.strip()
+                    matched_code = None
+                    if raw_in:
+                        import re
+                        m_c = re.search(r'\b\d{6}\b', raw_in)
+                        if m_c:
+                            matched_code = m_c.group(0)
+                        else:
+                            from data_loader import search_funds_in_catalog
+                            res_search = search_funds_in_catalog(raw_in, limit=1)
+                            if res_search:
+                                matched_code = res_search[0]["fund_code"]
+                    if matched_code:
+                        q = fetch_realtime_fund_quote(matched_code)
+                        real_nav = float(q.dwjz) if (q and float(q.dwjz) > 0) else 1.0
+                        amt = float(bar_amt_in)
+                        sh = round(amt / real_nav, 2)
+                        # 解析盈亏与反算成本
+                        pnl_str = bar_pnl_in.strip()
+                        cost_p = real_nav
+                        if "%" in pnl_str:
+                            try:
+                                pct_v = float(pnl_str.replace("%", "").strip())
+                                cost_p = round(real_nav / (1.0 + pct_v / 100.0), 4) if (1.0 + pct_v / 100.0) > 0 else real_nav
+                            except Exception:
+                                pass
+                        else:
+                            try:
+                                pnl_v = float(pnl_str.replace("元", "").replace("+", "").replace(",", "").strip())
+                                cost_p = round(max(0.01, amt - pnl_v) / sh, 4) if sh > 0 else real_nav
+                            except Exception:
+                                pass
+                        # 转换天数
+                        dur_map = {0: 3, 1: 15, 2: 45, 3: 185, 4: 370}
+                        h_days = dur_map.get(["<7天", "7-29天", "30-179天", "≥180天", "≥365天"].index(bar_dur_choice.split(" ")[0]), 45)
+                        pm.add_or_update_holding(
+                            fund_code=matched_code,
+                            shares=sh,
+                            nav=real_nav,
+                            cost_price=cost_p,
+                            holding_days=h_days,
+                            notes="极速录基吧台录入"
+                        )
+                        pm.save_state()
+                        st.session_state.tab2_diag_cache = None
+                        st.session_state.tab2_rebal_cache = None
+                        st.success(f"成功将【{matched_code}】录入账本！")
+                        st.rerun()
+                    else:
+                        st.warning("未能识别该基金，请输入 6 位代码或有效基金名称。")
+
         # ── 第二层：一屏尽览的精炼可编辑持仓表（消灭横向滚动条与错位删除框）──
         df_disp = pm.export_snapshot_df()
         if not df_disp.empty:
@@ -3437,10 +3550,21 @@ with tab_holdings_and_rebalance:
                 axis=1
             )
 
-            # 精选核心列：恢复持仓成本价与浮动盈亏率
+            # 补充累计盈亏与调仓意愿列
+            df_disp["累计盈亏(元)"] = df_disp.apply(
+                lambda r: round(float(r["当前市值(元)"]) - (float(r["持仓份额"]) * float(r.get("持仓成本价", r["当前净值"]))), 2),
+                axis=1
+            )
+            df_disp["调仓意愿"] = df_disp["基金代码"].apply(
+                lambda c: {"normal": "正常参与", "lock": "锁定禁卖", "liquidate": "优先清仓"}.get(
+                    getattr(pm.holdings.get(str(c).zfill(6)), "rebalance_intent", "normal"), "正常参与"
+                )
+            )
+
+            # 精选核心列：支持累计盈亏与调仓意愿双向编辑反算
             cols_selected = [
                 "基金代码", "基金名称", "当前市值(元)", "持仓份额", "当前净值",
-                "持仓成本价", "浮动盈亏率(%)",
+                "持仓成本价", "累计盈亏(元)", "浮动盈亏率(%)", "调仓意愿",
                 "今日实时估值涨跌(%)", "盘中预估盈亏(元)", "持仓占比(%)",
                 "最短持有天数", "赎回费状态", "分红方式"
             ]
@@ -3484,7 +3608,19 @@ with tab_holdings_and_rebalance:
                     "持仓成本价": st.column_config.NumberColumn(
                         "持仓成本价",
                         format="%.4f",
-                        help="可双击修改买入成本价，新增行未填时默认等于最新净值"
+                        help="可双击修改买入成本价，系统自动反算浮动盈亏"
+                    ),
+                    "累计盈亏(元)": st.column_config.NumberColumn(
+                        "累计盈亏(元)",
+                        format="¥%+.2f",
+                        help="可双击修改浮动盈亏金额，系统自动反算加权成本价！"
+                    ),
+                    "调仓意愿": st.column_config.SelectboxColumn(
+                        "调仓意愿",
+                        options=["正常参与", "锁定禁卖", "优先清仓"],
+                        default="正常参与",
+                        required=True,
+                        help="锁定禁卖：调仓时不减持该标的；优先清仓：调仓时优先全额减持该标的。"
                     ),
                     "浮动盈亏率(%)": st.column_config.NumberColumn(
                         "浮动盈亏率(%)",
@@ -3569,9 +3705,15 @@ with tab_holdings_and_rebalance:
                             h_days = _safe_int(row.get("最短持有天数"), 30)
                             div_m = _safe_str(row.get("分红方式"), "cash")
 
-                            # 成本价：若行中输入了有效成本价则采用，否则用老成本价或最新净值
+                            # 四向自适应反算：改累计盈亏反算成本价，改成本价反算盈亏
+                            row_pnl = _safe_float(row.get("累计盈亏(元)"), None)
                             row_cost = _safe_float(row.get("持仓成本价"), 0.0)
-                            if row_cost > 0:
+                            old_pnl = float(old_h.floating_pnl) if old_h else None
+
+                            if row_pnl is not None and (old_pnl is None or abs(row_pnl - old_pnl) > 0.5):
+                                # 用户双击修改了累计盈亏(元)，反算加权成本价
+                                cost = max(0.01, round((new_mkt - row_pnl) / (new_shares if new_shares > 0 else (new_mkt / real_nav)), 4)) if new_mkt > 0 else real_nav
+                            elif row_cost > 0:
                                 cost = row_cost
                             else:
                                 cost = float(old_h.cost_price if (old_h and old_h.cost_price > 0) else real_nav)
@@ -3604,6 +3746,11 @@ with tab_holdings_and_rebalance:
                                 fund_name=real_name,
                                 notes="代码智能联动与市值反算入库"
                             )
+                            # 同步调仓意愿
+                            intent_raw = str(row.get("调仓意愿", "正常参与"))
+                            intent_key = "lock" if "锁" in intent_raw else ("liquidate" if "清" in intent_raw else "normal")
+                            if code_s in pm.holdings:
+                                pm.holdings[code_s].rebalance_intent = intent_key
                             success_codes.append(code_s)
 
                         for exist_c in list(pm.holdings.keys()):
@@ -3688,27 +3835,71 @@ with tab_holdings_and_rebalance:
                     "📥 表格模板导入"
                 ])
                 with sub_tab1:
-                    sample_smart_text = """华泰柏瑞低波 30000 盈利1200\n华夏科创50C 20000 亏500\n000216 15000\n100032 25000 成本0.96 现价0.98 已持满60天"""
-                    smart_text_in = st.text_area("📝 在此粘贴持仓文字：", value=sample_smart_text, height=100, key="txt_smart_holdings")
+                    sample_smart_text = """华泰柏瑞低波\n005561\n持有金额 30,000.00\n持有收益 +1,200.00\n昨日收益 +120.00\n持有天数 45天\n\n易方达裕祥\n002351\n持有金额 20000\n收益: 亏500\n持有天数: 180天\n\n华夏科创50C 20000 收益率-8.5% 3天"""
+                    smart_text_in = st.text_area("📝 在此粘贴持仓文字（支持手机截图 OCR 多行块状或单行紧凑文本）：", value=sample_smart_text, height=120, key="txt_smart_holdings")
                     col_st_c, col_st_b = st.columns([4, 6])
                     with col_st_c:
                         smart_cash_in = st.number_input("账户可用现金 (元)", value=float(pm.available_cash or 10000.0), step=1000.0, key="smart_cash_input")
                     with col_st_b:
                         st.write(" ")
                         st.write(" ")
-                        if st.button("🔍 智能解析并接管", type="primary", use_container_width=True, key="btn_parse_smart_text"):
-                            parsed_items = pm.parse_smart_text_holdings(smart_text_in)
-                            if parsed_items:
-                                pm.import_from_smart_text(parsed_items, available_cash=smart_cash_in)
-                                st.session_state.tab2_diag_cache = None
-                                st.session_state.tab2_rebal_cache = None
-                                st.session_state.tab2_diagnosed = False
-                                st.session_state.tab2_rebalanced = False
-                                st.balloons()
-                                st.success(f"成功接管 {len(parsed_items)} 只基金。")
-                                st.rerun()
-                            else:
-                                st.warning("未能识别出有效持仓文本。")
+                        btn_parse_ocr = st.button("🔍 智能深度解析与结构化预览", type="primary", use_container_width=True, key="btn_parse_smart_text")
+
+                    if btn_parse_ocr or st.session_state.get("tab2_ocr_preview_items"):
+                        if btn_parse_ocr:
+                            st.session_state.tab2_ocr_preview_items = pm.parse_smart_text_holdings(smart_text_in)
+
+                        ocr_items = st.session_state.get("tab2_ocr_preview_items") or []
+                        if ocr_items:
+                            st.markdown("###### 📋 识别结果结构化预览与平账核对")
+                            df_prev = pd.DataFrame([{
+                                "基金代码": it["fund_code"],
+                                "基金名称": it["fund_name"],
+                                "当前市值(元)": f"¥{it['amount']:,.2f}",
+                                "估算份额": f"{it['shares']:,.2f}",
+                                "加权成本价": f"¥{it['cost_price']:.4f}",
+                                "浮动盈亏(元)": f"¥{it['floating_pnl']:+,.2f}",
+                                "盈亏率(%)": f"{it['floating_pnl_pct']:+.2f}%",
+                                "持有天数": f"{it['holding_days']}天"
+                            } for it in ocr_items])
+                            st.dataframe(df_prev, use_container_width=True)
+
+                            col_act_merge, col_act_overwrite, col_act_cancel = st.columns([4, 4, 2])
+                            with col_act_merge:
+                                if st.button("➕ 追加合并至现有账本", type="primary", use_container_width=True, key="btn_ocr_merge"):
+                                    for it in ocr_items:
+                                        pm.add_or_update_holding(
+                                            fund_code=it["fund_code"],
+                                            shares=it["shares"],
+                                            nav=it["current_nav"],
+                                            cost_price=it["cost_price"],
+                                            holding_days=it["holding_days"],
+                                            fund_name=it["fund_name"],
+                                            notes="OCR智能解析追加",
+                                            append_batch=True
+                                        )
+                                    pm.available_cash = smart_cash_in
+                                    pm.save_state()
+                                    st.session_state.tab2_ocr_preview_items = None
+                                    st.session_state.tab2_diag_cache = None
+                                    st.session_state.tab2_rebal_cache = None
+                                    st.success(f"已成功追加合并 {len(ocr_items)} 只标的！")
+                                    st.rerun()
+                            with col_act_overwrite:
+                                if st.button("🔄 全量覆盖现有账本", type="secondary", use_container_width=True, key="btn_ocr_overwrite"):
+                                    pm.import_from_smart_text(ocr_items, available_cash=smart_cash_in)
+                                    st.session_state.tab2_ocr_preview_items = None
+                                    st.session_state.tab2_diag_cache = None
+                                    st.session_state.tab2_rebal_cache = None
+                                    st.balloons()
+                                    st.success(f"已全量重置并接管 {len(ocr_items)} 只标的！")
+                                    st.rerun()
+                            with col_act_cancel:
+                                if st.button("✖️ 取消预览", use_container_width=True, key="btn_ocr_cancel"):
+                                    st.session_state.tab2_ocr_preview_items = None
+                                    st.rerun()
+                        else:
+                            st.warning("未能识别出有效持仓文本，请检查输入或格式。")
 
                 with sub_tab2:
                     col_kw, col_amt = st.columns([6, 4])
@@ -4178,6 +4369,65 @@ with tab_holdings_and_rebalance:
             sim_res = st.session_state.get("tab2_rebal_cache")
             cur_buf_val = float(st.session_state.get("rebalance_buffer_pct", 3.0))
             
+            # ── 🎛️ 四大实盘调仓场景模式 (场景意图驱动) ──
+            safe_markdown_html("""
+            <div style="background: var(--bg-surface); border: 1.5px solid var(--accent-primary); border-radius: 8px; padding: 10px 14px; margin: 12px 0 8px 0;">
+                <div style="font-size: 13.5px; font-weight: 700; color: var(--accent-primary); margin-bottom: 2px;">
+                    🎛️ 实盘调仓场景模式（依据您的真实资金调度意图，一键切换最优减损路径）
+                </div>
+            </div>
+            """)
+            col_sc1, col_sc2 = st.columns([6.5, 3.5])
+            with col_sc1:
+                sel_scenario_name = st.radio(
+                    "调仓意图场景：",
+                    [
+                        "⚖️ 存量标准再平衡 (平衡各大类资产偏离度)",
+                        "💵 新资注入免赎补仓 (发工资/定投补仓·零卖出零赎回费)",
+                        "🏧 智能低损耗提现 (急需用钱·零买入·阶梯免赎赎回·避开7天惩罚)",
+                        "🧹 尾部碎片与C类一键归拢 (清理<3%碎片与满期高费率C类至底仓)"
+                    ],
+                    index=0,
+                    key="rad_tab2_scenario_mode"
+                )
+            with col_sc2:
+                freeze_reserved_chk = st.checkbox(
+                    f"🛡️ 冻结分批建仓预留现金 (¥{pm.reserved_batch_cash:,.2f})",
+                    value=True,
+                    help="开启后，建仓阶段预留用于二期/三期或定投的现金将被严格保护隔离，绝不作为存量现金在调仓中乱花！",
+                    key="chk_freeze_reserved_cash"
+                )
+
+            # 场景参数定制区
+            scenario_key = "standard"
+            new_cash_val = 0.0
+            withdraw_cash_val = 0.0
+            anchor_target_code = "005561"
+
+            if "新资注入" in sel_scenario_name:
+                scenario_key = "new_cash_only"
+                c_sc_in1, c_sc_in2 = st.columns([6, 4])
+                with c_sc_in1:
+                    new_cash_val = st.number_input("💵 本次计划新增注入的补仓资金 (元)", value=20000.0, step=1000.0, min_value=100.0, key="num_sc_new_cash")
+                with c_sc_in2:
+                    st.caption("💡 系统将 100% 通过新增资金补齐欠配短板标的，卖出金额严格为 0，零赎回摩擦！")
+            elif "低损耗提现" in sel_scenario_name:
+                scenario_key = "withdraw_cash_only"
+                c_sc_in1, c_sc_in2 = st.columns([6, 4])
+                with c_sc_in1:
+                    withdraw_cash_val = st.number_input("🏧 本次急需提取现金金额 (元)", value=30000.0, step=1000.0, min_value=100.0, key="num_sc_withdraw_cash")
+                with c_sc_in2:
+                    st.caption("💡 严禁触碰未满 7 天惩罚期标的，优先赎回已满期 C 类或免赎标的，零买入！")
+            elif "碎片" in sel_scenario_name:
+                scenario_key = "sweep_tail_and_c_class"
+                c_sc_in1, c_sc_in2 = st.columns([6, 4])
+                with c_sc_in1:
+                    anchor_opts = ["005561 - 创金合信红利低波A", "002351 - 易方达裕祥回报债券A", "000216 - 华安黄金ETF联接A"]
+                    sel_anchor = st.selectbox("🎯 回收资金全额归拢买入的压舱石底仓：", anchor_opts, key="sel_sc_anchor")
+                    anchor_target_code = sel_anchor.split(" - ")[0]
+                with c_sc_in2:
+                    st.caption("💡 一键清理占比 <3% 尾部碎片与满 30 天高费率 C 类，回收资金全额增持底仓！")
+
             col_b_mode, col_b_slider = st.columns([6.2, 3.8])
             with col_b_mode:
                 mode_choice = st.radio(
@@ -4452,7 +4702,7 @@ with tab_holdings_and_rebalance:
                     elif guidance["stage"] == "GOLDEN_WINDOW":
                         if st.button("✅ 立即执行调仓", type="primary", use_container_width=True, key="btn_exec_gold_tab2"):
                             _cur_buf = float(st.session_state.get("rebalance_buffer_pct", 3.0))
-                            rebal_plan = pm.generate_rebalance_plan(tier_target_w, min_buffer_pct=(0.0 if sel_mode_key == "mode_forced" else _cur_buf))
+                            rebal_plan = pm.generate_scenario_rebalance_plan(tier_target_w, scenario_mode=scenario_key, new_cash_amount=new_cash_val, withdraw_cash_amount=withdraw_cash_val, freeze_reserved_cash=freeze_reserved_chk, min_buffer_pct=(0.0 if sel_mode_key == "mode_forced" else _cur_buf), core_anchor_code=anchor_target_code)
                             routes_to_run = rebal_plan.get("routes", [])
                             if routes_to_run:
                                 oids = pm.submit_rebalance_orders(routes_to_run)
@@ -4470,7 +4720,7 @@ with tab_holdings_and_rebalance:
                         if allow_early:
                             if st.button("⚡ 提前执行调仓", type="primary", use_container_width=True, key="btn_exec_early_tab2"):
                                 _cur_buf = float(st.session_state.get("rebalance_buffer_pct", 3.0))
-                                rebal_plan = pm.generate_rebalance_plan(tier_target_w, min_buffer_pct=(0.0 if sel_mode_key == "mode_forced" else _cur_buf))
+                                rebal_plan = pm.generate_scenario_rebalance_plan(tier_target_w, scenario_mode=scenario_key, new_cash_amount=new_cash_val, withdraw_cash_amount=withdraw_cash_val, freeze_reserved_cash=freeze_reserved_chk, min_buffer_pct=(0.0 if sel_mode_key == "mode_forced" else _cur_buf), core_anchor_code=anchor_target_code)
                                 routes_to_run = rebal_plan.get("routes", [])
                                 if routes_to_run:
                                     oids = pm.submit_rebalance_orders(routes_to_run)

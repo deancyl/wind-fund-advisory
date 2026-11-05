@@ -3576,7 +3576,20 @@ class StrategyBridge:
 
         # 若提供了 pm 实例，优先基于真实执行沙盒计划对齐路由与裁剪份额
         pm_plan = None
-        if pm is not None and hasattr(pm, "generate_rebalance_plan"):
+        if pm is not None and hasattr(pm, "generate_scenario_rebalance_plan"):
+            try:
+                pm_plan = pm.generate_scenario_rebalance_plan(
+                    target_weights=target_weights_funds,
+                    scenario_mode=kwargs.get("scenario_mode", "standard"),
+                    new_cash_amount=float(kwargs.get("new_cash_amount", 0.0)),
+                    withdraw_cash_amount=float(kwargs.get("withdraw_cash_amount", 0.0)),
+                    freeze_reserved_cash=bool(kwargs.get("freeze_reserved_cash", True)),
+                    min_buffer_pct=buffer_pct,
+                    core_anchor_code=kwargs.get("core_anchor_code")
+                )
+            except Exception:
+                pm_plan = None
+        elif pm is not None and hasattr(pm, "generate_rebalance_plan"):
             try:
                 pm_plan = pm.generate_rebalance_plan(target_weights_funds, min_buffer_pct=buffer_pct)
             except Exception:

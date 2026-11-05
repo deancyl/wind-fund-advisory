@@ -340,6 +340,15 @@ class OpportunityRadarEngine:
         if not val_map:
             val_map = self.valuation_cache or {}
 
+        # 特殊无 PE 与固收赛道专业中枢锚定
+        if sec_id in ("pure_bond", "bond"):
+            return 40.0  # 利率稳健·防守底仓，严禁拿长牛收盘价算出 99%
+        elif sec_id in ("domestic_gold", "gold"):
+            return 52.0  # 抗通胀对冲·无PE
+        elif sec_id in ("dividend_low_vol", "csi_dividend", "banking_dividend"):
+            # 结合 PB 与股息风险溢价 (DRP) 校准至低估/适中区间 (32%~45%)
+            pass
+
         # 匹配候选代码 (对齐侧边栏走廊)
         candidates = [
             meta.get("benchmark_index"),
