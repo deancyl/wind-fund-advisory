@@ -218,6 +218,7 @@ cur_color_mode = st.session_state.app_color_mode
 THEME_PRESETS = {
     "light_slate": {
         "name": "🏛️ 机构冷灰 (Institutional Slate)",
+        "is_dark": False,
         "bg_canvas": "#f8fafc",
         "bg_surface": "#ffffff",
         "bg_elevated": "#f1f5f9",
@@ -231,6 +232,7 @@ THEME_PRESETS = {
     },
     "dark_terminal": {
         "name": "🌑 彭博暗黑 (Bloomberg Carbon)",
+        "is_dark": True,
         "bg_canvas": "#0b0f17",
         "bg_surface": "#111827",
         "bg_elevated": "#1f2937",
@@ -244,6 +246,7 @@ THEME_PRESETS = {
     },
     "nordic_paper": {
         "name": "📜 金融暖卷 (FT Warm Paper)",
+        "is_dark": False,
         "bg_canvas": "#f6f4f0",
         "bg_surface": "#fcfbf9",
         "bg_elevated": "#f0ede6",
@@ -257,6 +260,7 @@ THEME_PRESETS = {
     },
     "deep_titanium": {
         "name": "🌌 深海钛金 (Deep Titanium)",
+        "is_dark": True,
         "bg_canvas": "#0f172a",
         "bg_surface": "#1e293b",
         "bg_elevated": "#334155",
@@ -265,11 +269,12 @@ THEME_PRESETS = {
         "text_primary": "#f8fafc",
         "text_secondary": "#cbd5e1",
         "text_muted": "#64748b",
-        "accent_primary": "#f59e0b",
+        "accent_primary": "#fbbf24",
         "shadow_card": "0 2px 8px rgba(0, 0, 0, 0.3)"
     },
     "nordic_frost": {
         "name": "❄️ 极昼纯白 (Nordic Frost)",
+        "is_dark": False,
         "bg_canvas": "#ffffff",
         "bg_surface": "#f4f6f8",
         "bg_elevated": "#e5e7eb",
@@ -312,11 +317,45 @@ COLOR_PRESETS = {
 }
 
 active_th = THEME_PRESETS.get(cur_theme_mode, THEME_PRESETS["light_slate"])
-active_co = COLOR_PRESETS.get(cur_color_mode, COLOR_PRESETS["cn"])
+is_dark_active = bool(active_th.get("is_dark", False))
+base_co = COLOR_PRESETS.get(cur_color_mode, COLOR_PRESETS["cn"]).copy()
+
+# 当处于深色主题 (is_dark=True) 时，自动提升文字明度至亮红 #f87171 / 亮绿 #4ade80，守死对比度
+if is_dark_active:
+    if cur_color_mode == "cn":
+        active_co = {
+            "name": base_co["name"],
+            "color_up": "#f87171",
+            "bg_up": "rgba(248, 113, 113, 0.15)",
+            "border_up": "rgba(248, 113, 113, 0.35)",
+            "color_down": "#4ade80",
+            "bg_down": "rgba(74, 222, 128, 0.15)",
+            "border_down": "rgba(74, 222, 128, 0.35)",
+            "color_flat": "#94a3b8"
+        }
+    else:
+        active_co = {
+            "name": base_co["name"],
+            "color_up": "#4ade80",
+            "bg_up": "rgba(74, 222, 128, 0.15)",
+            "border_up": "rgba(74, 222, 128, 0.35)",
+            "color_down": "#f87171",
+            "bg_down": "rgba(248, 113, 113, 0.15)",
+            "border_down": "rgba(248, 113, 113, 0.35)",
+            "color_flat": "#94a3b8"
+        }
+else:
+    active_co = base_co
 
 st.markdown(f"""
 <style>
-    :root {{
+    :root, [data-testid="stDataFrame"] {{
+        --gdg-bg-cell: {active_th['bg_surface']};
+        --gdg-bg-header: {active_th['bg_elevated']};
+        --gdg-text-dark: {active_th['text_primary']};
+        --gdg-text-medium: {active_th['text_secondary']};
+        --gdg-text-header: {active_th['text_primary']};
+        --gdg-border-color: {active_th['border_subtle']};
         --bg-canvas: {active_th['bg_canvas']};
         --bg-surface: {active_th['bg_surface']};
         --bg-elevated: {active_th['bg_elevated']};
@@ -891,6 +930,46 @@ st.markdown(f"""
         color: var(--text-primary) !important;
         box-shadow: var(--shadow-card) !important;
     }}
+        /* 表单与文本标签深色模式深度穿透 */
+    label, [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] span,
+    .stRadio div[role="radiogroup"] label p, .stCheckbox label p,
+    [data-testid="stMarkdownContainer"] p, [data-testid="stCaptionContainer"] {{
+        color: var(--text-primary) !important;
+    }}
+
+    /* 原生指标卡文字与标题防黑字 */
+    [data-testid="stMetricLabel"] p {{
+        color: var(--text-secondary) !important;
+    }}
+    [data-testid="stMetricValue"] {{
+        color: var(--text-primary) !important;
+    }}
+
+    /* 输入框与下拉框内胆背景与文字深度绑定 */
+    div[data-baseweb="select"] > div,
+    div[data-baseweb="input"],
+    div[data-baseweb="base-input"],
+    [data-testid="stNumberInputContainer"],
+    [data-testid="stNumberInput"] input,
+    [data-testid="stNumberInput"] button,
+    [data-testid="stTextInput"] input,
+    [data-testid="stTextArea"] textarea {{
+        background-color: var(--bg-elevated) !important;
+        color: var(--text-primary) !important;
+        border-color: var(--border-subtle) !important;
+    }}
+
+    /* 次级按钮与弹窗容器深色模式穿透 */
+    button[kind="secondary"],
+    [data-testid="stPopover"] > button,
+    [data-testid="stVerticalBlockBorderWrapper"],
+    div[data-baseweb="popover"] *,
+    div[data-baseweb="menu"] * {{
+        background-color: var(--bg-elevated) !important;
+        color: var(--text-primary) !important;
+        border-color: var(--border-subtle) !important;
+    }}
+
     div[data-testid="stAlert"] {{
         background-color: var(--bg-elevated) !important;
         border: 1px solid var(--border-subtle) !important;
@@ -1015,6 +1094,7 @@ def apply_theme_to_plotly_figure(fig: go.Figure, theme_mode: Optional[str] = Non
     fig.update_layout(
         paper_bgcolor=th["bg_surface"],
         plot_bgcolor=th["bg_surface"],
+        title_font_color=th["text_primary"],
         font=dict(color=th["text_primary"], family="-apple-system, 'SF Pro Display', sans-serif"),
         xaxis=dict(
             gridcolor=th["border_subtle"],
@@ -1893,8 +1973,8 @@ with tab_zero_start:
             rec_name = regime_rec["recommended_model_name"]
             is_matching_rec = (sel_model_type == rec_key)
 
-            rec_badge_style = "background: rgba(37, 99, 235, 0.08); border: 1.5px solid #2563eb;" if is_matching_rec else "background: rgba(245, 158, 11, 0.08); border: 1.5px solid #d97706;"
-            rec_title_color = "#1d4ed8" if is_matching_rec else "#b45309"
+            rec_badge_style = "background: rgba(37, 99, 235, 0.08); border: 1.5px solid var(--accent-primary);" if is_matching_rec else "background: var(--bg-surface); border: 1.5px solid var(--border-hover);"
+            rec_title_color = "var(--accent-primary)" if is_matching_rec else "var(--color-down)"
             match_hint = "（当前已采纳推荐）" if is_matching_rec else f"（当前选择：{model_disp_choice}，点击模型下拉可一键切换）"
 
             safe_markdown_html(f"""
@@ -1922,10 +2002,10 @@ with tab_zero_start:
                         safe_markdown_html(f"""
                         <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px; height: 100%; box-sizing: border-box;">
                             <div style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">{m_nm}</div>
-                            <div style="font-size: 11px; color: #2563eb; font-weight: 600; margin-bottom: 6px;">{m_tag}</div>
+                            <div style="font-size: 11px; color: var(--accent-primary); font-weight: 600; margin-bottom: 6px;">{m_tag}</div>
                             <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;"><b>【解决什么】</b><br>{m_prob}</div>
                             <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;"><b>【怎么分配】</b><br>{m_alloc}</div>
-                            <div style="font-size: 11px; color: #16a34a; font-weight: 500;"><b>【适合行情】</b><br>{m_scen}</div>
+                            <div style="font-size: 11px; color: var(--color-down); font-weight: 500;"><b>【适合行情】</b><br>{m_scen}</div>
                         </div>
                         """)
 
@@ -3292,9 +3372,9 @@ with tab_holdings_and_rebalance:
             v_title = suitability.get("verdict_title", "今日维持底仓吃息，无需调仓")
             r4 = suitability.get("reasons_4d", {})
 
-            banner_bg = "rgba(22, 163, 74, 0.12)" if v_level == "SUITABLE" else ("rgba(234, 179, 8, 0.12)" if v_level == "HOLD_ON" else "rgba(220, 38, 38, 0.12)")
-            banner_border = "#16a34a" if v_level == "SUITABLE" else ("#ca8a04" if v_level == "HOLD_ON" else "#dc2626")
-            banner_color = "#15803d" if v_level == "SUITABLE" else ("#a16207" if v_level == "HOLD_ON" else "#b91c1c")
+            banner_bg = "var(--bg-elevated)"
+            banner_border = "var(--color-down)" if v_level == "SUITABLE" else ("var(--border-hover)" if v_level == "HOLD_ON" else "var(--color-up)")
+            banner_color = "var(--color-down)" if v_level == "SUITABLE" else ("var(--accent-primary)" if v_level == "HOLD_ON" else "var(--color-up)")
             _cur_buf = float(st.session_state.get("rebalance_buffer_pct", 3.0))
 
             safe_markdown_html(f"""
@@ -3581,8 +3661,8 @@ with tab_holdings_and_rebalance:
                     st.success(guidance["message"])
                 else:
                     safe_markdown_html(f"""
-                    <div style="background: rgba(234, 179, 8, 0.08); border: 1.5px solid #ca8a04; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px;">
-                        <div style="font-size: 15px; font-weight: 700; color: #a16207; margin-bottom: 8px;">
+                    <div style="background: var(--bg-elevated); border: 1.5px solid var(--border-hover); border-radius: 8px; padding: 14px 18px; margin-bottom: 12px;">
+                        <div style="font-size: 15px; font-weight: 700; color: var(--accent-primary); margin-bottom: 8px;">
                             ⚠️ 当前已过 15:00 场外基金关账时间
                         </div>
                         <div style="font-size: 13px; line-height: 1.6; color: var(--text-primary);">
@@ -3872,7 +3952,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
             annotation_text=s_label,
             annotation_position="top left",
             annotation_font_size=10,
-            annotation_font_color=active_th.get("text_secondary", "#475569")
+            annotation_font_color=active_th.get("text_secondary", "var(--text-secondary)")
         )
 
     fig_nav.update_layout(
