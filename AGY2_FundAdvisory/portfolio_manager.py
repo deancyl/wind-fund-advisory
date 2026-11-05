@@ -2537,6 +2537,10 @@ class PortfolioManager:
         """组合总权益（持仓市值 + 可用现金 + 在途交收现金）"""
         return round(self.total_market_value + self.available_cash + self.in_transit_cash, 2)
 
+    def calculate_total_equity(self) -> float:
+        """计算组合总资产"""
+        return self.total_equity
+
     def _get_db_connection(self) -> sqlite3.Connection:
         """安全建立 SQLite 连接"""
         if getattr(self, '_is_memory', False) and self._mem_conn is not None:
@@ -6349,14 +6353,17 @@ class PortfolioManager:
     ) -> int:
         """
         一键跟单打卡：将前端调仓执行单行结果真实记账入库，完成投后闭环
+        具备先进先出 (FIFO) 批次扣减与增量新批次安全锁定
         """
         updated_count = 0
+        today_s = datetime.now().strftime("%Y-%m-%d")
+
         for r in orders_rows:
             fcode = str(r.get("基金代码") or "").strip().zfill(6)
             if not fcode or not fcode.isdigit():
                 continue
             fname = r.get("基金名称", fcode)
-            action_desc = r.get("建议操作", "")
+            action_desc = str(r.get("建议操作", ""))
             amt_chg = float(r.get("建议调仓金额(元)", 0.0))
 
             cur_h = self.holdings.get(fcode)
@@ -6371,23 +6378,46 @@ class PortfolioManager:
             elif "减持" in action_desc and cur_h:
                 sell_amt = min(abs(amt_chg), float(cur_h.market_value))
                 sell_shares = round(sell_amt / real_nav, 2)
+                # FIFO 扣减批次
+                rem_to_deduct = sell_shares
+                if cur_h.batches:
+                    for b in cur_h.batches:
+                        if rem_to_deduct <= 0:
+                            break
+                        if b.shares <= rem_to_deduct:
+                            rem_to_deduct -= b.shares
+                            b.shares = 0.0
+                        else:
+                            b.shares = round(b.shares - rem_to_deduct, 2)
+                            rem_to_deduct = 0.0
+                    cur_h.batches = [b for b in cur_h.batches if b.shares > 0]
                 cur_h.shares = max(0.0, round(cur_h.shares - sell_shares, 2))
                 cur_h.market_value = round(cur_h.shares * real_nav, 2)
                 self.available_cash += sell_amt
                 updated_count += 1
-            elif "增持" in action_desc or "建仓" in action_desc:
+            elif "增持" in action_desc or "建仓" in action_desc or "买入" in action_desc:
                 buy_amt = abs(amt_chg)
                 buy_shares = round(buy_amt / real_nav, 2)
                 if cur_h:
                     cur_h.shares = round(cur_h.shares + buy_shares, 2)
                     cur_h.market_value = round(cur_h.shares * real_nav, 2)
+                    # 追加新批次以防 _recalculate_totals 覆盖
+                    new_batch = HoldingBatch(
+                        batch_id=f"B_{int(time.time()*1000)}_{len(cur_h.batches)+1}",
+                        buy_date=today_s,
+                        shares=buy_shares,
+                        cost_nav=real_nav,
+                        holding_days=0,
+                        safety_lock=True
+                    )
+                    cur_h.batches.append(new_batch)
                 else:
                     self.add_or_update_holding(
                         fund_code=fcode,
                         shares=buy_shares,
                         nav=real_nav,
                         cost_price=real_nav,
-                        holding_days=1,
+                        holding_days=0,
                         fund_name=fname,
                         notes="调仓一键跟单执行建仓"
                     )
@@ -6396,6 +6426,132 @@ class PortfolioManager:
 
         self.save_state(record_snapshot=True)
         return updated_count
+
+
+    def calculate_rebalance_routes(
+        self,
+        target_weights: Dict[str, float],
+        target_funds_meta: Optional[Dict[str, Any]] = None,
+        holding_days_dict: Optional[Dict[str, int]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        计算调仓执行路由:
+        - 优先级 1 (PRIORITY_1_SWITCH): 同一基金公司内国内基金 T+1 极速转换 (物理拦截 QDII 跨时区与跨 TA 品种)
+        - 优先级 2 (PRIORITY_2_REDEEM_BUY): 跨公司或含 QDII 的独立赎回再申购
+        """
+        meta_map = target_funds_meta or {}
+        h_days_map = holding_days_dict or {}
+
+        tot_eq = float(self.total_equity or 100000.0)
+        cur_weights = {}
+        for c, h in self.holdings.items():
+            cur_weights[c] = float(h.market_value) / tot_eq if tot_eq > 0 else 0.0
+
+        all_codes = set(list(cur_weights.keys()) + list(target_weights.keys()))
+        sells = []
+        buys = []
+
+        for c in all_codes:
+            cw = cur_weights.get(c, 0.0)
+            tw = target_weights.get(c, 0.0)
+            diff_w = tw - cw
+            diff_amt = diff_w * tot_eq
+            h_days = h_days_map.get(c, 60)
+
+            c_meta = meta_map.get(c, {})
+            c_name = c_meta.get("fund_name", self.holdings[c].fund_name if c in self.holdings else c)
+            c_comp = c_meta.get("company", self.holdings[c].company if c in self.holdings else "")
+            c_nav = float(c_meta.get("current_nav", self.holdings[c].current_nav if c in self.holdings else 1.0))
+            is_qdii = self.is_qdii_fund(c, c_name)
+
+            if diff_amt < -10.0:
+                sells.append({
+                    "code": c,
+                    "name": c_name,
+                    "company": c_comp,
+                    "amount": abs(diff_amt),
+                    "nav": c_nav,
+                    "holding_days": h_days,
+                    "is_qdii": is_qdii
+                })
+            elif diff_amt > 10.0:
+                buys.append({
+                    "code": c,
+                    "name": c_name,
+                    "company": c_comp,
+                    "amount": diff_amt,
+                    "nav": c_nav,
+                    "holding_days": h_days,
+                    "is_qdii": is_qdii
+                })
+
+        routes = []
+        matched_sells = set()
+        matched_buys = set()
+
+        # 1. 尝试撮合同公司转换 (仅限双方均为国内基金，QDII 严禁转换)
+        for s in sells:
+            if s["code"] in matched_sells:
+                continue
+            if s["is_qdii"]:
+                continue  # QDII 严禁同公司转换
+            if not s["company"]:
+                continue
+
+            for b in buys:
+                if b["code"] in matched_buys:
+                    continue
+                if b["is_qdii"]:
+                    continue  # QDII 严禁同公司转换
+                if not b["company"]:
+                    continue
+
+                # 同公司判定
+                if s["company"] == b["company"]:
+                    switch_amt = min(s["amount"], b["amount"])
+                    routes.append({
+                        "route_priority": "PRIORITY_1_SWITCH",
+                        "route_name": "同公司极速转换 (T+1 确认 · 0 资金在途)",
+                        "from_code": s["code"],
+                        "from_name": s["name"],
+                        "to_code": b["code"],
+                        "to_name": b["name"],
+                        "amount": switch_amt,
+                        "company": s["company"],
+                        "action_type": "SWITCH"
+                    })
+                    matched_sells.add(s["code"])
+                    matched_buys.add(b["code"])
+                    break
+
+        # 2. 剩余生成普通赎回与申购
+        for s in sells:
+            if s["code"] not in matched_sells:
+                routes.append({
+                    "route_priority": "PRIORITY_2_REDEEM_BUY",
+                    "route_name": "普通赎回" + (" (QDII 跨时区清算)" if s["is_qdii"] else ""),
+                    "from_code": s["code"],
+                    "from_name": s["name"],
+                    "to_code": None,
+                    "amount": s["amount"],
+                    "action_type": "REDEEM",
+                    "is_qdii": s["is_qdii"]
+                })
+
+        for b in buys:
+            if b["code"] not in matched_buys:
+                routes.append({
+                    "route_priority": "PRIORITY_2_REDEEM_BUY",
+                    "route_name": "普通申购" + (" (QDII 跨时区申购)" if b["is_qdii"] else ""),
+                    "from_code": None,
+                    "to_code": b["code"],
+                    "to_name": b["name"],
+                    "amount": b["amount"],
+                    "action_type": "BUY",
+                    "is_qdii": b["is_qdii"]
+                })
+
+        return routes
 
     def generate_scenario_rebalance_plan(
         self,

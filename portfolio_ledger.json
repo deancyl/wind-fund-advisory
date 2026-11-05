@@ -3,74 +3,43 @@
   "takeover_mode": "B",
   "baseline_date": "2026-11-06",
   "baseline_equity": 50000.0,
-  "available_cash": 15000.0,
+  "available_cash": 10000.0,
   "in_transit_cash": 10500.0,
   "reserved_batch_cash": 0.0,
-  "total_market_value": 35000.0,
-  "total_equity": 60500.0,
+  "total_market_value": 10000.0,
+  "total_equity": 30500.0,
   "peak_equity": 191445.0,
   "max_drawdown_pct": 84.07,
   "benchmark_code": "000300.SH",
   "benchmark_baseline_nav": 1.0,
   "benchmark_current_nav": 1.0,
-  "portfolio_return_pct": 21.0,
+  "portfolio_return_pct": -39.0,
   "benchmark_return_pct": 0.0,
-  "alpha_return_pct": 21.0,
+  "alpha_return_pct": -39.0,
   "holdings": [
-    {
-      "fund_code": "005561",
-      "fund_name": "创金合信红利低波A",
-      "share_class": "A",
-      "shares": 20000.0,
-      "cost_price": 1.0,
-      "current_nav": 1.0,
-      "market_value": 20000.0,
-      "cost_basis": 20000.0,
-      "floating_pnl": 0.0,
-      "floating_pnl_pct": 0.0,
-      "first_buy_date": "2026-11-05",
-      "dividend_method": "cash",
-      "batches": [
-        {
-          "batch_id": "B_MANUAL_005561_001",
-          "buy_date": "2026-11-05",
-          "shares": 20000.0,
-          "cost_nav": 1.0,
-          "fee": 0.0,
-          "holding_days": 1,
-          "safety_lock": true,
-          "notes": "调仓一键跟单执行建仓"
-        }
-      ],
-      "company": "创金合信基金",
-      "is_core_strategy": true,
-      "transition_tag": "核心策略底仓",
-      "rebalance_intent": "normal",
-      "cost_nav": 0.0
-    },
     {
       "fund_code": "002351",
       "fund_name": "易方达裕祥回报债券A",
       "share_class": "A",
-      "shares": 15000.0,
+      "shares": 10000.0,
       "cost_price": 1.0,
       "current_nav": 1.0,
-      "market_value": 15000.0,
-      "cost_basis": 15000.0,
+      "market_value": 10000.0,
+      "cost_basis": 10000.0,
       "floating_pnl": 0.0,
       "floating_pnl_pct": 0.0,
-      "first_buy_date": "2026-11-05",
+      "first_buy_date": "2026-07-29",
       "dividend_method": "cash",
       "batches": [
         {
           "batch_id": "B_MANUAL_002351_001",
-          "buy_date": "2026-11-05",
-          "shares": 15000.0,
+          "buy_date": "2026-07-29",
+          "shares": 10000.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 1,
-          "safety_lock": true,
-          "notes": "调仓一键跟单执行建仓"
+          "holding_days": 100,
+          "safety_lock": false,
+          "notes": "手动新增持仓"
         }
       ],
       "company": "易方达基金",
@@ -196,10 +165,10 @@
   "nav_history": [
     {
       "date": "2026-11-06",
-      "total_equity": 60500.0,
-      "account_nav": 1.21,
+      "total_equity": 30500.0,
+      "account_nav": 0.61,
       "benchmark_nav": 1.0
     }
   ],
-  "updated_at": "2026-11-06 00:39:34"
+  "updated_at": "2026-11-06 00:48:15"
 }

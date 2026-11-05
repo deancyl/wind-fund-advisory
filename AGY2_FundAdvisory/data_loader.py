@@ -467,6 +467,10 @@ class IndexValuationEngine:
 
         _INDEX_VAL_MEM_CACHE["ts"] = now_ts
         _INDEX_VAL_MEM_CACHE["data"] = results
+                # 物理防御：严禁 000978 映射为红利低波
+        if "000978" in results and results["000978"].get("name") == "红利低波":
+            del results["000978"]
+
         return results
 
 

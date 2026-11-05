@@ -99,6 +99,30 @@ class TradingClock:
                 rem -= 1
         return cur_dt.strftime("%Y-%m-%d")
 
+    def get_trade_day_offset(self, start_date, end_date) -> int:
+        """计算两个日期跨越的交易日数量偏移量"""
+        def _parse(d):
+            if isinstance(d, datetime):
+                return d.date()
+            if isinstance(d, date):
+                return d
+            s = str(d).replace("-", "")[:8]
+            return datetime.strptime(s, "%Y%m%d").date()
+
+        d_start = _parse(start_date)
+        d_end = _parse(end_date)
+        if d_start == d_end:
+            return 0
+
+        step = 1 if d_end > d_start else -1
+        cur = d_start
+        count = 0
+        while cur != d_end:
+            cur += timedelta(days=step)
+            if self.is_trade_day(cur):
+                count += step
+        return count
+
     def get_next_trade_day(self, base_date: Union[str, date, datetime]) -> str:
         """获取下一个有效交易日 (YYYY-MM-DD)"""
         return self.get_offset_trade_day(base_date, 1)
@@ -287,14 +311,73 @@ class TradingClock:
 
     @staticmethod
     def is_qdii_fund(fund_code: str, fund_name: str = "") -> bool:
-        """识别是否为跨时区 QDII 基金"""
+        """
+        识别是否为跨时区 QDII 基金（如 050025 标普500、001071 华安纳指、013402 恒生科技等）
+        """
         c = str(fund_code or "").strip().zfill(6)
         n = str(fund_name or "").strip()
-        if c in ("050025", "001071", "013402", "006075", "006479", "017436", "017437"):
+        if c in ("050025", "001071", "013402", "006075", "006479", "017436", "017437", "513500", "513100", "159941", "160416", "161125", "162411", "007721", "007722", "006327"):
             return True
-        if any(k in n for k in ["QDII", "标普", "纳斯达克", "美股", "纳指", "恒生", "海外", "全球"]):
+        if any(k in n for k in ["QDII", "标普", "纳斯达克", "美股", "纳指", "恒生", "海外", "全球", "道琼斯", "亚太", "日经", "德国", "法国"]):
             return True
         return False
+
+    @staticmethod
+    def is_us_qdii_fund(fund_code: str, fund_name: str = "") -> bool:
+        """
+        识别是否为美股/欧美跨时区 QDII 基金（美股休市、跨中美时区清算）
+        """
+        c = str(fund_code or "").strip().zfill(6)
+        n = str(fund_name or "").strip()
+        if c in ("050025", "001071", "006075", "006479", "017436", "017437", "513500", "513100"):
+            return True
+        if any(k in n for k in ["标普", "纳斯达克", "美股", "纳指", "道琼斯"]):
+            return True
+        return False
+
+    @staticmethod
+    def get_fund_valuation_credibility(
+        fund_code: str,
+        fund_name: str = "",
+        asset_class: str = ""
+    ) -> Tuple[str, str]:
+        """
+        统一的基金估值可信度判定函数:
+        - 指数联接基金 -> 「指数高准度」
+        - 纯债基金 -> 「债基看久期票息」
+        - 美股 QDII -> 「美股休市·看隔夜期指」
+        - 主动混合基金 -> 「季报重仓估算」
+        """
+        c = str(fund_code or "").strip().zfill(6)
+        n = str(fund_name or "").strip()
+        ac = str(asset_class or "").strip()
+
+        # 1. 美股 QDII (跨中美时区)
+        if c in ("050025", "001071", "006075", "006479", "017436", "017437", "513500", "513100") or any(k in n for k in ["标普", "纳斯达克", "纳指", "美股", "道琼斯"]):
+            return (
+                "美股休市·看隔夜期指",
+                "白天 A 股交易时段美股正股休市，盘中估算涨跌仅能参考美股盘前隔夜期指与离岸汇率，次日早间方可确认真实净值"
+            )
+
+        # 2. 纯债债券基金
+        if ac in ("纯债", "债券", "纯债固收", "固收", "bond") or any(k in n for k in ["纯债", "双债", "短债", "中短债", "长债", "利率债", "信用债", "裕祥回报", "丰盛纯债"]) or c in ("002351", "007466", "014915", "H11009"):
+            return (
+                "债基看久期票息",
+                "债券日内无连续竞价股票波动，日度收益主要由票息累积与利率债久期资本利得决定，盘中估算仅供参考"
+            )
+
+        # 3. 指数联接 / 被动指数基金
+        if ac in ("指数", "指数联接", "ETF联接", "被动指数", "index") or any(k in n for k in ["ETF联接", "联接", "指数", "ETF", "增强", "300", "500", "1000", "50", "红利", "低波", "科创"]) or c in ("005561", "100032", "011612", "013402", "000922", "H30269"):
+            return (
+                "指数高准度",
+                "标的紧密复制基准指数 (仓位90%~95%)，IOPV 实时跟踪误差极低，估值具备高可信度"
+            )
+
+        # 4. 主动混合 / 偏股基金
+        return (
+            "季报重仓估算",
+            "依据上季度末披露的前十大重仓股加权拟合，存在未披露隐形重仓与调仓漂移误差，收盘净值可能有偏差"
+        )
 
     def calculate_settlement_dates(
         self,
@@ -302,18 +385,28 @@ class TradingClock:
         confirm_cycle: str = "T+1",
         arrive_cycle: str = "T+2",
         fund_code: Optional[str] = None,
-        fund_name: str = ""
-    ) -> Dict[str, str]:
+        fund_name: str = "",
+        is_qdii: Optional[bool] = None
+    ) -> Dict[str, Any]:
         """
         推算交易的生效交易日 T、份额确认日与资金到账日
-        自动识别 QDII 跨时区基金并应用 T+2 确认 / T+7 到账专属交割规则
+        自动识别美股/跨时区 QDII 基金并应用「T+2 确认份额 · 赎回 T+6~T+8 到账（跨时区清算，不可用于 T+2 极速换仓）」规则
         """
-        if fund_code and self.is_qdii_fund(fund_code, fund_name):
+        is_qdii_flag = is_qdii if is_qdii is not None else (
+            self.is_qdii_fund(fund_code or "", fund_name) if (fund_code or fund_name) else False
+        )
+        is_us_qdii = self.is_us_qdii_fund(fund_code or "", fund_name) if (fund_code or fund_name) else is_qdii_flag
+
+        settlement_note = ""
+        settlement_badge = ""
+        if is_us_qdii or is_qdii_flag:
             confirm_cycle = "T+2"
             arrive_cycle = "T+7"
-        """
-        推算一笔交易的生效交易日 T、份额确认日与资金到账日
-        """
+            settlement_note = "「T+2 确认份额 · 赎回 T+6~T+8 到账（跨时区清算，不可用于 T+2 极速换仓）」"
+            settlement_badge = "跨时区 T+2确认·T+6~T+8到账"
+        else:
+            settlement_badge = f"国内标准 {confirm_cycle}确认·{arrive_cycle}到账"
+
         status = self.get_market_window_status(order_dt)
         eff_trade_date = status.effective_trade_date
 
@@ -335,7 +428,12 @@ class TradingClock:
             "effective_trade_date": eff_trade_date,
             "confirm_date": confirm_date,
             "arrive_date": arrive_date,
-            "is_delayed": status.is_after_market or not status.is_trade_day
+            "confirm_cycle": confirm_cycle,
+            "arrive_cycle": arrive_cycle,
+            "is_delayed": status.is_after_market or not status.is_trade_day,
+            "is_qdii": bool(is_qdii_flag),
+            "settlement_note": settlement_note,
+            "settlement_badge": settlement_badge
         }
 
 
@@ -642,5 +740,10 @@ class FeeMatrixCalculator:
         }
 
 
-# 全局兼容导出别名
+# 全局兼容导出别名与模块级快捷函数
 TradingClockFee = TradingClock
+TradingClockFeeEngine = TradingClock
+is_qdii_fund = TradingClock.is_qdii_fund
+is_us_qdii_fund = TradingClock.is_us_qdii_fund
+get_fund_valuation_credibility = TradingClock.get_fund_valuation_credibility
+

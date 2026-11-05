@@ -161,7 +161,7 @@ class MarketTemperatureAnalyzer:
             stock_ratio = 15
             bond_ratio = 65
             gold_ratio = 20
-            advice = "市场估值处于历史 80% 以上极度高估水位，ERP性价比严重透支。坚决大幅减持权益资产，防守保本，锁利并等待估值回踩。"
+            advice = "市场估值处于历史 80% 以上极度高估水位，ERP性价比严重透支。坚决大幅减持权益资产，防守避险，锁定本金安全并等待估值回踩。"
 
         # 8. 外生因子微调资产配置比例：若避险或外部压力过高，适度增配黄金与纯债
         if risk_adj >= 2.5 or total_adj >= 5.0:

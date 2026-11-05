@@ -4681,7 +4681,7 @@ class StrategyBridge:
             target_return_pct=target_return_pct,
         )
 
-        # 计算三周期条件胜率表（含保本率、跑赢货基率、95%尾部底线）
+        # 计算三周期条件胜率表（含正收益概率、跑赢货基率、95%尾部底线）
         wr_table = WinRateEngine.multi_horizon_winrate_table(
             nav_series=bt_df["strategy_nav"],
             target_annual_return=float(target_return_pct) / 100.0,
