@@ -1,6 +1,7 @@
 # AGY2-FundAdvisory: 全天候智能投顾与公募基金量化接管系统
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Release](https://img.shields.io/badge/Release-v1.0.1-brightgreen.svg)](https://github.com/deancyl/wind-fund-advisory/releases/tag/v1.0.1)
 [![UI Engine](https://img.shields.io/badge/UI-Streamlit%201.30%2B-red.svg)](https://streamlit.io/)
 [![Quant Engine](https://img.shields.io/badge/Quant%20Engine-7%20Institutional%20Models-success.svg)]()
 [![Risk Guard](https://img.shields.io/badge/Risk%20Guard-6D%20Active%20Sentry-orange.svg)]()
@@ -257,6 +258,23 @@ wind-fund-advisory/
 1. **绝对脱敏与自主可控**：遵循最高安全合规红线，代码与配置文件中严禁任何商业金融机构私有鉴权 Token、会话 Cookie 或内部业务网关 IP；对外一律基于开源行情与本地离线湖仓运行；
 2. **纯本地离线优先**：持仓明细与交易批次存储于本地 `portfolio_ledger.json`，不会向任何外部不可信云端上传您的个人资产数据；
 3. **免责声明**：本系统提供之量化模型、历史胜率推演与组合调仓建议仅作为买方辅助投研参考工具，不构成任何法律意义上的投资邀约或保本承诺。市场有风险，投资需谨慎。
+
+---
+
+## 📝 版本更新日志 (Changelog)
+
+### [v1.0.1] - 2026-11-05
+- **数据单源同真与假常数根除**：补齐子模块热重载守卫（`importlib.reload(advisory_engine)`），彻底消灭 14 大赛道指标回退至 `0.50 / +1.0% / 85.0` 的假常数缺陷，全量赛道信噪比、乖离率与拥挤度 100% 独立真实计算；
+- **双翼看板空间重塑与防遮挡**：将 14 赛道总表由向上飞出的 Popover 改为顺应阅读流向下平滑展开的 `st.expander`，杜绝弹窗反向遮挡全局资产大屏；注入 `.sentry-scroll-container` 限高滚动条，两翼视觉高度齐平；
+- **侧边栏外观收纳与 0.00% 假平盘根治**：侧边栏首行将主题与色彩体系收纳进 `st.popover("⚙️ 外观")`，首屏直接聚焦市场状态与核心指数走廊；非交易时段自动切入本地日线 Parquet 双日收盘价精确计算，彻底消除整排 0.00%；
+- **全栈 7 大机构模型前端挂载**：完整挂载鲁棒双核HRP、全天候风险平价、BL主客观观点融合、条件胜率最优、尾部风控CVaR、凯利动量增强、核心-卫星杠铃 7 大模型及全景对比横向矩阵；
+- **消灭 61.5%“其他权益资产”**：升级底层资产分类器为 10 大专业大类，彻底消除粗暴兜底；
+- **穿透回测与工具箱免拦路按钮直出**：Tab 3 与 Tab 4 彻底移除拦截按钮，实现现场秒级推演直出，并补齐 Portfolio Profile 档案卡、历史同温层综合启示横幅与各模块投顾意义解读。
+
+### [v1.0.0] - 2026-11-05
+- 全天候智能投顾与公募基金量化接管系统首个正式版本发布；
+- 彻底脱钩对商业专网（Wind）依赖，完成本地高保真 Parquet 跨牛熊湖仓建设；
+- 搭载买方调仓净效用门禁、T+1 对账中心、FIFO 免惩罚换仓优化器及 5 套专业金融设计系统。
 
 ---
 

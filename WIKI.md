@@ -188,4 +188,4 @@ $$\Delta U = 	ext{ExpectedAlphaGain}_{20d} - 	ext{ExactRedemptionFee}_{	ext{FIFO
 
 ---
 
-*文档版本：v1.0.0 正式版 ｜ 最后更新：2026年11月 ｜ 遵循 MIT 开源协议*
+*文档版本：v1.0.1 稳定版 ｜ 最后更新：2026年11月 ｜ 遵循 MIT 开源协议*
