@@ -51,8 +51,8 @@ def test_ui_popover_and_7_models_structure():
     # 1. 侧边栏包含外观 popover
     assert 'with st.popover("⚙️ 外观"' in gui_text or "with st.popover('⚙️ 外观'" in gui_text, "Sidebar appearance popover missing!"
     
-    # 2. 双翼温度计使用 popover
-    assert 'with st.popover("📊 全市场 14 大赛道量化温度计总表"' in gui_text, "Dual-wing thermometer popover missing!"
+    # 2. 双翼温度计使用向下展开的 expander（绝不向上弹出遮挡）
+    assert 'with st.expander("📊 查看全市场 14 大赛道量化温度计总表 (向下展开)"' in gui_text, "Dual-wing thermometer downward expander missing!"
     
     # 3. 7 大机构模型全部挂载
     assert "鲁棒双核HRP" in gui_text

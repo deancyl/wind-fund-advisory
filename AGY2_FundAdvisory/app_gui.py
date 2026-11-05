@@ -65,8 +65,10 @@ from data_loader import (
     INDEX_CATALOG_38
 )
 import winrate_engine
+importlib.reload(winrate_engine)
 from winrate_engine import WinRateEngine, HOLDING_PERIODS, WINRATE_METRIC_DEFINITIONS
 import strategy_bridge
+importlib.reload(strategy_bridge)
 from strategy_bridge import (
     StrategyBridge,
     INDEX_TO_FUND_MAP,
@@ -81,8 +83,10 @@ from strategy_bridge import (
     strategy_fn_for_tier
 )
 import market_screener
+importlib.reload(market_screener)
 from market_screener import MarketScreener
 import portfolio_optimizer
+importlib.reload(portfolio_optimizer)
 from portfolio_optimizer import (
     calculate_portfolio_risk_contributions,
     WinRateOptimizer,
@@ -92,6 +96,7 @@ from portfolio_optimizer import (
     simulate_black_swan_stress
 )
 import advisory_engine
+importlib.reload(advisory_engine)
 from advisory_engine import (
     OpportunityRadarEngine,
     ActiveRiskSentry,
@@ -146,10 +151,16 @@ if _need_reimport or not st.session_state.get("_modules_initialized"):
     )
     from market_screener import MarketScreener
     from portfolio_optimizer import (
-    calculate_portfolio_risk_contributions,
+        calculate_portfolio_risk_contributions,
         WinRateOptimizer, QUANT_MODELS_CATALOG,
         recommend_model_for_regime, execute_market_optimization_flow,
         simulate_black_swan_stress
+    )
+    from advisory_engine import (
+        OpportunityRadarEngine,
+        ActiveRiskSentry,
+        SmartExecutionDCAEngine,
+        RADAR_SECTOR_CATALOG
     )
     st.session_state["_modules_initialized"] = True
 
@@ -1974,9 +1985,9 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                             st.toast(f"✅ 已将【{sec_fund.get('name')}】一键纳入备选池，正在为您重新定权！")
                             st.rerun()
 
-                # 全市场 14 大赛道量化温度计总表 (Popover 极简空间压缩)
-                with st.popover("📊 全市场 14 大赛道量化温度计总表", use_container_width=True):
-                    st.caption("📈 14 大赛道真实估值分位、信噪比、乖离率与拥挤度全息总表")
+                # 全市场 14 大赛道量化温度计总表 (向下平滑展开，绝对不向上弹出遮挡)
+                with st.expander("📊 查看全市场 14 大赛道量化温度计总表 (向下展开)", expanded=False):
+                    st.caption("📈 14 大赛道真实估值分位、趋势信噪比、20日乖离率与拥挤度全息总表（顺应阅读流向下展开，随时可合上）")
                     df_rows = []
                     for s in all_scanned_sectors:
                         f_info = s.get("fund", {})
