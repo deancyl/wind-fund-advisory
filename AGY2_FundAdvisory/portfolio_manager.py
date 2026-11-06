@@ -7937,13 +7937,9 @@ class PortfolioManager:
             corr_s = cls.compute_ewma_correlation(s_div, s_bench, decay_factor=decay_factor)
             if not corr_s.empty:
                 tail_60_120 = corr_s.tail(120)
-                # 剔除由于末尾少数交易日数据残缺造成的负相关失真，锚定 60-120 日真实基线
+                # 使用真实交易日对齐后的最新 EWMA 动态相关系数反映最新市场状态
                 val_last = float(corr_s.iloc[-1])
-                val_mean = float(tail_60_120.mean()) if len(tail_60_120) >= 30 else val_last
-                if val_last > 0.15:
-                    real_corr = round(val_last, 4)
-                else:
-                    real_corr = round(max(0.35, val_mean), 4)
+                real_corr = round(val_last, 4)
 
                 recent_series = {
                     d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d): float(round(v, 4))

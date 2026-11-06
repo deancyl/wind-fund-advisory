@@ -28,6 +28,7 @@ time.sleep(1.5)
 print("=== 2. Launching Streamlit background daemon ===")
 # 使用 Windows 原生 CREATE_NO_WINDOW 后台拉起
 CREATE_NO_WINDOW = 0x08000000
+DETACHED_PROCESS = 0x00000008
 python_exe = sys.executable
 app_path = os.path.abspath("AGY2_FundAdvisory/app_gui.py")
 
@@ -41,9 +42,10 @@ cmd = [
 
 proc = subprocess.Popen(
     cmd,
-    creationflags=CREATE_NO_WINDOW,
+    creationflags=CREATE_NO_WINDOW | DETACHED_PROCESS,
     stdout=subprocess.DEVNULL,
     stderr=subprocess.DEVNULL,
+    close_fds=True,
     cwd=os.path.abspath(".")
 )
 print(f"Launched Streamlit daemon with PID {proc.pid}")

@@ -212,7 +212,7 @@ class TestG3EvolutionLoop:
         assert not any("09:30-10:00" in s["phase"] for s in otc_slices), "场外基金严禁输出日内小时分单！"
 
         # 4. 验证金额规模动态梯度（从 1000 元到 50 万元显著单调递增，绝非恒定 2.1 bps）
-        amounts = [1000.0, 10000.0, 50000.0, 100000.0, 500000.0]
+        amounts = [1000.0, 2000.0, 10000.0, 50000.0, 100000.0, 500000.0]
         saved_bps_list = []
         for amt in amounts:
             res_amt = SmartExecutionDCAEngine.calculate_vwap_execution_slippage(
@@ -223,12 +223,43 @@ class TestG3EvolutionLoop:
             )
             saved_bps_list.append(res_amt["slippage_saved_bps"])
             assert res_amt["slippage_saved_bps"] != 2.1, f"金额 ¥{amt} 测算的节省基点严禁恒定为 2.1 bps！"
+            # 验证分笔执行金额与总金额分厘级严格平账
+            tot_slices = sum(s["slice_amount"] for s in res_amt["vwap_slices"])
+            assert abs(tot_slices - amt) < 0.02, f"5阶段调度分笔总和必须严格等于下单总金额！实际 {tot_slices} vs {amt}"
 
         # 验证单调递增梯度
         for i in range(len(saved_bps_list) - 1):
             assert saved_bps_list[i + 1] > saved_bps_list[i], (
                 f"节省基点必须随金额单调递增！{amounts[i+1]}元 ({saved_bps_list[i+1]}) 应大于 {amounts[i]}元 ({saved_bps_list[i]})"
             )
+
+        # 验证纯债低波动标的 (vol=0.04) 同样满足严格单调递增且零平台截断
+        bond_saved = []
+        for amt in [1000.0, 2000.0, 10000.0, 50000.0]:
+            r_bond = SmartExecutionDCAEngine.calculate_vwap_execution_slippage(
+                order_amount=amt,
+                fund_code="002351",
+                fund_name="易方达裕祥回报债券A",
+                volatility=0.04
+            )
+            bond_saved.append(r_bond["slippage_saved_bps"])
+        for i in range(len(bond_saved) - 1):
+            assert bond_saved[i + 1] > bond_saved[i], "低波纯债基金金额递增必须保持节省基点严格递增！"
+
+        # 验证场内 ETF (510300) 冲击成本随金额递增单调增大，滑点节省同样单调递增（无反转缺陷）
+        etf_saved = []
+        for amt in [1000.0, 2000.0, 5000.0, 10000.0, 50000.0]:
+            r_etf = SmartExecutionDCAEngine.calculate_vwap_execution_slippage(
+                order_amount=amt,
+                fund_code="510300",
+                fund_name="沪深300ETF",
+                volatility=0.18
+            )
+            etf_saved.append(r_etf["slippage_saved_bps"])
+            tot_slices = sum(s["slice_amount"] for s in r_etf["vwap_slices"])
+            assert abs(tot_slices - amt) < 0.02, f"ETF 5阶段调度分笔总和必须严格等于下单总金额！实际 {tot_slices} vs {amt}"
+        for i in range(len(etf_saved) - 1):
+            assert etf_saved[i + 1] > etf_saved[i], "ETF 优化节省基点必须随金额单调递增，严禁反转递减！"
 
         # 5. 测试 plan_smart_dca 整体定投方案接入
         allocs = [

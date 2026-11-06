@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-06 23:27:39",
+  "timestamp": "2026-11-06 23:55:31",
   "all_passed": false,
   "has_danger": false,
   "has_warning": true,
@@ -26,7 +26,7 @@
   "summary": "发现 2 项风险与提示项",
   "correlation_mutation": {
     "is_triggered": false,
-    "current_correlation": 0.35,
+    "current_correlation": 0.0485,
     "threshold": 0.75,
     "status": "DECOUPLED_NORMAL",
     "alert_level": "green",
@@ -170,7 +170,7 @@
       "2026-11-05": 0.0511,
       "2026-11-06": 0.0485
     },
-    "alert_title": "【相关性健康】红利与周期权重相关系数正常 (0.35 < 0.75)",
+    "alert_title": "【相关性健康】红利与周期权重相关系数正常 (0.05 < 0.75)",
     "alert_message": "红利类资产与周期权重股相关性保持在正常隔离区间，未发生突变共振。"
   }
 }

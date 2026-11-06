@@ -3485,16 +3485,20 @@ with tab_zero_start:
                 dynamic_col_config["本期乘数修正后实扣(元)"] = st.column_config.NumberColumn(format="¥%.2f")
 
                 order_map = {str(o.get("code")): o for o in dca_plan.get("fund_orders", [])}
-                df_display["快速冲击损耗(元)"] = df_display["基金代码"].astype(str).map(lambda c: order_map.get(c, {}).get("naive_impact_yuan", 0.0))
-                df_display["VWAP执行滑点(元)"] = df_display["基金代码"].astype(str).map(lambda c: order_map.get(c, {}).get("vwap_slippage_yuan", 0.0))
-                df_display["优化节省损耗(元)"] = df_display["基金代码"].astype(str).map(lambda c: order_map.get(c, {}).get("slippage_saved_yuan", 0.0))
-                dynamic_col_config["快速冲击损耗(元)"] = st.column_config.NumberColumn(format="¥%.2f")
-                dynamic_col_config["VWAP执行滑点(元)"] = st.column_config.NumberColumn(format="¥%.2f")
-                dynamic_col_config["优化节省损耗(元)"] = st.column_config.NumberColumn(format="¥%.2f")
+                col_naive_head = "快速冲击损耗(元)" if has_etf_dca else "早盘盲买偏差(元)"
+                col_vwap_head = "VWAP执行滑点(元)" if has_etf_dca else "尾盘锚定损耗(元)"
+                col_saved_head = "优化节省损耗(元)" if has_etf_dca else "尾盘优化节省(元)"
+
+                df_display[col_naive_head] = df_display["基金代码"].astype(str).map(lambda c: order_map.get(c, {}).get("naive_impact_yuan", 0.0))
+                df_display[col_vwap_head] = df_display["基金代码"].astype(str).map(lambda c: order_map.get(c, {}).get("vwap_slippage_yuan", 0.0))
+                df_display[col_saved_head] = df_display["基金代码"].astype(str).map(lambda c: order_map.get(c, {}).get("slippage_saved_yuan", 0.0))
+                dynamic_col_config[col_naive_head] = st.column_config.NumberColumn(format="¥%.2f")
+                dynamic_col_config[col_vwap_head] = st.column_config.NumberColumn(format="¥%.2f")
+                dynamic_col_config[col_saved_head] = st.column_config.NumberColumn(format="¥%.2f")
 
                 cs_lines = [cheat_sheet_text, f"\n【📅 估值自适应智能定投执行小抄 (乘数: {mult:.2f}x · 微观执行优化版)】"]
                 for _, r in df_display.iterrows():
-                    cs_lines.append(f"标的: {r['基金代码']} ({r['基金名称']}) -> 基准定投: ¥{r['基准每期定投(元)']:,.2f}/期 | 本期实扣: ¥{r['本期乘数修正后实扣(元)']:,.2f} | 优化滑点: ¥{r['VWAP执行滑点(元)']:,.2f} (优化省¥{r['优化节省损耗(元)']:,.2f})")
+                    cs_lines.append(f"标的: {r['基金代码']} ({r['基金名称']}) -> 基准定投: ¥{r['基准每期定投(元)']:,.2f}/期 | 本期实扣: ¥{r['本期乘数修正后实扣(元)']:,.2f} | 优化损耗: ¥{r[col_vwap_head]:,.2f} (优化省¥{r[col_saved_head]:,.2f})")
                 active_cheat_sheet_text = "\n".join(cs_lines)
 
                 exp_label = "⏱️ 查看分批挂单执行调度表（尾盘净值锁定与跨日分批优化）" if not has_etf_dca else "⏱️ 查看 VWAP 分时成交量加权挂单调度表（日内 5 阶段分笔平抑冲击）"
@@ -5231,7 +5235,8 @@ with tab_holdings_and_rebalance:
                     sl_inf = SmartExecutionDCAEngine.calculate_vwap_execution_slippage(
                         order_amount=b_amt,
                         fund_code=b_fc,
-                        fund_name=b_fn
+                        fund_name=b_fn,
+                        bias_20=snapshot.get("bias_20", 0.0) if isinstance(snapshot, dict) else 0.0
                     )
                     vwap_rebal_orders.append(sl_inf)
 
