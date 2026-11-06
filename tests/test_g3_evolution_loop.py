@@ -82,11 +82,12 @@ class TestG3EvolutionLoop:
         assert "historical_correlation_tail" in res_real
         assert len(res_real["historical_correlation_tail"]) > 0
 
-    def test_g3_2_active_risk_sentry_dimension_7_integration(self):
+    def test_g3_2_active_risk_sentry_dimension_7_integration(self, tmp_path):
         """
         验证 ActiveRiskSentry 主动风险预警哨全面挂载维度 7 (动态相关性突变防御)
         """
-        sentry = ActiveRiskSentry(watchdog_path="data/test_sentry_watchdog.json")
+        t_wd = tmp_path / "test_sentry_watchdog.json"
+        sentry = ActiveRiskSentry(watchdog_path=str(t_wd))
         test_holdings = {
             "005561": HoldingItem(fund_code="005561", fund_name="创金合信红利低波A", shares=50000, cost_nav=1.0, current_nav=1.0),
             "161725": HoldingItem(fund_code="161725", fund_name="招商中证白酒指数A", shares=50000, cost_nav=1.0, current_nav=1.0),

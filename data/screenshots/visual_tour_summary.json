@@ -12,8 +12,55 @@
   },
   "dark_mode": {},
   "overflow_detected": false,
-  "tabs_checked": [],
+  "tabs_checked": [
+    {
+      "index": 1,
+      "name": "🌱 新资建仓",
+      "screenshot": "data\\screenshots\\mobile_640_tab1_new_capital.png",
+      "screenshot_full": "data\\screenshots\\mobile_640_tab1_new_capital_full.png",
+      "geom": {
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "overflow": false
+      }
+    },
+    {
+      "index": 2,
+      "name": "💼 持仓调仓",
+      "screenshot": "data\\screenshots\\mobile_640_tab2_rebalance.png",
+      "screenshot_full": "data\\screenshots\\mobile_640_tab2_rebalance_full.png",
+      "geom": {
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "overflow": false
+      }
+    },
+    {
+      "index": 3,
+      "name": "📈 组合回测",
+      "screenshot": "data\\screenshots\\mobile_640_tab3_backtest.png",
+      "screenshot_full": "data\\screenshots\\mobile_640_tab3_backtest_full.png",
+      "geom": {
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "overflow": false
+      }
+    },
+    {
+      "index": 4,
+      "name": "🔍 穿透工具",
+      "screenshot": "data\\screenshots\\mobile_640_tab4_toolbox.png",
+      "screenshot_full": "data\\screenshots\\mobile_640_tab4_toolbox_full.png",
+      "geom": {
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "overflow": false
+      }
+    }
+  ],
   "cards_verified": [
+    "tab3_monte_carlo_card_mobile",
+    "tab4_corr_mutation_card_mobile",
     "tab3_monte_carlo_card_desktop",
     "tab4_corr_mutation_card_desktop"
   ]

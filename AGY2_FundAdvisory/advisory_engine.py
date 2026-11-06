@@ -1277,7 +1277,15 @@ class SmartExecutionDCAEngine:
         raw_fc = str(fund_code).strip()
         clean_fc = raw_fc.lower().replace("sh", "").replace("sz", "")
         fc = clean_fc
-        fn = str(fund_name).strip()
+        fn = str(fund_name).strip() if fund_name is not None else ""
+        if not fn or fn == "None":
+            try:
+                from portfolio_manager import get_fund_short_alias
+                resolved_fn = get_fund_short_alias(clean_fc)
+                if resolved_fn and resolved_fn != clean_fc:
+                    fn = resolved_fn
+            except Exception:
+                pass
 
         # 严格场内 ETF 判定铁律：仅当代码以 51、15、56、58、59 开头且名称不包含联接二字时为 True
         is_etf = clean_fc.startswith(("51", "15", "56", "58", "59")) and ("联接" not in fn)
@@ -1477,6 +1485,7 @@ class SmartExecutionDCAEngine:
                 order_amount=amt,
                 fund_code=f_code,
                 fund_name=f_name,
+                volatility=a.get("volatility"),
                 bias_20=bias
             )
 

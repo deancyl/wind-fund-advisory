@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-06 23:55:31",
+  "timestamp": "2026-11-07 00:08:53",
   "all_passed": false,
   "has_danger": false,
   "has_warning": true,
@@ -7,7 +7,7 @@
     {
       "level": "yellow",
       "dimension": "C类零费率置换",
-      "title": "【华夏科创50ETF联接C (011613)】C类份额已满 30 天（第 35 天）",
+      "title": "【华夏科创50ETF联接C (011613)】C类份额已满 30 天（第 36 天）",
       "desc": "赎回费已归零！建议在反弹阻力位择机全额置换清理，避免长期计提销售服务费。",
       "action": "建议逢高置换为优质 A 类底仓或无费率标的。",
       "action_type": "switch_a_class",
