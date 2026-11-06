@@ -6976,6 +6976,111 @@ class StrategyBridge:
             from AGY2_FundAdvisory.advisory_engine import SmartExecutionDCAEngine
             return SmartExecutionDCAEngine.verify_historical_inflection_signals(df=df)
 
+    @classmethod
+    def get_historical_inflection_ruler(
+        cls,
+        current_erp: Optional[float] = None,
+        current_bias: Optional[float] = None,
+        total_capital: float = 100000.0
+    ) -> Dict[str, Any]:
+        """
+        【历史三大牛熊拐点实盘对照尺数据模型】
+        暴露 2021年2月核心资产见顶(0.50x)、2022年4月恐慌底(1.93x)、2024年9月反转底(1.94x) 与当前市场的并列对照结构。
+        """
+        try:
+            from advisory_engine import SmartExecutionDCAEngine
+            return SmartExecutionDCAEngine.get_historical_inflection_ruler(current_erp, current_bias, total_capital)
+        except Exception:
+            from AGY2_FundAdvisory.advisory_engine import SmartExecutionDCAEngine
+            return SmartExecutionDCAEngine.get_historical_inflection_ruler(current_erp, current_bias, total_capital)
+
+    @classmethod
+    def evaluate_tail_valuation_anomaly(
+        cls,
+        fund_code: str,
+        fund_name: str = "",
+        realtime_quote: Optional[Any] = None
+    ) -> Dict[str, Any]:
+        """
+        【14:30 尾盘实时估值异动防追高与黄金坑吸筹预警算子】
+        """
+        try:
+            from advisory_engine import SmartExecutionDCAEngine
+            return SmartExecutionDCAEngine.evaluate_tail_valuation_anomaly(fund_code, fund_name, realtime_quote)
+        except Exception:
+            from AGY2_FundAdvisory.advisory_engine import SmartExecutionDCAEngine
+            return SmartExecutionDCAEngine.evaluate_tail_valuation_anomaly(fund_code, fund_name, realtime_quote)
+
+    detect_intraday_valuation_anomaly = evaluate_tail_valuation_anomaly
+
+    @classmethod
+    def get_fund_real_volatility_and_bias(
+        cls,
+        fund_code: str,
+        fund_name: str = ""
+    ) -> Dict[str, float]:
+        """
+        【单基真实时序量化穿透算子】
+        """
+        try:
+            from advisory_engine import SmartExecutionDCAEngine
+            return SmartExecutionDCAEngine.get_fund_real_volatility_and_bias(fund_code, fund_name)
+        except Exception:
+            from AGY2_FundAdvisory.advisory_engine import SmartExecutionDCAEngine
+            return SmartExecutionDCAEngine.get_fund_real_volatility_and_bias(fund_code, fund_name)
+
+    get_fund_20d_metrics = get_fund_real_volatility_and_bias
+
+    @classmethod
+    def calculate_asset_historical_beta(
+        cls,
+        fund_code_or_class: str,
+        fund_name: str = "",
+        lookback_window: Optional[int] = None
+    ) -> float:
+        """
+        【标的历史 Beta 弹性系数测算算子】
+        """
+        try:
+            from portfolio_manager import PortfolioManager
+            return PortfolioManager.calculate_asset_historical_beta(fund_code_or_class, fund_name, lookback_window)
+        except Exception:
+            from AGY2_FundAdvisory.portfolio_manager import PortfolioManager
+            return PortfolioManager.calculate_asset_historical_beta(fund_code_or_class, fund_name, lookback_window)
+
+    @classmethod
+    def calculate_portfolio_cushion_and_stress_model(
+        cls,
+        holdings: Any = None,
+        available_cash: float = 0.0,
+        in_transit_cash: float = 0.0,
+        pm: Any = None,
+        current_index_point: float = 3920.0,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        【浮盈安全垫抗震承压与本金破净/回本临界模型全量精算接口】
+        """
+        try:
+            from portfolio_manager import PortfolioManager
+        except Exception:
+            from AGY2_FundAdvisory.portfolio_manager import PortfolioManager
+
+        if pm is not None and hasattr(pm, "calculate_portfolio_cushion_and_stress_model"):
+            return pm.calculate_portfolio_cushion_and_stress_model(current_index_point=current_index_point)
+        elif holdings is not None:
+            temp_pm = PortfolioManager(db_path=":memory:", ledger_json_path="temp_cushion_ledger.json")
+            if isinstance(holdings, dict):
+                temp_pm.holdings = copy.copy(holdings)
+            elif isinstance(holdings, list):
+                temp_pm.holdings = {getattr(h, "fund_code", str(i)): h for i, h in enumerate(holdings)}
+            temp_pm.available_cash = float(available_cash)
+            temp_pm.in_transit_cash = float(in_transit_cash)
+            return temp_pm.calculate_portfolio_cushion_and_stress_model(current_index_point=current_index_point)
+        else:
+            default_pm = PortfolioManager()
+            return default_pm.calculate_portfolio_cushion_and_stress_model(current_index_point=current_index_point)
+
 
 # =====================================================================
 # 顶层模块函数快捷导出 (Module-Level Exports)
@@ -6996,6 +7101,14 @@ simulate_rebalance_modes_and_consequences = StrategyBridge.simulate_rebalance_mo
 compute_market_snr_and_kalman_state = StrategyBridge.compute_market_snr_and_kalman_state
 compute_momentum_acceleration = StrategyBridge.compute_momentum_acceleration
 verify_historical_inflection_signals = StrategyBridge.verify_historical_inflection_signals
+get_historical_inflection_ruler = StrategyBridge.get_historical_inflection_ruler
+evaluate_tail_valuation_anomaly = StrategyBridge.evaluate_tail_valuation_anomaly
+detect_intraday_valuation_anomaly = StrategyBridge.detect_intraday_valuation_anomaly
+get_fund_real_volatility_and_bias = StrategyBridge.get_fund_real_volatility_and_bias
+get_fund_20d_metrics = StrategyBridge.get_fund_20d_metrics
+calculate_asset_historical_beta = StrategyBridge.calculate_asset_historical_beta
+calculate_portfolio_cushion_and_stress_model = StrategyBridge.calculate_portfolio_cushion_and_stress_model
+
 
 
 

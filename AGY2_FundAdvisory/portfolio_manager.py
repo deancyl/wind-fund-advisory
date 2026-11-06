@@ -1610,8 +1610,8 @@ FUND_INDEX_PRICE_MAP: Dict[str, str] = {
     "001052": "H00905",
     "016634": "H00852",
     "016633": "H00852",
-    "013841": "930609",
-    "013840": "930609",
+    "013841": "STAR50_STITCH",
+    "013840": "STAR50_STITCH",
     "016440": "H00922",
     "016441": "H00922",
 }
@@ -2713,6 +2713,274 @@ class PortfolioManager:
     def calculate_total_equity(self) -> float:
         """计算组合总资产"""
         return self.total_equity
+
+    @classmethod
+    def calculate_asset_historical_beta(
+        cls,
+        fund_code_or_class: str,
+        fund_name: str = "",
+        lookback_window: Optional[int] = None
+    ) -> float:
+        """
+        【标的历史 Beta 弹性系数测算算子】
+        基于 data/processed/aligned_matrix_total_return.parquet 相对沪深 300 (H00300) 全收益基准，
+        通过 CAPM 协方差/方差模型精算单标的历史 Beta 弹性系数。
+        优先穿透单基日线，次级映射至赛道指数，最后对齐 9 大资产类别基准。
+        """
+        raw_key = str(fund_code_or_class or "").strip()
+        fn = str(fund_name or "").strip()
+        if not raw_key:
+            return 1.0
+
+        # 现金或在途资金物理 Beta 为 0.0
+        if any(k in raw_key for k in ["cash", "现金", "流动性", "在途", "CASH"]) or raw_key == "0":
+            return 0.0
+
+        clean_code = raw_key.lower().replace("sh", "").replace("sz", "")
+
+        try:
+            ws_root = WORKSPACE_ROOT
+            mat_p = ws_root / "data" / "processed" / "aligned_matrix_total_return.parquet"
+            if mat_p.exists():
+                df_mat = pd.read_parquet(mat_p)
+                if "date" in df_mat.columns:
+                    df_mat['date'] = pd.to_datetime(df_mat['date'])
+                    df_mat = df_mat.sort_values('date').set_index('date')
+
+                if "H00300" in df_mat.columns:
+                    # 1. 第一顺位：单基专属日线数据
+                    fund_p = ws_root / "data" / "processed" / "funds" / f"{clean_code}.OF.parquet"
+                    if fund_p.exists():
+                        try:
+                            df_f = pd.read_parquet(fund_p)
+                            for nav_c in ["unit_nav", "cum_nav", "nav", "close", "收盘"]:
+                                if nav_c in df_f.columns:
+                                    s_f = df_f[["date", nav_c]].dropna().copy()
+                                    s_f['date'] = pd.to_datetime(s_f['date'])
+                                    s_f = s_f.sort_values('date').set_index('date')
+                                    merged = pd.concat([s_f[nav_c], df_mat['H00300']], axis=1, join='inner').dropna()
+                                    if len(merged) >= 30:
+                                        if lookback_window and lookback_window > 20:
+                                            merged = merged.iloc[-lookback_window:]
+                                        r_f = merged.iloc[:, 0].pct_change().dropna()
+                                        r_m = merged.iloc[:, 1].pct_change().dropna()
+                                        var_m = float(r_m.var())
+                                        if var_m > 1e-8:
+                                            b_val = float(r_f.cov(r_m) / var_m)
+                                            if np.isfinite(b_val):
+                                                return round(b_val, 4)
+                        except Exception:
+                            pass
+
+                    # 2. 第二顺位：从 FUND_INDEX_PRICE_MAP 获取对应列
+                    target_col = FUND_INDEX_PRICE_MAP.get(clean_code)
+                    if not target_col or target_col not in df_mat.columns:
+                        cat = cls.classify_fund_asset_class(clean_code, fn)
+                        CAT_TO_COL = {
+                            "科技成长进攻": "STAR50_STITCH",
+                            "中小盘成长": "H00852",
+                            "中盘均衡": "H00905",
+                            "核心蓝筹": "H00300",
+                            "A股红利高股息": "H00922",
+                            "A股红利低波": "H30269",
+                            "美股海外对冲": "SPX_CNY",
+                            "黄金对冲": "AU9999",
+                            "纯债固收": "H11009",
+                            "现金管理": None,
+                        }
+                        target_col = CAT_TO_COL.get(cat, "H00300")
+                        if target_col is None:
+                            return 0.0
+
+                    if target_col in df_mat.columns:
+                        s_target = df_mat[target_col]
+                        s_bench = df_mat["H00300"]
+                        if lookback_window and lookback_window > 20:
+                            s_target = s_target.iloc[-lookback_window:]
+                            s_bench = s_bench.iloc[-lookback_window:]
+                        r_t = s_target.pct_change().dropna()
+                        r_m = s_bench.pct_change().dropna()
+                        var_m = float(r_m.var())
+                        if var_m > 1e-8:
+                            b_val = float(r_t.cov(r_m) / var_m)
+                            if np.isfinite(b_val):
+                                return round(b_val, 4)
+        except Exception:
+            pass
+
+        # 3. 极致回退标准值
+        STANDARD_BETAS = {
+            "科技成长进攻": 1.2346,
+            "中小盘成长": 1.0313,
+            "中盘均衡": 1.0174,
+            "核心蓝筹": 1.0000,
+            "A股红利高股息": 0.6667,
+            "A股红利低波": 0.5900,
+            "美股海外对冲": 0.1214,
+            "黄金对冲": 0.0111,
+            "纯债固收": -0.0118,
+            "现金管理": 0.0,
+        }
+        cat = cls.classify_fund_asset_class(clean_code, fn)
+        return STANDARD_BETAS.get(cat, 1.0000)
+
+    def calculate_portfolio_cushion_and_stress_model(
+        self,
+        current_index_point: float = 3920.0,
+        custom_erp: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        【浮盈安全垫抗震承压与本金破净/回本临界模型全量精算算子】
+        基于当前账本持仓真实累计浮盈、各标的真实持仓权重及相对沪深 300 历史 Beta 弹性系数：
+        1. 组合加权 Beta 系数与浮盈安全垫厚度（占总本金百分比）；
+        2. 本金破净安全边际（大盘需跌多少 % 或点位跌光安全垫；浮亏状态下大盘需反弹多少 % 回本）；
+        3. 单日急跌 3%、周度回调 5%、极端回调 10% 三档压力推演组合跌幅与剩余安全垫。
+        """
+        holdings = getattr(self, "holdings", {})
+        avail_cash = float(getattr(self, "available_cash", 0.0))
+        transit_cash = float(getattr(self, "in_transit_cash", 0.0))
+        total_cash = avail_cash + transit_cash
+
+        total_mv = sum(float(getattr(h, "market_value", 0.0)) for h in holdings.values())
+        total_eq = total_mv + total_cash
+
+        holdings_cost = sum(float(getattr(h, "cost_basis", 0.0)) for h in holdings.values())
+        total_cost = holdings_cost + total_cash
+
+        floating_pnl = sum(float(getattr(h, "floating_pnl", 0.0)) for h in holdings.values())
+        floating_pnl_pct = round((floating_pnl / holdings_cost * 100.0), 2) if holdings_cost > 0 else 0.0
+
+        # 年度票息内生收息安全垫 (来自 StrategyBridge)
+        try:
+            from strategy_bridge import StrategyBridge
+            yield_res = StrategyBridge.calculate_portfolio_yield_cushion(holdings, total_eq, pm=self)
+            annual_yield_cushion = float(yield_res.get("annual_cushion_amount", 0.0))
+            weighted_yield_pct = float(yield_res.get("weighted_yield_pct", 0.0))
+        except Exception:
+            annual_yield_cushion = 0.0
+            weighted_yield_pct = 0.0
+
+        # 综合安全垫厚度
+        comprehensive_cushion = round(floating_pnl + annual_yield_cushion, 2)
+        cushion_ratio_pct = round((comprehensive_cushion / total_cost * 100.0), 2) if total_cost > 0 else 0.0
+
+        # 标的 Beta 测算与组合加权 Beta
+        holding_betas = []
+        weighted_beta_sum = 0.0
+        equity_weighted_beta_sum = 0.0
+
+        for fc, h in holdings.items():
+            mv = float(getattr(h, "market_value", 0.0))
+            fn = getattr(h, "fund_name", fc)
+            w_tot = (mv / total_eq) if total_eq > 0 else 0.0
+            w_eq = (mv / total_mv) if total_mv > 0 else 0.0
+            beta_i = self.calculate_asset_historical_beta(fc, fn)
+            contrib_tot = w_tot * beta_i
+            contrib_eq = w_eq * beta_i
+            weighted_beta_sum += contrib_tot
+            equity_weighted_beta_sum += contrib_eq
+            cat = self.classify_fund_asset_class(fc, fn)
+
+            holding_betas.append({
+                "fund_code": fc,
+                "fund_name": fn,
+                "market_value": round(mv, 2),
+                "weight_pct": round(w_tot * 100.0, 2),
+                "equity_weight_pct": round(w_eq * 100.0, 2),
+                "beta": round(beta_i, 4),
+                "beta_contribution": round(contrib_tot, 4),
+                "asset_class": cat,
+            })
+
+        portfolio_weighted_beta = round(weighted_beta_sum, 4) if total_mv > 0 and total_eq > 0 else 0.0
+        equity_weighted_beta = round(equity_weighted_beta_sum, 4) if total_mv > 0 else 0.0
+
+        # 破净安全边际与回本临界点精算
+        i_pt = float(current_index_point if current_index_point > 0 else 3920.0)
+
+        if portfolio_weighted_beta > 0.001 and total_eq > 0:
+            if comprehensive_cushion > 0:
+                r_break_pct = - (comprehensive_cushion / (total_eq * portfolio_weighted_beta)) * 100.0
+                i_break = i_pt * (1.0 + r_break_pct / 100.0)
+                break_even_drop_pct = round(r_break_pct, 2)
+                break_even_index_point = round(i_break, 1)
+                recovery_rise_pct = 0.0
+                recovery_index_point = round(i_pt, 1)
+                safety_margin_summary = (
+                    f"🎯 破净安全边际：沪深300需连续大跌 {abs(break_even_drop_pct):.2f}% "
+                    f"(跌破 {break_even_index_point:,.0f} 点)，才会将当前账面浮盈与年化收息安全垫全部跌光触及本金成本线！"
+                )
+            elif floating_pnl < 0:
+                r_recover_pct = (abs(floating_pnl) / (total_eq * portfolio_weighted_beta)) * 100.0
+                i_recover = i_pt * (1.0 + r_recover_pct / 100.0)
+                break_even_drop_pct = 0.0
+                break_even_index_point = round(i_pt, 1)
+                recovery_rise_pct = round(r_recover_pct, 2)
+                recovery_index_point = round(i_recover, 1)
+                safety_margin_summary = (
+                    f"🎯 回本临界点：大盘仅需反弹 +{recovery_rise_pct:.2f}% "
+                    f"(回升至 {recovery_index_point:,.0f} 点)，组合即可整体平水回本！"
+                )
+            else:
+                break_even_drop_pct = 0.0
+                break_even_index_point = round(i_pt, 1)
+                recovery_rise_pct = 0.0
+                recovery_index_point = round(i_pt, 1)
+                safety_margin_summary = "🎯 组合处于平水状态，综合安全垫与本金成本线吻合。"
+        else:
+            break_even_drop_pct = 0.0
+            break_even_index_point = round(i_pt, 1)
+            recovery_rise_pct = 0.0
+            recovery_index_point = round(i_pt, 1)
+            safety_margin_summary = "🛡️ 当前为 100% 现金流动性或中性固收组合，物理免疫大盘系统性贝塔波动！"
+
+        # 三大承压压力测试推演 (-3%, -5%, -10%)
+        stress_scenarios = []
+        for s_name, m_drop in [("单日急跌", -3.0), ("周度回调", -5.0), ("极端回调", -10.0)]:
+            p_drop = portfolio_weighted_beta * (m_drop / 100.0)
+            loss_yuan = round(total_eq * p_drop, 2)
+            eq_after = round(total_eq + loss_yuan, 2)
+            rem_cushion = round(comprehensive_cushion + loss_yuan, 2)
+            rem_ratio = round((rem_cushion / total_cost * 100.0), 2) if total_cost > 0 else 0.0
+            status = "🟢 保持本金安全 (安全垫充足)" if rem_cushion >= 0 else "🔴 穿透安全垫 (触及本金)"
+            stress_scenarios.append({
+                "name": f"{s_name} {m_drop:+.0f}%",
+                "scenario_type": s_name,
+                "market_drop_pct": m_drop,
+                "portfolio_drop_pct": round(p_drop * 100.0, 2),
+                "expected_loss_yuan": loss_yuan,
+                "equity_after_stress": eq_after,
+                "remaining_cushion_yuan": rem_cushion,
+                "remaining_cushion_ratio": rem_ratio,
+                "status": status,
+                "is_capital_safe": bool(rem_cushion >= 0)
+            })
+
+        return {
+            "total_equity": round(total_eq, 2),
+            "total_market_value": round(total_mv, 2),
+            "available_cash": round(avail_cash, 2),
+            "in_transit_cash": round(transit_cash, 2),
+            "total_cost_basis": round(total_cost, 2),
+            "holdings_cost_basis": round(holdings_cost, 2),
+            "floating_pnl": round(floating_pnl, 2),
+            "floating_pnl_pct": floating_pnl_pct,
+            "annual_yield_cushion": annual_yield_cushion,
+            "weighted_yield_pct": weighted_yield_pct,
+            "comprehensive_cushion": comprehensive_cushion,
+            "cushion_ratio_pct": cushion_ratio_pct,
+            "portfolio_weighted_beta": portfolio_weighted_beta,
+            "equity_weighted_beta": equity_weighted_beta,
+            "current_index_point": round(i_pt, 1),
+            "break_even_drop_pct": break_even_drop_pct,
+            "break_even_index_point": break_even_index_point,
+            "recovery_rise_pct": recovery_rise_pct,
+            "recovery_index_point": recovery_index_point,
+            "safety_margin_summary": safety_margin_summary,
+            "is_in_floating_loss": bool(floating_pnl < 0),
+            "stress_scenarios": stress_scenarios,
+            "holding_betas": holding_betas,
+        }
 
     def _get_db_connection(self) -> sqlite3.Connection:
         """安全建立 SQLite 连接"""

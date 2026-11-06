@@ -1,13 +1,15 @@
-# BRIEFING — 2026-11-06T01:34:00Z
+# BRIEFING — 2026-11-06T16:51:00Z
 
 ## Mission
-Orchestrate execution of ultimate professional & engineering loop calibration (hot-reload import fix, auto-save commit, asset class alignment, intrinsic yield & cushion engine, shadow portfolio audit, data source badge & safe st.fragment).
+Orchestrate G5 generation: Single-fund real historical volatility penetration, historical 3 inflection points live benchmark, floating profit cushion net-asset break threshold deduction, and 14:30 close valuation anomaly defense closed loop.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: d:\Google\Workspace\Wind\.agents\teamwork\
 - Orchestrator: d47f7fe6-de2b-478b-85a6-544469510bc4
 - Victory Auditor: 06f277ad-12f3-4019-ad9d-ee7df75f0f55
+- Current Orchestrator: 71f16351-ac4e-45f7-b8a4-89e38ec8863c
+- Current Victory Auditor: to be spawned on victory claim
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -17,35 +19,27 @@ Orchestrate execution of ultimate professional & engineering loop calibration (h
 - 严禁编写写死数字的假文案、严禁写 pass 空分支、严禁画了前端控件却不传参给后端计算函数
 - 严禁编写任何写死常数的假计算（所有展示数字必须由底层持仓份额、净值与费率算子实时算出）
 - 严禁在 st.sidebar 内部或涉及侧边栏的函数上使用 @st.fragment（会触发 StreamlitAPIException 崩溃）
+- G5 规则沉淀隔离硬红线: 严禁向全局 c:\Users\deanc\.gemini\GEMINI.md 溢出，必须且仅允许写入当前工作区根目录的 GEMINI.md
+- 严禁脱离中国公募基金真实交易制度（15:00未知净值与<7天1.50%惩罚费）
+- 绝对禁止创建任何 GitHub Release
 
 ## User Context
-- **Last user request**: Approved task prompt: 启动终极专业度与工程闭环校准
-- **Follow-up (2026-11-06T01:15:20Z)**: 主干工程师已完成实装与测试固化，要求团队停止重复编写代码，调度测试员运行三阶核验并生成复盘报告收口。
-- **Follow-up (2026-11-06T01:23:16Z)**: 上级认可双轨门禁配置，指示完成核验与审计归档后收口释放资源。代码已提交 GitHub（Commit: fb23933），端口 8501 守护进程持续健康。
-- **Follow-up (2026-11-06T01:31:20Z)**: 上级指示独立法证审计员完成 Phase 1~3 终验并归档最终裁决报告后，正常结束任务。
+- **Last user request**: 启动 G5 世代单基真实波动率穿透、历史三大拐点实盘对照、浮盈安全垫破净临界推演与 14:30 尾盘估值异动防御闭环任务
+- **Follow-up (2026-11-06T17:33:38Z)**: 系统限额中断恢复，服务端重启。无缝唤醒并继续执行 Phase 2 (M2) 前端挂接与 Phase 3 (M3) 走查与交付。
 - **Pending clarifications**: none
 - **Delivered results**:
-  - 热重载与一键全案表格自动保存修复
-  - 资产分类器 9 大标准大类映射与反查对齐
-  - QDII 跨时区交割与同公司转换隔离
-  - 真实数学公式驱动的股息与票息安全垫引擎
-  - 真实数学公式驱动的影子组合调仓复盘算子
-  - 行情源状态徽章与安全的 A/C 算费 @st.fragment 局部刷新
-  - 物理红线与三阶测试、专项测试、AppTest 100% 通过
-  - 独立胜利审计裁决：VICTORY CONFIRMED
+  - G4 交付已完成 (v3.4-G4)
 
 ## Project Status
-- **Phase**: complete
+- **Phase**: in progress
 - **Route**: General (`teamwork_orchestrator`)
-- **Crons**: none (all terminated)
+- **Active Agent**: orchestrator_7 (to be spawned)
 
 ## Victory Audit Status
-- **Triggered**: yes
-- **Verdict**: VICTORY CONFIRMED
+- **Triggered**: no
+- **Verdict**: pending
 - **Retry count**: 0
 
 ## Artifact Index
 - d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md — Authoritative user intent record
-- d:\Google\Workspace\Wind\.agents\teamwork\handoff.md — Sentinel final handoff report
-- d:\Google\Workspace\Wind\.agents\teamwork\auditor_victory_orch6\handoff.md — Independent Victory Audit report
-- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_6\handoff.md — Orchestrator handoff report
+- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_7\plan.md — Orchestrator execution plan (pending)

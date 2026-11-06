@@ -1152,6 +1152,85 @@ st.markdown(f"""
     [data-testid="stTickBarMax"] {{
         color: var(--text-primary) !important;
     }}
+
+    /* ========================================================= */
+    /* 📱 640px 移动端紧凑自适应与卡片几何防挤压规范 (Rule 14 & 15) */
+    /* ========================================================= */
+    .inflection-ruler-container,
+    .cushion-stress-container {{
+        min-height: auto;
+        height: auto !important;
+        overflow: visible !important;
+        padding-bottom: 12px !important;
+        box-sizing: border-box;
+    }}
+
+    .inflection-ruler-scroll-row {{
+        display: flex;
+        gap: 8px;
+        align-items: stretch;
+        overflow-x: auto !important;
+        overflow-y: hidden;
+        scrollbar-width: thin;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 4px;
+    }}
+
+    .inflection-node-card {{
+        flex: 1 1 0;
+        min-width: 140px;
+        box-sizing: border-box;
+    }}
+
+    .inflection-today-card {{
+        box-shadow: 0 0 0 1px var(--accent-primary) inset, 0 2px 6px rgba(37, 99, 235, 0.15);
+    }}
+
+    .cushion-scenarios-row {{
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        box-sizing: border-box;
+    }}
+
+    .stress-scenario-card {{
+        min-height: 80px;
+        height: auto !important;
+        overflow: visible !important;
+        padding: 8px 10px;
+        border-radius: 6px;
+        box-sizing: border-box;
+    }}
+
+    /* 640px 移动端视口自适应查询 */
+    @media (max-width: 640px) {{
+        .inflection-ruler-scroll-row {{
+            gap: 6px;
+        }}
+        .inflection-node-card {{
+            min-width: 125px;
+            padding: 5px 8px !important;
+        }}
+        .cushion-scenarios-row {{
+            grid-template-columns: 1fr !important;
+            gap: 6px !important;
+        }}
+        .main-metric-card {{
+            min-height: auto !important;
+            padding: 8px 10px !important;
+            padding-bottom: 12px !important;
+        }}
+        .metric-value-huge {{
+            font-size: 16px !important;
+        }}
+        [data-testid="stHorizontalBlock"] {{
+            gap: 6px !important;
+        }}
+        .decision-card {{
+            padding: 8px 10px !important;
+            padding-bottom: 12px !important;
+        }}
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1363,6 +1442,200 @@ def render_black_swan_stress_card(stress_data: Dict[str, Any]):
             </div>
         </div>
         """)
+
+
+def render_historical_inflection_ruler_html(ruler_data: Dict[str, Any]) -> str:
+    """
+    【历史三大牛熊拐点实盘对照尺紧凑一行式组件】
+    展示：2021年2月核心资产见顶(0.50x)、2022年4月恐慌底(1.93x)、2024年9月反转底(1.94x) 与当前市场水位并列对照。
+    """
+    if not ruler_data or not isinstance(ruler_data, dict):
+        return ""
+    nodes = ruler_data.get("nodes", [])
+    if not nodes or len(nodes) < 4:
+        return ""
+
+    cards_html = []
+    for idx, node in enumerate(nodes):
+        is_today = (idx == 3 or "今日" in str(node.get("date", "")) or "今日" in str(node.get("event", "")))
+        d_str = str(node.get("date", ""))
+        mult = float(node.get("multiplier", 1.0))
+        erp = float(node.get("erp_percentile", 50.0))
+        bias = float(node.get("bias_20", 0.0))
+
+        if is_today:
+            border = "var(--accent-primary)"
+            bg = "rgba(37, 99, 235, 0.08)"
+            tag_color = "var(--accent-primary)"
+            badge_title = "📍 今日实时水位"
+            sub_lbl = f"ERP {erp:.1f}% ｜ 偏离 {bias:+.1f}%"
+        elif mult <= 0.60:
+            border = "rgba(234, 179, 8, 0.6)"
+            bg = "rgba(234, 179, 8, 0.06)"
+            tag_color = "#ca8a04"
+            badge_title = "🟡 2021 核心资产顶"
+            sub_lbl = f"ERP {erp:.1f}% ｜ 偏离 {bias:+.1f}%"
+        elif "2022" in d_str:
+            border = "rgba(16, 185, 129, 0.6)"
+            bg = "rgba(16, 185, 129, 0.06)"
+            tag_color = "#10b981"
+            badge_title = "🚀 2022 恐慌双底"
+            sub_lbl = f"ERP {erp:.1f}% ｜ 偏离 {bias:+.1f}%"
+        else:
+            border = "rgba(239, 68, 68, 0.6)"
+            bg = "rgba(239, 68, 68, 0.06)"
+            tag_color = "#ef4444"
+            badge_title = "🔥 2024 反转前夕"
+            sub_lbl = f"ERP {erp:.1f}% ｜ 偏离 {bias:+.1f}%"
+
+        card = f"""
+        <div class="inflection-node-card {'inflection-today-card' if is_today else ''}" style="border: 1.5px solid {border}; background: {bg}; border-radius: 6px; padding: 6px 10px; min-width: 135px; flex: 1 1 0; box-sizing: border-box;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                <span style="font-size: 11px; font-weight: 700; color: {tag_color}; white-space: nowrap;">{badge_title}</span>
+                <span style="font-size: 10px; color: var(--text-muted); font-family: monospace;">{d_str}</span>
+            </div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 4px;">
+                <span style="font-size: 15px; font-weight: 800; font-family: monospace; color: {tag_color};">{mult:.2f}x</span>
+                <span style="font-size: 10px; color: var(--text-secondary); white-space: nowrap;">{sub_lbl}</span>
+            </div>
+        </div>
+        """
+        cards_html.append(card)
+
+    return f"""
+    <div class="inflection-ruler-container" style="margin: 4px 0 6px 0; padding: 6px 8px; border-radius: 8px; background: var(--bg-canvas); border: 1px dashed var(--border-subtle);">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <span style="font-size: 11px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 4px;">
+                <span>📏 历史三大牛熊拐点实盘对照尺</span>
+                <span style="font-size: 10px; font-weight: normal; color: var(--text-muted);">(2021顶 0.50x ｜ 2022底 1.93x ｜ 2024底 1.94x ｜ 今日水位)</span>
+            </span>
+            <span style="font-size: 10px; color: var(--accent-primary); font-weight: 600;">定投扣款乘数对照</span>
+        </div>
+        <div class="inflection-ruler-scroll-row">
+            {''.join(cards_html)}
+        </div>
+    </div>
+    """
+
+
+def render_portfolio_cushion_and_stress_card_html(cushion_model: Dict[str, Any]) -> str:
+    """
+    【🛡️ 浮盈安全垫抗震承压与本金破净临界看板组件】
+    基于真实累计浮盈、标的历史 Beta 与沪深300弹性，精算展示加权 Beta、安全垫厚度、破净跌幅/回本涨幅及 -3%/-5%/-10% 大盘急跌推演。
+    """
+    if not cushion_model or not isinstance(cushion_model, dict):
+        return ""
+
+    beta_p = float(cushion_model.get("portfolio_weighted_beta", 0.0))
+    beta_eq = float(cushion_model.get("equity_weighted_beta", 0.0))
+    cushion_yuan = float(cushion_model.get("comprehensive_cushion", 0.0))
+    cushion_ratio = float(cushion_model.get("cushion_ratio_pct", 0.0))
+    floating_pnl = float(cushion_model.get("floating_pnl", 0.0))
+    ann_yield = float(cushion_model.get("annual_yield_cushion", 0.0))
+    is_loss = bool(cushion_model.get("is_in_floating_loss", False))
+    i_pt = float(cushion_model.get("current_index_point", 3920.0))
+    break_drop = float(cushion_model.get("break_even_drop_pct", 0.0))
+    break_pt = float(cushion_model.get("break_even_index_point", 0.0))
+    rec_rise = float(cushion_model.get("recovery_rise_pct", 0.0))
+    rec_pt = float(cushion_model.get("recovery_index_point", 0.0))
+    summary_text = str(cushion_model.get("safety_margin_summary", ""))
+    scenarios = cushion_model.get("stress_scenarios", [])
+    tot_eq = float(cushion_model.get("total_equity", 0.0))
+
+    if is_loss:
+        cushion_color = "var(--color-up)"
+        crit_title = "回本临界反弹"
+        crit_val = f"+{rec_rise:.2f}%"
+        crit_sub = f"大盘回升至 {rec_pt:,.0f} 点"
+    elif beta_p > 0.001:
+        cushion_color = "var(--color-down)" if cushion_yuan >= 0 else "var(--color-up)"
+        crit_title = "破净安全边际"
+        crit_val = f"{break_drop:.2f}%"
+        crit_sub = f"大盘跌至 {break_pt:,.0f} 点破净"
+    else:
+        cushion_color = "var(--color-down)"
+        crit_title = "大盘系统性风险"
+        crit_val = "物理免疫"
+        crit_sub = "100%现金/中性固收"
+
+    scenario_cards = []
+    for sc in scenarios:
+        s_name = sc.get("scenario_type", "急跌")
+        m_drop = float(sc.get("market_drop_pct", 0.0))
+        p_drop = float(sc.get("portfolio_drop_pct", 0.0))
+        loss_yuan = float(sc.get("expected_loss_yuan", 0.0))
+        rem_yuan = float(sc.get("remaining_cushion_yuan", 0.0))
+        rem_ratio = float(sc.get("remaining_cushion_ratio", 0.0))
+        is_safe = bool(sc.get("is_capital_safe", True))
+        
+        status_badge = "🟢 保持本金安全" if is_safe else "🔴 穿透安全垫"
+        badge_bg = "rgba(16, 185, 129, 0.12)" if is_safe else "rgba(239, 68, 68, 0.12)"
+        badge_border = "rgba(16, 185, 129, 0.35)" if is_safe else "rgba(239, 68, 68, 0.35)"
+        badge_color = "var(--color-down)" if is_safe else "var(--color-up)"
+
+        s_html = f"""
+        <div class="stress-scenario-card" style="background: var(--bg-canvas); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 8px 10px; box-sizing: border-box;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span style="font-size: 11.5px; font-weight: 700; color: var(--text-primary);">{s_name} {m_drop:+.0f}%</span>
+                <span style="font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: {badge_bg}; border: 1px solid {badge_border}; color: {badge_color};">{status_badge}</span>
+            </div>
+            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 2px;">
+                预估跌幅: <b style="color: var(--color-up); font-family: monospace;">{p_drop:+.2f}%</b> (预估波动 <span style="font-family: monospace;">¥{loss_yuan:+,.2f}</span>)
+            </div>
+            <div style="font-size: 10.5px; color: var(--text-muted);">
+                承压后剩余安全垫: <b style="color: {badge_color}; font-family: monospace;">¥{rem_yuan:+,.2f}</b> ({rem_ratio:+.1f}%)
+            </div>
+        </div>
+        """
+        scenario_cards.append(s_html)
+
+    return f"""
+    <div class="decision-card cushion-stress-container" style="border-left: 4px solid var(--accent-primary); padding: 12px 14px; margin-bottom: 12px; background: var(--bg-surface); border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 4px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 13.5px; font-weight: 700; color: var(--text-primary);">🛡️ 浮盈安全垫抗震承压与本金破净临界看板</span>
+                <span style="font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: var(--bg-elevated); color: var(--text-secondary); border: 1px solid var(--border-subtle);">
+                    资产基线: ¥{tot_eq:,.2f}
+                </span>
+            </div>
+            <span style="font-size: 11px; color: var(--text-muted);">沪深300基准线: {i_pt:,.0f} 点</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 8px;">
+            <div style="background: var(--bg-canvas); padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-subtle);">
+                <div style="font-size: 10.5px; color: var(--text-secondary);">组合加权 Beta</div>
+                <div style="font-size: 15px; font-weight: 800; color: var(--text-primary); font-family: monospace;">β = {beta_p:.4f}</div>
+                <div style="font-size: 10px; color: var(--text-muted);">权益Beta: {beta_eq:.4f}</div>
+            </div>
+            <div style="background: var(--bg-canvas); padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-subtle);">
+                <div style="font-size: 10.5px; color: var(--text-secondary);">综合安全垫厚度</div>
+                <div style="font-size: 15px; font-weight: 800; color: {cushion_color}; font-family: monospace;">¥{cushion_yuan:,.1f}</div>
+                <div style="font-size: 10px; color: var(--text-muted);">{cushion_ratio:+.2f}% (浮盈 ¥{floating_pnl:+,.0f} + 票息 ¥{ann_yield:,.0f})</div>
+            </div>
+            <div style="background: var(--bg-canvas); padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-subtle);">
+                <div style="font-size: 10.5px; color: var(--text-secondary);">{crit_title}</div>
+                <div style="font-size: 15px; font-weight: 800; color: {'var(--color-up)' if is_loss else 'var(--accent-primary)'}; font-family: monospace;">{crit_val}</div>
+                <div style="font-size: 10px; color: var(--text-muted);">{crit_sub}</div>
+            </div>
+            <div style="background: var(--bg-canvas); padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-subtle);">
+                <div style="font-size: 10.5px; color: var(--text-secondary);">年化票息安全垫</div>
+                <div style="font-size: 15px; font-weight: 800; color: var(--text-primary); font-family: monospace;">¥{ann_yield:,.1f}</div>
+                <div style="font-size: 10px; color: var(--text-muted);">月均 ¥{ann_yield/12.0:,.0f} ｜ 现金派现底仓</div>
+            </div>
+        </div>
+
+        <div style="font-size: 11.5px; color: var(--text-primary); padding: 6px 10px; border-radius: 6px; background: rgba(37, 99, 235, 0.08); border: 1px solid rgba(37, 99, 235, 0.2); margin-bottom: 8px; line-height: 1.5;">
+            {summary_text}
+        </div>
+
+        <div style="font-size: 11px; font-weight: 700; color: var(--text-secondary); margin-bottom: 4px;">
+            ⚡ 大盘三级抗震承压情景推演 (-3% / -5% / -10%)：
+        </div>
+        <div class="cushion-scenarios-row">
+            {''.join(scenario_cards)}
+        </div>
+    </div>
+    """
 
 
 # 初始化核心运行态 (首屏毫秒级秒开：使用本地账本与 parquet，消灭 akshare/天天基金网络阻塞)
@@ -2135,7 +2408,7 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                 all_scanned_sectors = radar_engine.scan_all_sectors()
                 top3_sectors = [s for s in all_scanned_sectors if s.get("s_crowd", 85.0) >= 45.0][:3]
 
-                # 今日市场脉搏晨报 (<=80字)
+                # 今日市场脉搏晨报 (<=80字) 与 历史牛熊拐点对照尺 (紧凑一行式 4 节点)
                 turnover_str = "1.2万亿"
                 vol_text = "放量活跃"
                 try:
@@ -2147,8 +2420,9 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                     pass
 
                 erp_pct = float(snapshot_dict.get("erp_percentile", 82.0))
+                bias_val = float(snapshot_dict.get("c300_bias_20", snapshot_dict.get("bias_20", -2.07)))
                 if erp_pct >= 75.0:
-                    erp_zone = f"ERP分位{erp_pct:.1f}%处历史高性价比击球区"
+                    erp_zone = f"ERP分位{erp_pct:.1f}%处高性价比击球区"
                 elif erp_pct <= 30.0:
                     erp_zone = f"ERP分位{erp_pct:.1f}%偏高估宜防守"
                 else:
@@ -2156,19 +2430,27 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
 
                 top_names = [s.get("name", "") for s in top3_sectors[:2] if s.get("name")]
                 lead_str = "与".join(top_names) if top_names else "红利低波与大盘蓝筹"
-                pulse_brief = f"两市成交{turnover_str}{vol_text}，{erp_zone}；{lead_str}领衔低估与右侧主线，策略宜逢低均衡布局。"
+                pulse_brief = f"两市成交{turnover_str}{vol_text}，{erp_zone}；{lead_str}领衔主线。"
                 if len(pulse_brief) > 80:
                     pulse_brief = pulse_brief[:79] + "。"
+
+                # 接入历史三大牛熊拐点对照尺 (2021见顶 0.50x、2022恐慌底 1.93x、2024反转底 1.94x、今日实时 1.76x)
+                inflection_ruler = StrategyBridge.get_historical_inflection_ruler(
+                    current_erp=erp_pct,
+                    current_bias=bias_val
+                )
+                ruler_bar_html = render_historical_inflection_ruler_html(inflection_ruler)
 
                 st.markdown(f"""
                 <div class="decision-card" style="padding: 8px 12px; margin-bottom: 10px; border-left: 3px solid var(--accent-primary); background: var(--bg-surface);">
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">
                         <span style="font-size: 11px; font-weight: 700; color: var(--accent-primary);">📢 今日市场脉搏晨报</span>
-                        <span style="font-size: 10px; color: var(--text-secondary);">全景量化串联</span>
+                        <span style="font-size: 10px; color: var(--text-secondary);">全景量化串联 ｜ 历史拐点并列对照</span>
                     </div>
-                    <div style="font-size: 11px; color: var(--text-primary); line-height: 1.5;">
+                    <div style="font-size: 11px; color: var(--text-primary); line-height: 1.4; margin-bottom: 4px;">
                         {pulse_brief}
                     </div>
+                    {ruler_bar_html}
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -3419,7 +3701,14 @@ with tab_zero_start:
                     bias_20=bias_20,
                     periods=12
                 )
-                st.caption(f"根据当前大盘 ERP 分位数 ({erp_pct:.1f}%) 与均线偏离度 Bias20 ({bias_20:+.1f}%) 动态计算当期扣款乘数：")
+                # 接入历史三大牛熊拐点实盘对照尺 (2021见顶 0.50x、2022恐慌底 1.93x、2024反转底 1.94x、今日实时水位)
+                ruler_dca = StrategyBridge.get_historical_inflection_ruler(
+                    current_erp=erp_pct,
+                    current_bias=bias_20,
+                    total_capital=float(plan_capital)
+                )
+                safe_markdown_html(render_historical_inflection_ruler_html(ruler_dca))
+
                 col_d1, col_d2, col_d3 = st.columns([3, 4, 3])
                 with col_d1:
                     st.metric("定投周期与基准金额", f"¥{dca_plan['base_per_period']:,.2f} /期", "共 12 期")
@@ -3492,13 +3781,31 @@ with tab_zero_start:
                 df_display[col_naive_head] = df_display["基金代码"].astype(str).map(lambda c: order_map.get(c, {}).get("naive_impact_yuan", 0.0))
                 df_display[col_vwap_head] = df_display["基金代码"].astype(str).map(lambda c: order_map.get(c, {}).get("vwap_slippage_yuan", 0.0))
                 df_display[col_saved_head] = df_display["基金代码"].astype(str).map(lambda c: order_map.get(c, {}).get("slippage_saved_yuan", 0.0))
+                df_display["优化节省(bps)"] = df_display["基金代码"].astype(str).map(lambda c: order_map.get(c, {}).get("slippage_saved_bps", 0.0))
                 dynamic_col_config[col_naive_head] = st.column_config.NumberColumn(format="¥%.2f")
                 dynamic_col_config[col_vwap_head] = st.column_config.NumberColumn(format="¥%.2f")
                 dynamic_col_config[col_saved_head] = st.column_config.NumberColumn(format="¥%.2f")
+                dynamic_col_config["优化节省(bps)"] = st.column_config.NumberColumn(format="%.1f bps", help="单基真实年化波动率与自身偏离度测算之微观执行优化节省基点")
+
+                # 接入 14:30 尾盘实时估值异动预警 (防追高/黄金坑) 与差异化实操指引
+                def _inject_dca_anomaly_guidance(row):
+                    fc = str(row["基金代码"])
+                    fn = str(row["基金名称"])
+                    rt_g = row.get("实时估值涨跌(%)", 0.0)
+                    anom = StrategyBridge.evaluate_tail_valuation_anomaly(fc, fn, realtime_quote=rt_g)
+                    orig_g = str(row.get("实操分红与限购指引", ""))
+                    if anom.get("is_anomaly"):
+                        return f"{anom['anomaly_tag']} ｜ {orig_g}"
+                    saved_bps = order_map.get(fc, {}).get("slippage_saved_bps", 0.0)
+                    if saved_bps > 0:
+                        return f"{orig_g}·微观省{saved_bps:.1f}bp"
+                    return orig_g
+
+                df_display["实操分红与限购指引"] = df_display.apply(_inject_dca_anomaly_guidance, axis=1)
 
                 cs_lines = [cheat_sheet_text, f"\n【📅 估值自适应智能定投执行小抄 (乘数: {mult:.2f}x · 微观执行优化版)】"]
                 for _, r in df_display.iterrows():
-                    cs_lines.append(f"标的: {r['基金代码']} ({r['基金名称']}) -> 基准定投: ¥{r['基准每期定投(元)']:,.2f}/期 | 本期实扣: ¥{r['本期乘数修正后实扣(元)']:,.2f} | 优化损耗: ¥{r[col_vwap_head]:,.2f} (优化省¥{r[col_saved_head]:,.2f})")
+                    cs_lines.append(f"标的: {r['基金代码']} ({r['基金名称']}) -> 基准定投: ¥{r['基准每期定投(元)']:,.2f}/期 | 本期实扣: ¥{r['本期乘数修正后实扣(元)']:,.2f} | 优化损耗: ¥{r[col_vwap_head]:,.2f} (优化省¥{r[col_saved_head]:,.2f} / {r.get('优化节省(bps)', 0.0):.1f}bps)")
                 active_cheat_sheet_text = "\n".join(cs_lines)
 
                 exp_label = "⏱️ 查看分批挂单执行调度表（尾盘净值锁定与跨日分批优化）" if not has_etf_dca else "⏱️ 查看 VWAP 分时成交量加权挂单调度表（日内 5 阶段分笔平抑冲击）"
@@ -3894,20 +4201,10 @@ with tab_holdings_and_rebalance:
                 </div>
                 """)
 
-        # 🗄️ 账本环境管理与风控横幅（归位于此，彻底消除侧边栏重复）
-        _tot_base_eq = sum(h.market_value for h in pm.holdings.values()) + pm.available_cash + pm.in_transit_cash
-        _mat_date_str = snapshot.get('latest_date', '2026-11-04')
-        _cushion_t2 = StrategyBridge.calculate_portfolio_yield_cushion(pm.holdings, total_capital=_tot_base_eq, pm=pm)
-        _ann_cush_t2 = _cushion_t2.get("annual_cushion_amount", 0.0)
-        _mo_cush_t2 = _cushion_t2.get("monthly_equivalent_amount", 0.0)
-        _cash_div_t2 = _cushion_t2.get("annual_cash_dividend_amount", 0.0)
-        safe_markdown_html(f"""
-        <div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; font-size: 12px; line-height: 1.6; color: var(--text-secondary);">
-            💼 <b>资产基线：</b>¥{_tot_base_eq:,.2f} ｜ <b>持仓标的：</b>{len(pm.holdings)} 只 ｜ <b>底座：</b>{_mat_date_str} ｜ <b>在途现金：</b>¥{pm.in_transit_cash:,.2f}<br>
-            💰 <b>预计年化内生收息安全垫：</b>¥{_ann_cush_t2:,.0f}/年（折合月均 ¥{_mo_cush_t2:,.0f}/月 ｜ 现金分红预计派现 ¥{_cash_div_t2:,.0f}/年）<br>
-            🛡️ <b>风控防线</b>：7天惩罚费拦截 (1.50%惩罚扣除硬阻断) ｜ 悲观持有天数梯级守护
-        </div>
-        """)
+        # 🛡️ 浮盈安全垫抗震承压与本金破净临界看板 (重构升级原静态纯文字横幅)
+        _c300_pt = float(snapshot.get("c300_close", snapshot.get("close", 3920.0)))
+        _cushion_model = pm.calculate_portfolio_cushion_and_stress_model(current_index_point=_c300_pt)
+        safe_markdown_html(render_portfolio_cushion_and_stress_card_html(_cushion_model))
 
         col_t2_env1, col_t2_env2, col_t2_env3, col_t2_buf = st.columns([2.5, 2.5, 2.5, 4.5])
         with col_t2_env1:
@@ -5232,11 +5529,14 @@ with tab_holdings_and_rebalance:
                     total_buy_amt += b_amt
                     b_fc = str(b_it.get("fund_code", ""))
                     b_fn = str(b_it.get("fund_name", ""))
+                    # 真实时序多级穿透单基真实年化波动率与单基 bias_20
+                    f_metrics = SmartExecutionDCAEngine.get_fund_real_volatility_and_bias(b_fc, b_fn)
                     sl_inf = SmartExecutionDCAEngine.calculate_vwap_execution_slippage(
                         order_amount=b_amt,
                         fund_code=b_fc,
                         fund_name=b_fn,
-                        bias_20=snapshot.get("bias_20", 0.0) if isinstance(snapshot, dict) else 0.0
+                        volatility=f_metrics["volatility"],
+                        bias_20=f_metrics["bias_20"]
                     )
                     vwap_rebal_orders.append(sl_inf)
 
@@ -5265,12 +5565,16 @@ with tab_holdings_and_rebalance:
                     else:
                         st.caption("💡 针对场外公募基金已实装 14:30 尾盘净值锁定与跨日分批执行优化模型，规避早盘盲买冲高回落未知净值偏差风险。")
 
+                rebal_order_map = {str(v.get("fund_code")): v for v in vwap_rebal_orders}
                 rows_display = []
                 for it in items:
                     diff_amt = it.get("diff_amount", 0.0)
                     action_raw = str(it.get("action_text", ""))
                     safety = str(it.get("safety_warning", "") or "")
                     holding_days = it.get("holding_days", 999)
+                    f_code = str(it.get("fund_code", ""))
+                    f_name = str(it.get("fund_name", ""))
+                    rt_gszzl = it.get("realtime_gszzl", 0.0)
 
                     if "手动锁定" in action_raw or "禁卖" in action_raw or "锁定" in action_raw:
                         op_action = "🔒 已手动锁定禁卖"
@@ -5298,29 +5602,45 @@ with tab_holdings_and_rebalance:
                         op_point = "仓位均衡·在容差内"
 
                     # 附加交割清算与基金属性标签
-                    if pm.is_qdii_fund(it["fund_code"], it.get("fund_name", "")):
+                    if pm.is_qdii_fund(f_code, f_name):
                         op_point += "·跨时区T+2确认"
-                    elif any(k in pm.classify_fund_asset_class(it["fund_code"], it.get("fund_name", "")) for k in ["纯债", "固收", "债券"]):
+                    elif any(k in pm.classify_fund_asset_class(f_code, f_name) for k in ["纯债", "固收", "债券"]):
                         op_point += "·票息久期底仓"
 
+                    # 接入 14:30 尾盘实时估值异动预警算子 (防追高/黄金坑) 与单基差异化损耗基点
+                    tail_anom = StrategyBridge.evaluate_tail_valuation_anomaly(
+                        fund_code=f_code,
+                        fund_name=f_name,
+                        realtime_quote=rt_gszzl
+                    )
+                    saved_bps_val = rebal_order_map.get(f_code, {}).get("slippage_saved_bps", 0.0)
+
+                    if tail_anom.get("is_anomaly"):
+                        op_point = f"{tail_anom['anomaly_tag']} ｜ {op_point}"
+                    elif diff_amt > 100 and saved_bps_val > 0:
+                        op_point += f"·尾盘微观省{saved_bps_val:.1f}bp"
+
+                    saved_bps_disp = f"{saved_bps_val:.1f} bps" if (diff_amt > 100 and saved_bps_val > 0) else "-"
+
                     rows_display.append({
-                        "基金代码": it["fund_code"],
-                        "基金名称": it["fund_name"],
+                        "基金代码": f_code,
+                        "基金名称": f_name,
                         "份额": f"{it.get('share_class', 'A')}类",
                         "当前市值(元)": it["market_value"],
                         "目标占比(%)": it["target_weight_pct"],
-                        "实时估值涨跌(%)": it.get("realtime_gszzl", 0.0),
+                        "实时估值涨跌(%)": rt_gszzl,
                         "建议调仓金额(元)": diff_amt,
                         "建议操作": op_action,
+                        "尾盘微观优化(bps)": saved_bps_disp,
                         "实操要点": op_point
                     })
 
-                rebal_cols_9 = [
+                rebal_cols_10 = [
                     "基金代码", "基金名称", "份额", "当前市值(元)",
                     "目标占比(%)", "实时估值涨跌(%)", "建议调仓金额(元)",
-                    "建议操作", "实操要点"
+                    "建议操作", "尾盘微观优化(bps)", "实操要点"
                 ]
-                df_orders_tbl = pd.DataFrame(rows_display)[rebal_cols_9]
+                df_orders_tbl = pd.DataFrame(rows_display)[rebal_cols_10]
                 st.dataframe(
                     df_orders_tbl,
                     column_config={
@@ -5328,9 +5648,13 @@ with tab_holdings_and_rebalance:
                         "目标占比(%)": st.column_config.ProgressColumn(min_value=0, max_value=50, format="%.2f%%"),
                         "实时估值涨跌(%)": st.column_config.NumberColumn(format="%+.2f%%"),
                         "建议调仓金额(元)": st.column_config.NumberColumn(format="¥%+.2f"),
+                        "尾盘微观优化(bps)": st.column_config.TextColumn(
+                            "尾盘微观优化(bps) ⓘ",
+                            help="基于单基真实20日年化波动率与自身偏离度测算之 14:30 尾盘锚定/VWAP 优化执行节省基点。"
+                        ),
                         "实操要点": st.column_config.TextColumn(
                             "实操要点 ⓘ",
-                            help="实操要点：包含分红方式、未满7天防惩罚性扣款锁仓、临近30天免赎回费保护及分批调仓指引。"
+                            help="实操要点：包含尾盘异动防追高/黄金坑预警、分红方式、未满7天防惩罚性扣款锁仓、临近30天免赎回费保护及分批调仓指引。"
                         )
                     },
                     use_container_width=True,

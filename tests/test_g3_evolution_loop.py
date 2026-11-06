@@ -408,4 +408,230 @@ class TestG3EvolutionLoop:
         assert res_sb["2021_top"]["multiplier"] == res_adv["2021_top"]["multiplier"]
         assert res_sb["2024_bottom"]["multiplier"] == res_adv["2024_bottom"]["multiplier"]
 
+    def test_g5_1_single_fund_real_volatility_penetration(self):
+        """
+        G5 世代核心特性 1:
+        1. 验证 get_fund_real_volatility_and_bias 穿透单基真实 20 日年化波动率与自身 MA20 乖离率；
+        2. 验证消除 0.04/0.14/0.18 固定常数与 else 0.18，相同 5 万元申购下纯债 < 红利低波 < 科创50 节省基点严格单调递增；
+        3. 验证 plan_smart_dca 全面穿透各单基自身波动率与单基乖离率，绝非大盘统一偏离抹平。
+        """
+        # 1. 单基真实年化波动率与日均波幅穿透核验
+        funds_to_test = {
+            "002351": ("易方达裕祥回报债券A", "bond", 0.001, 0.05),
+            "000216": ("华安易富黄金ETF联接A", "gold", 0.08, 0.25),
+            "005561": ("创金合信红利低波A", "dividend", 0.10, 0.25),
+            "011613": ("华夏科创50ETF联接C", "tech", 0.20, 0.45),
+        }
+        metrics_dict = {}
+        for code, (name, ftype, min_v, max_v) in funds_to_test.items():
+            m = SmartExecutionDCAEngine.get_fund_real_volatility_and_bias(code, name)
+            assert "volatility" in m and "bias_20" in m and "sigma_day" in m
+            vol = m["volatility"]
+            assert min_v <= vol <= max_v, f"基金 {code} ({name}) 波动率 {vol} 不在合理区间 [{min_v}, {max_v}]！"
+            assert m["sigma_day"] > 0, f"基金 {code} sigma_day 必须大于 0！"
+            metrics_dict[code] = m
+
+        # 验证科技成长波动率 > 红利低波 > 纯债
+        assert metrics_dict["011613"]["volatility"] > metrics_dict["005561"]["volatility"] > metrics_dict["002351"]["volatility"]
+
+        # 2. 差异化微观执行损耗基点测算（消除 0.04/0.14/0.18 固定常数）
+        # 在相同 50,000 元订单金额下，不传入外部 volatility，验证内部自动穿透真实波动率
+        slip_bond = SmartExecutionDCAEngine.calculate_vwap_execution_slippage(
+            order_amount=50000.0, fund_code="002351", fund_name="易方达裕祥回报债券A"
+        )
+        slip_gold = SmartExecutionDCAEngine.calculate_vwap_execution_slippage(
+            order_amount=50000.0, fund_code="000216", fund_name="华安易富黄金ETF联接A"
+        )
+        slip_div = SmartExecutionDCAEngine.calculate_vwap_execution_slippage(
+            order_amount=50000.0, fund_code="005561", fund_name="创金合信红利低波A"
+        )
+        slip_tech = SmartExecutionDCAEngine.calculate_vwap_execution_slippage(
+            order_amount=50000.0, fund_code="011613", fund_name="华夏科创50ETF联接C"
+        )
+
+        # 验证严格单调递增性: 纯债 < 黄金/红利 < 科技成长
+        assert slip_bond["slippage_saved_bps"] < slip_div["slippage_saved_bps"] < slip_tech["slippage_saved_bps"], (
+            f"5万元申购节省基点必须满足 纯债 ({slip_bond['slippage_saved_bps']}) < 红利 ({slip_div['slippage_saved_bps']}) < 科技 ({slip_tech['slippage_saved_bps']})"
+        )
+        assert slip_tech["slippage_saved_yuan"] > slip_div["slippage_saved_yuan"] > slip_bond["slippage_saved_yuan"] > 0
+
+        # 3. 验证 plan_smart_dca 真实穿透单基自身波动率与均线偏离
+        dca_plan = SmartExecutionDCAEngine.plan_smart_dca(
+            total_capital=150000.0,
+            allocations=[
+                {"code": "002351", "name": "易方达裕祥纯债A", "weight": 0.30},
+                {"code": "005561", "name": "创金红利低波A", "weight": 0.40},
+                {"code": "011613", "name": "华夏科创50C", "weight": 0.30},
+            ],
+            erp_percentile=82.6,
+            bias_20=-2.07,
+            periods=12
+        )
+        assert len(dca_plan["fund_orders"]) == 3
+        order_map = {o["code"]: o for o in dca_plan["fund_orders"]}
+        assert order_map["011613"]["slippage_saved_bps"] > order_map["005561"]["slippage_saved_bps"] > order_map["002351"]["slippage_saved_bps"]
+
+    def test_g5_2_historical_inflection_ruler(self):
+        """
+        G5 世代核心特性 2:
+        1. 验证 get_historical_inflection_ruler 产出 4 节点完整牛熊拐点对照尺；
+        2. 验证 2021顶 (<=0.50x)、2022恐慌底 (>=1.50x)、2024反转底 (>=1.80x) 与今日水位；
+        3. 验证 StrategyBridge 与 AdvisoryEngine 双向一致性；
+        4. 验证 render_historical_inflection_ruler_html 能够正确渲染 4 节点紧凑胶囊条。
+        """
+        from strategy_bridge import StrategyBridge
+        from app_gui import render_historical_inflection_ruler_html
+
+        # 1. 验证 AdvisoryEngine 产出
+        ruler_adv = SmartExecutionDCAEngine.get_historical_inflection_ruler(current_erp=82.6, current_bias=-2.07)
+        assert ruler_adv["all_inflections_verified"] is True
+        nodes = ruler_adv["nodes"]
+        assert len(nodes) == 4, f"历史拐点对照尺必须严格包含 4 个节点，实际为 {len(nodes)}"
+
+        n_2021, n_2022, n_2024, n_now = nodes
+        assert n_2021["multiplier"] <= 0.50, f"2021 核心资产见顶乘数必须 <= 0.50，实际为 {n_2021['multiplier']}"
+        assert n_2022["multiplier"] >= 1.50, f"2022 恐慌双底乘数必须 >= 1.50，实际为 {n_2022['multiplier']}"
+        assert n_2024["multiplier"] >= 1.80, f"2024 反转底乘数必须 >= 1.80，实际为 {n_2024['multiplier']}"
+        assert n_now["multiplier"] >= 1.50, f"今日实时乘数在底部吸筹区间必须 >= 1.50，实际为 {n_now['multiplier']}"
+
+        # 2. 验证 StrategyBridge 桥接一致性
+        ruler_sb = StrategyBridge.get_historical_inflection_ruler(current_erp=82.6, current_bias=-2.07)
+        assert ruler_sb["all_inflections_verified"] is True
+        assert ruler_sb["nodes"][0]["multiplier"] == n_2021["multiplier"]
+        assert ruler_sb["nodes"][1]["multiplier"] == n_2022["multiplier"]
+        assert ruler_sb["nodes"][2]["multiplier"] == n_2024["multiplier"]
+        assert ruler_sb["nodes"][3]["multiplier"] == n_now["multiplier"]
+
+        # 3. 验证前端 HTML 渲染
+        html = render_historical_inflection_ruler_html(ruler_adv)
+        assert "历史三大牛熊拐点实盘对照尺" in html
+        assert "2021" in html
+        assert f"{n_2021['multiplier']:.2f}x" in html
+        assert "2022" in html
+        assert f"{n_2022['multiplier']:.2f}x" in html
+        assert "2024" in html
+        assert f"{n_2024['multiplier']:.2f}x" in html
+        assert "今日实时水位" in html
+        assert "inflection-ruler-scroll-row" in html
+
+    def test_g5_3_cushion_break_even_stress_model(self):
+        """
+        G5 世代核心特性 3:
+        1. 验证 013841 纠偏后真实历史 Beta 为 ~1.2346，纯债接近 0，黄金接近 0；
+        2. 验证组合加权 Beta、综合安全垫厚度、破净安全边际与 3 档大盘承压推演；
+        3. 验证浮亏账本自适应切换为回本临界反弹，全现金组合自适应提示物理免疫；
+        4. 验证 render_portfolio_cushion_and_stress_card_html 能够正确渲染看板。
+        """
+        from strategy_bridge import StrategyBridge
+        from app_gui import render_portfolio_cushion_and_stress_card_html
+
+        # 1. 验证单基 Beta 测算与纠偏
+        pm = PortfolioManager()
+        beta_chip = pm.calculate_asset_historical_beta("013841")
+        assert abs(beta_chip - 1.2346) < 0.05, f"013841 纠偏后 Beta 应约为 1.2346，实际为 {beta_chip}"
+        beta_bond = pm.calculate_asset_historical_beta("002351")
+        assert abs(beta_bond) < 0.05, f"纯债 002351 Beta 应接近 0，实际为 {beta_bond}"
+        beta_gold = pm.calculate_asset_historical_beta("000216")
+        assert abs(beta_gold) < 0.05, f"黄金 000216 Beta 应接近 0，实际为 {beta_gold}"
+
+        # 2. 验证主实盘账本下的综合安全垫与 3 档大盘急跌推演
+        cushion_model = pm.calculate_portfolio_cushion_and_stress_model(current_index_point=3920.0)
+        assert cushion_model["portfolio_weighted_beta"] > 0
+        assert cushion_model["comprehensive_cushion"] > 0
+        assert cushion_model["cushion_ratio_pct"] > 0
+        assert cushion_model["is_in_floating_loss"] is False
+        assert cushion_model["break_even_drop_pct"] < 0
+
+        scenarios = cushion_model["stress_scenarios"]
+        assert len(scenarios) == 3
+        s_drop3, s_drop5, s_drop10 = scenarios
+        assert s_drop3["market_drop_pct"] == -3.0
+        assert s_drop5["market_drop_pct"] == -5.0
+        assert s_drop10["market_drop_pct"] == -10.0
+        assert abs(s_drop10["expected_loss_yuan"]) > abs(s_drop5["expected_loss_yuan"]) > abs(s_drop3["expected_loss_yuan"]) > 0
+
+        # 3. 验证浮亏账本自适应
+        loss_pm = PortfolioManager(db_path=":memory:", ledger_json_path="test_loss_cushion.json")
+        loss_pm.holdings = {
+            "005561": FundHolding(
+                fund_code="005561", fund_name="创金红利低波A",
+                shares=10000.0, cost_price=2.5, current_nav=2.0,
+                market_value=20000.0, cost_basis=25000.0,
+                floating_pnl=-5000.0, floating_pnl_pct=-20.0
+            )
+        }
+        loss_pm.available_cash = 0.0
+        loss_pm.in_transit_cash = 0.0
+        loss_model = loss_pm.calculate_portfolio_cushion_and_stress_model(current_index_point=3920.0)
+        assert loss_model["is_in_floating_loss"] is True
+        assert loss_model["recovery_rise_pct"] > 0
+        assert "回本" in loss_model["safety_margin_summary"]
+
+        # 4. 验证全现金组合自适应
+        cash_pm = PortfolioManager(db_path=":memory:", ledger_json_path="test_cash_cushion.json")
+        cash_pm.holdings = {}
+        cash_pm.available_cash = 100000.0
+        cash_pm.in_transit_cash = 0.0
+        cash_model = cash_pm.calculate_portfolio_cushion_and_stress_model()
+        assert cash_model["portfolio_weighted_beta"] == 0.0
+        assert "100% 现金流动性" in cash_model["safety_margin_summary"] or "物理免疫" in cash_model["safety_margin_summary"]
+
+        # 5. 验证 StrategyBridge 桥接一致性
+        sb_model = StrategyBridge.calculate_portfolio_cushion_and_stress_model(current_index_point=3920.0)
+        assert abs(sb_model["portfolio_weighted_beta"] - cushion_model["portfolio_weighted_beta"]) < 1e-4
+
+        # 6. 验证前端 HTML 渲染
+        html = render_portfolio_cushion_and_stress_card_html(cushion_model)
+        assert "浮盈安全垫抗震承压与本金破净临界看板" in html
+        assert "组合加权 Beta" in html
+        assert "综合安全垫厚度" in html
+        assert "单日急跌 -3%" in html
+        assert "周度回调 -5%" in html
+        assert "极端回调 -10%" in html
+
+    def test_g5_4_tail_valuation_anomaly_alerts(self):
+        """
+        G5 世代核心特性 4:
+        1. 验证 14:30 尾盘估值异动预警算法三种情境（防追高、黄金坑、正常）；
+        2. 验证盘中大涨 > 1.5 sigma_day 且正乖离触发 ANTI_CHASING，扣款乘数 0.60x；
+        3. 验证盘中急跌 > 1.5 sigma_day 且负乖离触发 GOLDEN_PIT，扣款乘数 1.15x；
+        4. 验证平稳波动触发 NORMAL，扣款乘数 1.00x；
+        5. 验证 StrategyBridge 桥接产出完全一致。
+        """
+        from strategy_bridge import StrategyBridge
+
+        # 情景 1: 盘中大涨 +2.5% (> 1.5 sigma_day) 且正乖离
+        spike = SmartExecutionDCAEngine.evaluate_tail_valuation_anomaly("005561", "创金红利低波A", realtime_quote=2.5)
+        assert spike["anomaly_type"] == "ANTI_CHASING"
+        assert spike["amount_multiplier"] == 0.60
+        assert "防追高" in spike["anomaly_tag"]
+        assert spike["sigma_day"] > 0
+
+        # 情景 2: 盘中急跌 -4.0% (> 1.5 sigma_day) 且负乖离
+        pit = SmartExecutionDCAEngine.evaluate_tail_valuation_anomaly("011613", "华夏科创50C", realtime_quote=-4.0)
+        assert pit["anomaly_type"] == "GOLDEN_PIT"
+        assert pit["amount_multiplier"] == 1.15
+        assert "黄金坑" in pit["anomaly_tag"]
+
+        # 情景 3: 盘中微幅波动 (0.01%)
+        norm = SmartExecutionDCAEngine.evaluate_tail_valuation_anomaly("002351", "易方达纯债A", realtime_quote=0.01)
+        assert norm["anomaly_type"] == "NORMAL"
+        assert norm["amount_multiplier"] == 1.00
+        assert "平稳" in norm["anomaly_tag"]
+
+        # 验证 StrategyBridge 双向一致
+        sb_spike = StrategyBridge.evaluate_tail_valuation_anomaly("005561", "创金红利低波A", realtime_quote=2.5)
+        assert sb_spike["anomaly_type"] == "ANTI_CHASING"
+        assert sb_spike["amount_multiplier"] == 0.60
+        assert sb_spike["anomaly_tag"] == spike["anomaly_tag"]
+
+        sb_pit = StrategyBridge.evaluate_tail_valuation_anomaly("011613", "华夏科创50C", realtime_quote=-4.0)
+        assert sb_pit["anomaly_type"] == "GOLDEN_PIT"
+        assert sb_pit["amount_multiplier"] == 1.15
+
+        sb_norm = StrategyBridge.evaluate_tail_valuation_anomaly("002351", "易方达纯债A", realtime_quote=0.01)
+        assert sb_norm["anomaly_type"] == "NORMAL"
+        assert sb_norm["amount_multiplier"] == 1.00
+
+
 
