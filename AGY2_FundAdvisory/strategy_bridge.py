@@ -1957,6 +1957,96 @@ class StrategyBridge:
     strategy_fn_for_tier = staticmethod(strategy_fn_for_tier)
 
     @classmethod
+    @staticmethod
+    def calculate_portfolio_yield_cushion(
+        weights_or_holdings: Any,
+        total_capital: float,
+        pm: Any = None
+    ) -> Dict[str, Any]:
+        """
+        组合年度股息与票息安全垫精算引擎 (Intrinsic Yield & Cashflow Cushion)
+        基于各标准资产大类的真实底层股息率与到期票息率基准加权求和，
+        输出真实数学公式计算的内生收息安全垫现金流。
+        """
+        BENCHMARK_YIELDS = {
+            "A股红利低波": 5.20,
+            "A股红利高股息": 4.80,
+            "核心蓝筹": 2.80,
+            "中盘均衡": 1.80,
+            "中小盘成长": 1.00,
+            "科技成长进攻": 0.60,
+            "纯债固收": 2.75,
+            "美股海外对冲": 1.30,
+            "黄金对冲": 0.00
+        }
+
+        tot_cap = float(total_capital if total_capital > 0 else 100000.0)
+        items = []
+
+        # 解析不同输入形态 (持仓字典/对象列表/权重字典)
+        if isinstance(weights_or_holdings, dict):
+            # 判断是否是 fund_code -> FundHolding 或是 fund_code -> weight
+            first_val = next(iter(weights_or_holdings.values())) if weights_or_holdings else None
+            if hasattr(first_val, "market_value"):
+                # FundHolding 字典
+                for fc, h in weights_or_holdings.items():
+                    mv = float(getattr(h, "market_value", 0.0))
+                    w = (mv / tot_cap) if tot_cap > 0 else 0.0
+                    fn = getattr(h, "fund_name", fc)
+                    div_m = getattr(h, "dividend_method", "reinvest")
+                    items.append((fc, fn, w, div_m))
+            else:
+                # 权重字典
+                sum_w = sum(float(v) for v in weights_or_holdings.values()) or 1.0
+                for fc, w_val in weights_or_holdings.items():
+                    w = float(w_val) / sum_w if sum_w > 1.5 else float(w_val)
+                    items.append((fc, fc, w, "reinvest"))
+        elif isinstance(weights_or_holdings, list):
+            for h in weights_or_holdings:
+                fc = getattr(h, "fund_code", "")
+                fn = getattr(h, "fund_name", fc)
+                mv = float(getattr(h, "market_value", 0.0))
+                w = (mv / tot_cap) if tot_cap > 0 else 0.0
+                div_m = getattr(h, "dividend_method", "reinvest")
+                items.append((fc, fn, w, div_m))
+
+        from portfolio_manager import PortfolioManager
+        weighted_yield = 0.0
+        cash_div_est = 0.0
+        cat_breakdown = {}
+
+        for fc, fn, w, div_m in items:
+            if pm is not None and hasattr(pm, "classify_fund_asset_class"):
+                cat = pm.classify_fund_asset_class(fc, fn)
+            else:
+                cat = PortfolioManager.classify_fund_asset_class(fc, fn)
+
+            y_rate = BENCHMARK_YIELDS.get(cat, 1.80)
+            weighted_yield += w * y_rate
+            amt = tot_cap * w * (y_rate / 100.0)
+
+            # 统计分红方式为现金分红或红利高股息标的直接派发到账现金
+            if div_m == "cash" or ("红利" in cat and div_m == "cash"):
+                cash_div_est += amt
+
+            if cat not in cat_breakdown:
+                cat_breakdown[cat] = {"weight": 0.0, "yield_rate": y_rate, "annual_amount": 0.0}
+            cat_breakdown[cat]["weight"] = round(cat_breakdown[cat]["weight"] + w * 100.0, 1)
+            cat_breakdown[cat]["annual_amount"] = round(cat_breakdown[cat]["annual_amount"] + amt, 2)
+
+        weighted_yield_pct = round(weighted_yield, 2)
+        annual_cushion = round(tot_cap * (weighted_yield_pct / 100.0), 2)
+        monthly_cushion = round(annual_cushion / 12.0, 2)
+
+        return {
+            "weighted_yield_pct": weighted_yield_pct,
+            "annual_cushion_amount": annual_cushion,
+            "monthly_equivalent_amount": monthly_cushion,
+            "cash_dividend_payout_est": round(cash_div_est, 2),
+            "category_breakdown": cat_breakdown
+        }
+
+    @classmethod
     def get_online_expert_weights(
         cls,
         history_df: Optional[pd.DataFrame] = None,

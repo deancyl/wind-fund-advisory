@@ -1,67 +1,106 @@
 # Original User Request
 
-## Parameters
-[skip-interview]
-How this run was launched; not part of the task.
+## Initial Request — 2026-11-06T00:59:42Z
 
-## Initial Request — 2026-11-05T16:11:53Z
+启动终极专业度与工程闭环校准：修复热重载与一键全案漏网Bug、打通全目录资产分类对齐、实装真实数学公式驱动的股息安全垫与影子组合调仓复盘、以及安全局部刷新。
 
-启动专业买方投顾终端进阶升级：修复金融事实与交割规则错误、实装st.fragment局部刷新架构、首屏视觉提权、表格防丢数自动保存与实盘净值记账闭环。
+Working directory: d:\Google\Workspace\Wind
+Integrity mode: development
 
-物理安全红线：
-1. 严禁修改只读裁判文件（judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py）。
-2. 严禁修改 DataLoader.simulate_execution 的默认函数签名与默认扣费逻辑。
+## Reference Materials
+- 核心代码路径：
+  - Streamlit GUI 主程序：`AGY2_FundAdvisory/app_gui.py` (端口 8501)
+  - 核心策略与模型：`portfolio_manager.py`, `strategy_bridge.py`, `data_loader.py`
+  - 只读裁判文件：`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`
 
-一、 修正 4 项金融事实错误与监管合规瑕疵（advisory_engine.py & data_loader.py & app_gui.py & trading_clock_fee.py）
+## Verification Resources
+- 自动化测试套件：pytest 全量测试（含只读 `tests/test_infra.py`）
+- 专项测试 1：验证 `pm.classify_fund_asset_class` 对 161726、161725、160418、013402、008888、050025、005561、002351、000216 全部返回 9 大标准类别，无一返回“其他权益资产”
+- 专项测试 2：验证 `StrategyBridge.calculate_portfolio_yield_cushion` 与 `pm.evaluate_rebalance_audit` 返回真实动态计算数值，且修改持仓 `current_nav` 时影子资产与实盘资产随之真实联动
+- 专项测试 3：运行 Streamlit `AppTest` 验证全站 4 个 Tab 零异常报错，8501 端口服务平滑重启
 
-1. 修正红利低波赛道的错误指数代码：
-- 在 advisory_engine.py 的 RADAR_SECTOR_CATALOG 中，dividend_low_vol（红利低波）的 benchmark_index 和 index_code 被错误写成了 000978（000978 实为中证医药100指数）！请立即将其修正为 H30269（中证红利低波指数），并在 IndexValuationEngine 中确保 H30269 别名正确映射，彻底杜绝拿医药指数代码映射红利低波。
+## Requirements
 
-2. 区分 QDII 跨时区基金、纯债基金与普通 A 股基金的交割清算规则及估值可信度标签：
-- 在 trading_clock_fee.py 与 portfolio_manager.py 中，识别 QDII 海外基金（如 050025 标普500、001071 华安纳指、013402 恒生科技等）：
-  a. 在建仓单、调仓单与在途对账中心中，对美股 QDII 基金明确标注「T+2 确认份额 · 赎回 T+6~T+8 到账（跨时区清算，不可用于 T+2 极速换仓）」，并在计算 Tab 2「T+2 在途踏空风险」与「同公司基金转换」时，自动排除 QDII 基金与跨 TA 品种（QDII 严禁列入同公司 T+1 转换候选）。
-  b. 在 Tab 1 建仓表与 Tab 2 持仓表的「实时估值涨跌(%)」列或实操指引中，根据基金类型动态附加估值可信度标识：指数联接基金标注「指数高准度」，纯债基金标注「债基看久期票息」，美股 QDII 白天标注「美股休市·看隔夜期指」，主动混合基金标注「季报重仓估算」。
+### R1. 精准修复热重载导入遗漏与一键全案表格自动保存拦截
+- 在 `app_gui.py` 第 131 行 `if _need_reimport or not st.session_state.get("_modules_initialized"):` 内部的 `from portfolio_manager import (...)` 中，显式补上 `FundHolding, HoldingItem`，确保模块发生热重载时 Tab 4 缓存函数不抛出 `NameError`。
+- 在 Tab 2「🚀 一键执行全案」按钮分支（`if st.button("🚀 一键执行全案", ...):`，`app_gui.py` 第 2385~2395 行）内第一行，补齐自动保存调用：`if "edited_table" in locals() and edited_table is not None: _commit_edited_holdings_table(edited_table, pm)`，确保用户在主持仓表中修改市值、盈亏或调仓意愿后直接点击全案时修改 100% 自动入库生效。
 
-3. 替换违规“保本”承诺词汇，符合证监会基金投顾合规规范：
-- 在 app_gui.py（如滚动胜率卡第 1372 行等所有位置）中，将所有的「保本率」严格替换为合规专业术语「正收益概率 (≥0%)」或「本金安全率」，严禁在界面上出现任何“保本”字样。
+### R2. 升级资产大类分类器消除死代码，实现全基金池标准大类对齐
+- 直接升级 `portfolio_manager.py` 中的 `PortfolioManager.classify_fund_asset_class(self, fund_code: str, fund_name: str = "") -> str` 本体方法，并在 `app_gui.py` 第 176~205 行去掉 `if not hasattr` 条件，保持两端代码完全一致（注意：在 `portfolio_manager.py` 内部严禁顶层导入 `strategy_bridge` 以防循环导入，仅查询自身模块的 `holdings`、`CORE_STRATEGY_POOL`、`EXTENDED_FUND_CATALOG`、`SECTOR_FUND_SELECTION` 及 `resolve_fund_meta`）。
+- 当传入的 `fund_name` 为空或等于代码时，自动依次从 `self.holdings`、`CORE_STRATEGY_POOL`、`EXTENDED_FUND_CATALOG`、`SECTOR_FUND_SELECTION` 中反查真实基金名称与 category。
+- 采用与现有优化器及 AI 目标配比 100% 兼容的标准资产大类映射规则：
+  - 名称含 [债, 国债, 利差, 固收, 纯债, 中短债, 裕祥] 或代码 in ["002351", "018757", "000191", "003376"] -> "纯债固收"
+  - 名称含 [黄金, AU, 金ETF, Gold, 博时黄金, 华安易富黄金] 或代码 in ["000216", "518880", "002611", "000929"] -> "黄金对冲"
+  - 名称含 [标普, 纳斯达克, 纳指, 海外, 美股, SPX, NDX, QDII, 全球] 或代码 in ["050025", "001071", "161125", "040046", "270042"] -> "美股海外对冲"
+  - 名称含 [红利低波, 低波, 红利低波动] 或代码 in ["005561", "512890", "007466", "008114"] -> "A股红利低波"
+  - 名称含 [红利, 股息, 银行, 金融, 价值, 央企] 或代码 in ["100032", "160418", "090010", "001594"] -> "A股红利高股息"
+  - 名称含 [科创, 芯片, 半导体, 集成电路, 科技, 人工智能, 信息, 恒生科技, 恒科, 互联网, 创业板, 军工, 新能源, 光伏] 或代码 in ["011612", "011613", "008888", "013841", "013402", "017436", "001618"] -> "科技成长进攻"
+  - 名称含 [1000, 中小盘, 小盘, 微盘, 2000] 或代码 in ["004194", "016634", "001053"] -> "中小盘成长"
+  - 名称含 [500, 中盘, 中证500, 医药, 生物, 医疗, 健康, 创金合信医疗] 或代码 in ["000478", "161726", "003095", "001717"] -> "中盘均衡"
+  - 名称含 [300, 沪深300, 蓝筹, 上证50, 核心, 50ETF, 白酒, 消费, 食品, 饮料, 沪港深] 或代码 in ["110020", "161725", "000311", "110011"] -> "核心蓝筹"
+  确保上述所有主流宽基与行业基金 100% 落入这 9 大标准类别，使 Tab 4 的「资产大类配比图」与「资产缺口分析表」完全对齐，彻底消灭“61.5% 其他权益资产”。
 
-4. 统一 14 大赛道动量与乖离率的价格口径（消除分红季全收益指数跃升偏误）：
-- 在 advisory_engine.py 的 _calc_dynamic_sector_metrics 中，计算 20 日短期均线乖离率 bias_20 时，对红利类指数优先使用价格指数（000922.SH / H30269）或经除权平滑的日度序列，避免全收益指数在分红集中派息日产生虚假的正乖离脉冲而误报超买。
+### R3. QDII 跨时区交割标注与同公司 T+1 转换隔离
+- 在 Tab 2 工具坞「🔄 同公司基金低摩擦转换」（`app_gui.py` 第 2335~2365 行）中，扫描候选基金时自动排除 QDII 海外基金（代码 in ["050025", "001071", "013402"] 或名称含 [标普, 纳指, 纳斯达克, 恒生, QDII, 美股, 黄金]），并在页面上方增加提示条：「💡 交割规则说明：海外 QDII 基金（T+2确认、赎回 T+6~T+8 到账）与跨注册登记机构品种不支持同公司 T+1 极速转换，系统已自动过滤保护」。
+- 在 Tab 1 步骤三建仓表与 Tab 2 持仓表中，为每只基金根据类型提供精准估值与交割提示（指数联接标注「指数高准度·T+1确认」，纯债标注「票息底仓·看久期」，美股/港股 QDII 标注「跨时区T+2确认·看隔夜外盘」）。
 
-二、 架构级性能飞跃：引入 @st.fragment 局部刷新与数据新鲜度透明化（app_gui.py）
+### R4. 实装组合年度股息与票息安全垫精算引擎（真实数学公式）
+- 在 `StrategyBridge` 中实装静态方法 `calculate_portfolio_yield_cushion(weights_or_holdings: Any, total_capital: float, pm: Any = None) -> Dict[str, Any]`：
+  - 基于各标准资产大类的真实底层股息率/到期票息率基准（A股红利低波: 5.2%, A股红利高股息: 4.8%, 核心蓝筹: 2.8%, 中盘均衡: 1.8%, 中小盘成长: 1.0%, 科技成长进攻: 0.6%, 纯债固收: 2.75%, 美股海外对冲: 1.3%, 黄金对冲: 0.0%），对组合内每只基金按权重加权求和，计算：
+    1) `weighted_yield_pct`：组合加权年化股息与票息率 (%)；
+    2) `annual_cushion_amount`：`total_capital * (weighted_yield_pct / 100.0)`（组合每年由底层企业分红与债券票息产生的内生安全垫总额，元/年）；
+    3) `monthly_equivalent_amount`：`annual_cushion_amount / 12.0`（折合月均内生收息安全垫，元/月）；
+    4) `cash_dividend_payout_est`：统计组合中分红方式设为 cash（现金分红）的红利/权益基金预计每年直接派发到账的现金分红金额（元/年）。
+- 在 Tab 1 步骤二（方案核心归因旁）与 Tab 2 步骤一（资产基线横幅内）醒目展示该内生收息安全垫指标，帮助用户在市场震荡期看清组合的现金流造血能力。
 
-1. 使用 @st.fragment 解耦全页重跑，实现毫秒级局部交互响应：
-- 在 app_gui.py 中，使用 Streamlit 原生 @st.fragment 装饰器（若当前环境支持 st.fragment），将以下独立交互区块封装为局部刷新组件（仅当区块内发生跨全局状态变更如切换主题、切换激活账本、或点击跨 Tab 跳转按钮时才调用 st.rerun() 全页刷新）：
-  a. 侧边栏「核心指数行情走廊」自选配置与局部刷新；
-  b. Tab 2 持仓账本的「极速录基吧台」与「主持仓表编辑」；
-  c. Tab 3 组合回测的「回测对象与对标基准切换」；
-  d. Tab 4 穿透工具的「穿透组合切换与 A/C 算费器」。
-- 优化首屏渲染性能：确保在未切换到 Tab 3 和 Tab 4 时，利用轻量级缓存避免每次在 Tab 1/Tab 2 微调参数都重复触发底层高耗时重仓股穿透计算。
+### R5. 实装实盘调仓决策复盘 vs 初始躺平影子组合（真实数学公式）
+- 在 `PortfolioManager` 中维护真实的初始基准持仓快照 `self.initial_baseline_snapshot`（记录接管首日或首次建仓时的 `{fund_code: shares}` 与 `initial_cash`）。
+- 编写方法 `pm.evaluate_rebalance_audit() -> Dict[str, Any]`，严格按真实数学公式计算（严禁硬编码常数）：
+  1) `current_actual_equity`：当前实盘总资产 `self.total_equity`；
+  2) `shadow_hold_equity`：若从基准确立日起一分钱不调仓（保持 `initial_baseline_snapshot` 的份额不变，乘以各基金今日最新 `current_nav` 加 `initial_cash`）的今日影子总资产；
+  3) `rebalance_value_add`：`current_actual_equity - shadow_hold_equity`（调仓与主动管理带来的真实净增厚金额，元）；
+  4) `saved_penalty_and_buffer_fees`：统计当前持仓中因 <7天 锁仓拦截免除的 1.50% 惩罚费总额 + 临期 C 类缓卖省下的 0.50% 赎回费总额。
+- 在 Tab 2 工具坞「🗄️ 账本环境与实盘档案」子页的净值曲线下方，渲染「📊 买方投顾价值与调仓复盘账单」3 列指标卡（① 实盘当前总资产 vs 初始躺平影子总资产；② 调仓主动管理净增厚；③ AI 风控防线累计为您拦截避免的惩罚费与赎回费损耗）。
 
-2. 新增「📡 数据源健康度与时效状态徽章（Data Freshness Badge）」：
-- 在侧边栏「市场状态与底座」及顶部看板中，显式展示当前行情与估值的数据源状态（如：「🟢 实时盘中行情已连接 (更新于 HH:MM:SS)」或「🟡 离线湖仓快照兜底模式 (基准日 YYYY-MM-DD)」），一旦任何底层接口降级使用缓存兜底，必须如实告知用户，拒绝静默黑盒。
+### R6. 数据源健康度徽座与安全的 @st.fragment 局部刷新
+- 在侧边栏「🕒 市场状态与底座」卡片中新增一行「📡 行情源状态」：根据 `mb_data.get("source")` 与实时行情缓存状态，动态显示 🟢 东财/新浪实时盘中源 或 🟡 本地湖仓离线快照兜底，让数据真实性与时效性一目了然。
+- 在主工作区 Tab 4 中，将独立的「💡 A/C算费工具」子渲染逻辑封装为带 `@st.fragment` 装饰器的函数（使用 `getattr(st, "fragment", lambda f: f)` 优雅兼容，且绝对不在 `st.sidebar` 内部或涉及侧边栏的函数上使用），使修改费率与天数滑块时实现毫秒级局部刷新。
 
-三、 UI/UX 关键体验痛点治理：首屏提权、表格防丢数自动保存与实盘净值记账（app_gui.py & portfolio_manager.py）
+### R7. 物理安全红线与开发质量约束
+- 严禁修改只读裁判文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）。
+- 严禁修改 `DataLoader.simulate_execution` 的默认签名与默认扣费逻辑。
+- 严禁编写任何写死常数的假计算（如写死影子超额 +1.2% 或写死省费金额），所有展示数字必须由底层持仓份额、净值与费率算子实时算出。
+- 严禁在 `st.sidebar` 内部或涉及侧边栏的函数上使用 `@st.fragment`（会触发 `StreamlitAPIException` 崩溃）。
 
-1. 首屏视觉提权——「双翼智能投顾看板」支持精简摘要条与展开详情切换：
-- 为解决首屏上方内容过高导致四大主工作区 Tab 被压到屏幕下半截的问题：在双翼看板顶部提供紧凑的「📢 今日脉搏晨报 + 🎯 Top 3 机会赛道胶囊 + 🚨 风险预警汇总徽章（如：发现 X 项风险）」单行高密度导航条；
-- 当风险巡检全通或用户正在下方 Tab 操作时，允许一键折叠收起双翼看板详情卡片，将宝贵的首屏空间让位给【🌱 新资建仓 / 💼 持仓调仓 / 📈 组合回测 / 🔍 穿透工具】四大主工作区！
+## Acceptance Criteria
 
-2. Tab 2 主持仓表（st.data_editor）「未保存修改防丢失自动同步」机制：
-- 解决用户在 st.data_editor 表格中修改了市值/盈亏/调仓意愿但忘记先点“保存修改并入库”就直接点击下方“诊断今日调仓时机”导致修改丢失的痛点：
-- 编写统一的 `_auto_commit_pending_table_edits(edited_table, pm)` 辅助函数：
-  a. 当检测到 edited_table 与当前 pm.holdings 存在未保存差异时，在表格上方显示醒目提示「检测到表格内有未保存的修改」；
-  b. 当用户直接点击「💾 保存修改并入库」、「🔍 诊断今日调仓时机」或「🚀 一键执行全案」中的任意一个按钮时，系统自动先执行一次 `_auto_commit_pending_table_edits` 将表格修改写入 pm 账本，再继续执行后续诊断或调仓，确保用户在表格里的每一次改动 100% 生效不丢失！
+### 工程漏洞修复与资产分类对齐
+- [ ] `app_gui.py` 热重载导入块包含 `FundHolding, HoldingItem`，模块发生热重载时 Tab 4 缓存函数无 `NameError`。
+- [ ] Tab 2「🚀 一键执行全案」点击后优先执行表格数据自动入库，修改内容 100% 自动入库生效。
+- [ ] `PortfolioManager.classify_fund_asset_class` 本体方法升级并移除 `app_gui.py` 中的 `if not hasattr` 条件，对医药(161726)、白酒(161725)、银行(160418)、恒科(013402)、半导体(008888)、美股QDII(050025)、红利低波(005561)、纯债(002351)、黄金(000216)等 100% 映射至 9 大标准类别，Tab 4 资产大类配比图与缺口分析表对齐且无“61.5% 其他权益资产”。
+- [ ] Tab 2 工具坞「🔄 同公司基金低摩擦转换」候选标的自动排除 QDII 海外基金并展示说明；Tab 1 与 Tab 2 显示各基金对应类型交割与估值提示。
 
-3. 新增「📈 实盘账本历史净值记账曲线（Realized Account NAV Curve）」与「一键跟单打卡」：
-- 在 portfolio_manager.py 中，每次调用 save_state(record_snapshot=True) 或同步净值时，在账本的 `nav_history` 列表中记录当日日期、账户总资产、份额净值与同期基准点位；
-- 在 Tab 2 的「🗄️ 账本环境与实盘档案」子页中，绘制该账本从接管首日至今的《实盘账户累计净值 vs 沪深300基准走势图》，真实追踪每一笔实盘收益与超额 Alpha；
-- 在 Tab 2 步骤三调仓执行单底部，提供「✅ 我已在手机端按此方案下单 -> 一键将调仓单同步至当前账本持仓」快捷按钮，实现从“看建议”到“记账入库”的完整投后闭环。
+### 买方投顾数学模型升级与 UI 局部刷新
+- [ ] `StrategyBridge.calculate_portfolio_yield_cushion` 静态方法基于 9 大类真实基准和持仓权重动态输出加权收益率、年化安全垫金额、月均等效金额及现金分红预估，在 Tab 1 步骤二与 Tab 2 步骤一正常展示。
+- [ ] `PortfolioManager.evaluate_rebalance_audit` 严格按实际净值与基准份额计算影子资产、主动管理净增厚及规避的费率损耗，在 Tab 2 账本档案子页以 3 列指标卡真实渲染。
+- [ ] 侧边栏市场状态卡片动态显示行情源健康度徽座（实时源或离线快照）。
+- [ ] Tab 4「A/C算费工具」安全接入 `@st.fragment` 实现毫秒级局部刷新，侧边栏无任何 `@st.fragment` 引用。
 
-四、 自动化测试与交付验证
-1. 运行 pytest 全量测试（含 test_infra.py）确保 100% 通过。
-2. 新增测试验证：
-- 断言 RADAR_SECTOR_CATALOG["dividend_low_vol"]["benchmark_index"] 已修正为 H30269（绝非 000978）；
-- 断言全站 UI 源码中不再出现违规的“保本率”字样（已替换为“正收益概率”）；
-- 断言 QDII 基金（050025）在交割规则中被正确识别为跨时区 T+2 确认、T+6+ 赎回且不进入同公司 T+1 转换列表；
-- 运行 Streamlit AppTest 确认全站 4 个 Tab 渲染 0 异常，重启 8501 端口服务。
+### 物理安全红线与自动化测试
+- [ ] 4 大裁判文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）未被修改。
+- [ ] `DataLoader.simulate_execution` 默认函数签名与扣费逻辑保持原样。
+- [ ] 运行 pytest 全量测试（含只读 `tests/test_infra.py`）100% 通过。
+- [ ] 专项测试 1 通过：验证 `pm.classify_fund_asset_class` 对 161726、161725、160418、013402、008888、050025、005561、002351、000216 全部返回 9 大标准类别，无一返回“其他权益资产”。
+- [ ] 专项测试 2 通过：验证 `StrategyBridge.calculate_portfolio_yield_cushion` 与 `pm.evaluate_rebalance_audit` 返回真实动态计算数值，且当修改持仓 `current_nav` 时影子资产与实盘资产随之真实变化。
+- [ ] 专项测试 3 通过：运行 Streamlit `AppTest` 验证全站 4 个 Tab 零异常报错，8501 端口服务平滑重启。
+
+## Follow-up — 2026-11-06T01:15:20Z
+
+【主干同步与协调指令】
+你好！主干工程师已完成所有 4 处工程漏洞修复与三大买方投顾实战能力升级（包含 calculate_portfolio_yield_cushion、evaluate_rebalance_audit、9 大标准资产大类反查对齐、热重载导入补齐、一键全案自动保存拦截、A/C算费 fragment 局部刷新与行情源状态徽章）。
+同时已编写并固化测试用例 tests/test_adv_final_closure.py。
+请协调员团队：
+1. 立即停止重复实装代码，避免对同一工作区文件产生写入冲突；
+2. 调度测试员运行轻量三阶核验：py -3 -m pytest tests/test_adv_final_closure.py tests/test_adv_upgrade_suite.py tests/test_infra.py；
+3. 核验通过后，直接生成验收复盘报告并收口完成任务。
+

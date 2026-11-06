@@ -145,7 +145,7 @@ for mod_name, (mod_obj, file_path) in _MODULE_MAP.items():
 if _need_reimport or not st.session_state.get("_modules_initialized"):
     from trading_clock_fee import TradingClock, FeeMatrixCalculator
     from portfolio_manager import (
-        PortfolioManager, CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG,
+        PortfolioManager, FundHolding, HoldingItem, CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG,
         SECTOR_FUND_SELECTION, get_fund_selection_funnel_stats,
         search_funds_in_catalog, parse_smart_text_holdings,
         fetch_realtime_fund_quote, fetch_realtime_index_quote,
@@ -200,33 +200,7 @@ def map_slider_to_tier(ret: float) -> str:
     return map_target_return_to_tier(ret)
 
 
-# 统一资产分类解析器动态兜底
-if not hasattr(PortfolioManager, "classify_fund_asset_class"):
-    def _pm_classify_fund_asset_class(self, fund_code: str, fund_name: str = "") -> str:
-        code_str = str(fund_code).strip()
-        nm = str(fund_name).strip() if fund_name else ""
-        if not nm and hasattr(self, "holdings") and code_str in self.holdings:
-            nm = self.holdings[code_str].fund_name
-        if any(k in nm for k in ["债", "国债", "利差", "固收", "纯债", "中短债", "裕祥"]):
-            return "纯债固收"
-        if any(k in nm for k in ["黄金", "AU", "金ETF", "Gold"]):
-            return "黄金对冲"
-        if any(k in nm for k in ["标普", "纳斯达克", "海外", "美股", "SPX", "NDX", "QDII"]):
-            return "美股海外对冲"
-        if any(k in nm for k in ["红利低波", "低波", "红利低波动"]):
-            return "A股红利低波"
-        if any(k in nm for k in ["红利", "股息", "大成红利", "富国中证红利"]):
-            return "A股红利高股息"
-        if any(k in nm for k in ["科创", "芯片", "半导体", "集成电路", "科技", "信息"]):
-            return "科技成长进攻"
-        if any(k in nm for k in ["1000", "中小盘", "小盘", "微盘"]):
-            return "中小盘成长"
-        if any(k in nm for k in ["500", "中盘", "中证500"]):
-            return "中盘均衡"
-        if any(k in nm for k in ["300", "沪深300", "蓝筹", "上证50", "核心", "50ETF"]):
-            return "核心蓝筹"
-        return "其他权益资产"
-    PortfolioManager.classify_fund_asset_class = _pm_classify_fund_asset_class
+# 资产分类器已由 portfolio_manager.PortfolioManager 本体统一定义对齐
 
 # -------------------------------------------------------------
 # 页面基础配置与高颜值深色质感样式
@@ -4412,9 +4386,13 @@ with tab_holdings_and_rebalance:
             with dock_tab5:
                 st.markdown("##### 🔄 同公司基金低摩擦转换")
                 st.caption("公募基金公司内部转换机制：A/C 份额同系互转免除赎回款离场在途等待期 (T+1 到账)，免收前端认购费，仅收取极低级差费。")
+                st.info("💡 **交割规则说明**：海外 QDII 基金（T+2 确认、赎回 T+6~T+8 到账）与跨注册登记机构品种不支持同公司 T+1 极速转换，系统已自动过滤保护。")
                 # 扫描同公司基金
                 company_map = {}
                 for c_k, h_v in pm.holdings.items():
+                    # 自动排除海外 QDII 基金
+                    if pm.is_qdii_fund(c_k, h_v.fund_name):
+                        continue
                     c_meta = pm.resolve_fund_meta(c_k)
                     comp_name = c_meta.get("company", "") or "通用公募"
                     if comp_name not in company_map:
@@ -4432,7 +4410,8 @@ with tab_holdings_and_rebalance:
                 
                 col_sw1, col_sw2, col_sw3 = st.columns([4, 4, 2])
                 with col_sw1:
-                    sw_from = st.selectbox("转出基金 (来源)", list(pm.holdings.keys()), key="sel_switch_from")
+                    non_qdii_holdings = [c for c, h in pm.holdings.items() if not pm.is_qdii_fund(c, h.fund_name)]
+                sw_from = st.selectbox("转出基金 (来源)", non_qdii_holdings if non_qdii_holdings else list(pm.holdings.keys()), key="sel_switch_from")
                 with col_sw2:
                     sw_to = st.text_input("转入基金代码 (同公司标的)", value="011612" if sw_from == "011613" else "005561", max_chars=6, key="txt_switch_to")
                 with col_sw3:
@@ -4509,6 +4488,8 @@ with tab_holdings_and_rebalance:
             )
         with col_t2_btn2:
             if st.button("🚀 一键执行全案", type="secondary", use_container_width=True, key="btn_tab2_all"):
+                if "edited_table" in locals() and edited_table is not None:
+                    _commit_edited_holdings_table(edited_table, pm)
                 st.session_state.tab2_diagnosed = True
                 st.session_state.tab2_rebalanced = True
                 st.session_state.tab2_trigger_diagnose = True

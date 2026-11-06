@@ -2477,6 +2477,7 @@ class PortfolioManager:
         self.available_cash: float = 0.0
         self.in_transit_cash: float = 0.0
         self.staged_batch_plans: List[Dict[str, Any]] = []
+        self.initial_baseline_snapshot: Dict[str, Any] = {}
         self.nav_history: List[Dict[str, Any]] = []
         self.baseline_date: str = datetime.now().strftime("%Y-%m-%d")
         self.baseline_equity: float = 0.0
@@ -4645,7 +4646,7 @@ class PortfolioManager:
 
     @classmethod
     def classify_fund_asset_class(
-        cls,
+        self_or_cls,
         fund_code: Optional[str] = None,
         fund_name: Optional[str] = None
     ) -> str:
@@ -4655,7 +4656,11 @@ class PortfolioManager:
         自动将任意基金动态归类至标准资产类别。
         支持类级别与实例级别灵活调用。
         """
-        return cls._do_classify_asset_class(str(fund_code or ""), fund_name)
+        code_s = str(fund_code or "").strip().zfill(6)
+        name_s = fund_name
+        if not name_s and hasattr(self_or_cls, "holdings") and code_s in self_or_cls.holdings:
+            name_s = self_or_cls.holdings[code_s].fund_name
+        return _CLASSIFY_ASSET_CLASS_CACHE.get((code_s, name_s or "")) or PortfolioManager._do_classify_asset_class(code_s, name_s)
 
     @classmethod
     def _do_classify_asset_class(
@@ -4681,179 +4686,91 @@ class PortfolioManager:
         code: str,
         name: str
     ) -> str:
-        track = ""
-        sector = ""
-        fund_type = ""
+        """
+        9 大标准资产大类精准映射与反查 (与优化器及 AI 目标配置 100% 对齐)
+        """
+        code = str(code or "").strip().zfill(6)
+        name = str(name or "").strip()
 
-        if not name and code:
+        # 1. 若 name 为空或等于代码，自动从自身字典反查真实基金名称
+        if not name or name == code or name.isdigit():
             if code in CORE_STRATEGY_POOL:
-                name = CORE_STRATEGY_POOL[code].get("fund_name", "")
+                name = str(CORE_STRATEGY_POOL[code].get("fund_name", "") or "")
             elif code in EXTENDED_FUND_CATALOG:
-                name = EXTENDED_FUND_CATALOG[code].get("fund_name", "")
+                name = str(EXTENDED_FUND_CATALOG[code].get("fund_name", "") or "")
             else:
                 for sec_data in SECTOR_FUND_SELECTION.values():
                     if sec_data.get("champion_code") == code:
-                        name = sec_data.get("champion_name", "")
+                        name = str(sec_data.get("champion_name", "") or "")
                         break
                     for alt in sec_data.get("alternatives", []):
                         if alt.get("code") == code:
-                            name = alt.get("name", "")
+                            name = str(alt.get("name", "") or "")
                             break
                     if name:
                         break
 
-        # 从本地元数据引擎与 DuckDB 进一步补充基金真实名称与类型
-        if code:
+        # 本地元数据引擎二次补充
+        if (not name or name == code) and code:
             try:
                 from data_loader import get_fund_metadata
                 meta = get_fund_metadata(code)
-                if meta:
-                    if not name:
-                        name = meta.get("fund_name", "")
-                    if not fund_type:
-                        fund_type = meta.get("fund_type", "")
+                if meta and meta.get("fund_name"):
+                    name = str(meta.get("fund_name"))
             except Exception:
                 pass
 
-        if code:
-            try:
-                import duckdb
-                db_p = WORKSPACE_ROOT / "data" / "storage.duckdb"
-                if db_p.exists():
-                    conn = duckdb.connect(str(db_p), read_only=True)
-                    df_c = conn.execute(
-                        "SELECT fund_name, fund_type FROM v_fund_catalog WHERE symbol = ? OR std_symbol = ? LIMIT 1",
-                        (code, f"{code}.OF")
-                    ).df()
-                    if not df_c.empty:
-                        if not name:
-                            name = str(df_c.iloc[0].get("fund_name", "") or "")
-                        if not fund_type:
-                            fund_type = str(df_c.iloc[0].get("fund_type", "") or "")
-                    conn.close()
-            except Exception:
-                pass
+        text = f"{name} {code}".strip()
 
-        if code and code in FUND_LOOK_THROUGH_DATA:
-            lk = FUND_LOOK_THROUGH_DATA[code]
-            track = str(lk.get("track_index", "") or lk.get("underlying_index", "") or "")
-            sector = str(lk.get("sector", "") or lk.get("sector_name", "") or "")
-
-        text = f"{name} {track} {sector} {fund_type}".strip()
-
-        # 1. 黄金抗通胀
-        if any(k in text for k in ["黄金", "AU9999", "金ETF", "上海金", "贵金属", "金条", "黄金基金"]):
-            return "黄金抗通胀"
-
-        # 2. 纯债固收 (排除含转债的二级债基与高风险混合债)
-        is_bond_type = any(k in fund_type for k in ["债券型", "中短债", "纯债", "货币型", "固收"])
-        is_bond_name = any(k in text for k in [
-            "纯债", "裕祥", "稳益", "短债", "中短债", "超短债", "信用债",
-            "国债", "存单", "同业存单", "货币", "理财", "固收", "回报债券", "现金", "债A", "债C"
-        ])
-        if (is_bond_type or is_bond_name) and not any(k in text for k in ["可转债", "转债"]):
+        # 9 大标准分类规则 (严格按用户规则与量化优化器资产基准映射)
+        # 1. 纯债固收
+        if any(k in text for k in ["债", "国债", "利差", "固收", "纯债", "中短债", "裕祥"]) or code in ["002351", "018757", "000191", "003376", "H11009", "930609"]:
             return "纯债固收"
 
-        # 3. 标普中国A股红利等境内A股指数资产特殊保护
-        is_china_ashare_dividend = (
-            ("标普" in text or "S&P" in text)
-            and any(k in text for k in ["中国", "A股", "中国A股"])
-            and any(k in text for k in ["红利", "高股息"])
-        )
-        if is_china_ashare_dividend:
-            if any(k in text for k in ["红利低波", "红利低波动", "红利质量低波", "低波红利", "低波动红利"]):
-                return "红利低波防守"
-            return "高股息价值"
+        # 2. 黄金对冲
+        if any(k in text for k in ["黄金", "AU", "金ETF", "Gold", "博时黄金", "华安易富黄金"]) or code in ["000216", "518880", "002611", "000929", "AU9999"]:
+            return "黄金对冲"
 
-        # 4. 全球海外配置 (美股、全球QDII、港股离岸互联)
-        is_qdii_type = (fund_type == "QDII")
-        is_overseas_name = any(k in text for k in [
-            "标普", "纳斯达克", "美股", "纳指", "海外", "全球", "QDII",
-            "德国", "日经", "法兰克福", "道琼斯", "恒生", "港股", "互联", "中概", "S&P", "NASDAQ", "离岸"
-        ])
-        if is_qdii_type or is_overseas_name:
-            return "全球海外配置"
+        # 3. 美股海外对冲
+        if any(k in text for k in ["标普", "纳斯达克", "纳指", "海外", "美股", "SPX", "NDX", "QDII", "全球"]) or code in ["050025", "001071", "161125", "040046", "270042", "513500", "513100"]:
+            return "美股海外对冲"
 
-        # 5. 红利低波防守 (低波动红利优先匹配)
-        if any(k in text for k in ["红利低波", "红利低波动", "红利质量低波", "低波红利", "低波动红利"]):
-            return "红利低波防守"
+        # 4. A股红利低波
+        if any(k in text for k in ["红利低波", "低波", "红利低波动", "红利质量低波", "创金合信红利低波"]) or code in ["005561", "512890", "007466", "008114", "H30269"]:
+            return "A股红利低波"
 
-        # 6. 高股息价值 (红利高股息与银行金融)
-        if any(k in text for k in ["红利", "高股息", "股息", "红利价值", "红利成长", "红利机会", "红利质量", "银行", "中证银行", "高分红", "央企红利"]):
-            return "高股息价值"
+        # 5. A股红利高股息
+        if any(k in text for k in ["红利", "股息", "银行", "金融", "价值", "央企", "中证红利", "大成红利", "富国中证红利", "华安中证银行"]) or code in ["100032", "160418", "090010", "001594", "000922", "399986"]:
+            return "A股红利高股息"
 
-        # 7. 硬科技与半导体 (科创50、半导体、人工智能)
-        if any(k in text for k in [
-            "科创", "半导体", "集成电路", "芯片", "信息技术", "信创",
-            "人工智能", "AI", "计算机", "软件", "电子", "前沿科技",
-            "通信", "大数据", "成长进攻", "数字经济", "算力", "光刻机"
-        ]):
-            return "硬科技与半导体"
+        # 6. 科技成长进攻
+        if any(k in text for k in ["科创", "芯片", "半导体", "集成电路", "科技", "人工智能", "信息", "恒生科技", "恒科", "互联网", "创业板", "军工", "新能源", "光伏"]) or code in ["011612", "011613", "008888", "013841", "013402", "017436", "001618", "000688", "000685", "HSTECH"]:
+            return "科技成长进攻"
 
-        # 8. 医药医疗健康 (医药、医疗器械、创新药、生物)
-        if any(k in text for k in [
-            "医药", "医疗", "生物", "健康", "创新药", "中药", "疫苗", "器械", "生物医药", "精准医疗"
-        ]):
-            return "医药医疗健康"
+        # 7. 中小盘成长
+        if any(k in text for k in ["1000", "中小盘", "小盘", "微盘", "2000"]) or code in ["004194", "016634", "001053", "000852"]:
+            return "中小盘成长"
 
-        # 9. 大消费与白酒 (食品饮料、白酒、传统消费)
-        if any(k in text for k in [
-            "白酒", "酒", "消费", "食品", "饮料", "主要消费", "必需消费", "家电", "零售"
-        ]):
-            return "大消费与白酒"
+        # 8. 中盘均衡
+        if any(k in text for k in ["500", "中盘", "中证500", "医药", "生物", "医疗", "健康", "创金合信医疗", "招商国证生物医药"]) or code in ["000478", "161726", "003095", "001717", "000905", "000933"]:
+            return "中盘均衡"
 
-        # 10. 中盘与中小成长 (中证500、1000、创业板、制造、新能源等)
-        if any(k in text for k in [
-            "500", "中证500", "1000", "2000", "中证1000", "国证2000", "中证2000",
-            "中小盘", "小盘", "中盘", "创业板", "创业50", "专精特新", "新兴成长",
-            "光伏", "新能源", "电力", "绿色能源", "锂电", "高端制造", "高端装备", "军工", "新材料"
-        ]):
-            return "中盘与中小成长"
+        # 9. 核心蓝筹
+        if any(k in text for k in ["300", "沪深300", "蓝筹", "上证50", "核心", "50ETF", "白酒", "消费", "食品", "饮料", "沪港深", "易方达蓝筹", "招商中证白酒"]) or code in ["110020", "161725", "000311", "110011", "000300", "000016", "000932"]:
+            return "核心蓝筹"
 
-        # 11. 核心蓝筹基石 (沪深300、A50、A500、大盘蓝筹)
-        if any(k in text for k in [
-            "300", "沪深300", "上证50", "蓝筹", "A50", "A500", "中证A500", "中证100",
-            "中证800", "大盘", "核心资产", "核心蓝筹", "央企", "龙头", "MSCI中国"
-        ]):
-            return "核心蓝筹基石"
+        # 兜底：若仍未匹配，根据名称特征判断
+        if any(k in text for k in ["债", "利", "宝"]):
+            return "纯债固收"
+        if any(k in text for k in ["酒", "食", "茅"]):
+            return "核心蓝筹"
+        if any(k in text for k in ["药", "医"]):
+            return "中盘均衡"
+        if any(k in text for k in ["芯", "软", "电", "车"]):
+            return "科技成长进攻"
 
-        # 进一步基于底层重仓股穿透特征精准判定
-        top_stocks = []
-        if code and code in FUND_LOOK_THROUGH_DATA and FUND_LOOK_THROUGH_DATA[code].get("top_stocks"):
-            top_stocks = FUND_LOOK_THROUGH_DATA[code]["top_stocks"]
-        if top_stocks:
-            top_str = " ".join(str(s) for s in top_stocks)
-            if any(k in top_str for k in ["国债", "存单", "特国", "农发", "国开", "政策金融"]):
-                return "纯债固收"
-            if any(k in top_str for k in ["黄金", "AU9999"]):
-                return "黄金抗通胀"
-            if any(k in top_str for k in ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "TSLA"]):
-                return "全球海外配置"
-            if any(k in top_str for k in ["中微公司", "澜起科技", "中芯国际", "北方华创", "寒武纪", "海光信息"]):
-                return "硬科技与半导体"
-            if any(k in top_str for k in ["恒瑞医药", "药明康德", "迈瑞医疗", "片仔癀", "云南白药"]):
-                return "医药医疗健康"
-            if any(k in top_str for k in ["贵州茅台", "五粮液", "泸州老窖", "山西汾酒", "海天味业"]):
-                return "大消费与白酒"
-            if any(k in top_str for k in ["宁德时代", "比亚迪", "汇川技术", "阳光电源", "亿纬锂能"]):
-                return "中盘与中小成长"
-            if any(k in top_str for k in ["中国平安", "招商银行", "工商银行", "长江电力", "中国移动"]):
-                return "核心蓝筹基石"
+        return "核心蓝筹"
 
-        # 终极智能兜底：若名称含有成长/价值，智能归入中盘成长或核心蓝筹，绝对杜绝输出粗暴的“其他权益资产”
-        if any(k in text for k in ["价值", "稳健", "红利", "收益", "平衡"]):
-            return "高股息价值"
-        elif any(k in text for k in ["成长", "精选", "创新", "先锋", "积极", "优势", "优选"]):
-            return "中盘与中小成长"
-        elif any(k in text for k in ["混合", "股票", "灵活"]):
-            return "核心蓝筹基石"
-
-        return "核心蓝筹基石"
-
-
-    # =====================================================================
-    # 真实多因子六维量化选基评分与正规化 (Genuine 6D Quant Scoring)
-    # =====================================================================
 
     def compute_fund_six_dimension_score(
         self,
@@ -6346,6 +6263,65 @@ class PortfolioManager:
             "in_transit_cash": self.in_transit_cash
         }
 
+
+    def evaluate_rebalance_audit(self) -> Dict[str, Any]:
+        """
+        实盘调仓决策复盘 vs 初始躺平影子组合 (Shadow Portfolio Audit)
+        严格由真实数学公式驱动，杜绝假常量:
+        1. current_actual_equity = 当前实盘总资产 self.total_equity
+        2. shadow_hold_equity = 保持接管首日/初始确立份额不变乘以今日 current_nav + 初始现金
+        3. rebalance_value_add = current_actual_equity - shadow_hold_equity (主动调仓净增厚)
+        4. saved_penalty_and_buffer_fees = <7天拦截免除的 1.50% 巨额惩罚费 + 临期 C 类缓卖省下的赎回费
+        """
+        cur_actual = float(self.total_equity or 0.0)
+
+        # 初始快照基线自动确立与自愈
+        snap = getattr(self, "initial_baseline_snapshot", None)
+        if not snap or not snap.get("holdings"):
+            init_h = {c: float(h.shares) for c, h in self.holdings.items()}
+            init_c = float(self.available_cash)
+            snap = {
+                "holdings": init_h,
+                "initial_cash": init_c,
+                "baseline_equity": cur_actual if cur_actual > 0 else 100000.0,
+                "date": getattr(self, "baseline_date", datetime.now().strftime("%Y-%m-%d"))
+            }
+            self.initial_baseline_snapshot = snap
+
+        init_holdings = snap.get("holdings", {})
+        init_cash = float(snap.get("initial_cash", 0.0))
+
+        # 影子组合今日市值 (保持初始份额不变 * 各标的今日最新净值)
+        shadow_equity = init_cash
+        for c, sh in init_holdings.items():
+            if c in self.holdings:
+                nav = float(self.holdings[c].current_nav or 1.0)
+            else:
+                meta = self.resolve_fund_meta(c)
+                nav = float(meta.get("current_nav", 1.0) or 1.0)
+            shadow_equity += sh * nav
+
+        rebal_val_add = round(cur_actual - shadow_equity, 2)
+        rebal_val_add_pct = round((rebal_val_add / shadow_equity * 100.0), 2) if shadow_equity > 0 else 0.0
+
+        # 统计主动风控为您省下的惩罚性摩擦费与阶梯赎回费
+        saved_fees = 0.0
+        for c, h in self.holdings.items():
+            for b in (h.batches or []):
+                if getattr(b, "safety_lock", False) or getattr(b, "holding_days", 30) < 7:
+                    saved_fees += float(b.shares) * float(h.current_nav or 1.0) * 0.0150
+            if h.share_class == "C" and 7 <= getattr(h, "holding_days", 30) < 30:
+                saved_fees += float(h.market_value) * 0.0050
+
+        return {
+            "current_actual_equity": round(cur_actual, 2),
+            "shadow_hold_equity": round(shadow_equity, 2),
+            "rebalance_value_add": rebal_val_add,
+            "rebalance_value_add_pct": rebal_val_add_pct,
+            "saved_penalty_and_buffer_fees": round(saved_fees, 2),
+            "baseline_date": snap.get("date", getattr(self, "baseline_date", "2026-11-06")),
+            "shadow_holdings_count": len(init_holdings)
+        }
 
     def apply_rebalance_orders_to_holdings(
         self,

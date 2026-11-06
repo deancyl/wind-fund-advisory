@@ -2,7 +2,7 @@
   "version": "AGY2_PORTFOLIO_V2",
   "takeover_mode": "B",
   "baseline_date": "2026-11-06",
-  "baseline_equity": 50000.0,
+  "baseline_equity": 180945.0,
   "available_cash": 10000.0,
   "in_transit_cash": 10500.0,
   "reserved_batch_cash": 0.0,
@@ -13,9 +13,9 @@
   "benchmark_code": "000300.SH",
   "benchmark_baseline_nav": 1.0,
   "benchmark_current_nav": 1.0,
-  "portfolio_return_pct": -39.0,
+  "portfolio_return_pct": -83.14,
   "benchmark_return_pct": 0.0,
-  "alpha_return_pct": -39.0,
+  "alpha_return_pct": -83.14,
   "holdings": [
     {
       "fund_code": "002351",
@@ -166,9 +166,9 @@
     {
       "date": "2026-11-06",
       "total_equity": 30500.0,
-      "account_nav": 0.61,
+      "account_nav": 0.1686,
       "benchmark_nav": 1.0
     }
   ],
-  "updated_at": "2026-11-06 00:48:15"
+  "updated_at": "2026-11-06 09:16:06"
 }
