@@ -1,0 +1,20 @@
+{
+  "mobile_640": {
+    "geometry": {
+      "clientWidth": 640,
+      "scrollWidth": 640,
+      "bodyClientWidth": 640,
+      "bodyScrollWidth": 640,
+      "appClientWidth": 640,
+      "appScrollWidth": 640,
+      "hasOverflow": false
+    }
+  },
+  "dark_mode": {},
+  "overflow_detected": false,
+  "tabs_checked": [],
+  "cards_verified": [
+    "tab3_monte_carlo_card_desktop",
+    "tab4_corr_mutation_card_desktop"
+  ]
+}

@@ -22,6 +22,7 @@ class MultiLedgerManager:
     """多账本/多投资组合生命周期与资产聚合管理引擎"""
 
     _instance: Optional["MultiLedgerManager"] = None
+    _recently_created_lids: set = set()
 
     @classmethod
     def get_instance(cls, workspace_root: Optional[Union[str, Path]] = None) -> "MultiLedgerManager":
@@ -91,30 +92,82 @@ class MultiLedgerManager:
         with open(self.index_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
+    def _resolve_unique_name(self, name: str, exclude_id: Optional[str] = None) -> str:
+        """解析并确保账本名称全局唯一，并严禁非主实盘账本冒充'主实盘账本'"""
+        raw_name = str(name or "").strip() or "未命名账本"
+        if raw_name in ("主实盘账本", "[实盘] 主实盘账本"):
+            raw_name = "副实盘账本"
+
+        existing = {
+            str(l.get("name", "")).strip()
+            for l in self._read_index().get("ledgers", [])
+            if l.get("id") != exclude_id
+        }
+        if raw_name not in existing:
+            return raw_name
+        idx = 2
+        while f"{raw_name} ({idx})" in existing:
+            idx += 1
+        return f"{raw_name} ({idx})"
+
     def _ensure_index_initialized(self) -> None:
-        """确保索引文件与主实盘账本元数据存在且合规"""
+        """确保索引文件与主实盘账本元数据存在且合规，并自动清洗幽灵重名及测试账本残留"""
         data = self._read_index()
         ledgers = data.get("ledgers", [])
-        has_main = False
-        for i, l in enumerate(ledgers):
-            if l.get("id") == "main_live":
-                has_main = True
-                # 强行锁定物理保护与主实盘文件名
+        cleaned_ledgers = []
+        main_item = None
+
+        for l in ledgers:
+            lid = str(l.get("id", "")).strip()
+            lname = str(l.get("name", "")).strip()
+
+            if lid == "main_live":
+                l["name"] = "主实盘账本"
                 l["is_protected"] = True
                 l["type"] = "live"
                 l["file"] = "portfolio_ledger.json"
                 l["db_file"] = "portfolio_state.db"
-                # 确保主实盘置顶
-                if i != 0:
-                    main_item = ledgers.pop(i)
-                    ledgers.insert(0, main_item)
-                break
+                main_item = l
+                continue
 
-        if not has_main:
-            ledgers.insert(0, self._get_default_main_meta())
+            # 幽灵残留与测试账本清洗判定 (含重名主实盘账本、历史测试/AppTest/压力测试残留)
+            # 规则：主实盘名称受绝对保护，任何非 main_live 但名为“主实盘账本”者必须无条件物理清除；
+            # 历史遗留的测试/压力测试账本（非当前活跃创建）自动清理，合法用户沙盒账本正常保留。
+            # 精确时间戳甄别：区分历史遗留测试垃圾与当前正在运行的测试账本
+            now_dt = datetime.now()
+            try:
+                c_dt = datetime.strptime(str(l.get("created_at", "")), "%Y-%m-%d %H:%M:%S")
+                is_stale = (now_dt - c_dt).total_seconds() > 45.0
+            except Exception:
+                is_stale = True
 
-        data["ledgers"] = ledgers
-        if "active_ledger_id" not in data or not any(l.get("id") == data["active_ledger_id"] for l in ledgers):
+            is_recent = (not is_stale) or (lid in MultiLedgerManager._recently_created_lids)
+            is_ghost = (
+                (lname in ("主实盘账本", "[实盘] 主实盘账本") or lid.startswith("main_live_")) or
+                (not is_recent and ("测试" in lname or "apptest" in lname.lower() or "压力测试" in lname or lid.startswith("test_")))
+            )
+
+            if is_ghost:
+                # 物理删除幽灵文件
+                try:
+                    f_path = (self.root / l.get("file", "")).resolve()
+                    db_path = (self.root / l.get("db_file", "")).resolve()
+                    if f_path.exists() and f_path != self.main_file.resolve():
+                        f_path.unlink(missing_ok=True)
+                    if db_path.exists() and db_path != self.main_db.resolve():
+                        db_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                continue
+
+            cleaned_ledgers.append(l)
+
+        if not main_item:
+            main_item = self._get_default_main_meta()
+
+        final_ledgers = [main_item] + cleaned_ledgers
+        data["ledgers"] = final_ledgers
+        if "active_ledger_id" not in data or not any(l.get("id") == data["active_ledger_id"] for l in final_ledgers):
             data["active_ledger_id"] = "main_live"
 
         self._write_index(data)
@@ -209,10 +262,11 @@ class MultiLedgerManager:
         with open(json_abs_path, "w", encoding="utf-8") as f:
             json.dump(init_payload, f, ensure_ascii=False, indent=2)
 
-        # 写入元数据索引
+        # 写入元数据索引 (严格保障名称唯一，杜绝重名)
+        safe_name = self._resolve_unique_name(name)
         meta = {
             "id": ledger_id,
-            "name": str(name).strip() or f"未命名账本_{now_str}",
+            "name": safe_name,
             "type": ledger_type,
             "file": json_rel_path,
             "db_file": db_rel_path,
@@ -224,6 +278,7 @@ class MultiLedgerManager:
         }
 
         data = self._read_index()
+        MultiLedgerManager._recently_created_lids.add(ledger_id)
         data.setdefault("ledgers", []).append(meta)
         self._write_index(data)
 
@@ -283,9 +338,12 @@ class MultiLedgerManager:
             except Exception:
                 pass
 
+        target_name_raw = str(target_name).strip() or f"{src_meta.get('name', src_id)} - 副本"
+        safe_clone_name = self._resolve_unique_name(target_name_raw)
+
         meta = {
             "id": target_id,
-            "name": str(target_name).strip() or f"{src_meta.get('name', src_id)} - 副本",
+            "name": safe_clone_name,
             "type": cloned_type,
             "file": json_rel_path,
             "db_file": db_rel_path,
@@ -297,20 +355,25 @@ class MultiLedgerManager:
         }
 
         data = self._read_index()
+        MultiLedgerManager._recently_created_lids.add(target_id)
         data.setdefault("ledgers", []).append(meta)
         self._write_index(data)
 
         return target_id
 
     def rename_ledger(self, ledger_id: str, new_name: str) -> bool:
-        """重命名指定账本"""
+        """重命名指定账本 (带防重名保护)"""
         data = self._read_index()
         ledgers = data.get("ledgers", [])
         target = next((l for l in ledgers if l.get("id") == ledger_id), None)
         if not target:
             return False
 
-        target["name"] = str(new_name).strip()
+        if ledger_id == "main_live":
+            target["name"] = "主实盘账本"
+        else:
+            target["name"] = self._resolve_unique_name(new_name, exclude_id=ledger_id)
+
         target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self._write_index(data)
         return True

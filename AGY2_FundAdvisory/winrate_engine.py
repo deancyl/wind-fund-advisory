@@ -777,11 +777,14 @@ def simulate_black_swan_stress(
     holdings: Any,
     total_capital: float = 100000.0,
     df_bt: Optional[pd.DataFrame] = None,
+    n_simulations: int = 10000,
+    block_size: int = 10,
+    horizon_days: int = 60,
+    **kwargs
 ) -> Dict[str, Any]:
     """
-    历史黑天鹅极端行情压力测试器
-    精准测算当前组合在 2018 贸易摩擦熊市、2022 核心资产杀估值、2024 年初微盘流动性危机
-    三个真实历史切片下的最大账面浮亏、最大回撤、回本交易日与相对沪深300的超额防御。
+    历史黑天鹅极端行情与 10,000 次蒙特卡洛块重采样 (Block Bootstrap) 压力测试器。
+    精准测算当前组合在 2018 贸易摩擦熊市、2022 杀估值、2024 微盘危机及 10,000 次重采样下的极限 CVaR 99% 与最大流动性折价损失。
     """
     try:
         from strategy_bridge import StrategyBridge
@@ -904,9 +907,174 @@ def simulate_black_swan_stress(
             "excess_defense_pct": round(excess_defense, 2),
         })
 
+    # 引入 10,000 次蒙特卡洛块重采样 (Block Bootstrap) 极端压力推演
+    mc_bootstrap = simulate_monte_carlo_block_bootstrap_stress(
+        holdings=norm_w,
+        total_capital=total_capital,
+        df_bt=df_bt,
+        n_simulations=n_simulations,
+        block_size=block_size,
+        horizon_days=horizon_days,
+        **kwargs
+    )
+
     return {
         "total_capital": total_capital,
         "portfolio_weights": norm_w,
         "scenarios": scenarios,
+        "monte_carlo_bootstrap": mc_bootstrap,
+        "cvar_99_pct": mc_bootstrap["cvar_99_pct"],
+        "cvar_99_amount": mc_bootstrap["cvar_99_amount"],
+        "liquidity_discount_pct": mc_bootstrap["liquidity_discount_pct"],
+        "liquidity_discount_amount": mc_bootstrap["liquidity_discount_amount"],
+        "total_extreme_loss_pct": mc_bootstrap["total_extreme_loss_pct"],
+        "total_extreme_loss_amount": mc_bootstrap["total_extreme_loss_amount"],
+    }
+
+
+def simulate_monte_carlo_block_bootstrap_stress(
+    holdings: Any,
+    total_capital: float = 100000.0,
+    df_bt: Optional[pd.DataFrame] = None,
+    n_simulations: int = 10000,
+    block_size: int = 10,
+    horizon_days: int = 60,
+    random_seed: int = 42,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    【极端黑天鹅情景 10,000 次蒙特卡洛块重采样 (Block Bootstrap) 压力推演】
+    输出极限条件在险价值 (CVaR 99%) 与最大流动性折价损失预估。
+    """
+    if isinstance(holdings, dict):
+        raw_w = {str(k): float(v) for k, v in holdings.items() if float(v) > 0}
+    elif isinstance(holdings, (list, tuple)):
+        raw_w = {}
+        for item in holdings:
+            if isinstance(item, dict):
+                c = item.get("fund_code") or item.get("code")
+                w = item.get("weight") or item.get("market_value", 0.0)
+                if c and float(w) > 0:
+                    raw_w[str(c)] = float(w)
+            elif hasattr(item, "fund_code"):
+                c = getattr(item, "fund_code", None)
+                w = getattr(item, "market_value", 0.0) or getattr(item, "weight", 0.0)
+                if c and float(w) > 0:
+                    raw_w[str(c)] = float(w)
+    elif hasattr(holdings, "holdings") and isinstance(holdings.holdings, dict):
+        raw_w = {str(c): float(h.market_value) for c, h in holdings.holdings.items() if float(h.market_value) > 0}
+    else:
+        raw_w = {}
+
+    tot = sum(raw_w.values())
+    if tot <= 0:
+        norm_w = {"005561": 0.35, "100032": 0.20, "000216": 0.20, "017436": 0.15, "011613": 0.10}
+    else:
+        norm_w = {k: v / tot for k, v in raw_w.items()}
+
+    if df_bt is None or df_bt.empty:
+        try:
+            from strategy_bridge import StrategyBridge
+        except ImportError:
+            from AGY2_FundAdvisory.strategy_bridge import StrategyBridge
+        df_bt = StrategyBridge.build_custom_portfolio_backtest(fund_weights=norm_w)
+
+    nav_series = df_bt["strategy_nav"].dropna() if "strategy_nav" in df_bt.columns else pd.Series(dtype=float)
+    raw_rets = nav_series.pct_change().dropna().values
+    returns = raw_rets[np.isfinite(raw_rets)]
+
+    if len(returns) < 20:
+        returns = np.random.normal(0.0001, 0.012, 1000)
+
+    n_ret = len(returns)
+    n_sim = max(100, int(n_simulations))
+    b_size = max(2, min(30, int(block_size)))
+    h_days = max(10, int(horizon_days))
+    n_blocks = int(np.ceil(h_days / b_size))
+
+    # NumPy 向量化 Circular Block Bootstrap
+    rng = np.random.RandomState(random_seed) if random_seed is not None else np.random.RandomState()
+    st_indices = rng.randint(0, n_ret, size=(n_sim, n_blocks))
+    offsets = np.arange(b_size)
+    all_idx = (st_indices[:, :, None] + offsets).reshape(n_sim, n_blocks * b_size) % n_ret
+    all_idx = all_idx[:, :h_days]
+    sim_rets = returns[all_idx]
+
+    # 路径净值与最大回撤（在首日拼接 1.0 初始本金净值，真实捕获从建仓第一天起的最大回撤）
+    nav_paths = np.cumprod(1.0 + sim_rets, axis=1)
+    full_nav = np.column_stack([np.ones((n_sim, 1)), nav_paths])
+    cummax = np.maximum.accumulate(full_nav, axis=1)
+    dds = (full_nav - cummax) / np.maximum(cummax, 1e-8)
+    max_drawdowns = np.abs(np.min(dds, axis=1))
+
+    # 极值百分位与 CVaR 99% 计算
+    sorted_losses = np.sort(max_drawdowns)
+    var_95_pct = round(float(np.percentile(max_drawdowns, 95)) * 100.0, 2)
+    var_99_pct = round(float(np.percentile(max_drawdowns, 99)) * 100.0, 2)
+
+    worst_1pct_idx = int(np.floor(n_sim * 0.99))
+    worst_losses = sorted_losses[worst_1pct_idx:]
+    raw_cvar = float(np.mean(worst_losses)) * 100.0 if len(worst_losses) > 0 else var_99_pct
+    cvar_99_pct = round(max(var_99_pct, raw_cvar), 2)
+    cvar_99_amount = round(float(total_capital) * (cvar_99_pct / 100.0), 2)
+
+    # 穿透底层资产类别动态测算最大流动性折价损失预估 (Max Liquidity Discount Loss)
+    try:
+        from portfolio_manager import PortfolioManager
+        classify_fn = PortfolioManager.classify_fund_asset_class
+    except Exception:
+        try:
+            from AGY2_FundAdvisory.portfolio_manager import PortfolioManager
+            classify_fn = PortfolioManager.classify_fund_asset_class
+        except Exception:
+            classify_fn = None
+
+    tot_w = sum(norm_w.values()) or 1.0
+    haircut_sum = 0.0
+    for fc, w in norm_w.items():
+        fc_str = str(fc)
+        cat = classify_fn(fc_str, "") if classify_fn else ""
+        if fc_str in ("002351", "018757", "H11009") or "纯债" in cat or "固收" in cat:
+            h_rate = 0.003
+        elif fc_str in ("000216", "518880", "AU9999") or "黄金" in cat:
+            h_rate = 0.004
+        elif fc_str in ("005561", "100032", "160418", "H30269", "H00922") or "红利" in cat or "高股息" in cat:
+            h_rate = 0.008
+        elif "蓝筹" in cat or "均衡" in cat or "周期" in cat:
+            h_rate = 0.012
+        elif fc_str in ("050025", "017436", "SPX_CNY") or "海外" in cat or "美股" in cat or "QDII" in cat:
+            h_rate = 0.015
+        elif fc_str in ("011613", "008888", "013841", "STAR50_STITCH") or "科技" in cat or "成长" in cat:
+            h_rate = 0.025
+        else:
+            h_rate = 0.015
+        haircut_sum += (w / tot_w) * h_rate
+
+    liquidity_discount_pct = round(min(10.0, haircut_sum * 1.5 * 100.0), 2)
+    liquidity_discount_amount = round(float(total_capital) * (liquidity_discount_pct / 100.0), 2)
+
+    total_extreme_loss_pct = round(cvar_99_pct + liquidity_discount_pct, 2)
+    total_extreme_loss_amount = round(cvar_99_amount + liquidity_discount_amount, 2)
+
+    return {
+        "n_simulations": n_sim,
+        "block_size": b_size,
+        "horizon_days": h_days,
+        "var_95_pct": round(var_95_pct, 2),
+        "var_99_pct": round(var_99_pct, 2),
+        "cvar_99_pct": round(cvar_99_pct, 2),
+        "cvar_99_amount": round(cvar_99_amount, 2),
+        "liquidity_discount_pct": round(liquidity_discount_pct, 2),
+        "liquidity_discount_amount": round(liquidity_discount_amount, 2),
+        "total_extreme_loss_pct": round(total_extreme_loss_pct, 2),
+        "total_extreme_loss_amount": round(total_extreme_loss_amount, 2),
+        "distribution_percentiles": {
+            "p50": round(float(np.percentile(max_drawdowns, 50)) * 100.0, 2),
+            "p75": round(float(np.percentile(max_drawdowns, 75)) * 100.0, 2),
+            "p90": round(float(np.percentile(max_drawdowns, 90)) * 100.0, 2),
+            "p95": round(var_95_pct, 2),
+            "p99": round(var_99_pct, 2),
+            "cvar_99": round(cvar_99_pct, 2),
+        }
     }
 

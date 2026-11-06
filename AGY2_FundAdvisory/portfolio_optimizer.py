@@ -26,7 +26,7 @@ _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
-from winrate_engine import WinRateEngine, HOLDING_PERIODS, simulate_black_swan_stress
+from winrate_engine import WinRateEngine, HOLDING_PERIODS, simulate_black_swan_stress, simulate_monte_carlo_block_bootstrap_stress
 from cache_manager import SmartCacheManager
 from data_loader import denoise_covariance_matrix
 
@@ -38,6 +38,7 @@ __all__ = [
     "recommend_model_for_regime",
     "execute_market_optimization_flow",
     "simulate_black_swan_stress",
+    "simulate_monte_carlo_block_bootstrap_stress",
     "_normalize_weights_strict",
 ]
 

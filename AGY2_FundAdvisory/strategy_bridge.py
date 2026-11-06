@@ -488,12 +488,12 @@ SECTOR_FUND_SELECTION_BY_TIER: Dict[str, Dict[str, Dict[str, Any]]] = {
             "alternatives": [
                 {"code": "050025", "name": "博时标普500ETF联接A (冠军)", "share_class": "A", "tag": "美股大盘蓝筹基准 (单日限额500)"},
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华宝纳斯达克精选A", "share_class": "A", "tag": "海外高科技成长跨市场"},
+                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外高科技成长跨市场"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基对冲"}
             ],
             "top_alternatives": [
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华宝纳斯达克精选A", "share_class": "A", "tag": "海外高科技成长跨市场"},
+                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外高科技成长跨市场"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基对冲"}
             ]
         }
@@ -585,12 +585,12 @@ SECTOR_FUND_SELECTION_BY_TIER: Dict[str, Dict[str, Dict[str, Any]]] = {
             "alternatives": [
                 {"code": "050025", "name": "博时标普500ETF联接A (冠军)", "share_class": "A", "tag": "美股大盘蓝筹基准 (单日限额500)"},
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华宝纳斯达克精选A", "share_class": "A", "tag": "海外高科技成长跨市场"},
+                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外高科技成长跨市场"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基对冲"}
             ],
             "top_alternatives": [
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华宝纳斯达克精选A", "share_class": "A", "tag": "海外高科技成长跨市场"},
+                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外高科技成长跨市场"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基对冲"}
             ]
         }
@@ -701,12 +701,12 @@ SECTOR_FUND_SELECTION_BY_TIER: Dict[str, Dict[str, Dict[str, Any]]] = {
             "alternatives": [
                 {"code": "050025", "name": "博时标普500ETF联接A (冠军)", "share_class": "A", "tag": "美股大盘蓝筹基准 (单日限额500)"},
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华宝纳斯达克精选A", "share_class": "A", "tag": "海外全球科技成长"},
+                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外全球科技成长"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基"}
             ],
             "top_alternatives": [
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华宝纳斯达克精选A", "share_class": "A", "tag": "海外全球科技成长"},
+                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外全球科技成长"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基"}
             ]
         }
@@ -817,12 +817,12 @@ SECTOR_FUND_SELECTION_BY_TIER: Dict[str, Dict[str, Dict[str, Any]]] = {
             "alternatives": [
                 {"code": "050025", "name": "博时标普500ETF联接A (冠军)", "share_class": "A", "tag": "美股大盘蓝筹基准 (单日限额500)"},
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华宝纳斯达克精选A", "share_class": "A", "tag": "海外全球科技成长"},
+                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外全球科技成长"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基"}
             ],
             "top_alternatives": [
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华宝纳斯达克精选A", "share_class": "A", "tag": "海外全球科技成长"},
+                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外全球科技成长"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基"}
             ]
         }
@@ -5513,7 +5513,7 @@ class StrategyBridge:
                 "quota_note": "正常申购。"
             },
             "017436": {
-                "name": "华宝纳斯达克精选股票(QDII)A",
+                "name": "华安纳斯达克100ETF联接A",
                 "share_class": "A",
                 "role_desc": "海外全球科技成长对冲",
                 "reason": "【海外科技 A 类】：聚焦美股纳斯达克全球科技龙头，非相关跨市场对冲。",
@@ -6963,6 +6963,19 @@ class StrategyBridge:
             "imminent_fee_savings": imminent_fee_savings
         }
 
+    @classmethod
+    def verify_historical_inflection_signals(cls, df: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+        """
+        【历史关键拐点真赚钱与真风控实证检验算子】
+        用本地历史行情数据回放检验投顾引擎在 A 股历史三大关键拐点（2021年2月核心资产见顶、2022年4月恐慌底部、2024年9月底部反转）的表现。
+        """
+        try:
+            from advisory_engine import SmartExecutionDCAEngine
+            return SmartExecutionDCAEngine.verify_historical_inflection_signals(df=df)
+        except Exception:
+            from AGY2_FundAdvisory.advisory_engine import SmartExecutionDCAEngine
+            return SmartExecutionDCAEngine.verify_historical_inflection_signals(df=df)
+
 
 # =====================================================================
 # 顶层模块函数快捷导出 (Module-Level Exports)
@@ -6982,5 +6995,7 @@ evaluate_today_rebalance_suitability = StrategyBridge.evaluate_today_rebalance_s
 simulate_rebalance_modes_and_consequences = StrategyBridge.simulate_rebalance_modes_and_consequences
 compute_market_snr_and_kalman_state = StrategyBridge.compute_market_snr_and_kalman_state
 compute_momentum_acceleration = StrategyBridge.compute_momentum_acceleration
+verify_historical_inflection_signals = StrategyBridge.verify_historical_inflection_signals
+
 
 
