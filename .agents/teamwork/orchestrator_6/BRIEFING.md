@@ -54,18 +54,20 @@
 |-------|------|-----------|--------|---------|
 | explorer_survey_r11_1 | teamwork_explorer | Survey portfolio_manager.py (R2 & R5) | completed | 8c6d349f-ea40-417b-8656-062f6cbdc9d6 |
 | explorer_survey_r11_2 | teamwork_explorer | Survey strategy_bridge.py (R4) | completed | 5a8a027a-4774-4bf7-9ae9-7b5c5dde08dd |
-| explorer_survey_r11_3 | teamwork_explorer | Survey app_gui.py & test infra (R1, R3, R6, R7) | in-progress | e1162c3f-9940-4df0-b88e-31da1f9f012f |
+| explorer_survey_r11_3 | teamwork_explorer | Survey app_gui.py & test infra (R1, R3, R6, R7) | completed | e1162c3f-9940-4df0-b88e-31da1f9f012f |
+| worker_verification_r11 | teamwork_worker | Three-stage verification & special tests | completed | a163d3e2-9800-4c6b-8791-a9eeee22a07e |
+| auditor_verification_r11 | teamwork_auditor | Forensic integrity audit & redlines check | completed | 95db8632-cdda-4e34-bc96-3eb4c12a1afd |
 
 ## Succession Status
 - Succession required: no
-- Spawn count: 3 / 16
-- Pending subagents: 8c6d349f-ea40-417b-8656-062f6cbdc9d6, e1162c3f-9940-4df0-b88e-31da1f9f012f
+- Spawn count: 5 / 16
+- Pending subagents: none
 - Predecessor: none
-- Successor: not yet spawned
+- Successor: none (completed)
 
 ## Active Timers
-- Heartbeat cron: d47f7fe6-de2b-478b-85a6-544469510bc4/task-28
-- Safety timer: d47f7fe6-de2b-478b-85a6-544469510bc4/task-69
+- Heartbeat cron: stopped
+- Safety timer: none
 
 ## Artifact Index
 - .agents/teamwork/orchestrator_6/DISPATCH.md — Received dispatch message

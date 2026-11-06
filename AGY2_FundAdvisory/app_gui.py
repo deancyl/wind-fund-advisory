@@ -1558,6 +1558,11 @@ with st.sidebar:
     clock_title = "🟢 14:30黄金窗口" if market_status.is_golden_window else ("🟡 盘后已关账" if market_status.is_after_market else "🔵 盘中观察期")
     total_days = snapshot.get("total_days", 2142)
     latest_date = snapshot.get("latest_date", "2026-11-04")
+    data_src_name = mb_data.get("source", "realtime")
+    if data_src_name in ("realtime", "eastmoney", "sina", "live") or mb_data.get("is_realtime"):
+        data_src_badge = "🟢 实时盘中源已连接"
+    else:
+        data_src_badge = "🟡 本地湖仓快照兜底" 
 
     safe_markdown_html(f"""
     <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; box-shadow: var(--shadow-card);">
@@ -1576,6 +1581,10 @@ with st.sidebar:
         <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px;">
             <span style="color: var(--text-secondary);">湖仓底座</span>
             <span style="color: var(--text-muted); font-family: monospace;">{latest_date}（{total_days:,} 交易日跨牛熊）</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px;">
+            <span style="color: var(--text-secondary);">行情源状态</span>
+            <span style="color: var(--color-down); font-weight: 600;">{data_src_badge}</span>
         </div>
         <div style="border-top: 1px dashed var(--border-subtle); padding-top: 6px; margin-top: 4px;">
             <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px;">
@@ -2972,6 +2981,18 @@ with tab_zero_start:
             # 方案核心归因 (3 栏深度归因大卡片，100% 动态读取推演数据)
             st.markdown("#### 🎯 方案核心归因")
 
+            # 真实计算并醒目渲染组合内生股息与票息安全垫
+            _cushion_info = StrategyBridge.calculate_portfolio_yield_cushion(opt_weights, total_capital=float(plan_capital), pm=pm)
+            _ann_cush = _cushion_info.get("annual_cushion_amount", 0.0)
+            _mo_cush = _cushion_info.get("monthly_equivalent_amount", 0.0)
+            _w_yield = _cushion_info.get("weighted_yield_pct", 0.0)
+            safe_markdown_html(f"""
+            <div style="background: rgba(16, 185, 129, 0.08); border-left: 4px solid var(--color-down); padding: 10px 14px; border-radius: 6px; margin-bottom: 12px; font-size: 13px;">
+                <span style="font-weight: 700; color: var(--color-down);">💰 组合内生股息与票息安全垫：</span>
+                <span style="color: var(--text-primary);">预计年化 <b>¥{_ann_cush:,.0f}</b>/年（折合月均 <b>¥{_mo_cush:,.0f}</b>/月 ｜ 加权息率 <b>{_w_yield:.2f}%</b>）</span>
+            </div>
+            """)
+
             # 动态计算进攻与防守分类资产比例
             _def_w = 0.0
             _off_w = 0.0
@@ -3114,6 +3135,12 @@ with tab_zero_start:
                         guide_action = "红利再投·弹性进攻C"
                     else:
                         guide_action = "长钱持有·满期免赎A"
+
+                    # 附加交割清算与基金属性标签
+                    if pm.is_qdii_fund(fcode, it.get("fund_name", "")):
+                        guide_action += "·跨时区T+2确认"
+                    elif any(k in pm.classify_fund_asset_class(fcode, it.get("fund_name", "")) for k in ["纯债", "固收", "债券"]):
+                        guide_action += "·票息久期底仓"
 
                     f_pcr = pcr_map.get(fcode, round(it.get("target_weight_pct", 0.0), 1))
                     bp_rows.append({
@@ -3668,9 +3695,14 @@ with tab_holdings_and_rebalance:
         # 🗄️ 账本环境管理与风控横幅（归位于此，彻底消除侧边栏重复）
         _tot_base_eq = sum(h.market_value for h in pm.holdings.values()) + pm.available_cash + pm.in_transit_cash
         _mat_date_str = snapshot.get('latest_date', '2026-11-04')
+        _cushion_t2 = StrategyBridge.calculate_portfolio_yield_cushion(pm.holdings, total_capital=_tot_base_eq, pm=pm)
+        _ann_cush_t2 = _cushion_t2.get("annual_cushion_amount", 0.0)
+        _mo_cush_t2 = _cushion_t2.get("monthly_equivalent_amount", 0.0)
+        _cash_div_t2 = _cushion_t2.get("annual_cash_dividend_amount", 0.0)
         safe_markdown_html(f"""
-        <div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary);">
+        <div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; font-size: 12px; line-height: 1.6; color: var(--text-secondary);">
             💼 <b>资产基线：</b>¥{_tot_base_eq:,.2f} ｜ <b>持仓标的：</b>{len(pm.holdings)} 只 ｜ <b>底座：</b>{_mat_date_str} ｜ <b>在途现金：</b>¥{pm.in_transit_cash:,.2f}<br>
+            💰 <b>预计年化内生收息安全垫：</b>¥{_ann_cush_t2:,.0f}/年（折合月均 ¥{_mo_cush_t2:,.0f}/月 ｜ 现金分红预计派现 ¥{_cash_div_t2:,.0f}/年）<br>
             🛡️ <b>风控防线</b>：7天惩罚费拦截 (1.50%惩罚扣除硬阻断) ｜ 悲观持有天数梯级守护
         </div>
         """)
@@ -4323,6 +4355,48 @@ with tab_holdings_and_rebalance:
                     )
                     apply_theme_to_plotly_figure(fig_nav)
                     st.plotly_chart(fig_nav, use_container_width=True)
+
+                st.markdown("---")
+                st.markdown("##### 📊 买方投顾价值与调仓复盘账单")
+                st.caption("复盘审计引擎：实时对比实盘当前总资产与初始接管基准（躺平不调仓）的影子组合表现，清晰量化主动调仓带来的超额收益与风控规避的摩擦成本。")
+                audit_res = pm.evaluate_rebalance_audit()
+                col_aud1, col_aud2, col_aud3 = st.columns(3)
+                with col_aud1:
+                    safe_markdown_html(f"""
+                    <div class="decision-card">
+                        <div class="decision-title">实盘总资产 vs 影子组合</div>
+                        <div class="decision-val" style="color: var(--accent-primary);">¥{audit_res['current_actual_equity']:,.2f}</div>
+                        <div class="decision-desc">
+                            躺平影子总资产: <b>¥{audit_res['shadow_hold_equity']:,.2f}</b><br>
+                            基准确立日: <code>{audit_res.get('baseline_date', '接管日')}</code>
+                        </div>
+                    </div>
+                    """)
+                with col_aud2:
+                    val_add = audit_res['rebalance_value_add']
+                    val_pct = audit_res['rebalance_value_add_pct']
+                    c_val = "var(--color-up)" if val_add >= 0 else "var(--color-down)"
+                    safe_markdown_html(f"""
+                    <div class="decision-card">
+                        <div class="decision-title">主动调仓净增厚 (Alpha)</div>
+                        <div class="decision-val" style="color: {c_val};">{val_add:+,.2f} 元</div>
+                        <div class="decision-desc">
+                            增厚超额幅度: <b>{val_pct:+.2f}%</b><br>
+                            调仓收益扣除手续费后净值增厚
+                        </div>
+                    </div>
+                    """)
+                with col_aud3:
+                    safe_markdown_html(f"""
+                    <div class="decision-card">
+                        <div class="decision-title">AI 风控规避损失与损耗</div>
+                        <div class="decision-val" style="color: var(--color-down);">¥{audit_res['saved_penalty_and_buffer_fees']:,.2f}</div>
+                        <div class="decision-desc">
+                            包含规避 1.50% 巨额惩罚性赎回费<br>
+                            及免折腾缓冲带节省的摩擦成本
+                        </div>
+                    </div>
+                    """)
 
             with dock_tab4:
                 st.markdown("##### ⏳ 在途订单确认与 T+1 对账中心")
@@ -4979,6 +5053,12 @@ with tab_holdings_and_rebalance:
                     else:
                         op_action = "✅ 维持持有"
                         op_point = "仓位均衡·在容差内"
+
+                    # 附加交割清算与基金属性标签
+                    if pm.is_qdii_fund(it["fund_code"], it.get("fund_name", "")):
+                        op_point += "·跨时区T+2确认"
+                    elif any(k in pm.classify_fund_asset_class(it["fund_code"], it.get("fund_name", "")) for k in ["纯债", "固收", "债券"]):
+                        op_point += "·票息久期底仓"
 
                     rows_display.append({
                         "基金代码": it["fund_code"],
@@ -5836,30 +5916,36 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
         else:
             st.info("当前无持仓数据可供聪明钱监控。")
 
-    # A/C 份额盈亏平衡计算器
+    # A/C 份额盈亏平衡计算器 (使用 @st.fragment 实现局部无感刷新)
     with box_tab2:
         st.markdown("#### 💡 AC算费工具")
-        c_ac1, c_ac2, c_ac3, c_ac4 = st.columns(4)
-        with c_ac1:
-            r_sub = st.number_input("A 类前端申购费率 (折后 %)", value=0.15, step=0.01, key="ac_r_sub")
-        with c_ac2:
-            r_sales = st.number_input("C 类年化销售服务费率 (%)", value=0.40, step=0.05, key="ac_r_sales")
-        with c_ac3:
-            v_amt = st.number_input("拟投资金额 (元)", value=50000.0, step=5000.0, key="ac_v_amt")
-        with c_ac4:
-            v_days = st.number_input("预计持有周期 (天)", value=90, min_value=1, max_value=730, step=5, key="ac_v_days")
+        _frag_dec = getattr(st, "fragment", lambda f: f)
 
-        calc_res = calc.calculate_break_even_days(
-            standard_sub_rate=r_sub / 10.0 / 100.0,
-            discount=10.0,
-            sales_service_annual_rate=r_sales / 100.0,
-            max_days=365,
-            target_holding_days=int(v_days),
-            investment_amount=float(v_amt)
-        )
-        st.success(f"⚖️ **精算测算结论**：A 类与 C 类的费率盈亏平衡天数为 **{calc_res['break_even_day']} 天**。")
-        if calc_res.get("target_recommendation"):
-            st.info(f"🎯 **选型建议**：{calc_res['target_recommendation']['summary']}")
+        @_frag_dec
+        def _render_ac_fee_calculator():
+            c_ac1, c_ac2, c_ac3, c_ac4 = st.columns(4)
+            with c_ac1:
+                r_sub = st.number_input("A 类前端申购费率 (折后 %)", value=0.15, step=0.01, key="ac_r_sub")
+            with c_ac2:
+                r_sales = st.number_input("C 类年化销售服务费率 (%)", value=0.40, step=0.05, key="ac_r_sales")
+            with c_ac3:
+                v_amt = st.number_input("拟投资金额 (元)", value=50000.0, step=5000.0, key="ac_v_amt")
+            with c_ac4:
+                v_days = st.number_input("预计持有周期 (天)", value=90, min_value=1, max_value=730, step=5, key="ac_v_days")
+
+            calc_res = calc.calculate_break_even_days(
+                standard_sub_rate=r_sub / 10.0 / 100.0,
+                discount=10.0,
+                sales_service_annual_rate=r_sales / 100.0,
+                max_days=365,
+                target_holding_days=int(v_days),
+                investment_amount=float(v_amt)
+            )
+            st.success(f"⚖️ **精算测算结论**：A 类与 C 类的费率盈亏平衡天数为 **{calc_res['break_even_day']} 天**。")
+            if calc_res.get("target_recommendation"):
+                st.info(f"🎯 **选型建议**：{calc_res['target_recommendation']['summary']}")
+
+        _render_ac_fee_calculator()
 
     # 场内 ETF 溢价监控
     with box_tab3:

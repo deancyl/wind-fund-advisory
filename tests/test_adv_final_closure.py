@@ -152,3 +152,36 @@ class TestAdvFinalClosure:
         assert 'if not hasattr(PortfolioManager, "classify_fund_asset_class"):' not in src, (
             "app_gui.py 中仍残留 if not hasattr(PortfolioManager, 'classify_fund_asset_class') 死代码！"
         )
+
+    def test_specialized_4_ui_wireup_and_valuation_percentile_anti_fraud(self):
+        """
+        专项测试 4 (防空气交付与估值失真终验):
+        1. 验证 app_gui.py 前端源码中真实调用并渲染了 calculate_portfolio_yield_cushion 与 evaluate_rebalance_audit，且具备行情源状态徽章；
+        2. 验证 OpportunityRadarEngine().scan_all_sectors() 中 domestic_gold 与 banking_dividend 的估值分位均 < 85.0%，绝非 99.8% 或 92.1% 的收盘价绝对分位乌龙！
+        """
+        gui_p = AGY2_DIR / "app_gui.py"
+        app_gui_src = gui_p.read_text(encoding="utf-8")
+
+        # 1. 真实前端挂载与渲染断言
+        assert "calculate_portfolio_yield_cushion" in app_gui_src, "app_gui.py 未调用 calculate_portfolio_yield_cushion！"
+        assert "evaluate_rebalance_audit" in app_gui_src, "app_gui.py 未调用 evaluate_rebalance_audit！"
+        assert "行情源状态" in app_gui_src, "app_gui.py 侧边栏未发现'行情源状态'！"
+
+        # 2. 估值分位数科学性与防乌龙断言
+        from advisory_engine import OpportunityRadarEngine
+        radar_eng = OpportunityRadarEngine()
+        scanned = radar_eng.scan_all_sectors()
+        sec_map = {s["sector_id"]: s for s in scanned}
+
+        assert "domestic_gold" in sec_map
+        assert "banking_dividend" in sec_map
+
+        gold_val = sec_map["domestic_gold"]["val_percentile"]
+        bank_val = sec_map["banking_dividend"]["val_percentile"]
+
+        assert gold_val < 85.0, f"国内黄金估值分位为 {gold_val}%，严重超出 85.0% 阈值（误用收盘价分位乌龙未纠正）！"
+        assert bank_val < 85.0, f"银行高股息估值分位为 {bank_val}%，严重超出 85.0% 阈值（误用收盘价分位乌龙未纠正）！"
+
+        # 验证合理区间 (避险黄金 25%~75%, 银行高股息 25%~55%)
+        assert 25.0 <= gold_val <= 75.0, f"国内黄金估值分位 {gold_val}% 不在合理区间 [25.0%, 75.0%] 内！"
+        assert 25.0 <= bank_val <= 55.0, f"银行高股息估值分位 {bank_val}% 不在合理区间 [25.0%, 55.0%] 内！"

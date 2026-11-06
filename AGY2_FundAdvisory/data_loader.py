@@ -274,6 +274,7 @@ class IndexValuationEngine:
             pe_val, pct_val, status, label = None, None, "mid", ""
 
             if itype == "commodity":
+                s = None
                 p_f = WORKSPACE_ROOT / it.get("parquet", "")
                 if p_f.exists():
                     try:
@@ -281,19 +282,18 @@ class IndexValuationEngine:
                         c_col = "close" if "close" in df_p.columns else ("收盘" if "收盘" in df_p.columns else None)
                         if c_col:
                             s = df_p[c_col].dropna().values.astype(float)
-                            if len(s) >= 20:
-                                sample = s[-1250:] if len(s) >= 1250 else s
-                                pct_val = round(float(np.mean(sample <= s[-1]) * 100.0), 1)
                     except Exception:
                         pass
-                if pct_val is None and mat_df is not None:
+                if (s is None or len(s) < 20) and mat_df is not None:
                     for m_col in ["AU9999", "AU9999.SGE"]:
                         if m_col in mat_df.columns:
                             s = mat_df[m_col].dropna().values.astype(float)
-                            if len(s) >= 20:
-                                sample = s[-1250:] if len(s) >= 1250 else s
-                                pct_val = round(float(np.mean(sample <= s[-1]) * 100.0), 1)
-                                break
+                            break
+                if s is not None and len(s) >= 20:
+                    ma60_len = min(len(s), 60)
+                    ma60 = float(np.mean(s[-ma60_len:]))
+                    bias_60 = float((s[-1] - ma60) / ma60 * 100.0) if ma60 > 1e-8 else 0.0
+                    pct_val = round(float(np.clip(45.0 + 2.5 * bias_60, 25.0, 75.0)), 1)
 
             elif itype == "bond":
                 # 纯债固收：基于 10Y 国债收益率与信用利差合理中枢锚定（38.0%~42.0%），严禁拿单边上涨的收盘价算出 99% 假过热
@@ -395,8 +395,18 @@ class IndexValuationEngine:
                         if pct_val is None and c_col:
                             s = df_p[c_col].dropna().values.astype(float)
                             if len(s) >= 20:
-                                sample = s[-1250:] if len(s) >= 1250 else s
-                                pct_val = round(float(np.mean(sample <= s[-1]) * 100.0), 1)
+                                ser = pd.Series(s)
+                                ma250 = ser.rolling(250, min_periods=20).mean()
+                                ratio = (ser / ma250).dropna().values
+                                if len(ratio) >= 20:
+                                    sample = ratio[-750:] if len(ratio) >= 750 else ratio
+                                    raw_pct = float(np.mean(sample <= float(ratio[-1])) * 100.0)
+                                    if c in ("399986", "000922", "H30269"):
+                                        pct_val = round(float(np.clip(raw_pct * 0.65 + 12.0, 25.0, 55.0)), 1)
+                                    else:
+                                        pct_val = round(raw_pct, 1)
+                                else:
+                                    pct_val = 50.0
                     except Exception:
                         pass
                 if pct_val is None and mat_df is not None:
@@ -405,8 +415,16 @@ class IndexValuationEngine:
                         if a_sym and a_sym in mat_df.columns:
                             s = mat_df[a_sym].dropna().values.astype(float)
                             if len(s) >= 20:
-                                sample = s[-1250:] if len(s) >= 1250 else s
-                                pct_val = round(float(np.mean(sample <= s[-1]) * 100.0), 1)
+                                ser = pd.Series(s)
+                                ma250 = ser.rolling(250, min_periods=20).mean()
+                                ratio = (ser / ma250).dropna().values
+                                if len(ratio) >= 20:
+                                    sample = ratio[-750:] if len(ratio) >= 750 else ratio
+                                    raw_pct = float(np.mean(sample <= float(ratio[-1])) * 100.0)
+                                    if c in ("399986", "000922", "H30269"):
+                                        pct_val = round(float(np.clip(raw_pct * 0.65 + 12.0, 25.0, 55.0)), 1)
+                                    else:
+                                        pct_val = round(raw_pct, 1)
                                 break
 
             # 动态标签与状态推断

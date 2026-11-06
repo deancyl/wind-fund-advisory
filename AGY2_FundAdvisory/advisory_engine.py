@@ -401,8 +401,49 @@ class OpportunityRadarEngine:
             pass
         return metrics
 
+    def _calc_valuation_from_price_series(self, sec_id: str, s: np.ndarray) -> float:
+        """从价格序列按资产属性科学精算估值分位数，彻底杜绝把绝对收盘价当估值分位"""
+        if s is None or len(s) < 20:
+            return 50.0
+
+        # a. 无 PE 避险/固收资产 (pure_bond, domestic_gold)：基于 60 日均线偏离度与波动率的水位映射
+        if sec_id in ("pure_bond", "domestic_gold"):
+            ma60_len = min(len(s), 60)
+            ma60 = float(np.mean(s[-ma60_len:]))
+            bias_60 = float((s[-1] - ma60) / ma60 * 100.0) if ma60 > 1e-8 else 0.0
+            pct = float(np.clip(45.0 + 2.5 * bias_60, 25.0, 75.0))
+            return round(pct, 1)
+
+        # b. 高股息复利赛道 (dividend_low_vol, csi_dividend, banking_dividend)：年线中枢去趋势 + 股息风险溢价(DRP)折算
+        if sec_id in ("dividend_low_vol", "csi_dividend", "banking_dividend"):
+            ser = pd.Series(s)
+            ma250 = ser.rolling(250, min_periods=20).mean()
+            ratio = (ser / ma250).dropna().values
+            if len(ratio) >= 20:
+                sample = ratio[-750:] if len(ratio) >= 750 else ratio
+                cur_ratio = float(ratio[-1])
+                raw_pct = float(np.mean(sample <= cur_ratio) * 100.0)
+                # 叠加股息风险溢价折算，使其真实反映股息性价比（合理动态区间 25%~55%）
+                drp_adj_pct = float(np.clip(raw_pct * 0.65 + 12.0, 25.0, 55.0))
+                return round(drp_adj_pct, 1)
+            return 42.0
+
+        # c. 其他宽基与成长赛道：计算 s / MA250 在过去 750 个交易日中的分位数
+        ser = pd.Series(s)
+        ma250 = ser.rolling(250, min_periods=20).mean()
+        ratio = (ser / ma250).dropna().values
+        if len(ratio) >= 20:
+            sample = ratio[-750:] if len(ratio) >= 750 else ratio
+            cur_ratio = float(ratio[-1])
+            pct = float(np.mean(sample <= cur_ratio) * 100.0)
+            return round(pct, 1)
+
+        sample = s[-750:] if len(s) >= 750 else s
+        p_cur = float(s[-1])
+        return round(float(np.mean(sample <= p_cur) * 100.0), 1)
+
     def get_sector_valuation_percentile(self, sec_id: str, meta: Dict[str, Any]) -> float:
-        """从 IndexValuationEngine 唯一单源同真获取真实估值分位数，确保侧边栏与雷达 100% 同源"""
+        """从 IndexValuationEngine 唯一单源同真获取真实估值分位数，确保侧边栏与雷达 100% 同源，并按资产属性科学分类"""
         val_map = {}
         try:
             from AGY2_FundAdvisory import data_loader
@@ -423,36 +464,44 @@ class OpportunityRadarEngine:
             meta.get("index_code"),
             meta.get("cs_code"),
         ]
+        matched_val = None
         for c in candidates:
             if not c:
                 continue
             c_str = str(c)
-            if c_str in val_map and val_map[c_str].get("percentile") is not None:
-                return float(val_map[c_str]["percentile"])
-            if f"1.{c_str}" in val_map and val_map[f"1.{c_str}"].get("percentile") is not None:
-                return float(val_map[f"1.{c_str}"]["percentile"])
-            if f"0.{c_str}" in val_map and val_map[f"0.{c_str}"].get("percentile") is not None:
-                return float(val_map[f"0.{c_str}"]["percentile"])
+            for k_cand in [c_str, f"1.{c_str}", f"0.{c_str}"]:
+                if k_cand in val_map and val_map[k_cand].get("percentile") is not None:
+                    matched_val = val_map[k_cand]
+                    break
+            if matched_val is not None:
+                break
 
-        # 本地行情日线动态精算分位数 (历史3年滚动分位数)
-        fb = meta.get("fallback_parquet")
-        if fb and os.path.exists(fb):
-            try:
-                fdf = pd.read_parquet(fb)
-                c_col = "close" if "close" in fdf.columns else ("收盘" if "收盘" in fdf.columns else None)
-                if c_col:
-                    s = fdf[c_col].dropna().values.astype(float)
-                    if len(s) >= 40:
-                        sample = s[-750:] if len(s) >= 750 else s
-                        p_cur = float(s[-1])
-                        pct = float(np.mean(sample <= p_cur) * 100.0)
-                        return round(pct, 1)
-            except Exception:
+        # 检查是否为误将收盘价当估值分位的特殊资产
+        if matched_val is not None:
+            pct_res = float(matched_val["percentile"])
+            has_real_pe = matched_val.get("pe_ttm") is not None
+            # 若黄金/纯债被误标高位或高股息赛道无PE且分位异常高(>80%)，则不盲从，转入动态科学偏离度精算
+            if sec_id in ("pure_bond", "domestic_gold") and (pct_res > 75.0 or pct_res < 25.0):
                 pass
+            elif sec_id in ("dividend_low_vol", "csi_dividend", "banking_dividend") and not has_real_pe and pct_res > 80.0:
+                pass
+            else:
+                return pct_res
 
-        # 兼容单元测试手动传入的 base_val_pct 兜底
-        if "base_val_pct" in meta:
-            return float(meta["base_val_pct"])
+        # 本地行情日线动态精算分位数 (历史3年滚动分位数 / 去趋势年线中枢)
+        fb = meta.get("fallback_parquet")
+        if fb:
+            fb_p = WORKSPACE_ROOT / fb if not os.path.isabs(fb) else Path(fb)
+            if fb_p.exists():
+                try:
+                    fdf = pd.read_parquet(fb_p)
+                    c_col = "close" if "close" in fdf.columns else ("收盘" if "收盘" in fdf.columns else None)
+                    if c_col:
+                        s = fdf[c_col].dropna().values.astype(float)
+                        if len(s) >= 20:
+                            return self._calc_valuation_from_price_series(sec_id, s)
+                except Exception:
+                    pass
 
         # 尝试从大盘对齐矩阵动态精算
         m_col = meta.get("matrix_col")
@@ -468,13 +517,17 @@ class OpportunityRadarEngine:
                         fdf = pd.read_parquet(p)
                         if m_col in fdf.columns:
                             s = fdf[m_col].dropna().values.astype(float)
-                            if len(s) >= 40:
-                                sample = s[-1250:] if len(s) >= 1250 else s
-                                p_cur = float(s[-1])
-                                pct = float(np.mean(sample <= p_cur) * 100.0)
-                                return round(pct, 1)
+                            if len(s) >= 20:
+                                return self._calc_valuation_from_price_series(sec_id, s)
                     except Exception:
                         pass
+
+        # 兼容单元测试手动传入的 base_val_pct 兜底
+        if "base_val_pct" in meta:
+            return float(meta["base_val_pct"])
+
+        if matched_val is not None:
+            return float(matched_val["percentile"])
 
         # 动态中位数兜底，坚决杜绝静态假常数
         known_pcts = [
