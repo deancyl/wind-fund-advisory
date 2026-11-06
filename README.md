@@ -1,13 +1,13 @@
 # AGY2-FundAdvisory: 全天候智能投顾与公募基金量化接管系统
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Release](https://img.shields.io/badge/Release-v1.0.1-brightgreen.svg)](https://github.com/deancyl/wind-fund-advisory/releases/tag/v1.0.1)
+[![Release](https://img.shields.io/badge/Release-v1.0.4-brightgreen.svg)](https://github.com/deancyl/wind-fund-advisory/releases/tag/v1.0.4)
 [![UI Engine](https://img.shields.io/badge/UI-Streamlit%201.30%2B-red.svg)](https://streamlit.io/)
 [![Quant Engine](https://img.shields.io/badge/Quant%20Engine-7%20Institutional%20Models-success.svg)]()
 [![Risk Guard](https://img.shields.io/badge/Risk%20Guard-6D%20Active%20Sentry-orange.svg)]()
 [![Buy-Side Advisory](https://img.shields.io/badge/Advisory-T%2B1%20Reconciliation%20%7C%20PCR-blueviolet.svg)]()
 [![Data Lakehouse](https://img.shields.io/badge/Data-Open%20Source%20Parquet%20Lakehouse-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-30%2F30%20PASSED-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-46%2F46%20PASSED-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
@@ -262,6 +262,20 @@ wind-fund-advisory/
 ---
 
 ## 📝 版本更新日志 (Changelog)
+
+### [v1.0.4] - 2026-11-06
+- **多账本管理体系 (MultiLedgerManager) 全局贯通**：实装主实盘、家庭专项、沙盒测试多账本独立存储与隔离；全站级动态热装配，切换账本全局 pm 实例、资产大屏、风险预警哨与回测穿透工具同步切换，支持一键新建/克隆/切换；
+- **真实前后端挂接（彻底根除空气交付）**：
+  * **内生股息与票息安全垫引擎 (`calculate_portfolio_yield_cushion`)**：在 Tab 1 步骤二核心归因与 Tab 2 步骤一资产基线横幅真实调用渲染，动态呈现预计年化收息金额、月均等效金额与加权息率；
+  * **实盘调仓复盘 vs 影子组合账单 (`evaluate_rebalance_audit`)**：在 Tab 2 实盘接管档案界面真实渲染 3 列指标卡，直观呈现主动调仓超额收益 (Alpha) 与 AI 风控规避的惩罚性赎回费；
+  * **侧边栏行情源状态与局部刷新**：侧边栏新增「📡 行情源状态」时效徽章；Tab 4 A/C 算费工具接入 `@st.fragment` 局部刷新，侧边栏保持 0 引用，杜绝崩溃风险；
+- **估值分位算法纠偏与金融常识修复**：
+  * **彻底根除误拿收盘价当 PE 估值分位**：黄金按 MA60 均线偏离度科学映射（由 99.8% 纠偏至 63.2% 动态水位），银行高股息按年线去趋势中枢叠加 DRP 风险溢价折算（由 92.1% 纠偏至 46.7% 合理区间），纯债稳健处于 40.0%；
+  * **红利低波指数代码纠偏**：修正为中证红利低波官方指数代码 `H30269`（原误填为中证医药 000978）；
+  * **QDII 跨时区规则与同公司转换硬隔离**：建仓与调仓表生成时附加交割标签（`·跨时区T+2确认`、`·票息久期底仓`），同公司转换工具自动排除 QDII 海外跨时区标的；
+  * **投顾合规语言规范**：全界面违规“保本”词汇 100% 替换为证监会合规专业术语「正收益概率 (≥0%)」；
+- **9 大标准资产大类精准对齐**：重构资产分类器，支持基金字典多级反查，将医药、白酒、银行、恒科、芯片、美股、红利、纯债、黄金等 100% 精准对齐至 9 大标准大类，彻底消灭“其他权益资产”；
+- **测试与合规双重保障**：4 大裁判文件 SHA256 哈希 0 篡改；全量 46 项自动化单测与 Streamlit AppTest 界面集成测试 100% 通过。
 
 ### [v1.0.1] - 2026-11-05
 - **数据单源同真与假常数根除**：补齐子模块热重载守卫（`importlib.reload(advisory_engine)`），彻底消灭 14 大赛道指标回退至 `0.50 / +1.0% / 85.0` 的假常数缺陷，全量赛道信噪比、乖离率与拥挤度 100% 独立真实计算；
