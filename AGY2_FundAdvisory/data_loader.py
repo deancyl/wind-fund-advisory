@@ -143,7 +143,8 @@ def fetch_market_turnover_and_sentiment(
                 "is_expanding": is_expanding,
                 "vol_text": vol_text,
                 "vol_class": vol_class,
-                "source": "eastmoney_realtime"
+                "source": "realtime",
+                "is_realtime": True
             }
 
             # 写入本地持久化文件

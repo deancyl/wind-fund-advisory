@@ -180,9 +180,9 @@ class TestRebalancingScenariosRealness:
     """
 
     @pytest.fixture
-    def setup_pm(self):
-        """创建用于场景推演测试的 PortfolioManager 实例"""
-        pm = PortfolioManager()
+    def setup_pm(self, tmp_path):
+        """创建用于场景推演测试的 PortfolioManager 实例（环境隔离）"""
+        pm = PortfolioManager(db_path=":memory:", ledger_json_path=tmp_path / "test_ledger_pm.json")
         pm.available_cash = 10000.0
         pm.reserved_batch_cash = 0.0
 
@@ -414,9 +414,9 @@ class TestLookThroughOverrideAndClassification:
     """
 
     @pytest.fixture
-    def pm_instance(self):
-        """构建基准 PortfolioManager 实例"""
-        pm = PortfolioManager()
+    def pm_instance(self, tmp_path):
+        """构建基准 PortfolioManager 实例（环境隔离）"""
+        pm = PortfolioManager(db_path=":memory:", ledger_json_path=tmp_path / "test_ledger_inst.json")
         pm.holdings = {}
         # 默认底仓：纯债 002351
         pm.add_or_update_holding("002351", shares=10000, nav=1.0, cost_price=1.0, holding_days=100)
@@ -509,7 +509,7 @@ class TestLookThroughOverrideAndClassification:
             ("000216", "国内黄金", ["黄金", "金", "大宗", "对冲"])
         ]
 
-        pm = PortfolioManager()
+        pm = PortfolioManager(db_path=":memory:")
         try:
             from portfolio_manager import _CLASSIFY_ASSET_CLASS_CACHE
             _CLASSIFY_ASSET_CLASS_CACHE.clear()

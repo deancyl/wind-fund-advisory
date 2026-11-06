@@ -2,24 +2,117 @@
   "version": "AGY2_PORTFOLIO_V2",
   "takeover_mode": "B",
   "baseline_date": "2026-11-06",
-  "baseline_equity": 180945.0,
+  "baseline_equity": 100000.0,
   "available_cash": 10000.0,
-  "in_transit_cash": 10500.0,
+  "in_transit_cash": 0.0,
   "reserved_batch_cash": 0.0,
-  "total_market_value": 10000.0,
-  "total_equity": 30500.0,
-  "peak_equity": 191445.0,
-  "max_drawdown_pct": 84.07,
+  "total_market_value": 90000.0,
+  "total_equity": 100000.0,
+  "peak_equity": 100000.0,
+  "max_drawdown_pct": 0.0,
   "benchmark_code": "000300.SH",
   "benchmark_baseline_nav": 1.0,
   "benchmark_current_nav": 1.0,
-  "portfolio_return_pct": -83.14,
+  "portfolio_return_pct": 0.0,
   "benchmark_return_pct": 0.0,
-  "alpha_return_pct": -83.14,
+  "alpha_return_pct": 0.0,
   "holdings": [
+    {
+      "fund_code": "005561",
+      "fund_name": "创金合信中证红利低波动指数A",
+      "share_class": "A",
+      "shares": 25000.0,
+      "cost_price": 1.0,
+      "current_nav": 1.0,
+      "market_value": 25000.0,
+      "cost_basis": 25000.0,
+      "floating_pnl": 0.0,
+      "floating_pnl_pct": 0.0,
+      "first_buy_date": "2026-09-22",
+      "dividend_method": "cash",
+      "batches": [
+        {
+          "batch_id": "b_005561_01",
+          "buy_date": "2026-09-22",
+          "shares": 25000.0,
+          "cost_nav": 1.0,
+          "fee": 0.0,
+          "holding_days": 45,
+          "safety_lock": false,
+          "notes": "红利低波底仓"
+        }
+      ],
+      "company": "创金合信基金",
+      "is_core_strategy": true,
+      "transition_tag": "核心策略底仓",
+      "rebalance_intent": "normal",
+      "cost_nav": 0.0
+    },
+    {
+      "fund_code": "100032",
+      "fund_name": "富国中证红利指数增强A",
+      "share_class": "A",
+      "shares": 20000.0,
+      "cost_price": 1.0,
+      "current_nav": 1.0,
+      "market_value": 20000.0,
+      "cost_basis": 20000.0,
+      "floating_pnl": 0.0,
+      "floating_pnl_pct": 0.0,
+      "first_buy_date": "2026-09-07",
+      "dividend_method": "cash",
+      "batches": [
+        {
+          "batch_id": "b_100032_01",
+          "buy_date": "2026-09-07",
+          "shares": 20000.0,
+          "cost_nav": 1.0,
+          "fee": 0.0,
+          "holding_days": 60,
+          "safety_lock": false,
+          "notes": "红利增强核心"
+        }
+      ],
+      "company": "富国基金",
+      "is_core_strategy": true,
+      "transition_tag": "核心策略底仓",
+      "rebalance_intent": "normal",
+      "cost_nav": 0.0
+    },
     {
       "fund_code": "002351",
       "fund_name": "易方达裕祥回报债券A",
+      "share_class": "A",
+      "shares": 20000.0,
+      "cost_price": 1.0,
+      "current_nav": 1.0,
+      "market_value": 20000.0,
+      "cost_basis": 20000.0,
+      "floating_pnl": 0.0,
+      "floating_pnl_pct": 0.0,
+      "first_buy_date": "2026-08-08",
+      "dividend_method": "cash",
+      "batches": [
+        {
+          "batch_id": "b_002351_01",
+          "buy_date": "2026-08-08",
+          "shares": 20000.0,
+          "cost_nav": 1.0,
+          "fee": 0.0,
+          "holding_days": 90,
+          "safety_lock": false,
+          "notes": "纯债稳健底仓"
+        }
+      ],
+      "company": "易方达基金",
+      "is_core_strategy": true,
+      "transition_tag": "稳健避风港",
+      "rebalance_intent": "normal",
+      "cost_nav": 0.0
+    },
+    {
+      "fund_code": "000216",
+      "fund_name": "华安黄金ETF联接A",
       "share_class": "A",
       "shares": 10000.0,
       "cost_price": 1.0,
@@ -28,147 +121,98 @@
       "cost_basis": 10000.0,
       "floating_pnl": 0.0,
       "floating_pnl_pct": 0.0,
-      "first_buy_date": "2026-07-29",
+      "first_buy_date": "2026-09-07",
       "dividend_method": "cash",
       "batches": [
         {
-          "batch_id": "B_MANUAL_002351_001",
-          "buy_date": "2026-07-29",
+          "batch_id": "b_000216_01",
+          "buy_date": "2026-09-07",
           "shares": 10000.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 100,
+          "holding_days": 60,
           "safety_lock": false,
-          "notes": "手动新增持仓"
+          "notes": "黄金避险"
         }
       ],
-      "company": "易方达基金",
+      "company": "华安基金",
       "is_core_strategy": true,
-      "transition_tag": "核心策略底仓",
+      "transition_tag": "商品避险",
+      "rebalance_intent": "normal",
+      "cost_nav": 0.0
+    },
+    {
+      "fund_code": "017436",
+      "fund_name": "华安纳斯达克100ETF联接A",
+      "share_class": "A",
+      "shares": 10000.0,
+      "cost_price": 1.0,
+      "current_nav": 1.0,
+      "market_value": 10000.0,
+      "cost_basis": 10000.0,
+      "floating_pnl": 0.0,
+      "floating_pnl_pct": 0.0,
+      "first_buy_date": "2026-09-22",
+      "dividend_method": "cash",
+      "batches": [
+        {
+          "batch_id": "b_017436_01",
+          "buy_date": "2026-09-22",
+          "shares": 10000.0,
+          "cost_nav": 1.0,
+          "fee": 0.0,
+          "holding_days": 45,
+          "safety_lock": false,
+          "notes": "美股对冲"
+        }
+      ],
+      "company": "华安基金",
+      "is_core_strategy": true,
+      "transition_tag": "海外对冲",
+      "rebalance_intent": "normal",
+      "cost_nav": 0.0
+    },
+    {
+      "fund_code": "011613",
+      "fund_name": "华夏上证科创板50成份ETF联接C",
+      "share_class": "C",
+      "shares": 5000.0,
+      "cost_price": 1.0,
+      "current_nav": 1.0,
+      "market_value": 5000.0,
+      "cost_basis": 5000.0,
+      "floating_pnl": 0.0,
+      "floating_pnl_pct": 0.0,
+      "first_buy_date": "2026-10-02",
+      "dividend_method": "cash",
+      "batches": [
+        {
+          "batch_id": "b_011613_01",
+          "buy_date": "2026-10-02",
+          "shares": 5000.0,
+          "cost_nav": 1.0,
+          "fee": 0.0,
+          "holding_days": 35,
+          "safety_lock": false,
+          "notes": "科创成长进攻"
+        }
+      ],
+      "company": "华夏基金",
+      "is_core_strategy": true,
+      "transition_tag": "科技进攻",
       "rebalance_intent": "normal",
       "cost_nav": 0.0
     }
   ],
-  "pending_orders": [
-    {
-      "order_id": "ORD_DEMO_REDEMPTION_001",
-      "created_at": "2026-11-05 14:40:00",
-      "effective_trade_date": "2026-11-06",
-      "action": "SELL",
-      "fund_code": "018757",
-      "fund_name": "睿远稳益增强30天持有债券C",
-      "target_fund_code": "",
-      "target_fund_name": "",
-      "amount": 10500.0,
-      "shares": 10000.0,
-      "est_nav": 1.05,
-      "est_fee": 0.0,
-      "est_confirm_date": "2026-11-09",
-      "est_cash_arrive_date": "2026-11-10",
-      "route_priority": "SELL_TO_CASH",
-      "status": "PENDING",
-      "notes": "部分稳益债基赎回腾挪款在途"
-    }
-  ],
-  "staged_batch_plans": [
-    {
-      "step": 2,
-      "title": "第二批 · 逢低网格补仓单 (30%)",
-      "amount": 30000.0,
-      "timing": "大盘回踩 4,034 支撑位触发",
-      "orders": [
-        {
-          "code": "100032",
-          "name": "富国中证红利指数增强A",
-          "amount": 11400.0,
-          "trigger_condition": "沪深300回踩至 4,034 附近时分批补入"
-        },
-        {
-          "code": "005561",
-          "name": "创金合信中证红利低波动指数A",
-          "amount": 9000.0,
-          "trigger_condition": "沪深300回踩至 4,034 附近时分批补入"
-        },
-        {
-          "code": "000216",
-          "name": "华安黄金ETF联接A",
-          "amount": 4200.0,
-          "trigger_condition": "沪深300回踩至 4,034 附近时分批补入"
-        },
-        {
-          "code": "002351",
-          "name": "易方达裕祥回报债券A",
-          "amount": 3600.0,
-          "trigger_condition": "沪深300回踩至 4,034 附近时分批补入"
-        },
-        {
-          "code": "001071",
-          "name": "摩根标普500指数(QDII)人民币A",
-          "amount": 1650.0,
-          "trigger_condition": "沪深300回踩至 4,034 附近时分批补入"
-        },
-        {
-          "code": "050025",
-          "name": "博时标普500ETF联接A",
-          "amount": 150.0,
-          "trigger_condition": "沪深300回踩至 4,034 附近时分批补入"
-        }
-      ],
-      "notes": "未触发前停泊于低波短债/货基赚取票息，回踩支撑线时挂单吸筹。"
-    },
-    {
-      "step": 3,
-      "title": "第三批 · 右侧趋势加仓单 (20%)",
-      "amount": 20000.0,
-      "timing": "大盘突破 4,192 进攻线触发",
-      "orders": [
-        {
-          "code": "100032",
-          "name": "富国中证红利指数增强A",
-          "amount": 7600.0,
-          "trigger_condition": "沪深300放量站上 4,192 进攻线确认时加仓"
-        },
-        {
-          "code": "005561",
-          "name": "创金合信中证红利低波动指数A",
-          "amount": 6000.0,
-          "trigger_condition": "沪深300放量站上 4,192 进攻线确认时加仓"
-        },
-        {
-          "code": "000216",
-          "name": "华安黄金ETF联接A",
-          "amount": 2800.0,
-          "trigger_condition": "沪深300放量站上 4,192 进攻线确认时加仓"
-        },
-        {
-          "code": "002351",
-          "name": "易方达裕祥回报债券A",
-          "amount": 2400.0,
-          "trigger_condition": "沪深300放量站上 4,192 进攻线确认时加仓"
-        },
-        {
-          "code": "001071",
-          "name": "摩根标普500指数(QDII)人民币A",
-          "amount": 1100.0,
-          "trigger_condition": "沪深300放量站上 4,192 进攻线确认时加仓"
-        },
-        {
-          "code": "050025",
-          "name": "博时标普500ETF联接A",
-          "amount": 100.0,
-          "trigger_condition": "沪深300放量站上 4,192 进攻线确认时加仓"
-        }
-      ],
-      "notes": "未突破前停泊吃息，放量站上进攻线右侧确认时全额进攻。"
-    }
-  ],
+  "pending_orders": [],
+  "staged_batch_plans": [],
   "nav_history": [
     {
       "date": "2026-11-06",
-      "total_equity": 30500.0,
-      "account_nav": 0.1686,
+      "total_equity": 100000.0,
+      "account_nav": 1.0,
       "benchmark_nav": 1.0
     }
   ],
-  "updated_at": "2026-11-06 12:49:31"
+  "updated_at": "2026-11-06 14:11:58"
 }

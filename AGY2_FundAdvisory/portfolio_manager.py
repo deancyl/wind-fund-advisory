@@ -3098,7 +3098,7 @@ class PortfolioManager:
         """重算所有持仓的市值、浮动盈亏、在途资金、基准超额与最大回撤"""
         in_transit = 0.0
         try:
-            today_date = datetime.strptime(self.baseline_date, "%Y-%m-%d").date() if getattr(self, 'baseline_date', None) else datetime.now().date()
+            today_date = max(datetime.strptime(self.baseline_date, "%Y-%m-%d").date(), datetime.now().date()) if getattr(self, 'baseline_date', None) else datetime.now().date()
         except Exception:
             today_date = datetime.now().date()
 

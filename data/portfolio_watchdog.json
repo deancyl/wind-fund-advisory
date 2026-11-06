@@ -1,8 +1,27 @@
 {
-  "timestamp": "2026-11-06 13:29:12",
-  "all_passed": true,
+  "timestamp": "2026-11-06 14:13:46",
+  "all_passed": false,
   "has_danger": false,
-  "has_warning": false,
-  "alerts": [],
-  "summary": "主动风控巡检全通"
+  "has_warning": true,
+  "alerts": [
+    {
+      "level": "yellow",
+      "dimension": "C类零费率置换",
+      "title": "【华夏上证科创板50成份ETF联接C (011613)】C类份额已满 30 天（第 35 天）",
+      "desc": "赎回费已归零！建议在反弹阻力位择机全额置换清理，避免长期计提销售服务费。",
+      "action": "建议逢高置换为优质 A 类底仓或无费率标的。",
+      "action_type": "switch_a_class",
+      "fund_code": "011613",
+      "fund_name": "华夏上证科创板50成份ETF联接C"
+    },
+    {
+      "level": "yellow",
+      "dimension": "赛道集中度",
+      "title": "【红利高股息赛道】持仓占比达 50.0% (>35%集中度红线)",
+      "desc": "单一细分赛道市值敞口达 50.0%，超过 35% 风险预警阈值，组合弹性暴露过度！",
+      "action": "建议适度均衡配置，增配弱相关红利低波、纯债或海外 QDII 资产。",
+      "action_type": "rebalance_sector"
+    }
+  ],
+  "summary": "发现 2 项风险与提示项"
 }

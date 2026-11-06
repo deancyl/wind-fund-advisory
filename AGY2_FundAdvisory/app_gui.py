@@ -1352,6 +1352,12 @@ if "mlm" not in st.session_state:
 if "active_ledger_id" not in st.session_state:
     st.session_state.active_ledger_id = st.session_state.mlm.get_active_ledger_id() if st.session_state.mlm else "main_live"
 
+# 防御性清洗：确保 sel_tab2_active_ledger 始终指向有效账本
+if "sel_tab2_active_ledger" in st.session_state:
+    all_lids = [l["id"] for l in (st.session_state.mlm.list_ledgers() if st.session_state.get("mlm") else [])]
+    if st.session_state.sel_tab2_active_ledger not in all_lids:
+        st.session_state.sel_tab2_active_ledger = "main_live"
+
 _cur_lid = st.session_state.active_ledger_id
 if "pm" not in st.session_state or getattr(st.session_state.pm, "ledger_id", None) != _cur_lid:
     if st.session_state.mlm:
@@ -1360,7 +1366,6 @@ if "pm" not in st.session_state or getattr(st.session_state.pm, "ledger_id", Non
         except KeyError:
             # 容错自愈：当 active_ledger_id 已损坏或已删除时，平滑自愈回退至 main_live
             st.session_state.active_ledger_id = "main_live"
-            st.session_state.sel_tab2_active_ledger = "main_live"
             st.session_state.pm = st.session_state.mlm.get_pm("main_live")
     else:
         st.session_state.pm = PortfolioManager()
@@ -1378,6 +1383,101 @@ TIER_TARGET_RETURN_MAP = {
     "C5": 50.0,  # 50.0 >= 30.0 -> map_slider_to_tier 严格返回 C5
 }
 
+# =============================================================================
+# 全局统一基金名称解析引擎 (多级深度反查，彻底消灭代码复读 017436 017436)
+# =============================================================================
+def resolve_fund_display_name(fcode: str, pm_inst=None) -> str:
+    """
+    统一全局基金名称多级反查解析函数：
+    依次从 pm.holdings、CORE_STRATEGY_POOL、EXTENDED_FUND_CATALOG、RADAR_SECTOR_CATALOG、
+    pm.resolve_fund_meta 与 DataLoader.get_fund_metadata 中反查真实中文名称。
+    """
+    if not fcode:
+        return ""
+    c_str = str(fcode).strip()
+    
+    # 1. 优先查传入 pm_inst 的持仓
+    if pm_inst and hasattr(pm_inst, "holdings") and c_str in pm_inst.holdings:
+        fn = getattr(pm_inst.holdings[c_str], "fund_name", "")
+        if fn and fn != c_str:
+            return fn
+
+    # 2. 查 CORE_STRATEGY_POOL
+    if "CORE_STRATEGY_POOL" in globals() and c_str in CORE_STRATEGY_POOL:
+        fn = CORE_STRATEGY_POOL[c_str].get("fund_name") or CORE_STRATEGY_POOL[c_str].get("name")
+        if fn and fn != c_str:
+            return fn
+
+    # 3. 查 EXTENDED_FUND_CATALOG
+    if "EXTENDED_FUND_CATALOG" in globals() and c_str in EXTENDED_FUND_CATALOG:
+        fn = EXTENDED_FUND_CATALOG[c_str].get("fund_name") or EXTENDED_FUND_CATALOG[c_str].get("name")
+        if fn and fn != c_str:
+            return fn
+
+    # 4. 查 RADAR_SECTOR_CATALOG
+    try:
+        from advisory_engine import RADAR_SECTOR_CATALOG
+        for sec_meta in RADAR_SECTOR_CATALOG.values():
+            if sec_meta.get("top_fund_code") == c_str:
+                fn = sec_meta.get("top_fund_name")
+                if fn and fn != c_str:
+                    return fn
+            df = sec_meta.get("default_fund", {})
+            if df.get("code") == c_str:
+                fn = df.get("name")
+                if fn and fn != c_str:
+                    return fn
+    except Exception:
+        pass
+
+    # 5. 查 pm_inst.resolve_fund_meta
+    if pm_inst and hasattr(pm_inst, "resolve_fund_meta"):
+        try:
+            m = pm_inst.resolve_fund_meta(c_str)
+            fn = m.get("fund_name") or m.get("name")
+            if fn and fn != c_str:
+                return fn
+        except Exception:
+            pass
+
+    # 6. 查 DataLoader.get_fund_metadata
+    try:
+        from data_loader import DataLoader
+        m = DataLoader.get_fund_metadata(c_str)
+        if m:
+            fn = m.get("fund_name") or m.get("name")
+            if fn and fn != c_str:
+                return fn
+    except Exception:
+        pass
+
+    # 7. 全局经典核心标的反查字典
+    KNOWN_CORE_NAMES = {
+        "005561": "创金合信红利低波A",
+        "100032": "富国中证红利增强A",
+        "000216": "华安黄金ETF联接A",
+        "017436": "华安纳斯达克100ETF联接A",
+        "011613": "华夏科创50ETF联接C",
+        "011612": "华夏科创50ETF联接A",
+        "002351": "易方达裕祥回报债券A",
+        "161725": "招商中证白酒指数A",
+        "161726": "招商国证生物医药A",
+        "160418": "华安中证银行指数A",
+        "013402": "华夏恒生科技ETF联接A",
+        "008888": "华夏国证半导体芯片ETF联接A",
+        "050025": "博时标普500ETF联接A",
+        "110020": "易方达沪深300ETF联接A",
+        "000478": "建信中证500增强A",
+        "004194": "招商中证1000增强A",
+        "518880": "华安易富黄金ETF",
+        "513500": "博时标普500ETF",
+        "510300": "华泰柏瑞沪深300ETF",
+        "510500": "南方中证500ETF",
+        "588000": "华夏上证科创板50成份ETF",
+    }
+    return KNOWN_CORE_NAMES.get(c_str, c_str)
+
+
 def switch_active_ledger(target_ledger_id: str):
     mlm_inst = st.session_state.get("mlm") or (MultiLedgerManager.get_instance() if MultiLedgerManager else None)
     if "pm" in st.session_state and st.session_state.pm:
@@ -1387,7 +1487,9 @@ def switch_active_ledger(target_ledger_id: str):
             pass
 
     st.session_state.active_ledger_id = target_ledger_id
-    st.session_state.sel_tab2_active_ledger = target_ledger_id
+    if "sel_tab2_active_ledger" in st.session_state:
+        st.session_state.sel_tab2_active_ledger = target_ledger_id
+
     if mlm_inst:
         mlm_inst.set_active_ledger_id(target_ledger_id)
         try:
@@ -1395,7 +1497,8 @@ def switch_active_ledger(target_ledger_id: str):
         except KeyError:
             target_ledger_id = "main_live"
             st.session_state.active_ledger_id = "main_live"
-            st.session_state.sel_tab2_active_ledger = "main_live"
+            if "sel_tab2_active_ledger" in st.session_state:
+                st.session_state.sel_tab2_active_ledger = "main_live"
             new_pm = mlm_inst.get_pm("main_live")
 
         st.session_state.pm = new_pm
@@ -1558,8 +1661,12 @@ with st.sidebar:
     clock_title = "🟢 14:30黄金窗口" if market_status.is_golden_window else ("🟡 盘后已关账" if market_status.is_after_market else "🔵 盘中观察期")
     total_days = snapshot.get("total_days", 2142)
     latest_date = snapshot.get("latest_date", "2026-11-04")
-    data_src_name = mb_data.get("source", "realtime")
-    if data_src_name in ("realtime", "eastmoney", "sina", "live") or mb_data.get("is_realtime"):
+    is_realtime_src = (
+        mb_data.get("is_realtime", False)
+        or any(k in str(mb_data.get("source", "")) for k in ["realtime", "eastmoney", "sina", "live"])
+        or (float(mb_data.get("total_turnover", 0.0)) > 1000.0)
+    )
+    if is_realtime_src:
         data_src_badge = "🟢 实时盘中源已连接"
     else:
         data_src_badge = "🟡 本地湖仓快照兜底" 
@@ -3573,10 +3680,7 @@ with tab_holdings_and_rebalance:
             all_ledgers = mlm_inst.list_ledgers()
             avail_lids = [l["id"] for l in all_ledgers]
 
-            # 防御性清洗：若控件键残存已删除或非法账本 ID，立即重置为 main_live，杜绝 Streamlit ValueError 白屏崩溃
-            if "sel_tab2_active_ledger" in st.session_state:
-                if st.session_state.sel_tab2_active_ledger not in avail_lids:
-                    st.session_state.sel_tab2_active_ledger = "main_live" if "main_live" in avail_lids else (avail_lids[0] if avail_lids else "main_live")
+
 
             active_lid = st.session_state.get("active_ledger_id", "main_live")
             if active_lid not in avail_lids:
@@ -3603,11 +3707,12 @@ with tab_holdings_and_rebalance:
                     options=[l["id"] for l in all_ledgers],
                     index=active_idx,
                     format_func=_fmt_ledger_choice,
-                    key="sel_tab2_active_ledger",
+                    key=f"sel_tab2_ledger_picker_{active_lid}",
                     label_visibility="collapsed"
                 )
                 if selected_lid != active_lid:
                     switch_active_ledger(selected_lid)
+                    st.rerun()
 
             with col_led_new:
                 with st.popover("➕ 新建账本", use_container_width=True):
@@ -5184,17 +5289,60 @@ with tab_holdings_and_rebalance:
 # =============================================================
 def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
     trial29_kpi = StrategyBridge.load_trial29_metrics()
-    c_bt_obj, c_bt_bench = st.columns([4, 6])
+    mlm_inst = st.session_state.get("mlm") or (MultiLedgerManager.get_instance() if MultiLedgerManager else None)
+    active_lid = st.session_state.get("active_ledger_id", "main_live")
+    all_ledgers = mlm_inst.list_ledgers() if mlm_inst else []
+    cur_meta = mlm_inst.get_ledger_meta(active_lid) if mlm_inst else {"name": "主实盘账本"}
+    cur_pm = mlm_inst.get_pm(active_lid) if mlm_inst else pm
+
+    # 构建动态选项列表
+    opt_cur_ledger = f"💼 当前激活账本：【{cur_meta.get('name', '主实盘账本')}】({len(cur_pm.holdings)}只标的 · ¥{cur_pm.total_equity:,.0f})"
+    target_options = [opt_cur_ledger]
+    option_key_map = {opt_cur_ledger: ("ledger", active_lid)}
+
+    for l in all_ledgers:
+        if l["id"] != active_lid:
+            try:
+                l_pm = mlm_inst.get_pm(l["id"])
+                lbl = f"📒 独立账本：【{l['name']}】({len(l_pm.holdings)}只标的 · ¥{l_pm.total_equity:,.0f})"
+                target_options.append(lbl)
+                option_key_map[lbl] = ("ledger", l["id"])
+            except Exception:
+                pass
+
+    t1_sim_c = st.session_state.get("tab1_sim_cache") or {}
+    t1_w = dict(st.session_state.get("selected_backtest_weights") or t1_sim_c.get("optimal_weights", {}))
+    has_t1 = bool(t1_w)
+    opt_t1 = f"🌱 新资建仓方案（来自 Tab 1 最新推演，共 {len(t1_w)} 只）" if has_t1 else "🌱 新资建仓方案 [当前使用 C3 默认精选组合]"
+    target_options.append(opt_t1)
+    option_key_map[opt_t1] = ("plan_t1", t1_w if has_t1 else {"005561": 0.35, "100032": 0.20, "000216": 0.20, "017436": 0.15, "011613": 0.10})
+
+    rebal_w = dict(st.session_state.get("selected_secondary_weights") or snapshot.get("target_weights_funds", {}))
+    if not rebal_w:
+        rebal_w = {"005561": 0.30, "100032": 0.25, "000216": 0.20, "518880": 0.15, "011613": 0.10}
+    opt_t2 = f"⚖️ 拟调仓后目标组合（来自 Tab 2 调仓方案，共 {len(rebal_w)} 只）"
+    target_options.append(opt_t2)
+    option_key_map[opt_t2] = ("plan_t2", rebal_w)
+
+    opt_rebal_diff = "🔄 调仓前 vs 调仓后双曲线同屏对比"
+    opt_pk_ledgers = "🆚 跨账本双组合同屏 PK 对比"
+    opt_strat_tier = "📊 C1~C5 标准策略基准档"
+    target_options.extend([opt_rebal_diff, opt_pk_ledgers, opt_strat_tier])
+    option_key_map[opt_rebal_diff] = ("diff_rebal", None)
+    option_key_map[opt_pk_ledgers] = ("pk_ledgers", None)
+    option_key_map[opt_strat_tier] = ("strat_tier", None)
+
+    c_bt_obj, c_bt_bench = st.columns([5.5, 4.5])
     with c_bt_obj:
-        def_target = st.session_state.get("selected_backtest_target", "新建仓组合")
-        target_options = ["新建仓组合", "当前实盘持仓", "调仓后组合", "调仓前后对比", "策略基准档"]
+        def_target = st.session_state.get("selected_backtest_target", opt_cur_ledger)
         def_idx = target_options.index(def_target) if def_target in target_options else 0
         sel_target_type = st.selectbox(
-            "🎯 选择回测对象：",
+            "🎯 选择回测对象 (已全面打通多账本体系)：",
             target_options,
             index=def_idx,
             key="sel_backtest_target_type"
         )
+        st.session_state.selected_backtest_target = sel_target_type
 
     with c_bt_bench:
         all_bms = list(BENCHMARK_INDICES_MAP.keys())
@@ -5205,46 +5353,65 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
             key="sel_multiselect_benchmarks"
         )
 
-    # 动态解析回测权重
+    # 动态解析权重与账本关联
     primary_weights = {}
     secondary_weights = None
     target_name_disp = sel_target_type
+    target_pm_for_names = cur_pm
 
-    # 1. 新建仓组合权重
-    t1_sim_c = st.session_state.get("tab1_sim_cache") or {}
-    t1_w = dict(st.session_state.get("selected_backtest_weights") or t1_sim_c.get("optimal_weights", {}))
-    if not t1_w:
-        t1_w = {"005561": 0.35, "100032": 0.20, "000216": 0.20, "017436": 0.15, "011613": 0.10}
+    choice_kind, choice_val = option_key_map.get(sel_target_type, ("ledger", active_lid))
 
-    # 2. 当前实盘持仓权重
-    hold_w = {}
-    if pm.holdings:
-        tot_h_val = sum(h.market_value for h in pm.holdings.values())
-        if tot_h_val > 0:
-            hold_w = {c: round(h.market_value / tot_h_val, 4) for c, h in pm.holdings.items()}
+    if choice_kind == "ledger":
+        l_id = choice_val
+        t_pm = mlm_inst.get_pm(l_id) if mlm_inst else cur_pm
+        target_pm_for_names = t_pm
+        m_info = mlm_inst.get_ledger_meta(l_id) if mlm_inst else cur_meta
+        if t_pm.holdings:
+            tot_h = sum(h.market_value for h in t_pm.holdings.values())
+            primary_weights = {c: round(h.market_value / tot_h, 4) for c, h in t_pm.holdings.items()} if tot_h > 0 else {}
+        if not primary_weights:
+            st.info(f"💡 账本【{m_info.get('name', l_id)}】持仓为空，已自动选用精选基线组合进行推演。")
+            primary_weights = {"005561": 0.35, "100032": 0.20, "000216": 0.20, "017436": 0.15, "011613": 0.10}
+        target_name_disp = f"【{m_info.get('name', l_id)}】({len(primary_weights)} 只标的)"
 
-    # 3. 调仓后目标权重
-    rebal_w = dict(st.session_state.get("selected_secondary_weights") or snapshot.get("target_weights_funds", {}))
+    elif choice_kind == "plan_t1":
+        primary_weights = choice_val
+        target_name_disp = f"新资建仓方案 ({len(primary_weights)} 只标的)"
 
-    if sel_target_type == "新建仓组合":
-        primary_weights = t1_w
-        target_name_disp = f"新建仓组合 ({len(primary_weights)} 只)"
-    elif sel_target_type == "当前实盘持仓":
-        if hold_w:
-            primary_weights = hold_w
-            target_name_disp = f"当前实盘持仓 ({len(primary_weights)} 只)"
-        else:
-            st.info("当前实盘持仓为空，已自动选用新建仓组合进行回测。")
-            primary_weights = t1_w
-            target_name_disp = f"新建仓组合 ({len(primary_weights)} 只)"
-    elif sel_target_type == "调仓后组合":
-        primary_weights = rebal_w if rebal_w else t1_w
-        target_name_disp = f"调仓后组合 ({len(primary_weights)} 只)"
-    elif sel_target_type == "调仓前后对比":
-        primary_weights = hold_w if hold_w else t1_w
-        secondary_weights = rebal_w if rebal_w else t1_w
+    elif choice_kind == "plan_t2":
+        primary_weights = choice_val
+        target_name_disp = f"拟调仓后目标组合 ({len(primary_weights)} 只标的)"
+
+    elif choice_kind == "diff_rebal":
+        if cur_pm.holdings:
+            tot_h = sum(h.market_value for h in cur_pm.holdings.values())
+            primary_weights = {c: round(h.market_value / tot_h, 4) for c, h in cur_pm.holdings.items()} if tot_h > 0 else {}
+        if not primary_weights:
+            primary_weights = {"005561": 0.35, "100032": 0.20, "000216": 0.20, "017436": 0.15, "011613": 0.10}
+        secondary_weights = rebal_w
         target_name_disp = "调仓前 (红) vs 调仓后 (蓝)"
-    else: # 策略基准档
+
+    elif choice_kind == "pk_ledgers":
+        # 跨账本同屏 PK 对比
+        st.markdown("##### 🆚 跨账本同屏 PK 对比设置")
+        col_pk1, col_pk2 = st.columns(2)
+        ledger_ids = [l["id"] for l in all_ledgers]
+        ledger_names = {l["id"]: l["name"] for l in all_ledgers}
+        with col_pk1:
+            pk_lid1 = st.selectbox("账本 A (对照基准)", options=ledger_ids, format_func=lambda x: f"【{ledger_names.get(x, x)}】", index=0, key="sel_pk_ledger_1")
+        with col_pk2:
+            pk_lid2_idx = 1 if len(ledger_ids) > 1 else 0
+            pk_lid2 = st.selectbox("账本 B (测试实验)", options=ledger_ids, format_func=lambda x: f"【{ledger_names.get(x, x)}】", index=pk_lid2_idx, key="sel_pk_ledger_2")
+        
+        pm1 = mlm_inst.get_pm(pk_lid1)
+        pm2 = mlm_inst.get_pm(pk_lid2)
+        tot_1 = sum(h.market_value for h in pm1.holdings.values()) if pm1.holdings else 0
+        tot_2 = sum(h.market_value for h in pm2.holdings.values()) if pm2.holdings else 0
+        primary_weights = {c: round(h.market_value / tot_1, 4) for c, h in pm1.holdings.items()} if tot_1 > 0 else {"005561": 0.5, "002351": 0.5}
+        secondary_weights = {c: round(h.market_value / tot_2, 4) for c, h in pm2.holdings.items()} if tot_2 > 0 else {"100032": 0.5, "000216": 0.5}
+        target_name_disp = f"【{ledger_names.get(pk_lid1, pk_lid1)}】vs【{ledger_names.get(pk_lid2, pk_lid2)}】"
+
+    else: # strat_tier
         sel_tier_opt = st.selectbox("选择基准策略档位：", ["C1 (安稳增值)", "C2 (稳健平衡)", "C3 (全天候平衡)", "C4 (进取成长)", "C5 (极限进攻)"], index=2, key="sel_backtest_tier_sub")
         t_key = sel_tier_opt.split()[0]
         df_mat = StrategyBridge.load_matrix()
@@ -5255,14 +5422,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
     # ── 📋 当前回测组合持仓穿透档案卡 (Portfolio Profile) ──
     profile_badges = []
     for fcode, w in sorted(primary_weights.items(), key=lambda x: -x[1]):
-        fname = pm.holdings[fcode].fund_name if (hasattr(pm, 'holdings') and fcode in pm.holdings) else ""
-        if not fname:
-            try:
-                from data_loader import get_fund_metadata
-                m = get_fund_metadata(fcode)
-                fname = m.get("fund_name", fcode) if m else fcode
-            except Exception:
-                fname = fcode
+        fname = resolve_fund_display_name(fcode, target_pm_for_names)
         fcls = pm.classify_fund_asset_class(fcode, fname)
         profile_badges.append(
             f'<span style="display:inline-block; background:var(--bg-elevated); border:1px solid var(--border-subtle); '
@@ -5611,80 +5771,90 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
 
 
 def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
-    # ── 🎯 选择当前穿透体检的组合对象 ──
-    col_tb_sel, col_tb_meta = st.columns([4, 6])
+    mlm_inst = st.session_state.get("mlm") or (MultiLedgerManager.get_instance() if MultiLedgerManager else None)
+    active_lid = st.session_state.get("active_ledger_id", "main_live")
+    all_ledgers = mlm_inst.list_ledgers() if mlm_inst else []
+    cur_meta = mlm_inst.get_ledger_meta(active_lid) if mlm_inst else {"name": "主实盘账本"}
+    cur_pm = mlm_inst.get_pm(active_lid) if mlm_inst else pm
+
+    opt_cur_ledger = f"💼 当前激活账本：【{cur_meta.get('name', '主实盘账本')}】({len(cur_pm.holdings)}只标的 · ¥{cur_pm.total_equity:,.0f})"
+    target_options_tb = [opt_cur_ledger]
+    option_key_map_tb = {opt_cur_ledger: ("ledger", active_lid)}
+
+    for l in all_ledgers:
+        if l["id"] != active_lid:
+            try:
+                l_pm = mlm_inst.get_pm(l["id"])
+                lbl = f"📒 独立账本：【{l['name']}】({len(l_pm.holdings)}只标的 · ¥{l_pm.total_equity:,.0f})"
+                target_options_tb.append(lbl)
+                option_key_map_tb[lbl] = ("ledger", l["id"])
+            except Exception:
+                pass
+
+    t1_sim_c = st.session_state.get("tab1_sim_cache") or {}
+    t1_w = dict(st.session_state.get("selected_backtest_weights") or t1_sim_c.get("optimal_weights", {}))
+    has_t1 = bool(t1_w)
+    opt_t1 = f"🌱 新资建仓方案（来自 Tab 1 最新推演，共 {len(t1_w)} 只）" if has_t1 else "🌱 新资建仓方案 [当前使用 C3 默认精选组合]"
+    target_options_tb.append(opt_t1)
+    option_key_map_tb[opt_t1] = ("plan_t1", t1_w if has_t1 else {"005561": 0.35, "100032": 0.20, "000216": 0.20, "017436": 0.15, "011613": 0.10})
+
+    rebal_w = dict(st.session_state.get("selected_secondary_weights") or snapshot.get("target_weights_funds", {}))
+    if not rebal_w:
+        rebal_w = {"005561": 0.30, "100032": 0.25, "000216": 0.20, "518880": 0.15, "011613": 0.10}
+    opt_t2 = f"⚖️ 拟调仓后目标组合（来自 Tab 2 调仓方案，共 {len(rebal_w)} 只）"
+    target_options_tb.append(opt_t2)
+    option_key_map_tb[opt_t2] = ("plan_t2", rebal_w)
+
+    col_tb_sel, col_tb_meta = st.columns([5.5, 4.5])
     with col_tb_sel:
-        target_options_tb = ["当前实盘持仓", "新建仓组合", "调仓后组合"]
-        def_tb_obj = st.session_state.get("tab4_selected_target", "当前实盘持仓")
+        def_tb_obj = st.session_state.get("tab4_selected_target", opt_cur_ledger)
         def_tb_idx = target_options_tb.index(def_tb_obj) if def_tb_obj in target_options_tb else 0
         sel_tb_target = st.selectbox(
-            "🎯 选择当前穿透体检的组合对象：",
+            "🎯 选择当前穿透体检的组合对象 (已全面打通多账本体系)：",
             target_options_tb,
             index=def_tb_idx,
             key="sel_tab4_target_type"
         )
         st.session_state.tab4_selected_target = sel_tb_target
 
-    # 动态构建待体检对象的持仓基金集与虚拟份额/市值
     active_examine_holdings = {}
     total_examine_equity = 0.0
+    from portfolio_manager import HoldingItem
 
-    if sel_tb_target == "当前实盘持仓":
-        if pm.holdings:
-            active_examine_holdings = dict(pm.holdings)
-            total_examine_equity = sum(h.market_value for h in pm.holdings.values()) + pm.available_cash + pm.in_transit_cash
+    tb_kind, tb_val = option_key_map_tb.get(sel_tb_target, ("ledger", active_lid))
+
+    if tb_kind == "ledger":
+        l_id = tb_val
+        t_pm = mlm_inst.get_pm(l_id) if mlm_inst else cur_pm
+        m_info = mlm_inst.get_ledger_meta(l_id) if mlm_inst else cur_meta
+        if t_pm.holdings:
+            active_examine_holdings = dict(t_pm.holdings)
+            total_examine_equity = sum(h.market_value for h in t_pm.holdings.values()) + t_pm.available_cash + t_pm.in_transit_cash
         else:
-            st.info("💡 当前实盘账本持仓为空，已自动为您选用【新建仓组合】进行全景穿透体检。")
-            t1_sim_c = st.session_state.get("tab1_sim_cache") or {}
-            t1_w = dict(st.session_state.get("selected_backtest_weights") or t1_sim_c.get("optimal_weights", {}))
-            if not t1_w:
-                t1_w = {"005561": 0.35, "100032": 0.20, "000216": 0.20, "017436": 0.15, "011613": 0.10}
+            st.info(f"💡 账本【{m_info.get('name', l_id)}】持仓为空，已自动选用精选基线组合进行全景穿透体检。")
+            t1_w = {"005561": 0.35, "100032": 0.20, "000216": 0.20, "017436": 0.15, "011613": 0.10}
             base_cap = float(st.session_state.get("plan_capital", 100000.0))
             for fc, w in t1_w.items():
                 m_val = round(base_cap * w, 2)
-                fn = ""
-                try:
-                    from data_loader import get_fund_metadata
-                    meta_d = get_fund_metadata(fc)
-                    fn = meta_d.get("fund_name", fc) if meta_d else fc
-                except Exception:
-                    fn = fc
-                from portfolio_manager import HoldingItem
+                fn = resolve_fund_display_name(fc, t_pm)
                 active_examine_holdings[fc] = HoldingItem(fund_code=fc, fund_name=fn, shares=m_val, cost_nav=1.0, current_nav=1.0)
             total_examine_equity = base_cap
-    elif sel_tb_target == "新建仓组合":
-        t1_sim_c = st.session_state.get("tab1_sim_cache") or {}
-        t1_w = dict(st.session_state.get("selected_backtest_weights") or t1_sim_c.get("optimal_weights", {}))
-        if not t1_w:
-            t1_w = {"005561": 0.35, "100032": 0.20, "000216": 0.20, "017436": 0.15, "011613": 0.10}
+
+    elif tb_kind == "plan_t1":
+        t1_w = tb_val
         base_cap = float(st.session_state.get("plan_capital", 100000.0))
         for fc, w in t1_w.items():
             m_val = round(base_cap * w, 2)
-            fn = ""
-            try:
-                from data_loader import get_fund_metadata
-                meta_d = get_fund_metadata(fc)
-                fn = meta_d.get("fund_name", fc) if meta_d else fc
-            except Exception:
-                fn = fc
-            from portfolio_manager import HoldingItem
+            fn = resolve_fund_display_name(fc, cur_pm)
             active_examine_holdings[fc] = HoldingItem(fund_code=fc, fund_name=fn, shares=m_val, cost_nav=1.0, current_nav=1.0)
         total_examine_equity = base_cap
-    else: # 调仓后组合
-        rebal_w = dict(st.session_state.get("selected_secondary_weights") or snapshot.get("target_weights_funds", {}))
-        if not rebal_w:
-            rebal_w = {"005561": 0.30, "100032": 0.25, "000216": 0.20, "518880": 0.15, "011613": 0.10}
-        base_cap = sum(h.market_value for h in pm.holdings.values()) if pm.holdings else 100000.0
+
+    else: # plan_t2
+        rebal_w = tb_val
+        base_cap = sum(h.market_value for h in cur_pm.holdings.values()) if cur_pm.holdings else 100000.0
         for fc, w in rebal_w.items():
             m_val = round(base_cap * w, 2)
-            fn = ""
-            try:
-                from data_loader import get_fund_metadata
-                meta_d = get_fund_metadata(fc)
-                fn = meta_d.get("fund_name", fc) if meta_d else fc
-            except Exception:
-                fn = fc
-            from portfolio_manager import HoldingItem
+            fn = resolve_fund_display_name(fc, cur_pm)
             active_examine_holdings[fc] = HoldingItem(fund_code=fc, fund_name=fn, shares=m_val, cost_nav=1.0, current_nav=1.0)
         total_examine_equity = base_cap
 

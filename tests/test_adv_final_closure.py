@@ -185,3 +185,101 @@ class TestAdvFinalClosure:
         # 验证合理区间 (避险黄金 25%~75%, 银行高股息 25%~55%)
         assert 25.0 <= gold_val <= 75.0, f"国内黄金估值分位 {gold_val}% 不在合理区间 [25.0%, 75.0%] 内！"
         assert 25.0 <= bank_val <= 55.0, f"银行高股息估值分位 {bank_val}% 不在合理区间 [25.0%, 55.0%] 内！"
+
+
+    def test_specialized_5_ledgers_clean_and_main_live_intact(self):
+        """
+        专项测试 5 (账本目录纯净度与主实盘示范持仓完整性校验):
+        1. 验证 data/ledgers_index.json 中无历史测试遗留的垃圾沙盒账本；
+        2. 验证 portfolio_ledger.json 主实盘完好存在，包含至少 6 只核心优质示范基金且总资产达到基准 ¥100,000。
+        """
+        index_file = WORKSPACE_ROOT / "data" / "ledgers_index.json"
+        assert index_file.exists(), "ledgers_index.json 不存在！"
+        import json
+        idx_data = json.loads(index_file.read_text(encoding="utf-8"))
+        ledgers = idx_data.get("ledgers", [])
+        
+        # 严禁残留 sandbox_202611... 等历史残留垃圾账本
+        junk_ledgers = [l["id"] for l in ledgers if l["id"].startswith("sandbox_202")]
+        assert len(junk_ledgers) == 0, f"发现未清理的测试垃圾沙盒账本: {junk_ledgers}"
+        
+        # 验证 main_live 存在且受保护
+        main_meta = next((l for l in ledgers if l["id"] == "main_live"), None)
+        assert main_meta is not None, "缺少 main_live 主实盘账本登记！"
+        
+        # 验证 portfolio_ledger.json
+        main_ledger_file = WORKSPACE_ROOT / "portfolio_ledger.json"
+        assert main_ledger_file.exists(), "portfolio_ledger.json 缺失！"
+        m_data = json.loads(main_ledger_file.read_text(encoding="utf-8"))
+        assert m_data.get("total_equity", 0.0) >= 90000.0, f"主实盘总资产不足 9 万: {m_data.get('total_equity')}"
+        holdings = m_data.get("holdings", [])
+        h_codes = [h.get("fund_code") for h in holdings]
+        for must_code in ["005561", "100032", "000216", "017436", "011613"]:
+            assert must_code in h_codes, f"主实盘示范持仓缺少核心标的 {must_code}！"
+
+    def test_specialized_6_resolve_fund_display_name_accuracy(self):
+        """
+        专项测试 6 (全局基金名称反查解析准确性，消灭代码复读 017436 017436):
+        验证 resolve_fund_display_name 对 005561, 100032, 000216, 017436, 011613, 002351 等
+        均能准确反查出真实中文基金名称，绝不返回原代码。
+        """
+        from app_gui import resolve_fund_display_name
+        
+        test_keywords = {
+            "005561": ["创金合信", "红利"],
+            "100032": ["富国", "红利"],
+            "000216": ["华安", "黄金"],
+            "017436": ["纳斯达克"],
+            "011613": ["科创"],
+            "002351": ["裕祥"],
+            "518880": ["黄金"],
+            "050025": ["标普"],
+        }
+        for code, kws in test_keywords.items():
+            resolved = resolve_fund_display_name(code)
+            assert resolved != code, f"代码 {code} 反查失败，返回了重复代码！"
+            for kw in kws:
+                assert kw in resolved, f"代码 {code} 反查结果 '{resolved}' 缺少关键字 '{kw}'！"
+
+    def test_specialized_7_realtime_market_source_detection(self):
+        """
+        专项测试 7 (行情源状态实时判定修复校验):
+        验证 DataLoader.fetch_market_turnover_and_sentiment 返回的结构带有 realtime 标识或东财实时源，
+        且 app_gui.py 中有严密的 is_realtime_src 多重判定逻辑，杜绝误报离线兜底。
+        """
+        from data_loader import DataLoader
+        res = DataLoader.fetch_market_turnover_and_sentiment()
+        assert isinstance(res, dict)
+        src = res.get("source", "")
+        is_rt = res.get("is_realtime", False)
+        # 只要联网能够拿到东财实时源，或者返回标记为 realtime
+        assert is_rt is True or "realtime" in src.lower() or "eastmoney" in src.lower(), (
+            f"fetch_market_turnover_and_sentiment 返回源非实时: source={src}, is_realtime={is_rt}"
+        )
+        
+        gui_p = AGY2_DIR / "app_gui.py"
+        src_text = gui_p.read_text(encoding="utf-8")
+        assert "is_realtime_src" in src_text, "app_gui.py 缺少 is_realtime_src 判定变量！"
+        assert "🟢 实时盘中源已连接" in src_text, "app_gui.py 缺少实时盘中源正常徽章！"
+
+    def test_specialized_8_multi_ledger_wireup_tab3_and_tab4(self):
+        """
+        专项测试 8 (多账本体系全面打通 Tab 3 回测与 Tab 4 穿透下拉框):
+        验证 app_gui.py 中 Tab 3 与 Tab 4 均已遍历 MultiLedgerManager 的所有账本，
+        支持选择独立账本、新资建仓方案、拟调仓方案，并使用 resolve_fund_display_name 进行中文穿透。
+        """
+        gui_p = AGY2_DIR / "app_gui.py"
+        src_text = gui_p.read_text(encoding="utf-8")
+        
+        # Tab 3 验证
+        assert "选择回测对象 (已全面打通多账本体系)" in src_text, "Tab 3 未挂载多账本回测选择器！"
+        assert "💼 当前激活账本" in src_text, "缺少当前激活账本置顶选项！"
+        assert "跨账本双组合同屏 PK 对比" in src_text, "缺少跨账本 PK 对比功能！"
+        
+        # Tab 4 验证
+        assert "选择当前穿透体检的组合对象 (已全面打通多账本体系)" in src_text, "Tab 4 未挂载多账本穿透选择器！"
+        
+        # 验证名称反查在 Tab 3 与 Tab 4 中的应用
+        assert "resolve_fund_display_name(fc, t_pm)" in src_text or "resolve_fund_display_name(fcode, target_pm_for_names)" in src_text, (
+            "Tab 3/Tab 4 中未调用 resolve_fund_display_name！"
+        )
