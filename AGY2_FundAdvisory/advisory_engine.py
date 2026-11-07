@@ -612,6 +612,7 @@ class OpportunityRadarEngine:
     def __init__(self, cache_dir: Optional[str] = None):
         self.cache_dir = cache_dir or self._resolve_cache_dir()
         self.valuation_cache = self._load_valuation_cache()
+        self.realtime_quotes = self._load_realtime_quotes()
         self.dynamic_metrics = self._calc_dynamic_sector_metrics()
         self.evolver = OnlineHeuristicFactorEvolver()
         self.evolved_result = self.evolver.evolve_factor_weights()
@@ -623,6 +624,30 @@ class OpportunityRadarEngine:
             if p.exists():
                 return str(p)
         return str(WORKSPACE_ROOT / "data" / "cache")
+
+    def _load_realtime_quotes(self) -> Dict[str, Dict[str, Any]]:
+        """批量获取 14 大赛道实时行情（点位、涨跌幅、涨跌额），带高速缓存与离线兜底"""
+        quote_map = {}
+        try:
+            try:
+                from AGY2_FundAdvisory import data_loader
+            except Exception:
+                import data_loader
+
+            codes_to_fetch = []
+            for sec_id, meta in RADAR_SECTOR_CATALOG.items():
+                c = meta.get("benchmark_index") or meta.get("symbol") or meta.get("index_code")
+                if c:
+                    codes_to_fetch.append(str(c))
+            codes_to_fetch = list(set(codes_to_fetch))
+            res_list = data_loader.fetch_custom_realtime_indices(codes_to_fetch, use_cache=True)
+            for item in res_list:
+                c = str(item.get("code", "")).strip()
+                if c:
+                    quote_map[c] = item
+        except Exception:
+            pass
+        return quote_map
 
     def _load_valuation_cache(self) -> Dict[str, Any]:
         val_path = os.path.join(self.cache_dir, "index_valuation.json")
@@ -776,11 +801,25 @@ class OpportunityRadarEngine:
 
                     crowd = float(np.clip(91.0 - 2.2 * max(0.0, bias - 1.5) - 6.0 * max(0.0, vol_ratio - 1.1) + (1.0 - er) * 3.5, 42.0, 96.0))
 
+                    p_rt = float(s[-1]) if s is not None and len(s) > 0 else 1000.0
+                    chg_pct = float((s[-1] - s[-2]) / s[-2] * 100.0) if s is not None and len(s) >= 2 else 0.0
+                    chg_val = float(s[-1] - s[-2]) if s is not None and len(s) >= 2 else 0.0
+
+                    c_cand = meta.get("benchmark_index") or meta.get("symbol") or meta.get("index_code")
+                    if hasattr(self, "realtime_quotes") and self.realtime_quotes and str(c_cand) in self.realtime_quotes:
+                        q = self.realtime_quotes[str(c_cand)]
+                        p_rt = float(q.get("point", p_rt))
+                        chg_pct = float(q.get("change_pct", chg_pct))
+                        chg_val = float(q.get("change", chg_val))
+
                     metrics[sec_id] = {
                         "er_20": round(float(er), 2),
                         "bias_20": round(float(bias), 2),
                         "slope_20": round(float(slope), 2),
                         "crowding_score": round(float(crowd), 1),
+                        "realtime_point": round(float(p_rt), 3 if p_rt < 100.0 else 2),
+                        "realtime_chg_pct": round(float(chg_pct), 2),
+                        "realtime_change": round(float(chg_val), 3 if p_rt < 100.0 else 2),
                     }
         except Exception:
             pass
@@ -924,7 +963,7 @@ class OpportunityRadarEngine:
             return round(float(np.median(known_pcts)), 1)
         return 50.0
 
-    def evaluate_sector(self, sec_id: str, meta: Dict[str, Any]) -> Dict[str, Any]:
+    def evaluate_sector(self, sec_id: str, meta: Dict[str, Any], realtime_quotes: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """对单个赛道计算四维评分及综合得分"""
         val_pct = self.get_sector_valuation_percentile(sec_id, meta)
         
@@ -940,6 +979,32 @@ class OpportunityRadarEngine:
         bias_20 = float(dyn.get("bias_20", meta.get("bias_20", 1.0)))
         slope_20 = float(dyn.get("slope_20", meta.get("slope_20", 5.0)))
         s_crowd = float(dyn.get("crowding_score", meta.get("crowding_score", 85.0)))
+
+        # G8 盘中实时行情融入
+        rt_quote = None
+        if realtime_quotes:
+            rt_quote = realtime_quotes.get(sec_id) or realtime_quotes.get(meta.get("benchmark_index")) or realtime_quotes.get(meta.get("symbol")) or realtime_quotes.get(meta.get("index_code"))
+        if not rt_quote and hasattr(self, "realtime_quotes") and self.realtime_quotes:
+            rt_quote = self.realtime_quotes.get(sec_id) or self.realtime_quotes.get(meta.get("benchmark_index")) or self.realtime_quotes.get(meta.get("symbol")) or self.realtime_quotes.get(meta.get("index_code"))
+
+        p_rt = float(dyn.get("realtime_point", 1000.0))
+        chg_pct = float(dyn.get("realtime_chg_pct", 0.0))
+        chg_val = float(dyn.get("realtime_change", 0.0))
+
+        if rt_quote:
+            if "point" in rt_quote:
+                p_rt = float(rt_quote["point"])
+            if "change_pct" in rt_quote:
+                chg_pct = float(rt_quote["change_pct"])
+            if "change" in rt_quote:
+                chg_val = float(rt_quote["change"])
+            else:
+                chg_val = round(p_rt * chg_pct / 100.0, 2)
+            # 动态调整 bias_20
+            if "bias_20" in rt_quote:
+                bias_20 = float(rt_quote["bias_20"])
+            else:
+                bias_20 = round(bias_20 + chg_pct, 2)
 
         # 2. 考夫曼信噪比 S_er
         s_er = min(100.0, er * 1.6 * 100.0)
@@ -1000,20 +1065,31 @@ class OpportunityRadarEngine:
             "slope_20": slope_20,
             "er_20": er,
             "crowding_score": round(s_crowd, 1),
+            # G8 新增四维证据链与盘中实时行情
+            "realtime_point": round(float(p_rt), 3 if p_rt < 100.0 else 2),
+            "realtime_chg_pct": round(float(chg_pct), 2),
+            "realtime_change": round(float(chg_val), 3 if p_rt < 100.0 else 2),
+            "core_logic": meta.get("core_logic", "赛道景气度与宏观流动性共振"),
+            "sub_scores": {
+                "valuation": round(s_val, 1),
+                "momentum": round(s_mom, 1),
+                "kaufman_snr": round(s_er, 1),
+                "anti_crowding": round(s_crowd, 1)
+            }
         }
 
-    def scan_all_sectors(self) -> List[Dict[str, Any]]:
+    def scan_all_sectors(self, realtime_quotes: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """全量扫描 14 大核心赛道并降序排序"""
         results = []
         for sec_id, meta in RADAR_SECTOR_CATALOG.items():
-            ev = self.evaluate_sector(sec_id, meta)
+            ev = self.evaluate_sector(sec_id, meta, realtime_quotes=realtime_quotes)
             results.append(ev)
         results.sort(key=lambda x: x["total_score"], reverse=True)
         return results
 
-    def get_top_opportunities(self, n: int = 3) -> List[Dict[str, Any]]:
+    def get_top_opportunities(self, n: int = 3, realtime_quotes: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """甄选当前最值得布局的 Top 3 机会赛道"""
-        all_sec = self.scan_all_sectors()
+        all_sec = self.scan_all_sectors(realtime_quotes=realtime_quotes)
         # 排除拥挤度极端高危 (<45)
         filtered = [s for s in all_sec if s["s_crowd"] >= 45.0]
         return filtered[:n]

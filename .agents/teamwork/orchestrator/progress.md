@@ -1,15 +1,18 @@
 ## Current Status
-Last visited: 2026-11-05T03:26:45Z (Heartbeat check #2: Worker Prod R8-M3 actively editing files via replace_file_content, lastStepTime: 03:26:23Z)
+Last visited: 2026-11-07T16:18:55Z (Safety timer check #4: Worker G8-1 created tests/test_g8_ux_and_realtime_fusion.py and running pytest, lastStepTime: 16:17:53Z)
 
-- [x] Received dispatch message and recorded in DISPATCH.md & ORIGINAL_REQUEST.md
-- [x] Step 0: Survey codebase with 3 parallel Explorers (R1-R4) [COMPLETED]
+- [x] Received G8 generation dispatch message and recorded in DISPATCH.md & ORIGINAL_REQUEST.md
+- [x] Step 0: Survey codebase with 3 parallel Explorers (Defects 1-7 + UX audit blueprints) [COMPLETED]
+  - [x] Explorer G8-1 (Tab 2 Dual View Decoupling, Table Protection, Slider Cleanup, Chinese Numeral) [DONE]
+  - [x] Explorer G8-2 (Overwrite Popover/Undo & Cross-Tab DOM Navigation) [DONE]
+  - [x] Explorer G8-3 (Real-time Radar Quotes, News Crawl & 4D Evidence, Test Design) [DONE]
 - [x] Step 1: Synthesize survey results and update PROJECT.md Feature Inventory & Milestones [COMPLETED]
 - [/] Step 2: Milestone Iteration Loops
-  - [x] Milestone 1: 侧边栏核心指数走廊升级、全市场自由定制与 UI 细节修复 (Features 1-6, R1, R3 UI) [GATE PASSED]
-  - [x] Milestone 2: 估值动量单源同真与双翼看板升级 (机会雷达 + 六维预警哨) (Features 7-10, R2) [GATE PASSED]
-  - [/] Milestone 3: 7 大机构级量化定权模型与历史黑天鹅压力测试器 (Features 11-13, R3) [IN_PROGRESS: Worker Prod R8-M3 editing code, Conv: 274b44eb-891b-47d7-ba52-902ae27f9426]
-  - [ ] Milestone 4: 物理红线哈希审计、全套自动化回归测试与服务平滑重启 (Features 14-16, R4, R5)
-- [ ] Step 3: End-to-End Regression, Service Restart & Final Report
+  - [/] Implementation: Features 1-7 (P0-P2 UI/UX) & tests/test_g8_ux_and_realtime_fusion.py [IN_PROGRESS: Worker G8-1 executing tests, Conv: f1c3a702-fb58-40ce-8cb0-fae478e997b5]
+  - [ ] Gate Verification: Reviewers (2), Challengers (2), Forensic Auditor (1) [PENDING]
+  - [ ] Service Restart & /browser Visual Walkthrough [PENDING]
+  - [ ] Full Regression Suite & Git Archive Tag v3.8-G8 [PENDING]
+- [ ] Step 3: Synthesis, Victory Audit & Final Report to Sentinel
 
 ## Iteration Status
 Current iteration: 1 / 32

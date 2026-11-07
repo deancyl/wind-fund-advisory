@@ -1,0 +1,7 @@
+# -*- coding: utf-8 -*-
+with open('data/debug_page.html', 'r', encoding='utf-8') as f:
+    c = f.read()
+
+idx = c.find("因子进化")
+if idx != -1:
+    print(c[idx:idx+4000])

@@ -36,7 +36,7 @@
 |---|------|-------|-------------|--------|
 | M1 | 量化核心算法升级与穿透计算 | F1, F2, F3, F4, F5 (`advisory_engine.py`, `portfolio_manager.py`, `strategy_bridge.py`) | none | DONE |
 | M2 | 前端实盘界面联动与紧凑排版 | F6, F7, F8 (`app_gui.py`) | M1 | DONE |
-| M3 | 视觉走查、全量测试回归与交付 | F9, F10, F11, F12 (browser inspection, `test_g3_evolution_loop.py`, audit, git tag) | M2 | IN_PROGRESS |
+| M3 | 视觉走查、全量测试回归与交付 | F9, F10, F11, F12 (browser inspection, `test_g3_evolution_loop.py`, audit, git tag) | M2 | DONE |
 
 ## Code Layout
 - `AGY2_FundAdvisory/advisory_engine.py`: 量化投顾决策大脑（单基波动率/乖离率穿透、历史拐点对照尺、14:30 尾盘估值异动预警、DCA 穿透）

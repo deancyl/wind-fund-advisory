@@ -1,78 +1,75 @@
-# Project: Wind 投顾系统全栈升级 (全市场自定义走廊、数据单源同真、7大机构定权模型、6维主动预警与压力测试)
+# Project: G8 世代深度 UI 与 UX 金融防错整改、Tab 2 物理视图真隔离、跨 Tab 真实路由跳转与实时多源感知进化
 
 ## Architecture
-- **Web UI & Visualization Layer**: `AGY2_FundAdvisory/app_gui.py`
-  - 侧边栏核心指数行情走廊：3 层卡片指标流、东财/新浪实时批量接口与离线多日收盘价涨跌幅计算、CSS 并集选择器修复
-  - 侧边栏右上角自选设置弹窗：3~15 只展示数量滑块、38+ 全市场指数/ETF 三模多选排序检索器、任意 6 位有效代码实时校验接入与 JSON 持久化
-  - 左翼全市场机会雷达看板：Top 3 机会卡片 + 可展开 14 大赛道量化温度计总表 + 顶部 <=80 字今日市场脉搏晨报
-  - 右翼六维主动风险预警哨：涵盖红牌锁仓、黄牌倒计时、C类置换、阶梯止盈与深套、赛道集中度与清盘线，配套一键跳转与减仓单动作按钮
-  - UI 细节修复：`button[kind="primary"] * { color: #ffffff !important; }` 样式锁死，Tab 1 步骤一策略锚点重复文案合并精炼
-- **Data & Single Source of Truth Layer**: `AGY2_FundAdvisory/data_loader.py`, `data/processed/aligned_matrix_total_return.parquet`, `data/processed/indices/*.parquet`
-  - 单源同真（Single Source of Truth）：废除 `RADAR_SECTOR_CATALOG` 静态假常量，统一下潜至 `IndexValuationEngine` 与本地行情日线动态精算
-  - 侧边栏与雷达双翼估值分位数绝对一致（浮点误差 < 1e-4）
-  - 自选配置持久化：`data/cache/custom_watchlist.json`
-- **Quant Strategy & Execution Layer**: `AGY2_FundAdvisory/advisory_engine.py`, `winrate_engine.py`, `portfolio_optimizer.py`
-  - 7 大机构级量化定权求解算子：鲁棒双核HRP、核心-卫星杠铃、全天候风险平价、BL观点融合、条件胜率最优、尾部CVaR、凯利动量增强，权重和严格等于 1.0
-  - 宏观状态自适应推荐路由逻辑与模型对比说明卡片
-  - 历史黑天鹅压力测试器：2018 贸易摩擦熊市、2022 杀估值熊市、2024 微盘流动性危机三个历史切片的最大浮亏与回本天数测算
+- **Web UI & Interaction Layer**: `AGY2_FundAdvisory/app_gui.py`
+  - Tab 2 双视图真正物理分支隔离：主流程模式（`is_t2_main_mode=True`）仅渲染安全垫抗震看板、4张资产概览卡、极速录基吧台、持仓明细大表、步骤二时机裁决、步骤三调仓执行单，严禁渲染底部的账本工具坞 Expander；宽屏工具坞模式（`is_t2_main_mode=False`）隐藏持仓大表与步骤二三，直接在首屏平铺展示 6 大工具子 Tab。
+  - Tab 2 持仓表未保存修改拦截与周边操作前置自动提交（`_commit_edited_holdings_table`），杜绝因点击周边按钮导致用户输入被静默清空。
+  - 清理单页三度克隆的重复滑块（保留步骤三单控制点，设置 `# tab2_rebal_buf_slider_bot` 兼容注释），删除 `dock_tab3` 重复按钮，清理预警哨开发口号并将容器高度优化为 380px。
+  - 大额本金输入框千分位与中文数量级防错提示（`format_chinese_amount`）。
+  - Tab 1 覆盖写入当前激活账本升级为 `st.popover` + `st.checkbox` 确认门禁，覆写前强制压栈 Undo 快照，覆写后提供 `↩️ 撤销本次覆盖` 快捷按钮。
+  - 首屏双翼看板跨 Tab 联动通过 `components.html` 注入同源 DOM 脚本触发真实 Tab 切换与平滑滚动，补齐 6 类预警处置参数传递，渲染高可见度跨区指令生效承接横幅。
+  - 首屏晨报展示秒级时间戳与最新快讯摘要；Top 3 赛道卡片展示盘中实时涨跌幅胶囊、四维子项得分明细与核心入选依据。
+- **Data & Ingestion Layer**: `AGY2_FundAdvisory/data_loader.py`
+  - 挂载 `fetch_realtime_market_news_and_catalysts` 至 `DataLoader` 类，支持 2 秒超时约束、内存高速缓存 (TTL 60s) 与本地 `data/cache/realtime_news.json` 磁盘快照兜底。
+  - 保持 `fetch_custom_realtime_indices` 批量实时行情与离线双日收盘价真实涨跌幅计算。
+- **Quant & Advisory Engine Layer**: `AGY2_FundAdvisory/advisory_engine.py`, `portfolio_manager.py`
+  - `OpportunityRadarEngine` 注入盘中实时指数涨跌幅与最新点位，动态响应乖离率与动量。
+  - `evaluate_sector` 返回值透传 `core_logic`、`realtime_chg_pct`、`realtime_point` 及四维子项得分（`s_val`, `s_mom`, `s_er`, `s_crowd`）。
+  - `PortfolioManager` 实装 `_push_undo_snapshot(self)` 并在 `apply_zero_start_blueprint` 清空持仓前调用，保障一键可逆回滚。
 - **Physical Safety Redline Layer**:
-  - `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`（物理只读红线，SHA256 绝对锁定，严禁修改）
+  - `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`（物理只读红线，零字符修改）。
+  - `DataLoader.simulate_execution` 默认签名与 7 天 1.50% 扣费逻辑原封不动。
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | 侧边栏样式类名修复 | 样式表支持 `.val-very-low, .val-very_low` 与 `.val-very-high, .val-very_high` 并集选择器，极低估与过热徽章边框底色生效 | M1 | R1 |
-| 2 | 真实行情与非交易日涨跌幅 | 优先东财/新浪批量实时接口，离线/非交易时段读取本地最新两交易日收盘价计算真实涨跌幅，杜绝整排 0.00% 假平盘 | M1 | R1 |
-| 3 | 侧边栏卡片 3 层专业指标流 | 行1: 名称代码实时点位与涨跌幅胶囊(Flexbox防压扁)；行2: 真实PE/PB分位与近20日涨跌幅；行3: MA20趋势与偏离状态 | M1 | R1 |
-| 4 | 全市场 38 只指数/ETF 目录与弹窗设置 | 内置 12 板块 38+ 标的(锁死000922)，侧边栏右上角设置弹窗支持 3~15 只滑块、拼音/代码/名称三模检索多选排序器、任意 6 位有效代码实时校验接入 | M1 | R1 |
-| 5 | 自选走廊持久化缓存 | 自选配置落盘至 `data/cache/custom_watchlist.json`，支持冷启动恢复与默认列表兜底 | M1 | R1 |
-| 6 | UI 细节修复与精炼 | `button[kind="primary"] *` 强制白色文字 (`#ffffff !important`)，Tab 1 步骤一合并消除重复资产锚点与权益上限描述 | M1 | R3 |
-| 7 | 估值与动量单源同真 | 彻底废除 `RADAR_SECTOR_CATALOG` 静态硬编码字段，修正 parquet 路径，统一由 `IndexValuationEngine` 与本地矩阵动态精算 14 赛道指标 | M2 | R2 |
-| 8 | 升级左翼全市场机会雷达 | Top 3 机会卡片下方提供可展开 14 大赛道量化温度计总表，顶部增加 <=80 字今日市场脉搏晨报 | M2 | R2 |
-| 9 | 实装右翼六维主动风险预警哨 | 实装未满7天锁仓红牌(011612)、临免赎倒计时黄牌(011613)、C类30天置换、阶梯止盈与深套诊断(013841)、赛道集中度与重仓重叠、迷你基清盘与攻防线 | M2 | R2 |
-| 10 | 预警卡片交互式动作按钮 | 每条预警卡片配备一键跳转 Tab 2 锁定未满 7 天标的或生成阶梯止盈减仓单的可交互动作按钮 | M2 | R2 |
-| 11 | 实装 7 大机构量化定权求解算子 | 在 `QUANT_MODELS_CATALOG` 与 `WinRateOptimizer` 中实装 HRP、核心卫星、全天候、BL观点融合、条件胜率、CVaR、凯利动量增强，权重和严格等于 1.0 | M3 | R3 |
-| 12 | 步骤一模型对比与宏观路由更新 | 同步更新 Tab 1 步骤一 7 大模型对比说明卡片与宏观环境推荐路由逻辑 | M3 | R3 |
-| 13 | 历史黑天鹅压力测试器 | 在 Tab 1 步骤二与 Tab 3 推演结果中实装 2018、2022、2024 年初三大历史切片最大浮亏金额与回本天数测算卡片 | M3 | R3 |
-| 14 | 物理裁判文件哈希锁定与只读审计 | 运行 `verify_referee_hashes.py` 验证 4 大只读文件 SHA256 完好无损 | M4 | R4 |
-| 15 | 针对性单元测试套件全覆盖 | 验证 7 大模型权重和严格等于 1.0、6 维预警哨精准识别 011612/011613/013841、侧边栏与雷达估值分位 100% 同源一致 | M4 | R5 |
-| 16 | Streamlit AppTest 回归与服务重启 | AppTest 验证深浅色主题全站 0 异常，遵循瞬态端口非破坏性甄别平滑重启 8501 端口服务 | M4 | R5 |
+| 1 | Tab 2 双视图物理分支隔离 | 主流程严格隐藏底部账本工具坞；工具坞模式隐藏持仓大表与步骤二三并全宽平铺 6 大子 Tab | M1 | P0 Item 1 |
+| 2 | 持仓表未保存修改保护 | 检测 uncommitted changes 渲染动态警告条；周边按钮前置触发自动入库 | M1 | P1 Item 4 |
+| 3 | 清理重复滑块与口号残留 | 清理 Tab 2 顶部与底部冗余缓冲带滑块，清理 dock_tab3 重复按钮，清理预警哨口号并设容器高 380px | M1 | P1 Item 5 |
+| 4 | 大额本金中文数量级防错提示 | Tab 1、Tab 2 现金池、新增补仓/提现金额下方动态提示千分位与中文万元折算 | M1 | P2 Item 7 |
+| 5 | 高危覆写防误触与一键回滚 | Tab 1 步骤三覆盖写入增加 popover 确认门禁，覆写前自动存 Undo 快照，成功后提供一键回滚按钮 | M2 | P0 Item 2 |
+| 6 | 首屏双翼跨 Tab 真路由与承接横幅 | components.html 注入 DOM 脚本触发真实 Tab 点击与滚动，补齐 6 类预警处置参数传递，渲染承接横幅 | M2 | P0 Item 3 |
+| 7 | 机会雷达实时行情融合与四维证据链 | 注入实时指数行情，绑定实时资讯爬虫与本地缓存，晨报展示秒级时间戳与快讯，Top 3 卡片展示涨跌幅与四维得分 | M3 | P1 Item 6 |
+| 8 | G8 专属测试套件与全量回归 | 编写 tests/test_g8_ux_and_realtime_fusion.py，回归全量 5 套测试并通过 4 大只读文件审计 | M4 | 验证要求 |
+| 9 | 服务平滑重启与 /browser 视觉核验 | 终止旧进程，重启 8501 端口服务，调用 /browser 针对四大工作区进行端到端多模态走查 | M5 | 走查要求 |
+| 10 | Git 归档打标 v3.8-G8 与 G9 指令生成 | git add -A, commit, tag v3.8-G8, push origin HEAD & tags (禁止 Release)，生成 G9 指令 | M5 | 归档要求 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | 侧边栏核心指数走廊升级、全市场自由定制与 UI 细节修复 | Features 1-6 (R1, R3 UI): 样式并集选择器, 离线真实涨跌幅, 3 层指标流卡片, 38+ 目录与弹窗设置, Watchlist JSON 持久化, Primary 白字与步骤一文案精炼 | none | DONE |
-| M2 | 估值动量单源同真与双翼看板升级 (机会雷达 + 六维预警哨) | Features 7-10 (R2): 废除静态常量, 路径纠正与 14 赛道动态精算, 脉搏晨报与温度计总表, 六维主动预警哨实装与快捷交互按钮 | M1 | DONE |
-| M3 | 7 大机构级量化定权模型与历史黑天鹅压力测试器 | Features 11-13 (R3): 实装 7 大数学求解算子, 权重归一化严格等于 1.0, 宏观推荐路由, 2018/2022/2024 黑天鹅压力测试卡片 | M1, M2 | IN_PROGRESS |
-| M4 | 物理红线哈希审计、全套自动化回归测试与服务平滑重启 | Features 14-16 (R4, R5): 裁判文件哈希审计, 7 模型归一化/6 维预警/估值同源针对性单元测试, AppTest 4-Tab 0 异常, 8501 端口平滑重启 | M1, M2, M3 | PLANNED |
+| M1 | Tab 2 物理视图真隔离、持仓表未保存保护、重复滑块清理与大额本金防错 | Features 1, 2, 3, 4 (`app_gui.py`) | none | IN_PROGRESS |
+| M2 | 高危覆写防误触与一键回滚、首屏双翼跨 Tab 真路由与承接横幅 | Features 5, 6 (`app_gui.py`, `portfolio_manager.py`) | M1 | PLANNED |
+| M3 | 机会雷达盘中实时行情融合、秒级快讯感知与四维评分证据链 | Feature 7 (`data_loader.py`, `advisory_engine.py`, `app_gui.py`) | M1, M2 | PLANNED |
+| M4 | G8 专属针对性测试套件与全量自动化回归验证 | Feature 8 (`tests/test_g8_ux_and_realtime_fusion.py` + 全量测试) | M1, M2, M3 | PLANNED |
+| M5 | 8501 服务平滑重启、/browser 视觉交互走查、Git 归档打标 v3.8-G8 与 G9 自举指令 | Features 9, 10 (全流程交付闭环) | M4 | PLANNED |
 
 ## Interface Contracts
-### M1 ↔ M2: Index Valuation & Sector Mapping Contract
-- **File**: `data/cache/custom_watchlist.json` & `AGY2_FundAdvisory/data_loader.py`
-- **Schema**:
-  - `custom_watchlist.json`: `{"selected_symbols": ["000300", "000905", "000852", "000922", ...], "custom_added": [{"symbol": str, "name": str, "market": str}], "display_count": int}`
-  - `IndexValuationEngine`: Benchmark symbols (e.g. `000922` for csi_dividend) must return identical percentile in both sidebar and radar.
-- **Rule 16 Invariant**: CSI Dividend benchmark symbol is strictly `000922` (never `000015`).
-
-### M2 ↔ M3: Radar Views & Black-Litterman Input Contract
-- **File**: `AGY2_FundAdvisory/advisory_engine.py` ↔ `winrate_engine.py`
+### M1 ↔ M2: Tab 2 State Machine & Navigation Contract
+- **File**: `AGY2_FundAdvisory/app_gui.py`
 - **Contract**:
-  - `OpportunityRadarEngine.get_top_opportunity_sectors(k=3)` returns `{sector_id: expected_excess_return}` as Bayesian P / Q views for Model 4 (Black-Litterman).
-  - All 7 quantitative weighting models must output weights $w_i \ge 0$ such that $|\sum w_i - 1.0| < 1e-6$.
+  - `is_t2_main_mode = tab2_view_mode.startswith("🎯")` controls main flow vs maintenance flow.
+  - `# tab2_rebal_buf_slider_bot` comment is preserved for static test backward-compatibility.
+  - `<b>{len(pm.holdings)} 只</b>` static string contract in dock_tab3 is preserved.
+  - `format_chinese_amount(val: float) -> str` returns e.g. `"¥100,000.00 折合 10.00 万元"`.
 
-### M3 ↔ M4: Mathematical Invariants & Test Verification
-- **Contract 1 (Weight Sum Unity)**: All 7 models must satisfy `sum(weights.values()) == 1.0` within floating precision `1e-6`.
-- **Contract 2 (Penalty Lock & FIFO Holding)**: Holding $<7$ days (011612) strictly locks shares at lower bound in optimizer.
-- **Contract 3 (Zero Exception AppTest)**: Streamlit `AppTest` executes all 4 tabs with `assert not at.exception` in both light and dark themes.
+### M2 ↔ M3: Cross-Tab Jump & Undo Snapshot Contract
+- **File**: `AGY2_FundAdvisory/portfolio_manager.py` & `app_gui.py`
+- **Contract**:
+  - `pm._push_undo_snapshot()` captures current holdings, cash, and pending orders into `self.snapshot_stack` and SQLite `portfolio_snapshots`.
+  - `pm.undo()` restores previous state without data loss.
+  - `st.session_state["pending_cross_tab_jump"] = {"tab_index": int, "tab_name": str, "action_type": str, "target_code": str}` consumed by `components.html` and cleared on arrival.
+
+### M3 ↔ M4: Real-Time Radar & 4D Evidence Contract
+- **File**: `AGY2_FundAdvisory/advisory_engine.py` & `data_loader.py`
+- **Contract**:
+  - `DataLoader.fetch_realtime_market_news_and_catalysts(limit=20, timeout=2.0, cache_ttl_sec=60.0)` returns `List[Dict]` with keys: `title`, `time`, `url`, `source`, `sentiment`.
+  - `OpportunityRadarEngine.scan_all_sectors()` / `evaluate_sector()` returns dict containing `core_logic`, `realtime_chg_pct`, `realtime_point`, and `sub_scores`: `{"valuation": float, "momentum": float, "kaufman_snr": float, "anti_crowding": float}`.
 
 ## Code Layout
-- `AGY2_FundAdvisory/`
-  - `app_gui.py`: 侧边栏行情走廊、设置弹窗、双翼看板渲染、黑天鹅卡片与全局样式 (M1, M2, M3)
-  - `data_loader.py`: 实时行情获取、离线收盘价涨跌幅、估值分位引擎 (M1, M2)
-  - `advisory_engine.py`: 单源同真雷达引擎、14 赛道量化温度计、六维主动风险预警哨 (M2)
-  - `winrate_engine.py`: 7 大机构定权模型算子、黑天鹅压力测试测算逻辑 (M3)
-  - `portfolio_optimizer.py`: 调仓路径优化、惩罚锁仓硬约束 (M2, M3)
-  - `tests/`: 自动化单元测试与回归测试 (M4)
+- `AGY2_FundAdvisory/app_gui.py`: Tab 2 双视图物理分支、持仓表未保存保护、金额防错格式化、覆写 popover 门禁与撤销回滚按钮、跨 Tab DOM 脚本注入、晨报时间戳与 Top 3 四维卡片
+- `AGY2_FundAdvisory/portfolio_manager.py`: `_push_undo_snapshot` 封装与 `apply_zero_start_blueprint` 前置快照压栈
+- `AGY2_FundAdvisory/data_loader.py`: `DataLoader` 类挂载实时资讯爬虫与本地缓存兜底
+- `AGY2_FundAdvisory/advisory_engine.py`: `OpportunityRadarEngine` 实时指数行情注入与四维子项得分透传
 - `tests/`:
-  - `test_infra.py`: 只读裁判测试基线（物理只读）
-  - `test_r8_quant_models_and_sentry.py`: 增量针对性测试套件 (M4)
+  - `test_infra.py`: 只读裁判测试基线（严禁修改）
+  - `test_g8_ux_and_realtime_fusion.py`: G8 增量针对性测试套件

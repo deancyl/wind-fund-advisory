@@ -2608,7 +2608,14 @@ class PortfolioManager:
     ):
         if ledger_file is not None:
             ledger_json_path = ledger_file
-        if storage_file is not None:
+        elif storage_file is not None and str(storage_file).endswith(".json"):
+            ledger_json_path = storage_file
+            if db_path is None or str(db_path) == "portfolio_state.db":
+                db_path = Path(storage_file).with_suffix(".db")
+        elif storage_file is not None and str(ledger_json_path) == "portfolio_ledger.json":
+            ledger_json_path = Path(storage_file).with_suffix(".json")
+
+        if storage_file is not None and not str(storage_file).endswith(".json"):
             db_path = storage_file
 
         self.ledger_json_path = Path(ledger_json_path)
@@ -3440,6 +3447,10 @@ class PortfolioManager:
         except Exception:
             self.snapshot_stack = []
 
+    def _push_undo_snapshot(self) -> None:
+        """强制将当前内存运行态保存并推入 SQLite 快照栈，守死可逆回滚底线"""
+        self.save_state(record_snapshot=True)
+
     def undo(self) -> bool:
         """一键撤销并回滚到上一次操作快照"""
         if len(self.snapshot_stack) <= 1:
@@ -4188,6 +4199,8 @@ class PortfolioManager:
         2. 稳健三步分批建仓：今日 50% 底仓转化为份额，剩余 50% 严格保留在 available_cash
         3. 估值自适应智能定投：今日仅按第 1 期实扣金额买入，剩余未扣款保留在 available_cash
         """
+        # G8: 覆写前强制压入历史快照，守死一键回滚底线
+        self._push_undo_snapshot()
         self.holdings.clear()
         self.pending_orders.clear()
         self.peak_equity = 0.0
@@ -4214,13 +4227,16 @@ class PortfolioManager:
             mode_tag = "一次性建仓"
 
         allocated_total = 0.0
-        items = blueprint.get("items", [])
+        items = blueprint.get("items") or blueprint.get("funds", [])
 
         for it in items:
             code = str(it.get("fund_code")).strip().zfill(6)
-            base_amt = float(it.get("allocated_amount", 0.0))
+            base_amt = float(it.get("allocated_amount", 0.0) or it.get("amount", 0.0))
+            if base_amt <= 0 and "weight_pct" in it and total_cap > 0:
+                base_amt = round(total_cap * float(it["weight_pct"]) / 100.0, 2)
             if base_amt <= 0:
                 continue
+            fname_it = it.get("fund_name")
 
             amt = round(base_amt * deployment_ratio, 2)
             if amt <= 0:
@@ -4248,7 +4264,8 @@ class PortfolioManager:
                     holding_tag="<7d",
                     dividend_method=div_method,
                     notes=note_str,
-                    append_batch=False
+                    append_batch=False,
+                    record_snapshot=False
                 )
 
                 # 2. 剩余大额资金买入不限购备选标的
@@ -4266,7 +4283,8 @@ class PortfolioManager:
                         holding_tag="<7d",
                         dividend_method=div_method,
                         notes=note_fb,
-                        append_batch=False
+                        append_batch=False,
+                        record_snapshot=False
                     )
                 allocated_total += amt
             else:
@@ -4284,7 +4302,9 @@ class PortfolioManager:
                     holding_tag="<7d",
                     dividend_method=div_method,
                     notes=note_str,
-                    append_batch=False
+                    fund_name=fname_it,
+                    append_batch=False,
+                    record_snapshot=False
                 )
                 allocated_total += amt
 
@@ -4346,7 +4366,8 @@ class PortfolioManager:
         dividend_method: str = "cash",
         notes: str = "手动新增持仓",
         append_batch: bool = False,
-        fund_name: Optional[str] = None
+        fund_name: Optional[str] = None,
+        record_snapshot: bool = True
     ) -> Dict[str, Any]:
         """
         在不破坏已有其他持仓的前提下，单只增补或直接修改某只基金持仓
@@ -4457,7 +4478,7 @@ class PortfolioManager:
 
         self._recalculate_totals()
         self._evaluate_all_transition_tags()
-        self.save_state(record_snapshot=True)
+        self.save_state(record_snapshot=record_snapshot)
 
         return {
             "status": "SUCCESS",
@@ -4849,7 +4870,8 @@ class PortfolioManager:
                 "matrix": np.array([[1.0]]) if active_funds else np.zeros((0, 0)),
                 "alerts": single_alerts,
                 "pending_external_funds": pending_external_funds,
-                "max_non_diag_unexcused": 0.0
+                "max_non_diag_unexcused": 0.0,
+                "max_total_overlap": 0.0
             }
 
         fund_labels = []

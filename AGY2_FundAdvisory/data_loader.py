@@ -259,7 +259,10 @@ def fetch_realtime_market_news_and_catalysts(
     # 1. 内存高速缓存
     if not force_refresh and _REALTIME_NEWS_MEM_CACHE["data"] is not None:
         if now_ts - _REALTIME_NEWS_MEM_CACHE["ts"] < cache_ttl_sec:
-            return _REALTIME_NEWS_MEM_CACHE["data"]
+            cached_data = _REALTIME_NEWS_MEM_CACHE["data"]
+            if "news" not in cached_data:
+                cached_data["news"] = cached_data.get("flash_news", [])
+            return cached_data
             
     # 2. 磁盘快照缓存
     if not force_refresh and REALTIME_NEWS_CACHE_FILE.exists():
@@ -268,6 +271,8 @@ def fetch_realtime_market_news_and_catalysts(
                 cached = json.load(f)
             cached_dt = datetime.fromisoformat(cached.get("updated_at", "2000-01-01"))
             if (datetime.now() - cached_dt).total_seconds() < cache_ttl_sec:
+                if "news" not in cached:
+                    cached["news"] = cached.get("flash_news", [])
                 _REALTIME_NEWS_MEM_CACHE["ts"] = now_ts
                 _REALTIME_NEWS_MEM_CACHE["data"] = cached
                 return cached
@@ -361,6 +366,7 @@ def fetch_realtime_market_news_and_catalysts(
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "timestamp_sec": now_ts,
+            "news": parsed_items,
             "flash_news": parsed_items,
             "macro_items": macro_items,
             "sector_catalysts": sector_catalysts,
@@ -387,6 +393,7 @@ def fetch_realtime_market_news_and_catalysts(
                 cached = json.load(f)
             cached["source"] = "cached_fallback"
             cached["status"] = "cached_fallback"
+            cached["news"] = cached.get("news") or cached.get("flash_news", [])
             _REALTIME_NEWS_MEM_CACHE["ts"] = now_ts
             _REALTIME_NEWS_MEM_CACHE["data"] = cached
             return cached
@@ -419,6 +426,7 @@ def fetch_realtime_market_news_and_catalysts(
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "timestamp_sec": now_ts,
+        "news": fallback_items,
         "flash_news": fallback_items,
         "macro_items": [fallback_items[0]],
         "sector_catalysts": {
@@ -865,6 +873,7 @@ class DataLoader:
     denoise_covariance_matrix = staticmethod(denoise_covariance_matrix)
     fetch_market_turnover_and_sentiment = staticmethod(fetch_market_turnover_and_sentiment)
     fetch_or_calc_index_valuations = staticmethod(fetch_or_calc_index_valuations)
+    fetch_realtime_market_news_and_catalysts = staticmethod(fetch_realtime_market_news_and_catalysts)
 
     @classmethod
     def load_fund_purchase_table(cls, force_refresh: bool = False) -> pd.DataFrame:
@@ -2176,4 +2185,9 @@ IndexValuationEngine.get_index_corridor_metrics = staticmethod(get_index_corrido
 IndexValuationEngine.calc_offline_2day_return = staticmethod(calc_offline_2day_return)
 IndexValuationEngine.fetch_custom_realtime_indices = staticmethod(fetch_custom_realtime_indices)
 IndexValuationEngine.fetch_batch_realtime_indices = staticmethod(fetch_batch_realtime_indices)
+
+DataLoader.calc_offline_2day_return = staticmethod(calc_offline_2day_return)
+DataLoader.fetch_custom_realtime_indices = staticmethod(fetch_custom_realtime_indices)
+DataLoader.fetch_batch_realtime_indices = staticmethod(fetch_batch_realtime_indices)
+
 
