@@ -1488,34 +1488,36 @@ def render_historical_inflection_ruler_html(ruler_data: Dict[str, Any]) -> str:
             badge_title = "🔥 2024 反转前夕"
             sub_lbl = f"ERP {erp:.1f}% ｜ 偏离 {bias:+.1f}%"
 
-        card = f"""
-        <div class="inflection-node-card {'inflection-today-card' if is_today else ''}" style="border: 1.5px solid {border}; background: {bg}; border-radius: 6px; padding: 6px 10px; min-width: 135px; flex: 1 1 0; box-sizing: border-box;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
-                <span style="font-size: 11px; font-weight: 700; color: {tag_color}; white-space: nowrap;">{badge_title}</span>
-                <span style="font-size: 10px; color: var(--text-muted); font-family: monospace;">{d_str}</span>
-            </div>
-            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 4px;">
-                <span style="font-size: 15px; font-weight: 800; font-family: monospace; color: {tag_color};">{mult:.2f}x</span>
-                <span style="font-size: 10px; color: var(--text-secondary); white-space: nowrap;">{sub_lbl}</span>
-            </div>
-        </div>
-        """
+        card = (
+            f'<div class="inflection-node-card {"inflection-today-card" if is_today else ""}" '
+            f'style="border: 1.5px solid {border}; background: {bg}; border-radius: 6px; padding: 6px 10px; min-width: 135px; flex: 1 1 0; box-sizing: border-box;">'
+            f'<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">'
+            f'<span style="font-size: 11px; font-weight: 700; color: {tag_color}; white-space: nowrap;">{badge_title}</span>'
+            f'<span style="font-size: 10px; color: var(--text-muted); font-family: monospace;">{d_str}</span>'
+            f'</div>'
+            f'<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 4px;">'
+            f'<span style="font-size: 15px; font-weight: 800; font-family: monospace; color: {tag_color};">{mult:.2f}x</span>'
+            f'<span style="font-size: 10px; color: var(--text-secondary); white-space: nowrap;">{sub_lbl}</span>'
+            f'</div>'
+            f'</div>'
+        )
         cards_html.append(card)
 
-    return f"""
-    <div class="inflection-ruler-container" style="margin: 4px 0 6px 0; padding: 6px 8px; border-radius: 8px; background: var(--bg-canvas); border: 1px dashed var(--border-subtle);">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-            <span style="font-size: 11px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 4px;">
-                <span>📏 历史三大牛熊拐点实盘对照尺</span>
-                <span style="font-size: 10px; font-weight: normal; color: var(--text-muted);">(2021顶 0.50x ｜ 2022底 1.93x ｜ 2024底 1.94x ｜ 今日水位)</span>
-            </span>
-            <span style="font-size: 10px; color: var(--accent-primary); font-weight: 600;">定投扣款乘数对照</span>
-        </div>
-        <div class="inflection-ruler-scroll-row">
-            {''.join(cards_html)}
-        </div>
-    </div>
-    """
+    container_html = (
+        f'<div class="inflection-ruler-container" style="margin: 4px 0 6px 0; padding: 6px 8px; border-radius: 8px; background: var(--bg-canvas); border: 1px dashed var(--border-subtle);">'
+        f'<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">'
+        f'<span style="font-size: 11px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 4px;">'
+        f'<span>📏 历史三大牛熊拐点实盘对照尺</span>'
+        f'<span style="font-size: 10px; font-weight: normal; color: var(--text-muted);">(2021顶 0.50x ｜ 2022底 1.93x ｜ 2024底 1.94x ｜ 今日水位)</span>'
+        f'</span>'
+        f'<span style="font-size: 10px; color: var(--accent-primary); font-weight: 600;">定投扣款乘数对照</span>'
+        f'</div>'
+        f'<div class="inflection-ruler-scroll-row">'
+        f'{"".join(cards_html)}'
+        f'</div>'
+        f'</div>'
+    )
+    return _clean_html(container_html)
 
 
 def render_portfolio_cushion_and_stress_card_html(cushion_model: Dict[str, Any]) -> str:
@@ -1589,7 +1591,7 @@ def render_portfolio_cushion_and_stress_card_html(cushion_model: Dict[str, Any])
         """
         scenario_cards.append(s_html)
 
-    return f"""
+    card_html = f"""
     <div class="decision-card cushion-stress-container" style="border-left: 4px solid var(--accent-primary); padding: 12px 14px; margin-bottom: 12px; background: var(--bg-surface); border-radius: 8px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 4px;">
             <div style="display: flex; align-items: center; gap: 6px;">
@@ -1636,6 +1638,7 @@ def render_portfolio_cushion_and_stress_card_html(cushion_model: Dict[str, Any])
         </div>
     </div>
     """
+    return _clean_html(card_html)
 
 
 # 初始化核心运行态 (首屏毫秒级秒开：使用本地账本与 parquet，消灭 akshare/天天基金网络阻塞)
@@ -2403,10 +2406,30 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
 
             # --- 左翼：机会雷达 ---
             with col_radar:
-                st.markdown("<div style='font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;'>🔭 全市场机会雷达 · Top 3 机会甄选</div>", unsafe_allow_html=True)
                 radar_engine = OpportunityRadarEngine()
                 all_scanned_sectors = radar_engine.scan_all_sectors()
                 top3_sectors = [s for s in all_scanned_sectors if s.get("s_crowd", 85.0) >= 45.0][:3]
+                w_factors = getattr(radar_engine, "factor_weights", [0.30, 0.30, 0.25, 0.15])
+                evo_res = getattr(radar_engine, "evolved_result", {})
+
+                col_rad_head1, col_rad_head2 = st.columns([6.0, 4.0])
+                with col_rad_head1:
+                    safe_markdown_html("<div style='font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;'>🔭 全市场机会雷达 · Top 3 机会甄选</div>")
+                with col_rad_head2:
+                    with st.popover(f"🧬 因子进化: 估{w_factors[0]*100:.0f}% 动{w_factors[1]*100:.0f}% 噪{w_factors[2]*100:.0f}% 拥{w_factors[3]*100:.0f}%", use_container_width=True):
+                        st.markdown("##### 🧬 在线启发式因子基因自适应进化算子")
+                        st.caption("基于 14 大赛道真实 60 日收益与特征张量，纯 NumPy 向量化演化，严格约束换手率与回撤。")
+                        traj_data = radar_engine.evolver.get_60d_rolling_nav_and_trajectory()
+                        c_m1, c_m2, c_m3 = st.columns(3)
+                        c_m1.metric("超额 Alpha", f"{traj_data.get('alpha_pct', 0.0):+.2f}%")
+                        c_m2.metric("最大回撤", f"-{traj_data.get('mdd_dynamic_pct', 0.0):.2f}%")
+                        c_m3.metric("换手率惩罚", f"-{evo_res.get('turnover', 0.0):.1f}%")
+                        df_traj = pd.DataFrame({
+                            "日期": traj_data.get("dates", [])[-15:],
+                            "动态净值": traj_data.get("nav_dynamic", [])[-15:],
+                            "静态基准": traj_data.get("nav_static", [])[-15:],
+                        })
+                        st.line_chart(df_traj.set_index("日期"))
 
                 # 今日市场脉搏晨报 (<=80字) 与 历史牛熊拐点对照尺 (紧凑一行式 4 节点)
                 turnover_str = "1.2万亿"
@@ -2441,7 +2464,7 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                 )
                 ruler_bar_html = render_historical_inflection_ruler_html(inflection_ruler)
 
-                st.markdown(f"""
+                pulse_card_html = f"""
                 <div class="decision-card" style="padding: 8px 12px; margin-bottom: 10px; border-left: 3px solid var(--accent-primary); background: var(--bg-surface);">
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">
                         <span style="font-size: 11px; font-weight: 700; color: var(--accent-primary);">📢 今日市场脉搏晨报</span>
@@ -2452,14 +2475,15 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                     </div>
                     {ruler_bar_html}
                 </div>
-                """, unsafe_allow_html=True)
+                """
+                safe_markdown_html(pulse_card_html)
 
                 cols_top3 = st.columns(3)
                 for i, sec in enumerate(top3_sectors):
                     with cols_top3[i]:
                         sec_fund = sec.get("fund", {})
                         tag_color = "var(--color-up)" if "🔥" in sec["tag"] else ("var(--accent-primary)" if "🎯" in sec["tag"] else "var(--color-down)")
-                        st.markdown(f"""
+                        safe_markdown_html(f"""
                         <div class="decision-card" style="padding: 10px 12px; height: 100%; border-top: 2px solid {tag_color};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                                 <span style="font-size: 13px; font-weight: 700; color: var(--text-primary);">{sec['name']}</span>
@@ -2475,7 +2499,7 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                                 代码: <code>{sec_fund.get('code', '')}</code>
                             </div>
                         </div>
-                        """, unsafe_allow_html=True)
+                        """)
                         if st.button("➕ 入备选池", key=f"btn_add_radar_pool_{sec['sector_id']}", use_container_width=True, type="secondary"):
                             if "custom_candidate_pool" not in st.session_state:
                                 st.session_state.custom_candidate_pool = []
@@ -2619,58 +2643,33 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                             else:
                                 btn_lbl = "⚡ 立即处置"
 
-                            if st.button(btn_lbl, key=f"btn_sentry_act_{i}_{fcode}_{act_type}", use_container_width=True, type="secondary"):
-                                if act_type == "lock_shares":
-                                    if "tab2_locked_funds" not in st.session_state:
-                                        st.session_state.tab2_locked_funds = []
-                                    if fcode and fcode not in st.session_state.tab2_locked_funds:
-                                        st.session_state.tab2_locked_funds.append(fcode)
+                            col_s_a, col_s_b = st.columns(2)
+                            with col_s_a:
+                                if st.button(btn_lbl, key=f"btn_sentry_act_{i}_{fcode}_{act_type}", use_container_width=True, type="secondary"):
+                                    st.session_state["tab2_view_mode"] = "🎯 持仓诊断与智能调仓 (主流程)"
+                                    if act_type == "lock_shares":
+                                        if "tab2_locked_funds" not in st.session_state:
+                                            st.session_state.tab2_locked_funds = []
+                                        if fcode and fcode not in st.session_state.tab2_locked_funds:
+                                            st.session_state.tab2_locked_funds.append(fcode)
+                                    elif act_type == "take_profit":
+                                        st.session_state.tab2_pending_take_profit = {"fund_code": fcode, "ratio": 0.40}
+                                    elif act_type == "switch_a_class":
+                                        st.session_state.tab2_c_replace = fcode
                                     st.session_state.tab2_diagnosed = True
                                     st.session_state.tab2_rebalanced = True
                                     st.session_state.tab2_rebal_cache = None
                                     st.session_state.tab2_trigger_diagnose = False
                                     st.session_state.tab2_trigger_rebalance = False
-                                    st.toast(f"🔒 已锁定标的【{fcode}】持仓下界，已在【💼 持仓调仓】生成调仓保护单！")
+                                    st.toast(f"⚡ 已生成针对【{fcode or alert.get('title')}】的处置意图，已就绪于【💼 持仓调仓】！")
                                     st.rerun()
-                                elif act_type == "take_profit":
-                                    st.session_state.tab2_pending_take_profit = {"fund_code": fcode, "ratio": 0.40}
-                                    st.session_state.tab2_diagnosed = True
-                                    st.session_state.tab2_rebalanced = True
-                                    st.session_state.tab2_rebal_cache = None
-                                    st.session_state.tab2_trigger_diagnose = False
-                                    st.session_state.tab2_trigger_rebalance = False
-                                    st.toast(f"📉 已生成【{fcode}】阶梯止盈单（建议减持40%），已在【💼 持仓调仓】更新调仓方案！")
-                                    st.rerun()
-                                elif act_type == "deep_loss_rebalance":
-                                    st.session_state.tab2_diagnosed = True
-                                    st.session_state.tab2_rebalanced = True
-                                    st.session_state.tab2_rebal_cache = None
-                                    st.session_state.tab2_trigger_diagnose = False
-                                    st.session_state.tab2_trigger_rebalance = False
-                                    st.toast(f"💼 正在为深套标的【{fcode}】生成反弹抽均线阶梯减亏诊断，已在【💼 持仓调仓】就绪！")
-                                    st.rerun()
-                                elif act_type == "countdown_hold":
-                                    st.session_state.tab2_diagnosed = True
-                                    st.session_state.tab2_rebalanced = True
-                                    st.session_state.tab2_rebal_cache = None
-                                    st.toast(f"⏳ 已为【{fcode}】设置免赎倒计时保护，建议持有满 30 天后再行操作")
-                                    st.rerun()
-                                elif act_type == "switch_a_class":
-                                    st.session_state.tab2_c_replace = fcode
-                                    st.session_state.tab2_diagnosed = True
-                                    st.session_state.tab2_rebalanced = True
-                                    st.session_state.tab2_rebal_cache = None
-                                    st.session_state.tab2_trigger_diagnose = False
-                                    st.session_state.tab2_trigger_rebalance = False
-                                    st.toast(f"🔄 已激活【{fcode}】C类零费率置换指令，已在【💼 持仓调仓】更新！")
-                                    st.rerun()
-                                else:
-                                    st.session_state.tab2_diagnosed = True
-                                    st.session_state.tab2_rebalanced = True
-                                    st.session_state.tab2_rebal_cache = None
-                                    st.session_state.tab2_trigger_diagnose = False
-                                    st.session_state.tab2_trigger_rebalance = False
-                                    st.toast(f"⚡ 请前往【💼 持仓调仓】Tab 查看针对【{fcode}】的调仓建议")
+                            with col_s_b:
+                                if st.button("🔍 穿透到底层", key=f"btn_sentry_evid_{i}_{fcode}_{act_type}", use_container_width=True):
+                                    mod_key = "correlation_mutation" if "相关" in alert.get("title", "") else ("stock_overlap" if "重仓" in alert.get("title", "") else "holding_days_fifo")
+                                    st.session_state["tab4_highlight_module"] = mod_key
+                                    st.session_state["tab4_highlight_fund"] = fcode
+                                    st.session_state["tab4_highlight_title"] = alert.get("title", "")
+                                    st.toast(f"🔍 已锁定【{alert.get('title')}】，已在【🔍 穿透工具】高亮展现证据！")
                                     st.rerun()
     except Exception as e:
         st.caption(f"（双翼看板加载提示: {e}）")
@@ -4201,6 +4200,18 @@ with tab_holdings_and_rebalance:
                 </div>
                 """)
 
+        # ── G7: Tab 2 双视图解耦模式切换器 (主流程聚焦 vs 独立运维工具坞) ──
+        tab2_view_mode = st.radio(
+            "视图模式切换",
+            ["🎯 持仓诊断与智能调仓 (主流程)", "💼 账本运维与实盘复盘档案 (宽屏工具坞)"],
+            index=0 if st.session_state.get("tab2_view_mode", "🎯 持仓诊断与智能调仓 (主流程)").startswith("🎯") else 1,
+            horizontal=True,
+            key="rad_tab2_view_mode",
+            label_visibility="collapsed"
+        )
+        st.session_state["tab2_view_mode"] = tab2_view_mode
+        is_t2_main_mode = tab2_view_mode.startswith("🎯")
+
         # 🛡️ 浮盈安全垫抗震承压与本金破净临界看板 (重构升级原静态纯文字横幅)
         _c300_pt = float(snapshot.get("c300_close", snapshot.get("close", 3920.0)))
         _cushion_model = pm.calculate_portfolio_cushion_and_stress_model(current_index_point=_c300_pt)
@@ -4628,9 +4639,14 @@ with tab_holdings_and_rebalance:
                             st.success(f"已删除 {del_sel}")
                             st.rerun()
 
-        # ── 第三层：合并底部散落的 3 个折叠框为单一「🛠️ 账本工具坞」──
+        # ── G7: 工具坞仅在【💼 账本运维与实盘复盘档案】宽屏展示，主流程保持极致聚焦 ──
         has_holdings = len(pm.holdings) > 0
-        with st.expander("🛠️ 账本工具坞（快速录入 / FIFO批次透视 / 实盘接管档案）", expanded=(not has_holdings)):
+        if is_t2_main_mode:
+            st.info("🛠️ 需快速记账、检视 FIFO 批次或对账？请点击上方切换至【💼 账本运维与实盘复盘档案】宽屏工具坞。")
+        else:
+            st.markdown("### 💼 账本运维与实盘复盘档案 (独立宽屏工具坞)")
+            st.caption("提供快速录入、FIFO批次透视、实盘影子档案、T+1对账、同公司转换及宏观分红研判全套工具。")
+        with st.expander("🛠️ 账本工具坞（快速录入 / FIFO批次透视 / 实盘接管档案）", expanded=(not is_t2_main_mode or not has_holdings)):
             dock_tab1, dock_tab2, dock_tab3, dock_tab4, dock_tab5, dock_tab6 = st.tabs([
                 "✨ 快速录入/导入持仓",
                 "📦 FIFO批次解锁透视",
@@ -5072,7 +5088,7 @@ with tab_holdings_and_rebalance:
         # ---------------------------------------------------------
         # 步骤二：【🚦 调仓时机裁决】（AI 综合裁决卡 + 四维胶囊）
         # ---------------------------------------------------------
-        if st.session_state.get("tab2_diagnosed", False):
+        if is_t2_main_mode and st.session_state.get("tab2_diagnosed", False):
             st.markdown("---")
             st.markdown("### 步骤二：时机裁决")
 
@@ -5194,7 +5210,7 @@ with tab_holdings_and_rebalance:
         # ---------------------------------------------------------
         # 步骤三：【⚖️ 调仓方案与执行单】（四大后果 + 建议执行单）
         # ---------------------------------------------------------
-        if st.session_state.get("tab2_rebalanced", False):
+        if is_t2_main_mode and st.session_state.get("tab2_rebalanced", False):
             st.markdown("---")
             st.markdown("### 步骤三：方案执行")
 
@@ -6338,6 +6354,23 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
     active_examine_holdings = {}
     total_examine_equity = 0.0
     from portfolio_manager import HoldingItem
+
+    # ── 响应首屏主动风险哨联动穿透横幅 ──
+    hl_mod = st.session_state.get("tab4_highlight_module")
+    if hl_mod:
+        hl_title = st.session_state.get("tab4_highlight_title", "主动风险预警")
+        hl_code = st.session_state.get("tab4_highlight_fund", "")
+        safe_markdown_html(f"""
+        <div style="background: rgba(239, 68, 68, 0.08); border-left: 4px solid var(--color-up); padding: 10px 14px; border-radius: 6px; margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 700; color: var(--color-up); font-size: 13px;">🚨 响应首屏主动风险哨联动证据链：{hl_title}</span>
+                <span style="font-size: 11px; color: var(--text-secondary);">标的代码: {hl_code or '全组合'}</span>
+            </div>
+            <div style="font-size: 11.5px; color: var(--text-primary); margin-top: 4px;">
+                系统已为您在下方穿透对应底层持仓与风险证据链。完成排查后，建议返回【💼 持仓调仓】主流程实施调仓处置。
+            </div>
+        </div>
+        """)
 
     tb_kind, tb_val = option_key_map_tb.get(sel_tb_target, ("ledger", active_lid))
 

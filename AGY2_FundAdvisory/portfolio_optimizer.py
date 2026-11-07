@@ -29,9 +29,11 @@ if str(_THIS_DIR) not in sys.path:
 from winrate_engine import WinRateEngine, HOLDING_PERIODS, simulate_black_swan_stress, simulate_monte_carlo_block_bootstrap_stress
 from cache_manager import SmartCacheManager
 from data_loader import denoise_covariance_matrix
+from advisory_engine import OnlineHeuristicFactorEvolver
 
 __all__ = [
     "WinRateOptimizer",
+    "OnlineHeuristicFactorEvolver",
     "DEFAULT_CONSTRAINTS",
     "MAX_DRAWDOWN_BY_TIER",
     "QUANT_MODELS_CATALOG",

@@ -7081,6 +7081,70 @@ class StrategyBridge:
             default_pm = PortfolioManager()
             return default_pm.calculate_portfolio_cushion_and_stress_model(current_index_point=current_index_point)
 
+    @staticmethod
+    def find_same_company_conversions(
+        holdings: Dict[str, Any],
+        resolve_meta_fn: Optional[Callable] = None,
+        is_qdii_fn: Optional[Callable] = None
+    ) -> Dict[str, Any]:
+        """扫描同公司基金互转候选池与省费在途测算"""
+        company_map: Dict[str, List[Tuple[str, str, str, float]]] = {}
+        for c_k, h_v in (holdings or {}).items():
+            fn = getattr(h_v, "fund_name", "")
+            if is_qdii_fn and is_qdii_fn(c_k, fn):
+                continue
+            meta = resolve_meta_fn(c_k) if resolve_meta_fn else {}
+            comp = meta.get("company", "") or "通用公募"
+            if comp not in company_map:
+                company_map[comp] = []
+            sc = getattr(h_v, "share_class", "A")
+            mv = float(getattr(h_v, "market_value", 0.0))
+            company_map[comp].append((c_k, fn, sc, mv))
+
+        eligible = {k: v for k, v in company_map.items() if len(v) >= 2 or any(h[2] == "C" for h in v)}
+        return {
+            "company_map": company_map,
+            "eligible_companies": eligible,
+            "has_eligible": len(eligible) > 0
+        }
+
+    @staticmethod
+    def evaluate_macro_dividend_policy(
+        erp_percentile: float,
+        holdings: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """宏观估值自适应分红研判：低估再投，高估落袋"""
+        cur_erp = float(erp_percentile)
+        rec_div = "reinvest" if cur_erp >= 70.0 else ("cash" if cur_erp <= 35.0 else "neutral")
+
+        advice_text = ""
+        if rec_div == "reinvest":
+            advice_text = f"宏观 ERP 估值分位达 {cur_erp:.1f}% (处于历史极高性价比底部磨底区)：全组合首选建议设为【红利再投资】，以零申购费滚入更多份额！"
+        elif rec_div == "cash":
+            advice_text = f"宏观 ERP 估值分位仅 {cur_erp:.1f}% (处于高位估值过热区)：全组合首选建议变更为【现金分红】，不承担赎回费落袋为安！"
+        else:
+            advice_text = f"宏观 ERP 估值分位为 {cur_erp:.1f}% (中性常态)：核心红利资产建议红利再投，弹性成长建议现金分红。"
+
+        rows = []
+        for c_code, c_h in (holdings or {}).items():
+            curr = "现金分红" if getattr(c_h, "dividend_method", "cash") == "cash" else "红利再投"
+            ideal = "红利再投资" if rec_div == "reinvest" else ("现金分红" if rec_div == "cash" else ("红利再投" if "红利" in getattr(c_h, "fund_name", "") else "现金分红"))
+            matched = (curr == ideal.replace("资", ""))
+            rows.append({
+                "基金代码": c_code,
+                "基金名称": getattr(c_h, "fund_name", c_code),
+                "当前分红方式": curr,
+                "投顾自适应建议": ideal,
+                "匹配状态": "✅ 已对齐" if matched else "⚠️ 建议调整"
+            })
+
+        return {
+            "erp_percentile": cur_erp,
+            "recommended_mode": rec_div,
+            "advice_text": advice_text,
+            "rows": rows
+        }
+
 
 # =====================================================================
 # 顶层模块函数快捷导出 (Module-Level Exports)
@@ -7108,6 +7172,8 @@ get_fund_real_volatility_and_bias = StrategyBridge.get_fund_real_volatility_and_
 get_fund_20d_metrics = StrategyBridge.get_fund_20d_metrics
 calculate_asset_historical_beta = StrategyBridge.calculate_asset_historical_beta
 calculate_portfolio_cushion_and_stress_model = StrategyBridge.calculate_portfolio_cushion_and_stress_model
+find_same_company_conversions = StrategyBridge.find_same_company_conversions
+evaluate_macro_dividend_policy = StrategyBridge.evaluate_macro_dividend_policy
 
 
 
