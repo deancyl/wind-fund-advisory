@@ -1,52 +1,74 @@
 {
-  "timestamp": "2026-11-08 22:37:21",
+  "timestamp": "2026-11-09 00:40:13",
   "all_passed": false,
   "has_danger": true,
   "has_warning": true,
   "alerts": [
     {
       "level": "red",
-      "dimension": "未满7天锁仓",
-      "title": "【创金合信中证红利低波动指数A (005561)】持有仅 0 天（≤3天）",
-      "desc": "严禁赎回！未满 7 天赎回将直接触发证监会规定的 1.50% 巨额惩罚性扣款！",
-      "action": "锁定持仓下界，暂缓赎回，待持有满 7 天后再行操作。",
-      "action_type": "lock_shares",
-      "fund_code": "005561",
-      "fund_name": "创金合信中证红利低波动指数A"
-    },
-    {
-      "level": "red",
-      "dimension": "未满7天锁仓",
-      "title": "【易方达裕祥回报债券A (002351)】持有仅 0 天（≤3天）",
-      "desc": "严禁赎回！未满 7 天赎回将直接触发证监会规定的 1.50% 巨额惩罚性扣款！",
-      "action": "锁定持仓下界，暂缓赎回，待持有满 7 天后再行操作。",
-      "action_type": "lock_shares",
-      "fund_code": "002351",
-      "fund_name": "易方达裕祥回报债券A"
+      "dimension": "移动止盈",
+      "title": "【测试基金 (008888)】右侧破位锁利预警 (浮盈 +25.0%, 跌破MA20)",
+      "desc": "标的累计浮盈 +25.0%，最新跌破20日均线(Bias20: -1.0%)，且均线斜率转负(-0.5%)或单日急跌(0.0% > 1.5倍日均波幅)，右侧破位确立！",
+      "action": "启动右侧破位锁利：果断兑现 50% 浮盈仓位，利润沉淀为纯债或现金压舱石。",
+      "action_type": "take_profit",
+      "take_profit_ratio": 0.5,
+      "fund_code": "008888",
+      "fund_name": "测试基金",
+      "pnl_pct": 25.0,
+      "bias_20": -1.0,
+      "slope_20": -0.5,
+      "single_day_drop": 0.0
     },
     {
       "level": "yellow",
-      "dimension": "C类零费率置换",
-      "title": "【华夏科创50ETF联接C (011613)】C类份额已满 30 天（第 37 天）",
-      "desc": "赎回费已归零！建议在反弹阻力位择机全额置换清理，避免长期计提销售服务费。",
-      "action": "建议逢高置换为优质 A 类底仓或无费率标的。",
-      "action_type": "switch_a_class",
-      "fund_code": "011613",
-      "fund_name": "华夏科创50ETF联接C"
+      "dimension": "移动止盈",
+      "title": "【测试基金 (000216)】高水位浮盈回撤保护 (较60日高点回撤 -10.0%)",
+      "desc": "标的较近60日最高点累计回撤达 10.0%（当前仍保留 +25.0% 浮盈），触碰移动止盈保护线，防范利润全部回吐！",
+      "action": "建议执行移动止盈：减持 30%~50% 浮盈仓位锁定战果。",
+      "action_type": "take_profit",
+      "take_profit_ratio": 0.4,
+      "fund_code": "000216",
+      "fund_name": "测试基金",
+      "pnl_pct": 25.0,
+      "hwm_dd": 10.0
+    },
+    {
+      "level": "red",
+      "dimension": "超买拥挤",
+      "title": "【测试基金 (011612)】短期暴涨超买 (Bias20: +7.5%)",
+      "desc": "短期正乖离率超过 +6.0% 阈值，处于结构性情绪过热区，警惕高位均值回归！",
+      "action": "严禁单笔满仓追高，建议逢高阶梯兑现利润或设置止盈。",
+      "action_type": "take_profit",
+      "take_profit_ratio": 0.4,
+      "fund_code": "011612",
+      "fund_name": "测试基金"
+    },
+    {
+      "level": "yellow",
+      "dimension": "阶梯止盈",
+      "title": "【测试基金 (100032)】浮盈达标 (+18.0%) 触发阶梯止盈",
+      "desc": "进攻型基金持仓浮盈达 +18.0% 且技术面正乖离偏高，宜分批锁定收益。",
+      "action": "建议执行阶梯止盈减仓（赎回 30%~50% 转入纯债或红利低波）。",
+      "action_type": "take_profit",
+      "take_profit_ratio": 0.4,
+      "fund_code": "100032",
+      "fund_name": "测试基金"
     },
     {
       "level": "yellow",
       "dimension": "赛道集中度",
-      "title": "【红利高股息赛道】持仓占比达 36.3% (>35%集中度红线)",
-      "desc": "单一细分赛道市值敞口达 36.3%，超过 35% 风险预警阈值，组合弹性暴露过度！",
+      "title": "【科技成长赛道】持仓占比达 100.0% (>35%集中度红线)",
+      "desc": "单一细分赛道市值敞口达 100.0%，超过 35% 风险预警阈值，组合弹性暴露过度！",
       "action": "建议适度均衡配置，增配弱相关红利低波、纯债或海外 QDII 资产。",
       "action_type": "rebalance_sector"
     }
   ],
-  "summary": "发现 4 项风险与提示项",
+  "summary": "发现 5 项风险与提示项",
   "correlation_mutation": {
     "is_triggered": false,
     "is_liquidity_shift_triggered": false,
+    "is_mutation_alarm": false,
+    "is_regime_shift_risk": false,
     "current_correlation": 0.0485,
     "downside_correlation": -0.2421,
     "threshold": 0.75,
@@ -54,20 +76,16 @@
     "status": "DECOUPLED_NORMAL",
     "alert_level": "green",
     "original_weights": {
-      "005561": 0.1591393742639804,
-      "100032": 0.20391058489024688,
-      "002351": 0.053046458087993464,
-      "000216": 0.3240608124595521,
-      "017436": 0.2052155277592115,
-      "011613": 0.05462724253901567
+      "008888": 0.25,
+      "000216": 0.25,
+      "011612": 0.25,
+      "100032": 0.25
     },
     "adjusted_weights": {
-      "005561": 0.1591393742639804,
-      "100032": 0.20391058489024688,
-      "002351": 0.053046458087993464,
-      "000216": 0.3240608124595521,
-      "017436": 0.2052155277592115,
-      "011613": 0.05462724253901567
+      "008888": 0.25,
+      "000216": 0.25,
+      "011612": 0.25,
+      "100032": 0.25
     },
     "cut_details": [],
     "total_cut_weight_pct": 0.0,

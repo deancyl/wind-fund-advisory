@@ -2173,8 +2173,8 @@ class FundQuote(dict):
         return [self.name, self.dwjz, self.gsz, self.gszzl, self.gztime]
 
 
-# QDII 及跨市场/黄金底层基准映射表 (R2)
-QDII_BENCHMARK_MAP: Dict[str, str] = {
+# 指数基金、ETF 联接基金与 QDII 底层基准映射表
+INDEX_AND_FEEDER_BENCHMARK_MAP: Dict[str, str] = {
     # 标普 500 (优先场内标普500ETF，直接反映日间与美股期指预期)
     "050025": "sh513500",
     "001071": "sh513500",
@@ -2189,54 +2189,116 @@ QDII_BENCHMARK_MAP: Dict[str, str] = {
     "000217": "sh518880",
     "002610": "sh518880",
     "002611": "sh518880",
+    # 科创 50
+    "011612": "sh588000",
+    "011613": "sh588000",
+    # 芯片 / 半导体
+    "008888": "sz159995",
+    "012414": "sz159516",
+    "013841": "sz159995",
+    # 红利低波 / 中证红利
+    "005561": "sh512890",
+    "005562": "sh512890",
+    "100032": "sh515080",
+    "100033": "sh515080",
+    # 沪深 300 / 中证 500 / 中证 1000
+    "007339": "sh510300",
+    "110020": "sh510300",
+    "001053": "sh510500",
+    "161017": "sh510500",
+    "016633": "sh560010",
+    "016634": "sh560010",
+    # 白酒
+    "161725": "sz399997",
 }
+QDII_BENCHMARK_MAP: Dict[str, str] = INDEX_AND_FEEDER_BENCHMARK_MAP
 
 
-def _apply_qdii_valuation_correction(q: FundQuote) -> FundQuote:
+def _apply_fund_valuation_calibration(q: FundQuote) -> FundQuote:
     """
-    检查并纠偏 QDII 与黄金联接盘中估值异常 (绝对偏差 > 1.5%):
-    若基金估算涨跌幅 gszzl 与底层基准 (sh513500 / gb_inx / sh518880) 实时涨跌幅绝对偏差 > 1.5%，
-    自动使用基准实时涨跌幅乘以 0.95 覆盖纠偏，并重新校准:
-    gsz = round(dwjz * (1.0 + gszzl / 100.0), 4)
-    在 quote 中标记 valuation_corrected: True
+    校准指数基金与场外 ETF 联接基金的盘中实时估值精度：
+    优先结合其对应基准指数或场内 ETF 的实时涨跌幅（联接基金乘以 0.95 仓位系数）校准 gszzl，消除季报滞后重仓股带来的估算偏差。
+    对于 QDII/美股/黄金等标的，若绝对偏差 > 1.5%，执行基准纠偏；
+    对于 A 股宽基与行业指数/联接基金，若存在绝对偏差 (>0.1% 或当前为0.0)，结合基准实时涨跌幅纠偏校准。
     """
     if q.valuation_corrected:
         return q
 
-    code = q.fund_code
-    bench_sym = QDII_BENCHMARK_MAP.get(code)
+    code = str(q.fund_code).strip().zfill(6)
+    bench_sym = INDEX_AND_FEEDER_BENCHMARK_MAP.get(code)
+    f_n = q.name
+
     if not bench_sym:
-        f_n = q.name
-        if "标普500" in f_n:
-            bench_sym = "sh513500"
-        elif "纳斯达克" in f_n or "纳指" in f_n:
-            bench_sym = "sh513100"
-        elif "黄金" in f_n:
-            bench_sym = "sh518880"
+        # 仅针对明确为指数/ETF/联接基金的标的按名称关键词匹配基准
+        is_index_or_feeder_name = any(k in f_n for k in ["指数", "ETF", "联接", "feeder"])
+        if is_index_or_feeder_name:
+            if "标普500" in f_n:
+                bench_sym = "sh513500"
+            elif "纳斯达克" in f_n or "纳指" in f_n:
+                bench_sym = "sh513100"
+            elif "黄金" in f_n:
+                bench_sym = "sh518880"
+            elif "科创" in f_n:
+                bench_sym = "sh588000"
+            elif "芯片" in f_n or "半导体" in f_n:
+                bench_sym = "sz159995"
+            elif "红利低波" in f_n:
+                bench_sym = "sh512890"
+            elif "红利" in f_n:
+                bench_sym = "sh515080"
+            elif "300" in f_n:
+                bench_sym = "sh510300"
+            elif "500" in f_n:
+                bench_sym = "sh510500"
+            elif "1000" in f_n:
+                bench_sym = "sh560010"
+            elif "白酒" in f_n:
+                bench_sym = "sz399997"
 
     if bench_sym:
         try:
             b_q = fetch_realtime_index_quote(bench_sym, use_cache=True)
             if b_q and "change_pct" in b_q:
                 b_change = float(b_q.get("change_pct", 0.0))
-                # 检验估算涨跌幅 gszzl 与基准实时涨跌幅绝对偏差
-                if abs(q.gszzl - b_change) > 1.5:
-                    # 自动使用基准实时涨跌幅 * 0.95 覆盖纠偏
-                    corrected_gszzl = round(b_change * 0.95, 2)
-                    corrected_gsz = round(q.dwjz * (1.0 + corrected_gszzl / 100.0), 4) if q.dwjz > 0 else q.gsz
-                    corrected_gztime = f"{q.gztime} (基准纠偏: {bench_sym} {b_change:+.2f}%)".strip()
+                is_feeder = "联接" in f_n or "feeder" in f_n.lower()
+                # 联接基金按 0.95 仓位折算；纯指数按 1.0 折算
+                factor = 0.95 if is_feeder else 1.0
+                calibrated_gszzl = round(b_change * factor, 2)
+
+                is_qdii_or_gold = any(k in f_n for k in ["标普", "纳斯达克", "纳指", "QDII", "qdii", "黄金"]) or code in {
+                    "050025", "001071", "003718", "012860", "006075", "017436", "017437",
+                    "000216", "000217", "002610", "002611"
+                }
+
+                # 触发纠偏条件:
+                # 1. QDII/黄金类资产：依既有契约，与基准直接绝对偏差 > 1.5% 时严格触发纠偏
+                # 2. A股指数/联接基金：当与基准理论涨跌幅存在偏差 (>0.1% 或天天基金报 0.0%) 时触发校准
+                should_correct = False
+                if is_qdii_or_gold:
+                    if abs(q.gszzl - b_change) > 1.5:
+                        should_correct = True
+                else:
+                    if abs(q.gszzl - calibrated_gszzl) > 0.1 or q.gszzl == 0.0:
+                        should_correct = True
+
+                if should_correct:
+                    calibrated_gsz = round(q.dwjz * (1.0 + calibrated_gszzl / 100.0), 4) if q.dwjz > 0 else q.gsz
+                    calibrated_gztime = f"{q.gztime} (基准纠偏: {bench_sym} {b_change:+.2f}%)".strip()
                     return FundQuote(
                         name=q.name,
                         dwjz=q.dwjz,
-                        gsz=corrected_gsz,
-                        gszzl=corrected_gszzl,
-                        gztime=corrected_gztime,
+                        gsz=calibrated_gsz,
+                        gszzl=calibrated_gszzl,
+                        gztime=calibrated_gztime,
                         fund_code=q.fund_code,
                         valuation_corrected=True
                     )
         except Exception:
             pass
     return q
+
+
+_apply_qdii_valuation_correction = _apply_fund_valuation_calibration
 
 
 def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True) -> FundQuote:
@@ -8627,6 +8689,8 @@ class PortfolioManager:
         return {
             "is_triggered": is_triggered,
             "is_liquidity_shift_triggered": is_liquidity_shift_triggered,
+            "is_mutation_alarm": is_triggered,
+            "is_regime_shift_risk": is_liquidity_shift_triggered,
             "current_correlation": current_corr,
             "downside_correlation": downside_corr,
             "threshold": threshold,

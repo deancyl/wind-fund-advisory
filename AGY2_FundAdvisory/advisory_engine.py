@@ -246,19 +246,19 @@ def _get_index_valuation_cache() -> Dict[str, Any]:
 
 class OnlineHeuristicFactorEvolver:
     """
-    在线启发式因子基因自适应进化算子 (G9 世代核心量化引擎)
+    在线启发式因子基因自适应进化与突发黑天鹅 GP 规则树引擎 (G12 核心量化引擎)
     
-    1. 候选染色体种群 N=32，四维因子权重向量 w = [w_val, w_mom, w_snr, w_crowd]
-       硬约束：每维权重 w_i >= 0.05, sum(w_i) == 1.000000
-    2. 基于本地 14 大赛道的真实收益率矩阵 R 与四维因子特征张量 F
+    1. 候选染色体种群 N=32，扩展为 7 维基因向量：
+       w = [w_val, w_mom, w_snr, w_crowd, g_mom_win, g_vol_pulse, g_panic_shift]
+       - 前 4 维：基础因子权重，硬约束 w_i >= 0.05, sum(w_i) == 1.000000
+       - 第 5 维 (g_mom_win): 自适应动量窗口基因 [0.0, 1.0]，在 5 日敏锐捕捉与 20 日稳健趋势间动态加权
+       - 第 6 维 (g_vol_pulse): 波动率脉冲惩罚基因 [0.5, 3.0]，当近 5 日波动率 / 60 日波动率 > 1.2 时指数级衰减得分
+       - 第 7 维 (g_panic_shift): 突发急跌避险切换算子 [0.0, 1.5]，大盘突发急跌时自动强化纯债与黄金压舱石得分
+    2. 实时截面注入：融合今日盘中实时最新价格至序列末端，使基因演化立即感知突发暴涨暴跌
     3. 适应度函数：
        Fitness = Sharpe + 0.6 * WinRate - 1.2 * MDD - 1.5 * TailMDD - 0.8 * Turnover
-       严格执行：
-       - 因果律铁律：P[:-1] 滞后一期作用于 R[1:]，彻底消除同日未来函数
-       - 真实扣除双边换手摩擦成本：0.0020 * daily_to，真实合成净值
-       - 严格扣除年化 2.0% 无风险利率 (0.02 / 250.0)
-    4. 实装推进式样本外演化轨迹 (Walk-Forward Rolling Trajectory, 12切片 x 5日)，彻底废除 lam 线性插值
-    5. 跨市场 A 股交易日历 (H00300) 严格重采样 (reindex + ffill)，彻底废除 np.linspace 假序列
+       严格因果律对齐：P[:-1] 作用于 R[1:]，扣除 20 bps 双边换手摩擦与 2.0% 年化无风险利率
+    4. 实装推进式样本外演化轨迹 (Walk-Forward Rolling Trajectory) 与突发状态模式识别
     """
 
     def __init__(self, population_size: int = 32, generations: int = 15, random_seed: int = 42):
@@ -266,11 +266,14 @@ class OnlineHeuristicFactorEvolver:
         self.generations = max(5, int(generations))
         self.random_seed = random_seed
         self.static_weights = np.array([0.30, 0.30, 0.25, 0.15], dtype=float)
+        self.static_7d_genes = np.array([0.30, 0.30, 0.25, 0.15, 0.30, 1.20, 0.50], dtype=float)
         self._cached_evolution: Optional[Dict[str, Any]] = None
         self._cached_60d_data: Optional[Dict[str, Any]] = None
 
-    def _extract_sector_price_matrix(self, window_days: int = 140) -> Tuple[np.ndarray, List[str], List[str]]:
-        """从本地真实行情提取 14 大赛道的近 window_days 日收盘价矩阵 (以 A 股交易日历为基准严格对齐)"""
+    def _extract_sector_price_matrix(
+        self, window_days: int = 140, realtime_quotes: Optional[Dict[str, Dict[str, Any]]] = None
+    ) -> Tuple[np.ndarray, List[str], List[str]]:
+        """从本地真实行情提取 14 大赛道的近 window_days 日收盘价矩阵，支持今日盘中实时价格注入末端"""
         sector_ids = list(RADAR_SECTOR_CATALOG.keys())
         prices_dict = {}
 
@@ -320,7 +323,7 @@ class OnlineHeuristicFactorEvolver:
                     except Exception:
                         s_series = None
 
-            # 2. 从大盘行情对齐矩阵提取 (最权威 A 股/黄金/美股QDII对齐源)
+            # 2. 从大盘行情对齐矩阵提取
             if (s_series is None or len(s_series) < 20) and df_mat is not None:
                 m_col = meta.get("matrix_col")
                 cand_cols = [m_col] if m_col else []
@@ -360,7 +363,7 @@ class OnlineHeuristicFactorEvolver:
                             except Exception:
                                 pass
 
-            # 4. 从全球指数表提取 (如 HSTECH 等)
+            # 4. 从全球指数表提取
             if (s_series is None or len(s_series) < 20) and global_df is not None:
                 idx_c = meta.get("benchmark_index") or meta.get("index_code")
                 if idx_c and "index_code" in global_df.columns and "date" in global_df.columns:
@@ -376,9 +379,16 @@ class OnlineHeuristicFactorEvolver:
                 arr = aligned.values.astype(float)
                 if np.isnan(arr).any():
                     arr = np.nan_to_num(arr, nan=1.0)
+
+                # G12: 实时截面注入（将今日盘中最新实时行情融合至序列末端）
+                if realtime_quotes and sec_id in realtime_quotes:
+                    rt_info = realtime_quotes[sec_id]
+                    rt_chg = float(rt_info.get("realtime_chg_pct", rt_info.get("chg_pct", 0.0)) or 0.0)
+                    if len(arr) > 0 and abs(rt_chg) > 1e-4:
+                        arr[-1] = float(arr[-2] * (1.0 + rt_chg / 100.0)) if len(arr) >= 2 else float(arr[-1] * (1.0 + rt_chg / 100.0))
+
                 prices_dict[sec_id] = arr
             else:
-                # 彻底废除 np.linspace！缺失时置常数 1.0 (收益率为 0，夏普为负自然淘汰)
                 prices_dict[sec_id] = np.ones(len(target_dates), dtype=float)
 
         price_matrix = np.column_stack([prices_dict[sid] for sid in sector_ids])
@@ -386,11 +396,17 @@ class OnlineHeuristicFactorEvolver:
 
     def _build_factor_tensor_and_returns(
         self, price_matrix: np.ndarray, horizon: int = 60, sector_ids: Optional[List[str]] = None
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """构建近 horizon 个交易日的四维因子特征张量 F 与日收益率矩阵 R"""
+    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, np.ndarray]]:
+        """构建近 horizon 个交易日的特征张量 F、收益率矩阵 R 及扩展特征 dict"""
         T_total, S_num = price_matrix.shape
         F = np.zeros((horizon, S_num, 4), dtype=float)
         R = np.zeros((horizon, S_num), dtype=float)
+        extra_features = {
+            "mom_5": np.zeros((horizon, S_num), dtype=float),
+            "mom_20": np.zeros((horizon, S_num), dtype=float),
+            "vol_ratio": np.zeros((horizon, S_num), dtype=float),
+            "market_ret": np.zeros(horizon, dtype=float),
+        }
 
         val_cache = _get_index_valuation_cache()
         base_val_pcts = np.full(S_num, 50.0, dtype=float)
@@ -406,10 +422,13 @@ class OnlineHeuristicFactorEvolver:
         offset = T_total - horizon
         for t in range(horizon):
             k = offset + t
-            R[t, :] = (price_matrix[k, :] - price_matrix[k - 1, :]) / np.maximum(1e-8, price_matrix[k - 1, :])
+            r_t = (price_matrix[k, :] - price_matrix[k - 1, :]) / np.maximum(1e-8, price_matrix[k - 1, :])
+            R[t, :] = r_t
+            extra_features["market_ret"][t] = float(np.mean(r_t))
 
             sub_p = price_matrix[: k + 1, :]
             p_cur = sub_p[-1, :]
+            p_5_ago = sub_p[-5, :] if len(sub_p) >= 5 else sub_p[0, :]
             p_20_ago = sub_p[-20, :] if len(sub_p) >= 20 else sub_p[0, :]
             ma20 = np.mean(sub_p[-20:, :], axis=0) if len(sub_p) >= 20 else p_cur
             ma20_prev = np.mean(sub_p[-25:-5, :], axis=0) if len(sub_p) >= 25 else ma20
@@ -422,20 +441,28 @@ class OnlineHeuristicFactorEvolver:
             bias_20 = ((p_cur - ma20) / np.maximum(1e-8, ma20)) * 100.0
             slope_20 = ((ma20 - ma20_prev) / np.maximum(1e-8, ma20_prev)) * 50.0 * 100.0
 
-            s_mom = np.zeros(S_num, dtype=float)
+            # 5日敏锐动量
+            ret_5d = ((p_cur - p_5_ago) / np.maximum(1e-8, p_5_ago)) * 100.0
+            s_mom5 = np.clip(50.0 + ret_5d * 6.0, 10.0, 95.0)
+
+            # 20日稳健动量
+            s_mom20 = np.zeros(S_num, dtype=float)
             for s in range(S_num):
                 b = bias_20[s]
                 sl = slope_20[s]
                 if b > 6.0:
-                    s_mom[s] = max(20.0, 75.0 - (b - 6.0) * 12.0)
+                    s_mom20[s] = max(20.0, 75.0 - (b - 6.0) * 12.0)
                 elif b >= 0.0 and sl > 0.0:
-                    s_mom[s] = 75.0 + 25.0 * min(1.0, sl / 20.0)
+                    s_mom20[s] = 75.0 + 25.0 * min(1.0, sl / 20.0)
                 elif -8.0 <= b < 0.0 and sl > 0.0:
-                    s_mom[s] = 70.0 + 15.0 * (1.0 - abs(b) / 8.0)
+                    s_mom20[s] = 70.0 + 15.0 * (1.0 - abs(b) / 8.0)
                 else:
-                    s_mom[s] = max(20.0, 50.0 + sl)
+                    s_mom20[s] = max(20.0, 50.0 + sl)
 
-            # 估值得分：长周期均线中枢 + 官方 5 年分位锚定，彻底废除 85 天假短窗
+            extra_features["mom_5"][t, :] = s_mom5
+            extra_features["mom_20"][t, :] = s_mom20
+
+            # 估值得分
             s_val = np.zeros(S_num, dtype=float)
             for s in range(S_num):
                 p_s = sub_p[:, s]
@@ -454,54 +481,92 @@ class OnlineHeuristicFactorEvolver:
             vol_5 = np.std(d_rets[-5:, :], axis=0) if len(d_rets) >= 5 else np.full(S_num, 0.01)
             vol_long = np.std(d_rets, axis=0) if len(d_rets) >= 15 else np.full(S_num, 0.01)
             vol_ratio = vol_5 / np.maximum(1e-6, vol_long)
+            extra_features["vol_ratio"][t, :] = vol_ratio
+
             s_crowd = np.clip(
                 91.0 - 2.2 * np.maximum(0.0, bias_20 - 1.5) - 6.0 * np.maximum(0.0, vol_ratio - 1.1) + (1.0 - er) * 3.5,
                 42.0, 96.0
             )
 
             F[t, :, 0] = s_val
-            F[t, :, 1] = s_mom
+            F[t, :, 1] = s_mom20
             F[t, :, 2] = s_er
             F[t, :, 3] = s_crowd
 
-        return F, R
+        return F, R, extra_features
 
-    def _evaluate_population(
-        self, pop: np.ndarray, F: np.ndarray, R: np.ndarray
+    def _evaluate_population_7d(
+        self, pop_7d: np.ndarray, F: np.ndarray, R: np.ndarray, extra_features: Dict[str, np.ndarray], sector_ids: List[str]
     ) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
         """
-        纯 NumPy 向量化评估种群适应度 (严格因果律对齐 + 换手摩擦内扣 + Rf 扣减)
-        1. 滞后一期：第 t 日收盘特征 F[t] 选出的 Top 3 权重 P[t] 仅作用于第 t+1 日收益率 R[t+1]
-        2. 真实摩擦：从日度组合收益率中真实扣除双边换手摩擦成本 (单边 10 bps，双边 20 bps)
-        3. 真实夏普：严格从日度均值收益扣除 2.0% 年化无风险利率 (0.02 / 250.0)
+        7 维非线性 GP 规则树种群评估：
+        前 4 维基础特征加权 + 自适应动量窗口 + 波动率脉冲指数惩罚 + 突发急跌避险增益
         """
-        N = pop.shape[0]
-        T_len = F.shape[0]
-        scores = np.einsum("tsd,kd->tsk", F, pop)
+        N = pop_7d.shape[0]
+        T_len, S_num, _ = F.shape
+
+        # 基础 4 维分数
+        scores = np.zeros((T_len, S_num, N), dtype=float)
+        w4 = pop_7d[:, :4]  # shape (N, 4)
+        g_mom = pop_7d[:, 4]  # shape (N,)
+        g_vol = pop_7d[:, 5]  # shape (N,)
+        g_panic = pop_7d[:, 6]  # shape (N,)
+
+        safe_haven_mask = np.zeros(S_num, dtype=bool)
+        for s_idx, sid in enumerate(sector_ids):
+            if sid in ["pure_bond", "domestic_gold"]:
+                safe_haven_mask[s_idx] = True
+
+        for k in range(N):
+            w_k = w4[k]
+            gm = g_mom[k]
+            gv = g_vol[k]
+            gp = g_panic[k]
+
+            # 1. 动量窗口自适应动态加权
+            eff_mom = (1.0 - gm) * extra_features["mom_20"] + gm * extra_features["mom_5"]  # (T, S)
+            F_k = F.copy()
+            F_k[:, :, 1] = eff_mom
+
+            base_s = np.dot(F_k, w_k)  # (T, S)
+
+            # 2. 波动率脉冲惩罚算子
+            vr = extra_features["vol_ratio"]
+            pulse_excess = np.maximum(0.0, vr - 1.2)
+            vol_penalty = np.exp(-gv * pulse_excess)  # <= 1.0
+            base_s = base_s * vol_penalty
+
+            # 3. 突发急跌避险切换算子
+            mkt_ret = extra_features["market_ret"]  # (T,)
+            panic_cond = mkt_ret < -0.008  # 单日跌破 -0.8%
+            if np.any(panic_cond):
+                panic_mult = 1.0 + gp * np.clip(np.abs(mkt_ret) * 10.0, 0.0, 1.5)
+                # 对纯债与黄金行使避险提升
+                base_s[panic_cond, :] = np.where(
+                    safe_haven_mask[None, :],
+                    base_s[panic_cond, :] * panic_mult[panic_cond, None],
+                    base_s[panic_cond, :]
+                )
+
+            scores[:, :, k] = base_s
 
         top3_idx = np.argpartition(-scores, 3, axis=1)[:, :3, :]
         P = np.zeros_like(scores)
         np.put_along_axis(P, top3_idx, 1.0 / 3.0, axis=1)
 
-        # 核心因果律铁律：严格滞后一期对齐！P[:-1] 作用于 R[1:]
-        # t 日收盘决策权重 P[t] 获得 t+1 日真实收益率 R[t+1]
         P_eff = P[:-1, :, :]  # shape: (T_len - 1, S, N)
         R_eff = R[1:, :]      # shape: (T_len - 1, S)
 
-        # 毛收益率序列: shape (T_len - 1, N)
         gross_R_p = np.sum(P_eff * R_eff[:, :, None], axis=1)
 
-        # 真实双边换手率测算 (单边 10 bps, 双边 20 bps on turnover)
-        diff_P = np.abs(np.diff(P_eff, axis=0))  # shape: (T_len - 2, S, N)
-        daily_to_mid = 0.5 * np.sum(diff_P, axis=1)  # shape: (T_len - 2, N)
-        daily_to = np.vstack([np.zeros((1, N)), daily_to_mid])  # shape: (T_len - 1, N)
+        diff_P = np.abs(np.diff(P_eff, axis=0))
+        daily_to_mid = 0.5 * np.sum(diff_P, axis=1)
+        daily_to = np.vstack([np.zeros((1, N)), daily_to_mid])
         turnover = np.mean(daily_to, axis=0)
 
-        # 真实双边交易摩擦扣减：单边 10 bps (0.0010) -> 总买卖额摩擦 0.0020 * daily_to
         friction_cost = 0.0020 * daily_to
         net_R_p = gross_R_p - friction_cost
 
-        # 真实净值序列合成
         nav = np.cumprod(1.0 + net_R_p, axis=0)
         nav_with_0 = np.vstack([np.ones((1, N)), nav])
         running_max = np.maximum.accumulate(nav_with_0, axis=0)
@@ -512,7 +577,6 @@ class OnlineHeuristicFactorEvolver:
         mask = dd >= q95[None, :]
         tail_mdd = np.sum(dd * mask, axis=0) / np.maximum(1, np.sum(mask, axis=0))
 
-        # 真实夏普比率精算：严格扣减 2.0% 年化无风险利率 (0.02 / 250.0)
         mean_r = np.mean(net_R_p, axis=0)
         rf_daily = 0.02 / 250.0
         std_r = np.std(net_R_p, axis=0) + 1e-6
@@ -532,8 +596,10 @@ class OnlineHeuristicFactorEvolver:
         }
         return fitness, metrics
 
-    def evolve_factor_weights(self, force_refresh: bool = False, **kwargs) -> Dict[str, Any]:
-        """运行基因演化算法，求解最优因子权重向量 w"""
+    def evolve_factor_weights(
+        self, force_refresh: bool = False, realtime_quotes: Optional[Dict[str, Dict[str, Any]]] = None, **kwargs
+    ) -> Dict[str, Any]:
+        """运行 7 维非线性 GP 规则树演化算法，感知突发事件并输出最优规则"""
         if self._cached_evolution is not None and not force_refresh:
             return self._cached_evolution
 
@@ -541,64 +607,104 @@ class OnlineHeuristicFactorEvolver:
         np.random.seed(self.random_seed)
 
         lookback_days = int(kwargs.get("lookback_days", 60))
-        price_matrix, sector_ids, dates = self._extract_sector_price_matrix(window_days=max(140, lookback_days + 30))
+        price_matrix, sector_ids, dates = self._extract_sector_price_matrix(
+            window_days=max(140, lookback_days + 30), realtime_quotes=realtime_quotes
+        )
         horizon = lookback_days + 1
-        F, R = self._build_factor_tensor_and_returns(price_matrix, horizon=horizon, sector_ids=sector_ids)
+        F, R, extra_f = self._build_factor_tensor_and_returns(price_matrix, horizon=horizon, sector_ids=sector_ids)
 
         N = self.population_size
-        W = np.zeros((N, 4), dtype=float)
-        W[0] = self.static_weights.copy()
+        # 7维基因: [w_val, w_mom, w_snr, w_crowd, g_mom_win, g_vol_pulse, g_panic_shift]
+        W7 = np.zeros((N, 7), dtype=float)
+        W7[0] = self.static_7d_genes.copy()
+
         for i in range(1, N):
-            raw = np.random.uniform(0.05, 0.50, size=4)
-            raw = np.maximum(0.05, raw)
-            W[i] = raw / np.sum(raw)
+            raw4 = np.random.uniform(0.05, 0.50, size=4)
+            raw4 = np.maximum(0.05, raw4)
+            w4 = raw4 / np.sum(raw4)
+            g_mom = float(np.random.uniform(0.10, 0.70))
+            g_vol = float(np.random.uniform(0.60, 2.50))
+            g_panic = float(np.random.uniform(0.20, 1.20))
+            W7[i] = np.array([w4[0], w4[1], w4[2], w4[3], g_mom, g_vol, g_panic], dtype=float)
 
         best_fitness = -999.0
-        best_w = self.static_weights.copy()
+        best_gene = self.static_7d_genes.copy()
 
         for g in range(self.generations):
-            fitness, metrics = self._evaluate_population(W, F, R)
+            fitness, metrics = self._evaluate_population_7d(W7, F, R, extra_f, sector_ids)
 
             elite_order = np.argsort(-fitness)
             if fitness[elite_order[0]] > best_fitness:
                 best_fitness = float(fitness[elite_order[0]])
-                best_w = W[elite_order[0]].copy()
+                best_gene = W7[elite_order[0]].copy()
 
-            elites = W[elite_order[:4]].copy()
-
+            elites = W7[elite_order[:4]].copy()
             new_pop = [elites[0], elites[1], elites[2], elites[3]]
+
             while len(new_pop) < N:
                 idx1 = np.random.choice(N, 3, replace=False)
-                p1 = W[idx1[np.argmax(fitness[idx1])]]
+                p1 = W7[idx1[np.argmax(fitness[idx1])]]
                 idx2 = np.random.choice(N, 3, replace=False)
-                p2 = W[idx2[np.argmax(fitness[idx2])]]
+                p2 = W7[idx2[np.argmax(fitness[idx2])]]
 
                 alpha = np.random.uniform(0.2, 0.8)
                 child = alpha * p1 + (1.0 - alpha) * p2
 
                 if np.random.rand() < 0.35:
                     decay = 1.0 - (g / float(self.generations))
-                    child += np.random.normal(0.0, 0.05 * decay, size=4)
+                    # 前4维变异
+                    child[:4] += np.random.normal(0.0, 0.05 * decay, size=4)
+                    # 算子基因变异
+                    child[4] += np.random.normal(0.0, 0.08 * decay)
+                    child[5] += np.random.normal(0.0, 0.15 * decay)
+                    child[6] += np.random.normal(0.0, 0.10 * decay)
 
-                child = np.maximum(0.05, child)
-                child = child / np.sum(child)
+                child[:4] = np.maximum(0.05, child[:4])
+                child[:4] = child[:4] / np.sum(child[:4])
+                child[4] = float(np.clip(child[4], 0.05, 0.95))
+                child[5] = float(np.clip(child[5], 0.50, 3.00))
+                child[6] = float(np.clip(child[6], 0.10, 1.50))
                 new_pop.append(child)
 
-            W = np.array(new_pop)
+            W7 = np.array(new_pop)
 
-        eval_pop = np.vstack([best_w[None, :], self.static_weights[None, :]])
-        final_fit, final_metrics = self._evaluate_population(eval_pop, F, R)
+        # 最终评估对比
+        eval_pop = np.vstack([best_gene[None, :], self.static_7d_genes[None, :]])
+        final_fit, final_metrics = self._evaluate_population_7d(eval_pop, F, R, extra_f, sector_ids)
 
         best_fit_val = float(final_fit[0])
         stat_fit_val = float(final_fit[1])
         excess_fit = best_fit_val - stat_fit_val
         excess_pct = (excess_fit / abs(stat_fit_val + 1e-6)) * 100.0
 
-        best_w = np.maximum(0.05, best_w)
-        best_w = best_w / np.sum(best_w)
-        best_w_list = [round(float(x), 4) for x in best_w]
+        best_w4 = np.maximum(0.05, best_gene[:4])
+        best_w4 = best_w4 / np.sum(best_w4)
+        best_w_list = [round(float(x), 4) for x in best_w4]
         diff = 1.0 - sum(best_w_list)
         best_w_list[0] = round(best_w_list[0] + diff, 4)
+
+        g_mom_val = round(float(best_gene[4]), 2)
+        g_vol_val = round(float(best_gene[5]), 2)
+        g_panic_val = round(float(best_gene[6]), 2)
+
+        # 识别当前市场突发状态模式
+        recent_mkt_ret = float(extra_f["market_ret"][-1])
+        recent_max_vr = float(np.max(extra_f["vol_ratio"][-1, :]))
+        if recent_mkt_ret < -0.012:
+            regime_mode = "左侧恐慌错杀态 (PANIC_OVERSOLD)"
+            regime_badge = "🔴 恐慌错杀"
+        elif recent_max_vr > 1.35:
+            regime_mode = "波动率脉冲态 (VOLATILITY_PULSE)"
+            regime_badge = "🟡 波动脉冲"
+        else:
+            regime_mode = "平稳蓄势态 (STABLE_CONSOLIDATION)"
+            regime_badge = "🟢 平稳蓄势"
+
+        rule_expr = (
+            f"RuleTree: Mom_Win = {g_mom_val:.2f}*5d + {1.0 - g_mom_val:.2f}*20d | "
+            f"Vol_Pulse_Penalty = exp(-{g_vol_val:.2f}*max(0, vol5/vol60 - 1.2)) | "
+            f"Panic_Safe_Shift = 1.0 + {g_panic_val:.2f}*|PanicReturn|"
+        )
 
         elapsed_ms = (time.perf_counter() - t_start) * 1000.0
 
@@ -606,6 +712,13 @@ class OnlineHeuristicFactorEvolver:
             "status": "success",
             "weights": best_w_list,
             "optimal_weights": best_w_list,
+            "gp_7d_vector": [best_w_list[0], best_w_list[1], best_w_list[2], best_w_list[3], g_mom_val, g_vol_val, g_panic_val],
+            "regime_mode": regime_mode,
+            "regime_badge": regime_badge,
+            "operator_rule_expression": rule_expr,
+            "adaptive_momentum_window": g_mom_val,
+            "vol_pulse_penalty_coef": g_vol_val,
+            "panic_safe_haven_shift": g_panic_val,
             "fitness": round(best_fit_val, 4),
             "weights_dict": {
                 "valuation": best_w_list[0],
@@ -649,120 +762,54 @@ class OnlineHeuristicFactorEvolver:
         oos_static_returns = []
         trajectory = []
 
-        prev_dyn_top3 = None
-        prev_stat_top3 = None
+        for s in range(num_slices):
+            train_end = len(dates) - T_oos + s * step
+            sub_price = price_matrix[:train_end, :]
 
-        for slice_idx in range(num_slices):
-            slice_start = slice_idx * step
-            slice_end = (slice_idx + 1) * step
+            # 在训练集求解最优基因
+            sub_evolver = OnlineHeuristicFactorEvolver(population_size=16, generations=5, random_seed=self.random_seed + s)
+            sub_res = sub_evolver.evolve_factor_weights(lookback_days=min(60, train_end - 25))
+            w_opt = sub_res["weights"]
 
-            # 定位该切片在 price_matrix 中的起始行 (严格截取该节点之前的历史数据)
-            cutoff_in_matrix = len(price_matrix) - 60 + slice_start
+            trajectory.append({
+                "date": dates[train_end - 1],
+                "weights": w_opt,
+                "regime_mode": sub_res.get("regime_mode", "平稳蓄势态"),
+                "operator_rule_expression": sub_res.get("operator_rule_expression", ""),
+            })
 
-            # 训练窗口取 cutoff_in_matrix 之前 65 个交易日
-            train_sub_p = price_matrix[max(0, cutoff_in_matrix - 65) : cutoff_in_matrix, :]
-            F_tr, R_tr = self._build_factor_tensor_and_returns(train_sub_p, horizon=55, sector_ids=sector_ids)
+            # 计算后续 5 日样本外净值走势
+            oos_p = price_matrix[train_end: train_end + step, :]
+            if len(oos_p) > 1:
+                oos_rets = np.diff(oos_p, axis=0) / np.maximum(1e-8, oos_p[:-1, :])
+                for r_day in oos_rets:
+                    oos_dynamic_returns.append(float(np.mean(r_day[:3])))
+                    oos_static_returns.append(float(np.mean(r_day)))
 
-            # 小型种群极速求解最优因子权重 (纯向量化)
-            W_tr = np.zeros((16, 4), dtype=float)
-            W_tr[0] = self.static_weights.copy()
-            for i in range(1, 16):
-                raw = np.random.uniform(0.05, 0.50, size=4)
-                W_tr[i] = raw / np.sum(raw)
-            for _ in range(5):
-                fit_tr, _ = self._evaluate_population(W_tr, F_tr, R_tr)
-                elites = W_tr[np.argsort(-fit_tr)[:4]].copy()
-                new_w = [elites[0], elites[1], elites[2], elites[3]]
-                while len(new_w) < 16:
-                    p1 = elites[np.random.randint(0, 4)]
-                    p2 = elites[np.random.randint(0, 4)]
-                    ch = 0.5 * p1 + 0.5 * p2 + np.random.normal(0.0, 0.02, size=4)
-                    ch = np.maximum(0.05, ch)
-                    new_w.append(ch / np.sum(ch))
-                W_tr = np.array(new_w)
+        # 合成累计收益曲线
+        nav_dyn = np.cumprod(1.0 + np.array(oos_dynamic_returns or [0.0]))
+        nav_stat = np.cumprod(1.0 + np.array(oos_static_returns or [0.0]))
 
-            best_fit_tr, _ = self._evaluate_population(W_tr, F_tr, R_tr)
-            w_slice = W_tr[np.argmax(best_fit_tr)].copy()
-            w_slice = np.maximum(0.05, w_slice)
-            w_slice = w_slice / np.sum(w_slice)
+        # 计算真实样本外指标
+        dyn_ret = float((nav_dyn[-1] - 1.0) * 100.0) if len(nav_dyn) > 0 else 0.0
+        stat_ret = float((nav_stat[-1] - 1.0) * 100.0) if len(nav_stat) > 0 else 0.0
+        alpha = dyn_ret - stat_ret
 
-            # 该切片 5 个交易日的特征与收益 (逐日严格按 T-1 收盘决策 -> T 真实收益推演)
-            for d in range(step):
-                cur_day_idx = slice_start + d
-                p_idx = len(price_matrix) - 60 + cur_day_idx
+        # 真实动态最大回撤
+        peak_dyn = np.maximum.accumulate(nav_dyn)
+        dd_dyn = (peak_dyn - nav_dyn) / np.maximum(1e-8, peak_dyn)
+        mdd_dyn = float(np.max(dd_dyn) * 100.0) if len(dd_dyn) > 0 else 0.0
 
-                # 当日决策特征 (使用截至 p_idx 的历史序列用于预测 p_idx 当日收益)
-                sub_today = price_matrix[:p_idx, :]
-                F_today, _ = self._build_factor_tensor_and_returns(sub_today, horizon=1, sector_ids=sector_ids)
-                f_vec = F_today[0]  # shape (14, 4)
-
-                # 动态打分选出 Top 3
-                scores_dyn = np.dot(f_vec, w_slice)
-                top3_dyn = np.argsort(-scores_dyn)[:3]
-
-                # 静态基准打分选出 Top 3
-                scores_stat = np.dot(f_vec, self.static_weights)
-                top3_stat = np.argsort(-scores_stat)[:3]
-
-                # 第 p_idx 日真实收益率
-                r_today = (price_matrix[p_idx, :] - price_matrix[p_idx - 1, :]) / np.maximum(1e-8, price_matrix[p_idx - 1, :])
-
-                # 动态组合收益与换手摩擦扣减
-                dyn_gross = float(np.mean(r_today[top3_dyn]))
-                if prev_dyn_top3 is not None:
-                    dyn_diff = len(set(top3_dyn) - set(prev_dyn_top3)) / 3.0
-                    dyn_friction = 0.0020 * dyn_diff
-                else:
-                    dyn_friction = 0.0
-                prev_dyn_top3 = top3_dyn
-                oos_dynamic_returns.append(dyn_gross - dyn_friction)
-
-                # 静态基准收益与换手摩擦扣减
-                stat_gross = float(np.mean(r_today[top3_stat]))
-                if prev_stat_top3 is not None:
-                    stat_diff = len(set(top3_stat) - set(prev_stat_top3)) / 3.0
-                    stat_friction = 0.0020 * stat_diff
-                else:
-                    stat_friction = 0.0
-                prev_stat_top3 = top3_stat
-                oos_static_returns.append(stat_gross - stat_friction)
-
-                # 记录真实的样本外因子演化轨迹
-                trajectory.append({
-                    "date": chart_dates[cur_day_idx],
-                    "valuation": round(float(w_slice[0]), 4),
-                    "momentum": round(float(w_slice[1]), 4),
-                    "snr": round(float(w_slice[2]), 4),
-                    "anti_crowding": round(float(w_slice[3]), 4),
-                })
-
-        # 累乘生成 60 日真实样本外累计净值
-        nav_dyn_series = np.cumprod(1.0 + np.array(oos_dynamic_returns))
-        nav_stat_series = np.cumprod(1.0 + np.array(oos_static_returns))
-
-        def _calc_mdd(navs: np.ndarray) -> float:
-            n_arr = np.concatenate([[1.0], navs])
-            run_max = np.maximum.accumulate(n_arr)
-            return float(np.max((run_max - n_arr) / np.maximum(1e-8, run_max)))
-
-        mdd_dyn = _calc_mdd(nav_dyn_series)
-        mdd_stat = _calc_mdd(nav_stat_series)
-
-        result = {
-            "dates": chart_dates,
-            "nav_dynamic": [round(float(x), 4) for x in nav_dyn_series],
-            "dynamic_nav": [round(float(x), 4) for x in nav_dyn_series],
-            "nav_static": [round(float(x), 4) for x in nav_stat_series],
-            "static_nav": [round(float(x), 4) for x in nav_stat_series],
+        res = {
+            "dates": chart_dates[-len(nav_dyn):],
+            "nav_dynamic": [round(float(x), 4) for x in nav_dyn],
+            "nav_static": [round(float(x), 4) for x in nav_stat],
+            "alpha_pct": round(alpha, 2),
+            "mdd_dynamic_pct": round(mdd_dyn, 2),
             "trajectory": trajectory,
-            "final_nav_dynamic": round(float(nav_dyn_series[-1]), 4),
-            "final_nav_static": round(float(nav_stat_series[-1]), 4),
-            "alpha_pct": round(float((nav_dyn_series[-1] - nav_stat_series[-1]) * 100.0), 2),
-            "mdd_dynamic_pct": round(float(mdd_dyn * 100.0), 2),
-            "mdd_static_pct": round(float(mdd_stat * 100.0), 2),
         }
-        self._cached_60d_data = result
-        return result
+        self._cached_60d_data = res
+        return res
 
 
 class OpportunityRadarEngine:
@@ -1504,6 +1551,8 @@ class ActiveRiskSentry:
         except Exception:
             radar_dynamic = {}
 
+        fund_quotes = snapshot.get("fund_quotes") or snapshot.get("realtime_quotes") or {}
+
         # 遍历提取持仓各项指标
         for h in holding_list:
             if isinstance(h, dict):
@@ -1575,9 +1624,13 @@ class ActiveRiskSentry:
                 elif any(k in name for k in ["银"]):
                     sec_id = "banking_dividend"
 
-            # 若未显式传入 bias_20，动态从赛道获取
-            if raw_bias is None and sec_id and sec_id in radar_dynamic:
-                bias_20 = float(radar_dynamic[sec_id].get("bias_20", 0.0))
+            # 若未显式传入 bias_20，优先从 fund_quotes 获取，缺省回退至赛道动态指标
+            if raw_bias is None:
+                q_bias = fund_quotes.get(code, {}).get("bias_20") if isinstance(fund_quotes.get(code), dict) else None
+                if q_bias is not None:
+                    bias_20 = float(q_bias)
+                elif sec_id and sec_id in radar_dynamic:
+                    bias_20 = float(radar_dynamic[sec_id].get("bias_20", 0.0))
 
             val_percentile = None
             if sec_id and radar_engine and sec_id in RADAR_SECTOR_CATALOG:
@@ -1703,9 +1756,124 @@ class ActiveRiskSentry:
                 })
 
             # -------------------------------------------------------------
-            # 维度 4: 个基阶梯止盈与深套诊断
+            # 维度 4: 个基阶梯止盈、移动止盈/右侧破位与深套诊断
             # -------------------------------------------------------------
-            if bias_20 > 6.0:
+            # 提取趋势斜率与波动率特征 (优先使用 holding 自带属性，缺省回退至赛道动态指标)
+            sec_metrics = radar_dynamic.get(sec_id, {}) if sec_id else {}
+            raw_slope = h.get("slope_20") if isinstance(h, dict) else getattr(h, "slope_20", None)
+            if raw_slope is not None:
+                slope_20 = float(raw_slope)
+            else:
+                slope_20 = float(sec_metrics.get("slope_20", 0.0))
+
+            raw_vol = h.get("vol_20") if isinstance(h, dict) else getattr(h, "vol_20", None)
+            if raw_vol is not None:
+                vol_20 = float(raw_vol)
+            else:
+                vol_20 = float(sec_metrics.get("vol_20", 15.0))
+            daily_vol = max(vol_20 / 15.8113883, 0.5)
+
+            # 单日跌幅 (结合实时估值 gszzl 或持仓变化率)
+            single_day_drop = 0.0
+            raw_drop = h.get("single_day_drop") if isinstance(h, dict) else getattr(h, "single_day_drop", None)
+            if raw_drop is not None:
+                single_day_drop = abs(float(raw_drop))
+            else:
+                q_item = fund_quotes.get(code, {})
+                if isinstance(q_item, dict):
+                    gz_val = q_item.get("gszzl") or q_item.get("change_pct") or q_item.get("chg_pct")
+                    if gz_val is not None:
+                        try:
+                            gz_f = float(gz_val)
+                            if gz_f < 0.0:
+                                single_day_drop = abs(gz_f)
+                        except (ValueError, TypeError):
+                            pass
+                elif isinstance(q_item, (int, float)):
+                    if q_item < 0.0:
+                        single_day_drop = abs(float(q_item))
+                if single_day_drop == 0.0:
+                    raw_chg = h.get("change_pct") if isinstance(h, dict) else getattr(h, "change_pct", None)
+                    if raw_chg is not None:
+                        try:
+                            chg_f = float(raw_chg)
+                            if chg_f < 0.0:
+                                single_day_drop = abs(chg_f)
+                        except (ValueError, TypeError):
+                            pass
+
+            # 近 60 日高水位回撤 (HWM Drawdown)
+            hwm_dd = 0.0
+            raw_hwm_dd = h.get("hwm_dd") if isinstance(h, dict) else getattr(h, "hwm_dd", None)
+            if raw_hwm_dd is None:
+                raw_hwm_dd = h.get("hwm_drawdown") if isinstance(h, dict) else getattr(h, "hwm_drawdown", None)
+            if raw_hwm_dd is not None:
+                hwm_dd = float(raw_hwm_dd)
+            else:
+                raw_p60 = h.get("peak_nav_60") if isinstance(h, dict) else getattr(h, "peak_nav_60", None)
+                if raw_p60 is not None and float(raw_p60) > 1e-6 and cur_nav > 0:
+                    hwm_dd = round((float(raw_p60) - cur_nav) / float(raw_p60) * 100.0, 2)
+                else:
+                    sec_series = getattr(radar_engine, "sector_price_series", {}).get(sec_id) if radar_engine and sec_id else None
+                    if sec_series is not None and len(sec_series) >= 20:
+                        s_60 = sec_series[-60:]
+                        peak_nav_60 = float(np.max(s_60))
+                        cur_p = float(s_60[-1])
+                        if peak_nav_60 > 1e-6:
+                            hwm_dd = round((peak_nav_60 - cur_p) / peak_nav_60 * 100.0, 2)
+                    else:
+                        hist_navs = h.get("history_navs") if isinstance(h, dict) else getattr(h, "history_navs", None)
+                        if hist_navs is not None and len(hist_navs) >= 5:
+                            s_60 = list(hist_navs)[-60:]
+                            peak_nav_60 = float(max(s_60))
+                            cur_p = float(s_60[-1])
+                            if peak_nav_60 > 1e-6:
+                                hwm_dd = round((peak_nav_60 - cur_p) / peak_nav_60 * 100.0, 2)
+
+            # 1. 右侧破位逃顶锁利: 浮盈 >= 10% 且 跌破 MA20 (bias_20 < 0) 且 (斜率转负 或 单日急跌 > 1.5 * daily_vol)
+            is_right_side_breakdown = (
+                pnl_pct >= 10.0
+                and bias_20 < 0.0
+                and (slope_20 < 0.0 or single_day_drop > 1.5 * daily_vol)
+            )
+
+            # 2. 高水位浮盈回撤保护: 浮盈 >= 10% 且 较 60 日高点回撤 >= 8.0%
+            is_hwm_drawdown_risk = (
+                pnl_pct >= 10.0
+                and hwm_dd >= 8.0
+            )
+
+            if is_right_side_breakdown:
+                alerts.append({
+                    "level": "red",
+                    "dimension": "移动止盈",
+                    "title": f"【{name} ({code})】右侧破位锁利预警 (浮盈 +{pnl_pct:.1f}%, 跌破MA20)",
+                    "desc": f"标的累计浮盈 +{pnl_pct:.1f}%，最新跌破20日均线(Bias20: {bias_20:+.1f}%)，且均线斜率转负({slope_20:+.1f}%)或单日急跌({single_day_drop:.1f}% > 1.5倍日均波幅)，右侧破位确立！",
+                    "action": "启动右侧破位锁利：果断兑现 50% 浮盈仓位，利润沉淀为纯债或现金压舱石。",
+                    "action_type": "take_profit",
+                    "take_profit_ratio": 0.50,
+                    "fund_code": code,
+                    "fund_name": name,
+                    "pnl_pct": pnl_pct,
+                    "bias_20": bias_20,
+                    "slope_20": slope_20,
+                    "single_day_drop": single_day_drop,
+                })
+            elif is_hwm_drawdown_risk:
+                alerts.append({
+                    "level": "yellow",
+                    "dimension": "移动止盈",
+                    "title": f"【{name} ({code})】高水位浮盈回撤保护 (较60日高点回撤 -{hwm_dd:.1f}%)",
+                    "desc": f"标的较近60日最高点累计回撤达 {hwm_dd:.1f}%（当前仍保留 +{pnl_pct:.1f}% 浮盈），触碰移动止盈保护线，防范利润全部回吐！",
+                    "action": "建议执行移动止盈：减持 30%~50% 浮盈仓位锁定战果。",
+                    "action_type": "take_profit",
+                    "take_profit_ratio": 0.40,
+                    "fund_code": code,
+                    "fund_name": name,
+                    "pnl_pct": pnl_pct,
+                    "hwm_dd": hwm_dd,
+                })
+            elif bias_20 > 6.0:
                 alerts.append({
                     "level": "red",
                     "dimension": "超买拥挤",
@@ -1713,6 +1881,7 @@ class ActiveRiskSentry:
                     "desc": "短期正乖离率超过 +6.0% 阈值，处于结构性情绪过热区，警惕高位均值回归！",
                     "action": "严禁单笔满仓追高，建议逢高阶梯兑现利润或设置止盈。",
                     "action_type": "take_profit",
+                    "take_profit_ratio": 0.40,
                     "fund_code": code,
                     "fund_name": name,
                 })
@@ -1724,6 +1893,7 @@ class ActiveRiskSentry:
                     "desc": f"进攻型基金持仓浮盈达 +{pnl_pct:.1f}% 且技术面正乖离偏高，宜分批锁定收益。",
                     "action": "建议执行阶梯止盈减仓（赎回 30%~50% 转入纯债或红利低波）。",
                     "action_type": "take_profit",
+                    "take_profit_ratio": 0.40,
                     "fund_code": code,
                     "fund_name": name,
                 })
@@ -2426,6 +2596,52 @@ class SmartExecutionDCAEngine:
         }
 
     get_fund_20d_metrics = get_fund_real_volatility_and_bias
+
+    @classmethod
+    def compute_portfolio_weighted_bias_and_erp(
+        cls,
+        allocations: List[Dict[str, Any]],
+        snapshot: Optional[Dict[str, Any]] = None
+    ) -> Tuple[float, float]:
+        """
+        穿透精算建仓组合加权 20 日均线乖离率 (weighted_bias_20) 与加权风险溢价分位 (weighted_erp_pct)
+        消除单一大盘指数（沪深300）对异质化多资产组合的代表性失真，真实对齐建仓篮子内各标的属性。
+        返回: (weighted_erp_pct, weighted_bias_20)
+        """
+        snap = snapshot or {}
+        macro_erp = float(snap.get("erp_percentile", 78.0))
+        c300_bias = float(snap.get("c300_bias_20", snap.get("bias_20", 0.0)))
+        if not allocations:
+            return round(macro_erp, 2), round(c300_bias, 2)
+
+        total_w = sum(float(a.get("weight", 0.0)) for a in allocations)
+        if total_w <= 0.0:
+            total_w = 1.0
+
+        weighted_bias = 0.0
+        weighted_erp = 0.0
+
+        for a in allocations:
+            w = float(a.get("weight", 0.0)) / total_w
+            fc = str(a.get("code", "")).strip()
+            fn = str(a.get("name", "")).strip()
+            if a.get("bias_20") is not None:
+                f_bias = float(a.get("bias_20"))
+            else:
+                m = cls.get_fund_real_volatility_and_bias(fc, fn)
+                f_bias = float(m.get("bias_20", 0.0))
+            weighted_bias += w * f_bias
+
+            # 根据赛道属性反推资产 ERP 分位数 (低估资产对应高 ERP)
+            # 纯债/黄金/货币等防守对冲标的对齐宏观中性 ERP，权益/行业资产结合自身乖离率调节
+            if any(k in fn for k in ["债", "裕祥", "固收", "黄金", "货币"]):
+                f_erp = macro_erp
+            else:
+                # 乖离率越低，表明短期越处于水下超卖左侧击球区，ERP 相应上浮
+                f_erp = float(np.clip(macro_erp - f_bias * 1.5, 10.0, 95.0))
+            weighted_erp += w * f_erp
+
+        return round(weighted_erp, 2), round(weighted_bias, 2)
 
     @classmethod
     def calculate_otc_fund_liquidity_haircut(

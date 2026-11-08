@@ -2716,13 +2716,31 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
     try:
         # ── 今日投顾行动总开关 (L1 傻瓜决策层：紧凑单行 <=44px，置于双翼看板顶部) ──
         sentry = ActiveRiskSentry()
+        _cur_tier = str(st.session_state.get("active_tier_val", "C3")).upper()
         _f_metas = {}
+        _f_quotes = {}
         for _c in pm_instance.holdings.keys():
             try:
                 _f_metas[_c] = DataLoader.get_fund_metadata(_c) or {}
             except Exception:
                 _f_metas[_c] = {}
-        sentry_rep = sentry.inspect_portfolio(pm_instance.holdings, snapshot_dict, fund_metadata=_f_metas)
+            try:
+                _q = fetch_realtime_fund_quote(_c, use_cache=True)
+                if _q:
+                    _f_quotes[_c] = _q
+            except Exception:
+                pass
+
+        _augmented_snapshot = dict(snapshot_dict) if isinstance(snapshot_dict, dict) else {}
+        _augmented_snapshot["fund_quotes"] = _f_quotes
+        _augmented_snapshot["investor_risk_tier"] = _cur_tier
+
+        sentry_rep = sentry.inspect_portfolio(
+            pm_instance.holdings,
+            _augmented_snapshot,
+            fund_metadata=_f_metas,
+            investor_risk_tier=_cur_tier
+        )
         all_alerts_switch = sentry_rep.get("alerts", [])
         lock_alerts_switch = [a for a in all_alerts_switch if a.get("action_type") == "lock_shares"]
 
@@ -2798,13 +2816,17 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                     safe_markdown_html("<div style='font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;'>🔭 全市场机会雷达 · Top 3 机会甄选</div>")
                 with col_rad_head2:
                     with st.popover(f"🧬 因子进化: 估{w_factors[0]*100:.0f}% 动{w_factors[1]*100:.0f}% 噪{w_factors[2]*100:.0f}% 拥{w_factors[3]*100:.0f}%", use_container_width=True):
-                        st.markdown("##### 🧬 在线启发式因子基因自适应进化算子")
-                        st.caption("基于 14 大赛道真实 60 日收益与特征张量，纯 NumPy 向量化演化，严格约束换手率与回撤。")
+                        st.markdown("##### 🧬 在线启发式因子基因自适应进化与突发黑天鹅 GP 规则树引擎")
+                        regime_mode_txt = evo_res.get("regime_mode", "平稳蓄势态 (STABLE_CONSOLIDATION)")
+                        regime_badge_txt = evo_res.get("regime_badge", "🟢 平稳蓄势")
+                        st.caption(f"当前识别市场模式：<b>{regime_badge_txt} {regime_mode_txt}</b>", unsafe_allow_html=True)
                         traj_data = radar_engine.evolver.get_60d_rolling_nav_and_trajectory()
                         c_m1, c_m2, c_m3 = st.columns(3)
-                        c_m1.metric("超额 Alpha", f"{traj_data.get('alpha_pct', 0.0):+.2f}%")
-                        c_m2.metric("最大回撤", f"-{traj_data.get('mdd_dynamic_pct', 0.0):.2f}%")
+                        c_m1.metric("样本外 Alpha", f"{traj_data.get('alpha_pct', 0.0):+.2f}%")
+                        c_m2.metric("动态最大回撤", f"-{traj_data.get('mdd_dynamic_pct', 0.0):.2f}%")
                         c_m3.metric("换手率惩罚", f"-{evo_res.get('turnover', 0.0):.1f}%")
+                        rule_expr_txt = evo_res.get("operator_rule_expression") or "RuleTree: Mom_Win=0.30*5d+0.70*20d | Vol_Pulse=exp(-1.2*pulse) | Safe_Shift=1.0+0.5*panic"
+                        st.code(rule_expr_txt, language="text")
                         df_traj = pd.DataFrame({
                             "日期": traj_data.get("dates", [])[-15:],
                             "动态净值": traj_data.get("nav_dynamic", [])[-15:],
@@ -2866,6 +2888,14 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                 )
                 ruler_bar_html = render_historical_inflection_ruler_html(inflection_ruler)
 
+                # 舆情情绪多空温度与宏观跨市场先行指标感知
+                sent_score, sent_label = DataLoader.calc_financial_news_sentiment(news_items)
+                macro_ind = DataLoader.fetch_macro_cross_market_indicators()
+                cgb_10y_str = macro_ind.get("cgb_10y_str", "1.62%")
+                gold_summary = macro_ind.get("gold_summary", "黄金ETF 8.25元")
+                nasdaq_summary = macro_ind.get("nasdaq_summary", "隔夜纳指 +1.09%")
+                sent_color = "var(--color-up)" if sent_score >= 60 else ("var(--color-down)" if sent_score <= 40 else "var(--accent-primary)")
+
                 pulse_card_html = f"""
                 <div class="decision-card" style="padding: 8px 12px; margin-bottom: 10px; border-left: 3px solid var(--accent-primary); background: var(--bg-surface);">
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">
@@ -2878,7 +2908,8 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                     </div>
                     <div style="font-size: 11px; color: var(--text-primary); line-height: 1.4; margin-bottom: 4px;">
                         {pulse_brief}<br>
-                        ⚡ 实时快讯: <span style="color: var(--accent-primary);">{latest_flash}</span>
+                        ⚡ 实时快讯: <span style="color: var(--accent-primary);">{latest_flash}</span><br>
+                        🔥 舆情情绪温度: <span style="color: {sent_color}; font-weight: 700;">{sent_score:.0f}分 ({sent_label})</span> ｜ 🌐 跨市场联动: 10Y国债 {cgb_10y_str} ｜ {gold_summary} ｜ {nasdaq_summary}
                     </div>
                     {ruler_bar_html}
                 </div>
@@ -2984,7 +3015,7 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                     # G10: 动态相关性突变指示卡（仅在突变警报或结构异动时渲染，正常区间保持干净）
                     try:
                         corr_eval_res = pm_instance.evaluate_dynamic_correlation_mutation_instance(threshold=0.75, stress_threshold=0.80)
-                        if corr_eval_res.get("is_mutation_alarm") or corr_eval_res.get("is_regime_shift_risk"):
+                        if corr_eval_res.get("is_triggered") or corr_eval_res.get("is_liquidity_shift_triggered") or corr_eval_res.get("is_mutation_alarm") or corr_eval_res.get("is_regime_shift_risk"):
                             safe_markdown_html(render_correlation_mutation_card_html(corr_eval_res))
                     except Exception:
                         pass
@@ -3096,7 +3127,10 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                                         if fcode and fcode not in st.session_state.tab2_locked_funds:
                                             st.session_state.tab2_locked_funds.append(fcode)
                                     elif act_type in ["take_profit", "deep_loss_rebalance", "rebalance_sector"]:
-                                        st.session_state.tab2_pending_take_profit = {"fund_code": fcode, "ratio": 0.40}
+                                        st.session_state.tab2_pending_take_profit = {
+                                            "fund_code": fcode,
+                                            "ratio": float(alert.get("take_profit_ratio", 0.40)),
+                                        }
                                     elif act_type in ["switch_a_class", "replace_fund"]:
                                         st.session_state.tab2_c_replace = fcode
                                     elif act_type in ["defense_mode", "offense_mode"]:
@@ -3884,8 +3918,10 @@ with tab_zero_start:
                 active_cheat_sheet_text = "\n".join(cs_lines)
 
             elif "智能定投" in cap_deployment_mode:
-                erp_pct = float(snapshot.get("erp_percentile", 78.0))
-                bias_20 = float(snapshot.get("c300_bias_20", snapshot.get("bias_20", 1.0)))
+                erp_pct, bias_20 = SmartExecutionDCAEngine.compute_portfolio_weighted_bias_and_erp(
+                    allocations=alloc_list_for_dca,
+                    snapshot=snapshot
+                )
                 dca_plan = SmartExecutionDCAEngine.plan_smart_dca(
                     total_capital=float(plan_capital),
                     allocations=alloc_list_for_dca,

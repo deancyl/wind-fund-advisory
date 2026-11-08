@@ -1,18 +1,20 @@
-# BRIEFING — 2026-11-08T12:00:00Z
+# BRIEFING — 2026-11-08T15:01:00Z
 
 ## Mission
-Orchestrate G11 Generation: Three-block ultra-minimalist architecture refactoring, remove nested banners and twin buttons, popover-based quick fund recording, and locked slashCommand bootstrap format.
+Orchestrate G12 Generation: Fix 4 circuit-breaker bugs, trailing stop-profit and right-side breakdown profit taking, multi-source realtime leading indicators & daily parquet gap auto-healing, black swan 7-dim online GP rule tree evolution, visual inspection via /browser, full test suite pass, Git tag v4.2-G12, and locked semicolon syntax G13 bootstrap prompt.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: d:\Google\Workspace\Wind\.agents\teamwork\
 - Orchestrator: e2e9b1b9-848d-4b67-b5e8-3f65177957b7 (orchestrator_12)
-- Orchestrator (active): c6b4ebd0-c5f1-4175-8ba5-3bd0979b970d (orchestrator_15)
+- Orchestrator (active): e873dbb9-9906-41d0-83a7-8e9eb7aaf59a (orchestrator_16)
 - Victory Auditor (active): to be spawned on victory claim
 - Orchestrator (G10): 496bfcfb-72ea-446e-b3dc-c85871c12398 (orchestrator_14)
 - Victory Auditor (G10): to be spawned on victory claim
 - Interviewer (G11): 08832e46-fd88-4c3b-95f0-e61f77f6fb10 (killed)
 - Orchestrator (G11): c6b4ebd0-c5f1-4175-8ba5-3bd0979b970d (orchestrator_15)
+- Orchestrator (G12): e873dbb9-9906-41d0-83a7-8e9eb7aaf59a (orchestrator_16)
+- Victory Auditor (G12): to be spawned on victory claim
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -51,15 +53,22 @@ Orchestrate G11 Generation: Three-block ultra-minimalist architecture refactorin
 - [G11] Write G11 minimalist specs and slashCommand full bracket tag format rule to root GEMINI.md & PROGRESS_LOG.md
 - [G11] Git commit & tag v4.1-G11; NO GitHub Release
 - [G11] End report with strictly formatted G12 bootstrap prompt starting with [slashCommand:/goal] [slashCommand:/boost] [slashCommand:/teamwork] and containing [slashCommand:/browser]
+- [G12] Fix 4 code circuit-breaker bugs: right sentry correlation alarm key name, inspect_portfolio investor_risk_tier & fund_quotes penetration, index/ETF feeder realtime quote calibration with benchmark/0.95 factor, Tab 1 smart DCA multiplier fund-weighted MA20 bias & ERP
+- [G12] Trailing stop-profit & right-side breakdown profit taking: 10% floating profit + breakdown MA20 & slope negative/1.5x daily vol drop -> 50% profit lock; 60d high-water mark trailing drawdown protection
+- [G12] Multi-source realtime leading indicators & daily parquet gap auto-healing: 14 sector ETF volume surge ratio & premium/discount, 10Y treasury yield / gold / Nasdaq overnight linkage, filtered A-share news sentiment score 0-100 in morning report
+- [G12] Emergency black swan online GP & heuristic rule tree: real-time cross-section price injection, 7-dim chromosome (valuation, momentum, SNR, anti-crowding + adaptive momentum window, vol spike penalty, sudden drop safe-haven switch), dynamic market regime mode display & evolved rule expression in popover
+- [G12] /browser visual verification: three-block minimalist layout, light/dark themes, 640px mobile viewport, zero word break/overflow
+- [G12] Full test suite pass 100%, 4 read-only judge files strictly protected, data/ledgers_index.json clean
+- [G12] Git tag v4.2-G12, push origin HEAD & tags; NO GitHub Release
+- [G12] Report ends with strictly formatted G13 bootstrap prompt: [/goal](slashCommand;goal), [/boost](slashCommand;boost), [/teamwork](slashCommand;teamwork), [/browser](slashCommand;browser) using semicolon syntax (NO colon)
 
 ## User Context
-- **Last user request**: Approved G11 task prompt routed to orchestrator_15
+- **Last user request**: Approved G12 task prompt routed to orchestrator_16 (e873dbb9-9906-41d0-83a7-8e9eb7aaf59a)
 - **Pending clarifications**: none
-- **Delivered results**: G11 orchestrator_15 dispatched and monitoring crons active
+- **Delivered results**: G12 orchestrator_16 dispatched
 
 ## Project Status
-- **Phase**: in progress (orchestrator_15 active: c6b4ebd0-c5f1-4175-8ba5-3bd0979b970d)
-- **Active Crons**: task-26 (Cron 1: Progress */8m), task-27 (Cron 2: Liveness */10m)
+- **Phase**: in progress (orchestrator_16 active: e873dbb9-9906-41d0-83a7-8e9eb7aaf59a)
 
 ## Victory Audit Status
 - **Triggered**: no
@@ -69,4 +78,4 @@ Orchestrate G11 Generation: Three-block ultra-minimalist architecture refactorin
 ## Artifact Index
 - .agents/teamwork/ORIGINAL_REQUEST.md — Authoritative user request record
 - .agents/teamwork/BRIEFING.md — Persistent sentinel memory
-- .agents/teamwork/orchestrator_15/ — Working directory for active G11 Project Orchestrator
+- .agents/teamwork/orchestrator_16/ — Working directory for active G12 Project Orchestrator
