@@ -37,7 +37,7 @@
 |---|------|-------|-------------|--------|
 | M1 | 金融量化与流动性风控核心整改 | Features 1-5 (R1-R4): 相关性下行半协方差与 0.80 突变平移预案, 场外公募非线性执行折价模型, 穿透式多周期蒙特卡洛压力测试 | none | DONE |
 | M2 | 本地服务平滑重启与多模态视觉走查闭环 | Features 6-7 (R5): 终止旧 8501 端口, 启动新服务, /browser 走查双翼看板、Tab 1/2 折价表与 3D 分布图、亮暗主题与 640px 移动端 | M1 | DONE |
-| M3 | 全量自动化测试、只读裁判核验、Git 打标归档与 G11 指令自举 | Features 8-10 (R6): 运行 59 + 6 = 65 项自动化测试 100% 绿灯, 裁判哈希审计, 工作区 GEMINI.md/PROGRESS_LOG.md 沉淀, Git commit + v3.10-G10 标签推送, 胜利审计与 G11 指令 | M1, M2 | IN_PROGRESS |
+| M3 | 全量自动化测试、只读裁判核验、Git 打标归档与 G11 指令自举 | Features 8-10 (R6): 运行 59 + 6 = 65 项自动化测试 100% 绿灯, 裁判哈希审计, 工作区 GEMINI.md/PROGRESS_LOG.md 沉淀, Git commit + v3.10-G10 标签推送, 胜利审计与 G11 指令 | M1, M2 | DONE |
 
 ## Interface Contracts
 ### advisory_engine ↔ portfolio_manager (Downside Correlation & Liquidity Shift)
