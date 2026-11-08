@@ -225,18 +225,40 @@ RADAR_SECTOR_CATALOG: Dict[str, Dict[str, Any]] = {
 }
 
 
+_VALUATION_CACHE_DICT: Optional[Dict[str, Any]] = None
+
+
+def _get_index_valuation_cache() -> Dict[str, Any]:
+    global _VALUATION_CACHE_DICT
+    if _VALUATION_CACHE_DICT is not None:
+        return _VALUATION_CACHE_DICT
+    val_cache = {}
+    try:
+        val_p = WORKSPACE_ROOT / "data/cache/index_valuation.json"
+        if val_p.exists():
+            with open(val_p, "r", encoding="utf-8") as vf:
+                val_cache = json.load(vf)
+    except Exception:
+        pass
+    _VALUATION_CACHE_DICT = val_cache
+    return val_cache
+
+
 class OnlineHeuristicFactorEvolver:
     """
-    在线启发式因子基因自适应进化算子 (G6/G7 核心量化引擎)
+    在线启发式因子基因自适应进化算子 (G9 世代核心量化引擎)
     
     1. 候选染色体种群 N=32，四维因子权重向量 w = [w_val, w_mom, w_snr, w_crowd]
        硬约束：每维权重 w_i >= 0.05, sum(w_i) == 1.000000
-    2. 基于本地 14 大赛道最近 60 个交易日的真实收益率矩阵 R (60 x 14) 与四维因子特征张量 F (60 x 14 x 4)
+    2. 基于本地 14 大赛道的真实收益率矩阵 R 与四维因子特征张量 F
     3. 适应度函数：
        Fitness = Sharpe + 0.6 * WinRate - 1.2 * MDD - 1.5 * TailMDD - 0.8 * Turnover
-       严格集成换手率惩罚 (-0.8 * Turnover) 与尾部最大回撤约束 (-1.5 * TailMDD)
-    4. 纯 NumPy 向量化回测与锦标赛选择/自适应变异，运行耗时 < 50ms
-    5. 生成 60 日滚动累计净值对比 (动态进化 vs 静态 30/30/25/15) 与四维演化轨迹数据
+       严格执行：
+       - 因果律铁律：P[:-1] 滞后一期作用于 R[1:]，彻底消除同日未来函数
+       - 真实扣除双边换手摩擦成本：0.0020 * daily_to，真实合成净值
+       - 严格扣除年化 2.0% 无风险利率 (0.02 / 250.0)
+    4. 实装推进式样本外演化轨迹 (Walk-Forward Rolling Trajectory, 12切片 x 5日)，彻底废除 lam 线性插值
+    5. 跨市场 A 股交易日历 (H00300) 严格重采样 (reindex + ffill)，彻底废除 np.linspace 假序列
     """
 
     def __init__(self, population_size: int = 32, generations: int = 15, random_seed: int = 42):
@@ -247,11 +269,10 @@ class OnlineHeuristicFactorEvolver:
         self._cached_evolution: Optional[Dict[str, Any]] = None
         self._cached_60d_data: Optional[Dict[str, Any]] = None
 
-    def _extract_sector_price_matrix(self, window_days: int = 85) -> Tuple[np.ndarray, List[str], List[str]]:
-        """从本地真实行情提取 14 大赛道的近 window_days 日收盘价矩阵 (对齐交易日)"""
+    def _extract_sector_price_matrix(self, window_days: int = 140) -> Tuple[np.ndarray, List[str], List[str]]:
+        """从本地真实行情提取 14 大赛道的近 window_days 日收盘价矩阵 (以 A 股交易日历为基准严格对齐)"""
         sector_ids = list(RADAR_SECTOR_CATALOG.keys())
         prices_dict = {}
-        dates_list = []
 
         mat_path = None
         for p in [
@@ -264,8 +285,13 @@ class OnlineHeuristicFactorEvolver:
                 break
 
         df_mat = pd.read_parquet(mat_path) if mat_path else None
-        if df_mat is not None and "date" in df_mat.columns:
-            dates_list = df_mat["date"].dropna().astype(str).tolist()[-window_days:]
+        if df_mat is None or "date" not in df_mat.columns:
+            end_d = datetime.now()
+            target_dates = [(end_d - pd.Timedelta(days=int(i * 1.45))).strftime("%Y-%m-%d") for i in range(window_days)]
+            target_dates = list(reversed(target_dates))
+        else:
+            base_dates = pd.to_datetime(df_mat["date"]).dt.strftime("%Y-%m-%d").tolist()
+            target_dates = base_dates[-window_days:]
 
         global_df = None
         global_path = WORKSPACE_ROOT / "data/global/global_indices.parquet"
@@ -276,22 +302,44 @@ class OnlineHeuristicFactorEvolver:
                 global_df = None
 
         for sec_id, meta in RADAR_SECTOR_CATALOG.items():
-            s = None
-            # 1. 优先读取独立日线
+            s_series: Optional[pd.Series] = None
+
+            # 1. 优先读取独立日线 parquet
             fb = meta.get("fallback_parquet")
             if fb:
                 fb_p = WORKSPACE_ROOT / fb if not os.path.isabs(fb) else Path(fb)
                 if fb_p.exists():
                     try:
                         fdf = pd.read_parquet(fb_p)
-                        col = "close" if "close" in fdf.columns else ("收盘" if "收盘" in fdf.columns else ("nav" if "nav" in fdf.columns else None))
-                        if col:
-                            s = fdf[col].dropna().values.astype(float)
+                        d_col = [c for c in fdf.columns if "date" in str(c).lower() or "日期" in str(c) or "time" in str(c).lower()]
+                        p_col = [c for c in ["close", "收盘", "nav"] if c in fdf.columns]
+                        if d_col and p_col:
+                            dt_idx = pd.to_datetime(fdf[d_col[0]]).dt.strftime("%Y-%m-%d")
+                            s_series = pd.Series(fdf[p_col[0]].values, index=dt_idx).dropna()
+                            s_series = s_series[~s_series.index.duplicated(keep="last")]
                     except Exception:
-                        s = None
+                        s_series = None
 
-            # 2. 从优选基金缓存读取
-            if s is None or len(s) < window_days:
+            # 2. 从大盘行情对齐矩阵提取 (最权威 A 股/黄金/美股QDII对齐源)
+            if (s_series is None or len(s_series) < 20) and df_mat is not None:
+                m_col = meta.get("matrix_col")
+                cand_cols = [m_col] if m_col else []
+                idx_c = meta.get("index_code", "")
+                sym = meta.get("symbol", "")
+                if idx_c:
+                    cand_cols.append(idx_c)
+                if sym:
+                    cand_cols.append(sym)
+
+                for c in cand_cols:
+                    if c in df_mat.columns:
+                        dt_idx = pd.to_datetime(df_mat["date"]).dt.strftime("%Y-%m-%d")
+                        s_series = pd.Series(df_mat[c].values, index=dt_idx).dropna()
+                        s_series = s_series[~s_series.index.duplicated(keep="last")]
+                        break
+
+            # 3. 从优选基金日线缓存提取
+            if (s_series is None or len(s_series) < 20):
                 top_code = meta.get("top_fund_code") or meta.get("default_fund", {}).get("code")
                 if top_code:
                     for nc_p in [
@@ -302,57 +350,58 @@ class OnlineHeuristicFactorEvolver:
                         if nc_p.exists():
                             try:
                                 ncdf = pd.read_parquet(nc_p)
-                                col = "nav" if "nav" in ncdf.columns else ("close" if "close" in ncdf.columns else None)
-                                if col:
-                                    s = ncdf[col].dropna().values.astype(float)
+                                d_col = [c for c in ncdf.columns if "date" in str(c).lower() or "trade_date" in str(c).lower()]
+                                p_col = [c for c in ["nav", "close"] if c in ncdf.columns]
+                                if d_col and p_col:
+                                    dt_idx = pd.to_datetime(ncdf[d_col[0]]).dt.strftime("%Y-%m-%d")
+                                    s_series = pd.Series(ncdf[p_col[0]].values, index=dt_idx).dropna()
+                                    s_series = s_series[~s_series.index.duplicated(keep="last")]
                                     break
                             except Exception:
                                 pass
 
-            # 3. 从大盘对齐矩阵提取
-            if (s is None or len(s) < window_days) and df_mat is not None:
-                m_col = meta.get("matrix_col")
-                if m_col and m_col in df_mat.columns:
-                    s = df_mat[m_col].dropna().values.astype(float)
-                else:
-                    idx_c = meta.get("index_code", "")
-                    sym = meta.get("symbol", "")
-                    for c in df_mat.columns:
-                        if (idx_c and idx_c in str(c)) or (sym and sym in str(c)):
-                            s = df_mat[c].dropna().values.astype(float)
-                            break
-
-            # 4. 从全球指数表提取
-            if (s is None or len(s) < window_days) and global_df is not None:
+            # 4. 从全球指数表提取 (如 HSTECH 等)
+            if (s_series is None or len(s_series) < 20) and global_df is not None:
                 idx_c = meta.get("benchmark_index") or meta.get("index_code")
-                if idx_c and "index_code" in global_df.columns:
+                if idx_c and "index_code" in global_df.columns and "date" in global_df.columns:
                     sub = global_df[global_df["index_code"] == idx_c]
                     if not sub.empty and "close" in sub.columns:
-                        s = sub["close"].dropna().values.astype(float)
+                        dt_idx = pd.to_datetime(sub["date"]).dt.strftime("%Y-%m-%d")
+                        s_series = pd.Series(sub["close"].values, index=dt_idx).dropna()
+                        s_series = s_series[~s_series.index.duplicated(keep="last")]
 
-            # 兜底截取
-            if s is not None and len(s) >= window_days:
-                prices_dict[sec_id] = s[-window_days:]
-            elif s is not None and len(s) > 0:
-                pad_len = window_days - len(s)
-                prices_dict[sec_id] = np.pad(s, (pad_len, 0), mode="edge") if pad_len > 0 else s[-window_days:]
+            # 严格基于 A 股 target_dates 交易日重采样与前向填充 (ffill + bfill)
+            if s_series is not None and len(s_series) > 0:
+                aligned = s_series.reindex(target_dates).ffill().bfill()
+                arr = aligned.values.astype(float)
+                if np.isnan(arr).any():
+                    arr = np.nan_to_num(arr, nan=1.0)
+                prices_dict[sec_id] = arr
             else:
-                prices_dict[sec_id] = np.linspace(1.0, 1.05, window_days)
+                # 彻底废除 np.linspace！缺失时置常数 1.0 (收益率为 0，夏普为负自然淘汰)
+                prices_dict[sec_id] = np.ones(len(target_dates), dtype=float)
 
         price_matrix = np.column_stack([prices_dict[sid] for sid in sector_ids])
-        if len(dates_list) < window_days:
-            end_d = datetime.now()
-            d_list = [(end_d - pd.Timedelta(days=int(i * 1.45))).strftime("%Y-%m-%d") for i in range(window_days)]
-            dates_list = list(reversed(d_list))
-        return price_matrix, sector_ids, dates_list[-window_days:]
+        return price_matrix, sector_ids, target_dates
 
     def _build_factor_tensor_and_returns(
-        self, price_matrix: np.ndarray, horizon: int = 60
+        self, price_matrix: np.ndarray, horizon: int = 60, sector_ids: Optional[List[str]] = None
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """构建近 60 个交易日的四维因子特征张量 F (60 x 14 x 4) 与日收益率矩阵 R (60 x 14)"""
+        """构建近 horizon 个交易日的四维因子特征张量 F 与日收益率矩阵 R"""
         T_total, S_num = price_matrix.shape
         F = np.zeros((horizon, S_num, 4), dtype=float)
         R = np.zeros((horizon, S_num), dtype=float)
+
+        val_cache = _get_index_valuation_cache()
+        base_val_pcts = np.full(S_num, 50.0, dtype=float)
+        if sector_ids:
+            for s_idx, sid in enumerate(sector_ids):
+                meta = RADAR_SECTOR_CATALOG.get(sid, {})
+                cands = [meta.get("benchmark_index"), meta.get("symbol"), meta.get("index_code"), meta.get("cs_code")]
+                for c in cands:
+                    if c and str(c) in val_cache and val_cache[str(c)].get("percentile") is not None:
+                        base_val_pcts[s_idx] = float(val_cache[str(c)]["percentile"])
+                        break
 
         offset = T_total - horizon
         for t in range(horizon):
@@ -386,12 +435,20 @@ class OnlineHeuristicFactorEvolver:
                 else:
                     s_mom[s] = max(20.0, 50.0 + sl)
 
-            val_pct = np.zeros(S_num, dtype=float)
+            # 估值得分：长周期均线中枢 + 官方 5 年分位锚定，彻底废除 85 天假短窗
+            s_val = np.zeros(S_num, dtype=float)
             for s in range(S_num):
-                history_p = sub_p[:, s]
-                cur = history_p[-1]
-                val_pct[s] = np.mean(history_p <= cur) * 100.0
-            s_val = np.clip(100.0 * (1.0 - val_pct / 100.0), 10.0, 95.0)
+                p_s = sub_p[:, s]
+                if len(p_s) >= 60:
+                    ma_long_len = min(len(p_s), 120)
+                    ma_long = np.mean(p_s[-ma_long_len:])
+                    ratio = p_s[-ma_long_len:] / np.maximum(1e-8, ma_long)
+                    dyn_pct = float(np.mean(ratio <= ratio[-1]) * 100.0)
+                    final_pct = 0.5 * base_val_pcts[s] + 0.5 * dyn_pct
+                else:
+                    p_bias = float((p_cur[s] - ma20[s]) / np.maximum(1e-8, ma20[s]) * 100.0)
+                    final_pct = float(np.clip(base_val_pcts[s] + 0.5 * p_bias, 5.0, 95.0))
+                s_val[s] = float(np.clip(100.0 - final_pct, 10.0, 95.0))
 
             d_rets = np.diff(sub_p[-25:, :], axis=0) / np.maximum(1e-8, sub_p[-25:-1, :])
             vol_5 = np.std(d_rets[-5:, :], axis=0) if len(d_rets) >= 5 else np.full(S_num, 0.01)
@@ -413,19 +470,39 @@ class OnlineHeuristicFactorEvolver:
         self, pop: np.ndarray, F: np.ndarray, R: np.ndarray
     ) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
         """
-        纯 NumPy 向量化评估种群适应度 (严格执行换手率惩罚与尾部最大回撤约束)
-        Fitness = Sharpe + 0.6 * WinRate - 1.2 * MDD - 1.5 * TailMDD - 0.8 * Turnover
+        纯 NumPy 向量化评估种群适应度 (严格因果律对齐 + 换手摩擦内扣 + Rf 扣减)
+        1. 滞后一期：第 t 日收盘特征 F[t] 选出的 Top 3 权重 P[t] 仅作用于第 t+1 日收益率 R[t+1]
+        2. 真实摩擦：从日度组合收益率中真实扣除双边换手摩擦成本 (单边 10 bps，双边 20 bps)
+        3. 真实夏普：严格从日度均值收益扣除 2.0% 年化无风险利率 (0.02 / 250.0)
         """
         N = pop.shape[0]
+        T_len = F.shape[0]
         scores = np.einsum("tsd,kd->tsk", F, pop)
 
         top3_idx = np.argpartition(-scores, 3, axis=1)[:, :3, :]
         P = np.zeros_like(scores)
         np.put_along_axis(P, top3_idx, 1.0 / 3.0, axis=1)
 
-        R_p = np.sum(P * R[:, :, None], axis=1)
+        # 核心因果律铁律：严格滞后一期对齐！P[:-1] 作用于 R[1:]
+        # t 日收盘决策权重 P[t] 获得 t+1 日真实收益率 R[t+1]
+        P_eff = P[:-1, :, :]  # shape: (T_len - 1, S, N)
+        R_eff = R[1:, :]      # shape: (T_len - 1, S)
 
-        nav = np.cumprod(1.0 + R_p, axis=0)
+        # 毛收益率序列: shape (T_len - 1, N)
+        gross_R_p = np.sum(P_eff * R_eff[:, :, None], axis=1)
+
+        # 真实双边换手率测算 (单边 10 bps, 双边 20 bps on turnover)
+        diff_P = np.abs(np.diff(P_eff, axis=0))  # shape: (T_len - 2, S, N)
+        daily_to_mid = 0.5 * np.sum(diff_P, axis=1)  # shape: (T_len - 2, N)
+        daily_to = np.vstack([np.zeros((1, N)), daily_to_mid])  # shape: (T_len - 1, N)
+        turnover = np.mean(daily_to, axis=0)
+
+        # 真实双边交易摩擦扣减：单边 10 bps (0.0010) -> 总买卖额摩擦 0.0020 * daily_to
+        friction_cost = 0.0020 * daily_to
+        net_R_p = gross_R_p - friction_cost
+
+        # 真实净值序列合成
+        nav = np.cumprod(1.0 + net_R_p, axis=0)
         nav_with_0 = np.vstack([np.ones((1, N)), nav])
         running_max = np.maximum.accumulate(nav_with_0, axis=0)
         dd = (running_max - nav_with_0) / np.maximum(1e-8, running_max)
@@ -435,14 +512,12 @@ class OnlineHeuristicFactorEvolver:
         mask = dd >= q95[None, :]
         tail_mdd = np.sum(dd * mask, axis=0) / np.maximum(1, np.sum(mask, axis=0))
 
-        diff_P = np.abs(np.diff(P, axis=0))
-        daily_to = 0.5 * np.sum(diff_P, axis=1)
-        turnover = np.mean(daily_to, axis=0)
-
-        mean_r = np.mean(R_p, axis=0)
-        std_r = np.std(R_p, axis=0) + 1e-6
-        sharpe = (mean_r / std_r) * np.sqrt(250.0)
-        win_rate = np.mean(R_p > 0.0, axis=0)
+        # 真实夏普比率精算：严格扣减 2.0% 年化无风险利率 (0.02 / 250.0)
+        mean_r = np.mean(net_R_p, axis=0)
+        rf_daily = 0.02 / 250.0
+        std_r = np.std(net_R_p, axis=0) + 1e-6
+        sharpe = ((mean_r - rf_daily) / std_r) * np.sqrt(250.0)
+        win_rate = np.mean(net_R_p > 0.0, axis=0)
 
         fitness = sharpe + 0.6 * win_rate - 1.2 * mdd - 1.5 * tail_mdd - 0.8 * turnover
 
@@ -452,7 +527,7 @@ class OnlineHeuristicFactorEvolver:
             "mdd": mdd,
             "tail_mdd": tail_mdd,
             "turnover": turnover,
-            "R_p": R_p,
+            "R_p": net_R_p,
             "nav": nav_with_0,
         }
         return fitness, metrics
@@ -465,8 +540,10 @@ class OnlineHeuristicFactorEvolver:
         t_start = time.perf_counter()
         np.random.seed(self.random_seed)
 
-        price_matrix, sector_ids, dates = self._extract_sector_price_matrix(window_days=85)
-        F, R = self._build_factor_tensor_and_returns(price_matrix, horizon=60)
+        lookback_days = int(kwargs.get("lookback_days", 60))
+        price_matrix, sector_ids, dates = self._extract_sector_price_matrix(window_days=max(140, lookback_days + 30))
+        horizon = lookback_days + 1
+        F, R = self._build_factor_tensor_and_returns(price_matrix, horizon=horizon, sector_ids=sector_ids)
 
         N = self.population_size
         W = np.zeros((N, 4), dtype=float)
@@ -554,53 +631,135 @@ class OnlineHeuristicFactorEvolver:
         return result
 
     def get_60d_rolling_nav_and_trajectory(self, **kwargs) -> Dict[str, Any]:
-        """获取近 60 个交易日动态演化 vs 静态权重的累计净值曲线与四维演化轨迹数据"""
+        """
+        获取近 60 个交易日真实的推进式样本外演化轨迹 (Walk-Forward Rolling Trajectory)
+        废除 lam = (t + 1) / 60.0 线性插值，按每 5 个交易日滚动推进演化，
+        每期仅使用该节点之前的历史数据求解最优权重，并用于后续 5 日样本外净值与真实四维轨迹记录。
+        """
         if self._cached_60d_data is not None:
             return self._cached_60d_data
 
-        evo_res = self.evolve_factor_weights()
-        best_w = np.array(evo_res["weights"], dtype=float)
-
-        price_matrix, sector_ids, dates = self._extract_sector_price_matrix(window_days=85)
-        F, R = self._build_factor_tensor_and_returns(price_matrix, horizon=60)
-
-        eval_pop = np.vstack([best_w[None, :], self.static_weights[None, :]])
-        _, metrics = self._evaluate_population(eval_pop, F, R)
-
-        nav_dyn = metrics["nav"][:, 0]
-        nav_stat = metrics["nav"][:, 1]
-
+        price_matrix, sector_ids, dates = self._extract_sector_price_matrix(window_days=140)
         chart_dates = dates[-60:]
+        T_oos = 60
+        step = 5
+        num_slices = T_oos // step  # 12 个走步切片
 
+        oos_dynamic_returns = []
+        oos_static_returns = []
         trajectory = []
-        for t in range(60):
-            lam = (t + 1) / 60.0
-            cur_w = (1.0 - lam) * self.static_weights + lam * best_w
-            mean_snr = np.mean(F[t, :, 2]) / 100.0
-            cur_w[2] = cur_w[2] * (0.9 + 0.2 * mean_snr)
-            cur_w = np.maximum(0.05, cur_w)
-            cur_w = cur_w / np.sum(cur_w)
 
-            trajectory.append({
-                "date": chart_dates[t],
-                "valuation": round(float(cur_w[0]), 4),
-                "momentum": round(float(cur_w[1]), 4),
-                "snr": round(float(cur_w[2]), 4),
-                "anti_crowding": round(float(cur_w[3]), 4),
-            })
+        prev_dyn_top3 = None
+        prev_stat_top3 = None
+
+        for slice_idx in range(num_slices):
+            slice_start = slice_idx * step
+            slice_end = (slice_idx + 1) * step
+
+            # 定位该切片在 price_matrix 中的起始行 (严格截取该节点之前的历史数据)
+            cutoff_in_matrix = len(price_matrix) - 60 + slice_start
+
+            # 训练窗口取 cutoff_in_matrix 之前 65 个交易日
+            train_sub_p = price_matrix[max(0, cutoff_in_matrix - 65) : cutoff_in_matrix, :]
+            F_tr, R_tr = self._build_factor_tensor_and_returns(train_sub_p, horizon=55, sector_ids=sector_ids)
+
+            # 小型种群极速求解最优因子权重 (纯向量化)
+            W_tr = np.zeros((16, 4), dtype=float)
+            W_tr[0] = self.static_weights.copy()
+            for i in range(1, 16):
+                raw = np.random.uniform(0.05, 0.50, size=4)
+                W_tr[i] = raw / np.sum(raw)
+            for _ in range(5):
+                fit_tr, _ = self._evaluate_population(W_tr, F_tr, R_tr)
+                elites = W_tr[np.argsort(-fit_tr)[:4]].copy()
+                new_w = [elites[0], elites[1], elites[2], elites[3]]
+                while len(new_w) < 16:
+                    p1 = elites[np.random.randint(0, 4)]
+                    p2 = elites[np.random.randint(0, 4)]
+                    ch = 0.5 * p1 + 0.5 * p2 + np.random.normal(0.0, 0.02, size=4)
+                    ch = np.maximum(0.05, ch)
+                    new_w.append(ch / np.sum(ch))
+                W_tr = np.array(new_w)
+
+            best_fit_tr, _ = self._evaluate_population(W_tr, F_tr, R_tr)
+            w_slice = W_tr[np.argmax(best_fit_tr)].copy()
+            w_slice = np.maximum(0.05, w_slice)
+            w_slice = w_slice / np.sum(w_slice)
+
+            # 该切片 5 个交易日的特征与收益 (逐日严格按 T-1 收盘决策 -> T 真实收益推演)
+            for d in range(step):
+                cur_day_idx = slice_start + d
+                p_idx = len(price_matrix) - 60 + cur_day_idx
+
+                # 当日决策特征 (使用截至 p_idx 的历史序列用于预测 p_idx 当日收益)
+                sub_today = price_matrix[:p_idx, :]
+                F_today, _ = self._build_factor_tensor_and_returns(sub_today, horizon=1, sector_ids=sector_ids)
+                f_vec = F_today[0]  # shape (14, 4)
+
+                # 动态打分选出 Top 3
+                scores_dyn = np.dot(f_vec, w_slice)
+                top3_dyn = np.argsort(-scores_dyn)[:3]
+
+                # 静态基准打分选出 Top 3
+                scores_stat = np.dot(f_vec, self.static_weights)
+                top3_stat = np.argsort(-scores_stat)[:3]
+
+                # 第 p_idx 日真实收益率
+                r_today = (price_matrix[p_idx, :] - price_matrix[p_idx - 1, :]) / np.maximum(1e-8, price_matrix[p_idx - 1, :])
+
+                # 动态组合收益与换手摩擦扣减
+                dyn_gross = float(np.mean(r_today[top3_dyn]))
+                if prev_dyn_top3 is not None:
+                    dyn_diff = len(set(top3_dyn) - set(prev_dyn_top3)) / 3.0
+                    dyn_friction = 0.0020 * dyn_diff
+                else:
+                    dyn_friction = 0.0
+                prev_dyn_top3 = top3_dyn
+                oos_dynamic_returns.append(dyn_gross - dyn_friction)
+
+                # 静态基准收益与换手摩擦扣减
+                stat_gross = float(np.mean(r_today[top3_stat]))
+                if prev_stat_top3 is not None:
+                    stat_diff = len(set(top3_stat) - set(prev_stat_top3)) / 3.0
+                    stat_friction = 0.0020 * stat_diff
+                else:
+                    stat_friction = 0.0
+                prev_stat_top3 = top3_stat
+                oos_static_returns.append(stat_gross - stat_friction)
+
+                # 记录真实的样本外因子演化轨迹
+                trajectory.append({
+                    "date": chart_dates[cur_day_idx],
+                    "valuation": round(float(w_slice[0]), 4),
+                    "momentum": round(float(w_slice[1]), 4),
+                    "snr": round(float(w_slice[2]), 4),
+                    "anti_crowding": round(float(w_slice[3]), 4),
+                })
+
+        # 累乘生成 60 日真实样本外累计净值
+        nav_dyn_series = np.cumprod(1.0 + np.array(oos_dynamic_returns))
+        nav_stat_series = np.cumprod(1.0 + np.array(oos_static_returns))
+
+        def _calc_mdd(navs: np.ndarray) -> float:
+            n_arr = np.concatenate([[1.0], navs])
+            run_max = np.maximum.accumulate(n_arr)
+            return float(np.max((run_max - n_arr) / np.maximum(1e-8, run_max)))
+
+        mdd_dyn = _calc_mdd(nav_dyn_series)
+        mdd_stat = _calc_mdd(nav_stat_series)
 
         result = {
             "dates": chart_dates,
-            "nav_dynamic": [round(float(x), 4) for x in nav_dyn[1:]],
-            "dynamic_nav": [round(float(x), 4) for x in nav_dyn[1:]],
-            "nav_static": [round(float(x), 4) for x in nav_stat[1:]],
-            "static_nav": [round(float(x), 4) for x in nav_stat[1:]],
+            "nav_dynamic": [round(float(x), 4) for x in nav_dyn_series],
+            "dynamic_nav": [round(float(x), 4) for x in nav_dyn_series],
+            "nav_static": [round(float(x), 4) for x in nav_stat_series],
+            "static_nav": [round(float(x), 4) for x in nav_stat_series],
             "trajectory": trajectory,
-            "final_nav_dynamic": round(float(nav_dyn[-1]), 4),
-            "final_nav_static": round(float(nav_stat[-1]), 4),
-            "alpha_pct": round(float((nav_dyn[-1] - nav_stat[-1]) * 100.0), 2),
-            "mdd_dynamic_pct": round(float(metrics["mdd"][0] * 100.0), 2),
-            "mdd_static_pct": round(float(metrics["mdd"][1] * 100.0), 2),
+            "final_nav_dynamic": round(float(nav_dyn_series[-1]), 4),
+            "final_nav_static": round(float(nav_stat_series[-1]), 4),
+            "alpha_pct": round(float((nav_dyn_series[-1] - nav_stat_series[-1]) * 100.0), 2),
+            "mdd_dynamic_pct": round(float(mdd_dyn * 100.0), 2),
+            "mdd_static_pct": round(float(mdd_stat * 100.0), 2),
         }
         self._cached_60d_data = result
         return result
@@ -683,6 +842,7 @@ class OpportunityRadarEngine:
                 except Exception:
                     global_df = None
 
+            self.sector_price_series: Dict[str, np.ndarray] = {}
             for sec_id, meta in RADAR_SECTOR_CATALOG.items():
                 s = None
                 # 1. 优先读取细分行业/赛道独立日线 parquet (如 000685 半导体、000933 医药、000932 白酒、399986 银行)
@@ -761,6 +921,7 @@ class OpportunityRadarEngine:
                             s = sub["close"].dropna().values.astype(float)
 
                 if s is not None and len(s) >= 25:
+                    self.sector_price_series[sec_id] = s.copy()
                     p_t = float(s[-1])
                     p_t20 = float(s[-20])
                     diffs = [abs(s[-k] - s[-k-1]) for k in range(1, 20)]
@@ -771,7 +932,6 @@ class OpportunityRadarEngine:
                     # 对红利类标的平滑除权脉冲，避免全收益指数在集中分红月产生虚假正乖离
                     if sec_id in ("dividend_low_vol", "csi_dividend", "banking_dividend") and len(s) >= 30:
                         daily_returns = np.diff(s[-25:]) / s[-25:-1]
-                        # 剔除单日分红再投资脉冲 (>2.5% 或 >3.0*sigma_hist) 对均线与点位的虚假跳空扭曲
                         sigma_hist = float(np.std(daily_returns)) if len(daily_returns) > 5 else 0.01
                         threshold = max(0.025, 3.0 * sigma_hist)
                         normal_returns = np.clip(daily_returns, -threshold, threshold)
@@ -801,6 +961,13 @@ class OpportunityRadarEngine:
 
                     crowd = float(np.clip(91.0 - 2.2 * max(0.0, bias - 1.5) - 6.0 * max(0.0, vol_ratio - 1.1) + (1.0 - er) * 3.5, 42.0, 96.0))
 
+                    # 计算 20 日年化波动率与 20 日最大回撤
+                    d_rets_20 = np.diff(s[-21:]) / np.maximum(1e-8, s[-21:-1])
+                    vol_20 = float(np.std(d_rets_20) * np.sqrt(250.0) * 100.0) if len(d_rets_20) >= 5 else 15.0
+                    run_max_20 = np.maximum.accumulate(s[-20:])
+                    dd_20 = (run_max_20 - s[-20:]) / np.maximum(1e-8, run_max_20)
+                    mdd_20 = float(np.max(dd_20) * 100.0)
+
                     p_rt = float(s[-1]) if s is not None and len(s) > 0 else 1000.0
                     chg_pct = float((s[-1] - s[-2]) / s[-2] * 100.0) if s is not None and len(s) >= 2 else 0.0
                     chg_val = float(s[-1] - s[-2]) if s is not None and len(s) >= 2 else 0.0
@@ -817,6 +984,8 @@ class OpportunityRadarEngine:
                         "bias_20": round(float(bias), 2),
                         "slope_20": round(float(slope), 2),
                         "crowding_score": round(float(crowd), 1),
+                        "vol_20": round(float(vol_20), 1),
+                        "mdd_20": round(float(mdd_20), 1),
                         "realtime_point": round(float(p_rt), 3 if p_rt < 100.0 else 2),
                         "realtime_chg_pct": round(float(chg_pct), 2),
                         "realtime_change": round(float(chg_val), 3 if p_rt < 100.0 else 2),
@@ -963,8 +1132,59 @@ class OpportunityRadarEngine:
             return round(float(np.median(known_pcts)), 1)
         return 50.0
 
+    @staticmethod
+    def _synthesize_quantitative_evidence(
+        val_pct: float,
+        s_val: float,
+        s_mom: float,
+        s_er: float,
+        s_crowd: float,
+        bias_20: float,
+        slope_20: float,
+        er_20: float,
+        sec_id: str,
+        meta_core_logic: str = ""
+    ) -> str:
+        """动态合成与量化四维指标 100% 自洽的入选证据链"""
+        if val_pct <= 20.0:
+            val_txt = f"估值分位 {val_pct:.0f}% 处于历史极低估黄金击球区"
+        elif val_pct <= 40.0:
+            val_txt = f"估值分位 {val_pct:.0f}% 具备显著安全边际"
+        elif val_pct >= 75.0:
+            val_txt = f"估值分位 {val_pct:.0f}% 处于历史偏高估水域"
+        else:
+            val_txt = f"估值分位 {val_pct:.0f}% 处于合理估值中枢"
+
+        if bias_20 > 6.0:
+            mom_txt = f"正乖离 +{bias_20:.1f}% 触发反超买均值回归约束"
+        elif bias_20 >= 0.0 and slope_20 > 5.0:
+            mom_txt = f"均线斜率 +{slope_20:.1f} 右侧共振稳步上行"
+        elif -8.0 <= bias_20 < 0.0 and slope_20 > 0.0:
+            mom_txt = f"负乖离 {bias_20:.1f}% 呈现超跌反抽拐点"
+        elif slope_20 <= -5.0:
+            mom_txt = f"均线走平承压(斜率 {slope_20:.1f})"
+        else:
+            mom_txt = f"动量温和蓄势(斜率 {slope_20:.1f})"
+
+        if er_20 >= 0.60:
+            snr_txt = f"信噪比 {er_20:.2f} 趋势纯净度高"
+        elif er_20 <= 0.35:
+            snr_txt = f"信噪比 {er_20:.2f} 处于高频震荡博弈"
+        else:
+            snr_txt = f"信噪比 {er_20:.2f} 趋势性良好"
+
+        if s_crowd >= 80.0:
+            crowd_txt = "筹码清爽未过热"
+        elif s_crowd <= 50.0:
+            crowd_txt = "交易拥挤度偏高警惕博弈回调"
+        else:
+            crowd_txt = "交易活跃度适中"
+
+        evidence = f"【量化因果链】{val_txt}，{mom_txt}；{snr_txt}，{crowd_txt}。"
+        return evidence
+
     def evaluate_sector(self, sec_id: str, meta: Dict[str, Any], realtime_quotes: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """对单个赛道计算四维评分及综合得分"""
+        """对单个赛道计算四维评分及综合得分 (盘中末端K线真实重算 + 动态证据链)"""
         val_pct = self.get_sector_valuation_percentile(sec_id, meta)
         
         # 1. 估值分位得分 S_val: 越便宜分越高
@@ -979,13 +1199,25 @@ class OpportunityRadarEngine:
         bias_20 = float(dyn.get("bias_20", meta.get("bias_20", 1.0)))
         slope_20 = float(dyn.get("slope_20", meta.get("slope_20", 5.0)))
         s_crowd = float(dyn.get("crowding_score", meta.get("crowding_score", 85.0)))
+        vol_20 = float(dyn.get("vol_20", 15.0))
+        mdd_20 = float(dyn.get("mdd_20", 8.0))
 
-        # G8 盘中实时行情融入
+        # G8/G9 盘中实时行情融入与末端K线精准重算
         rt_quote = None
         if realtime_quotes:
-            rt_quote = realtime_quotes.get(sec_id) or realtime_quotes.get(meta.get("benchmark_index")) or realtime_quotes.get(meta.get("symbol")) or realtime_quotes.get(meta.get("index_code"))
+            rt_quote = (
+                realtime_quotes.get(sec_id)
+                or realtime_quotes.get(meta.get("benchmark_index"))
+                or realtime_quotes.get(meta.get("symbol"))
+                or realtime_quotes.get(meta.get("index_code"))
+            )
         if not rt_quote and hasattr(self, "realtime_quotes") and self.realtime_quotes:
-            rt_quote = self.realtime_quotes.get(sec_id) or self.realtime_quotes.get(meta.get("benchmark_index")) or self.realtime_quotes.get(meta.get("symbol")) or self.realtime_quotes.get(meta.get("index_code"))
+            rt_quote = (
+                self.realtime_quotes.get(sec_id)
+                or self.realtime_quotes.get(meta.get("benchmark_index"))
+                or self.realtime_quotes.get(meta.get("symbol"))
+                or self.realtime_quotes.get(meta.get("index_code"))
+            )
 
         p_rt = float(dyn.get("realtime_point", 1000.0))
         chg_pct = float(dyn.get("realtime_chg_pct", 0.0))
@@ -1000,11 +1232,43 @@ class OpportunityRadarEngine:
                 chg_val = float(rt_quote["change"])
             else:
                 chg_val = round(p_rt * chg_pct / 100.0, 2)
-            # 动态调整 bias_20
-            if "bias_20" in rt_quote:
-                bias_20 = float(rt_quote["bias_20"])
-            else:
-                bias_20 = round(bias_20 + chg_pct, 2)
+
+        # 核心改进：废除 bias_20 = round(bias_20 + chg_pct, 2) 粗暴相加！
+        # 若有真实价格序列，将最新实时价更新至序列末尾，全量重新计算 MA20、Bias20、Slope20、ER20、Vol20、MDD20
+        s = getattr(self, "sector_price_series", {}).get(sec_id)
+        if s is not None and len(s) >= 25:
+            s_rt = s.copy()
+            if rt_quote:
+                if "point" in rt_quote and 0.70 <= float(rt_quote["point"]) / np.maximum(1e-8, s[-1]) <= 1.30:
+                    s_rt[-1] = float(rt_quote["point"])
+                    p_rt = float(s_rt[-1])
+                elif "change_pct" in rt_quote:
+                    s_rt[-1] = float(s[-1] * (1.0 + chg_pct / 100.0))
+                    p_rt = float(s_rt[-1])
+
+            p_cur = float(s_rt[-1])
+            p_20_ago = float(s_rt[-20])
+            ma20 = float(np.mean(s_rt[-20:]))
+            ma20_prev = float(np.mean(s_rt[-25:-5]))
+
+            diffs = np.abs(np.diff(s_rt[-20:]))
+            sum_diff = float(np.sum(diffs))
+            er = float(np.clip(abs(p_cur - p_20_ago) / np.maximum(1e-8, sum_diff), 0.1, 0.95))
+
+            bias_20 = float(((p_cur - ma20) / np.maximum(1e-8, ma20)) * 100.0)
+            slope_20 = float(((ma20 - ma20_prev) / np.maximum(1e-8, ma20_prev)) * 50.0 * 100.0)
+
+            # 20日年化波动率与20日最大回撤真实重算
+            d_rets_20 = np.diff(s_rt[-21:]) / np.maximum(1e-8, s_rt[-21:-1])
+            vol_20 = float(np.std(d_rets_20) * np.sqrt(250.0) * 100.0) if len(d_rets_20) >= 5 else 15.0
+
+            run_max_20 = np.maximum.accumulate(s_rt[-20:])
+            dd_20 = (run_max_20 - s_rt[-20:]) / np.maximum(1e-8, run_max_20)
+            mdd_20 = float(np.max(dd_20) * 100.0)
+
+        # 兼容外部显式传入精确 bias_20
+        if rt_quote and "bias_20" in rt_quote:
+            bias_20 = float(rt_quote["bias_20"])
 
         # 2. 考夫曼信噪比 S_er
         s_er = min(100.0, er * 1.6 * 100.0)
@@ -1048,6 +1312,20 @@ class OpportunityRadarEngine:
             "share_class": "A"
         }
 
+        # 动态量化证据链合成器
+        core_logic = self._synthesize_quantitative_evidence(
+            val_pct=val_pct,
+            s_val=s_val,
+            s_mom=s_mom,
+            s_er=s_er,
+            s_crowd=s_crowd,
+            bias_20=bias_20,
+            slope_20=slope_20,
+            er_20=er,
+            sec_id=sec_id,
+            meta_core_logic=meta.get("core_logic", "")
+        )
+
         return {
             "sector_id": sec_id,
             "name": meta["name"],
@@ -1061,15 +1339,17 @@ class OpportunityRadarEngine:
             "tag": tag,
             "tag_class": tag_class,
             "fund": fund_dict,
-            "bias_20": bias_20,
-            "slope_20": slope_20,
-            "er_20": er,
+            "bias_20": round(bias_20, 2),
+            "slope_20": round(slope_20, 2),
+            "er_20": round(er, 2),
+            "vol_20": round(float(vol_20), 1),
+            "mdd_20": round(float(mdd_20), 1),
             "crowding_score": round(s_crowd, 1),
-            # G8 新增四维证据链与盘中实时行情
+            # G8/G9 动态量化证据链与盘中实时行情
             "realtime_point": round(float(p_rt), 3 if p_rt < 100.0 else 2),
             "realtime_chg_pct": round(float(chg_pct), 2),
             "realtime_change": round(float(chg_val), 3 if p_rt < 100.0 else 2),
-            "core_logic": meta.get("core_logic", "赛道景气度与宏观流动性共振"),
+            "core_logic": core_logic,
             "sub_scores": {
                 "valuation": round(s_val, 1),
                 "momentum": round(s_mom, 1),
@@ -1107,18 +1387,22 @@ class ActiveRiskSentry:
         market_snapshot: Optional[Dict[str, Any]] = None,
         fund_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
         snapshot: Optional[Dict[str, Any]] = None,
+        investor_risk_tier: Optional[str] = None,
         **kwargs
     ) -> Dict[str, Any]:
         if market_snapshot is None and snapshot is not None:
             market_snapshot = snapshot
         """
-        全面实装 6 大主动风险巡检维度：
+        全面实装 8 大主动风险巡检维度：
         1. 维度1 (未满7天惩罚锁仓红牌): min_days < 7 严禁赎回防 1.50% 扣款 (保留 ≤3天 标识)
         2. 维度2 (临免赎期倒计时黄牌保护): C类 23~29天 差 1~7天 免赎倒计时保护 (011613)
         3. 维度3 (C类满30天零费率置换提醒): C类 >= 30天 零费率置换 A类 (保留 C类份额已满 30 天 标识)
         4. 维度4 (个基阶梯止盈与深套诊断): 暴涨超买 (保留 超买 标识) 阶梯止盈 + 浮亏 <= -12% 深套诊断 (013841)
         5. 维度5 (赛道集中度与重仓股重叠预警): 单赛道持仓占比 > 35% 或同质化科创重仓重叠
         6. 维度6 (基金本体清盘线与大盘攻防线): 迷你基 < 0.5亿 (保留 清盘警戒线 标识) + 沪深300攻防破位/突破
+        7. 维度7 (动态相关性突变防御): 协方差破 0.75 降级
+        8. 维度8 (投资者适当性匹配与组合级止盈止损巡检): 权益超限与极端波动
+        9. 维度9 (盘中异动安全垫实时传导): gszzl 异动与安全垫消耗
         """
         alerts: List[Dict[str, Any]] = []
         fund_meta = fund_metadata or {}
@@ -1415,7 +1699,7 @@ class ActiveRiskSentry:
                 })
 
             # -------------------------------------------------------------
-            # 维度 6 (分支 A): 基金本体排雷预警 (迷你基规模 < 0.5亿)
+            # 维度 6 (分支 A): 基金本体排雷预警 (真实规模穿透反查与清盘警戒线)
             # -------------------------------------------------------------
             meta = fund_meta.get(code, {})
             aum = meta.get("aum_billion")
@@ -1426,25 +1710,68 @@ class ActiveRiskSentry:
                         f_aum = float(raw_aum)
                         aum = f_aum / 1e8 if f_aum > 100000 else f_aum
                     except (ValueError, TypeError):
-                        aum = 2.5
+                        aum = None
                 else:
-                    aum = 2.5
+                    aum = None
             else:
                 try:
                     aum = float(aum)
                 except (ValueError, TypeError):
-                    aum = 2.5
+                    aum = None
 
-            if aum < 0.50:
+            # 一级穿透：若仍为 None，主动调用 DataLoader.get_fund_metadata
+            if aum is None:
+                try:
+                    from data_loader import DataLoader
+                    dl_meta = DataLoader.get_fund_metadata(code)
+                    if dl_meta:
+                        if dl_meta.get("aum") is not None:
+                            aum = float(dl_meta["aum"])
+                        elif dl_meta.get("aum_billion") is not None:
+                            aum = float(dl_meta["aum_billion"])
+                except Exception:
+                    pass
+
+            # 二级穿透：从 CORE_STRATEGY_POOL 与 EXTENDED_FUND_CATALOG 反查
+            if aum is None:
+                try:
+                    from portfolio_manager import CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG
+                    pool_meta = CORE_STRATEGY_POOL.get(code) or EXTENDED_FUND_CATALOG.get(code)
+                    if pool_meta:
+                        pool_aum = pool_meta.get("aum_billion") or pool_meta.get("aum")
+                        if pool_aum is not None:
+                            aum = float(pool_aum)
+                except Exception:
+                    pass
+
+            # 三级决策：严格区分 真实规模达标 / 真实迷你基(<0.5亿) / 规模待核验状态，彻底杜绝 2.5 假兜底
+            if aum is not None:
+                if aum < 0.50:
+                    alerts.append({
+                        "level": "red",
+                        "dimension": "本体排雷",
+                        "title": f"【{name} ({code})】规模仅 {aum:.2f} 亿元 (<0.5亿清盘警戒线)",
+                        "desc": "最新资产净值低于 5,000 万元法定警戒线，面临清盘终止运作的严重法律与流动性风险！",
+                        "action": "择机置换为同赛道规模适中（10~50亿）的标杆公募基金。",
+                        "action_type": "replace_fund",
+                        "fund_code": code,
+                        "fund_name": name,
+                        "aum_billion": aum,
+                        "aum_status": "LIQUIDATION_DANGER",
+                    })
+            else:
+                # 彻底杜绝 aum = 2.5！未获取到规模时显式输出黄色告警
                 alerts.append({
-                    "level": "red",
+                    "level": "yellow",
                     "dimension": "本体排雷",
-                    "title": f"【{name} ({code})】规模仅 {aum:.2f} 亿元 (<0.5亿清盘警戒线)",
-                    "desc": "最新资产净值低于 5,000 万元法定警戒线，面临清盘终止运作的严重法律与流动性风险！",
-                    "action": "择机置换为同赛道规模适中（10~50亿）的标杆公募基金。",
+                    "title": f"【{name} ({code})】规模待核验",
+                    "desc": "未能从多级数据湖仓或实时接口获取到该基金最新资产规模，存在潜在迷你基清盘不可见风险！",
+                    "action": "建议手动核对基金公司季报净资产规模，确保规模大于 5,000 万元法定警戒线。",
                     "action_type": "replace_fund",
                     "fund_code": code,
                     "fund_name": name,
+                    "aum_billion": None,
+                    "aum_status": "PENDING_VERIFICATION",
                 })
 
         # -------------------------------------------------------------
@@ -1531,6 +1858,158 @@ class ActiveRiskSentry:
                 })
         except Exception:
             corr_eval = None
+
+        # -------------------------------------------------------------
+        # 维度 8: 投资者适当性匹配与组合级止盈止损巡检
+        # -------------------------------------------------------------
+        target_risk_tier = investor_risk_tier or kwargs.get("investor_risk_tier") or kwargs.get("risk_tier") or snapshot.get("investor_risk_tier") or snapshot.get("risk_tier")
+        if target_risk_tier:
+            target_risk_tier = str(target_risk_tier).upper()
+            tier_cfg = None
+            try:
+                from strategy_bridge import RISK_TIERS_CONFIG
+                tier_cfg = RISK_TIERS_CONFIG.get(target_risk_tier)
+            except Exception:
+                pass
+            if not tier_cfg:
+                FALLBACK_TIERS = {
+                    "C1": {"equity_range": [15, 20], "max_tolerated_loss": -5.0, "name": "安稳保守型"},
+                    "C2": {"equity_range": [30, 40], "max_tolerated_loss": -10.0, "name": "稳健固收+型"},
+                    "C3": {"equity_range": [50, 78], "max_tolerated_loss": -15.0, "name": "平衡进取型"},
+                    "C4": {"equity_range": [75, 85], "max_tolerated_loss": -25.0, "name": "成长进攻型"},
+                    "C5": {"equity_range": [85, 95], "max_tolerated_loss": -35.0, "name": "极限高Beta追击型"},
+                }
+                tier_cfg = FALLBACK_TIERS.get(target_risk_tier, FALLBACK_TIERS["C3"])
+
+            max_eq = float(tier_cfg.get("equity_range", [50, 78])[1]) / 100.0
+            tier_name = tier_cfg.get("name", target_risk_tier)
+
+            # 统计组合权益类资产市值（排除纯债固收、黄金对冲与货币现金）
+            equity_mv = 0.0
+            has_high_vol_tech = False
+            for item in normalized_items:
+                c_name = item.get("name", "")
+                c_code = item.get("code", "")
+                c_cat = item.get("category", "")
+                is_defensive = (
+                    c_cat in ["纯债固收", "黄金对冲", "货币现金"]
+                    or any(k in c_name for k in ["债", "裕祥", "黄金", "货币", "固收"])
+                    or c_code in ["002351", "018757", "000216", "518880"]
+                )
+                if not is_defensive:
+                    equity_mv += item.get("market_value", 0.0)
+                    if any(k in c_name for k in ["集成电路", "芯片", "半导体", "科创"]) or c_code in ["013841", "008888", "011612", "011613"]:
+                        has_high_vol_tech = True
+
+            if total_portfolio_mv > 0.0:
+                equity_ratio = equity_mv / total_portfolio_mv
+                if equity_ratio > max_eq:
+                    excess_ratio = equity_ratio - max_eq
+                    excess_mv = excess_ratio * total_portfolio_mv
+                    is_severe = (excess_ratio >= 0.15) or (target_risk_tier == "C1" and has_high_vol_tech)
+                    alerts.append({
+                        "level": "red" if is_severe else "yellow",
+                        "dimension": "投资者适当性",
+                        "title": f"【{target_risk_tier} {tier_name}】权益持仓占比 {equity_ratio*100:.1f}% 超标 (上限 {max_eq*100:.0f}%)",
+                        "desc": f"当前账本风险等级为 {target_risk_tier} ({tier_name})，实盘权益敞口达到 {equity_ratio*100:.1f}%，超出契约上限 {excess_ratio*100:.1f}% (超配 ¥{excess_mv:,.2f})！" +
+                                (" 且低风险客户持有高波科技/科创标的，风险严重不匹配！" if (target_risk_tier == "C1" and has_high_vol_tech) else ""),
+                        "action": f"启动一键降波纠偏：建议将超配的 ¥{excess_mv:,.2f} 权益资产平移配置至纯债固收标的 (如 002351 易方达裕祥回报)。",
+                        "action_type": "rebalance_sector",
+                        "investor_risk_tier": target_risk_tier,
+                        "equity_ratio": equity_ratio,
+                        "max_equity_ratio": max_eq,
+                        "excess_equity_amount": excess_mv,
+                    })
+
+            # 组合级累计浮盈与止盈止损巡检
+            total_cost = sum(
+                float(it.get("market_value", 0.0)) / (1.0 + it.get("pnl_pct", 0.0) / 100.0)
+                if it.get("pnl_pct") is not None and it.get("pnl_pct") != -100.0
+                else float(it.get("market_value", 0.0))
+                for it in normalized_items
+            )
+            if total_cost > 0.0 and total_portfolio_mv > 0.0:
+                portfolio_pnl_pct = (total_portfolio_mv - total_cost) / total_cost * 100.0
+                if portfolio_pnl_pct >= 20.0:
+                    alerts.append({
+                        "level": "yellow",
+                        "dimension": "组合级止盈",
+                        "title": f"组合累计浮盈达 +{portfolio_pnl_pct:.1f}% 触碰止盈线",
+                        "desc": f"组合累计实现浮盈 +{portfolio_pnl_pct:.1f}% (超过 +20.0% 组合止盈阈值)，盈利丰厚宜分批锁定收益。",
+                        "action": "建议执行组合级阶梯止盈，赎回 20%~30% 浮盈仓位落袋沉淀为现金或纯债压舱石。",
+                        "action_type": "take_profit",
+                        "portfolio_pnl_pct": portfolio_pnl_pct,
+                    })
+                else:
+                    max_tol_loss = float(tier_cfg.get("max_tolerated_loss", -15.0))
+                    if portfolio_pnl_pct <= max_tol_loss:
+                        alerts.append({
+                            "level": "red",
+                            "dimension": "组合级止损",
+                            "title": f"组合累计浮亏 {portfolio_pnl_pct:.1f}% 触碰 {target_risk_tier} 止损警戒线 ({max_tol_loss:.0f}%)",
+                            "desc": f"组合浮亏达 {portfolio_pnl_pct:.1f}%，触碰该风险偏好允许承受的最大回撤底线 ({max_tol_loss:.0f}%)！",
+                            "action": "启动组合防守应急预案，暂停进攻加仓，阶梯压降高波权益仓位并对冲避险。",
+                            "action_type": "defense_mode",
+                            "portfolio_pnl_pct": portfolio_pnl_pct,
+                        })
+
+        # -------------------------------------------------------------
+        # 维度 9: 盘中实时估值异动与安全垫实时消耗传导
+        # -------------------------------------------------------------
+        fund_quotes = snapshot.get("fund_quotes") or snapshot.get("realtime_quotes") or {}
+        # 计算组合安全垫金额 (累计浮盈或传入的 cushion_yuan)
+        cushion_yuan = float(snapshot.get("cushion_yuan") or snapshot.get("yield_cushion_yuan") or 0.0)
+        if cushion_yuan <= 0.0:
+            cushion_yuan = sum(
+                float(it.get("market_value", 0.0)) - (float(it.get("market_value", 0.0)) / (1.0 + it.get("pnl_pct", 0.0) / 100.0))
+                for it in normalized_items if (it.get("pnl_pct") or 0.0) > 0.0
+            )
+
+        intraday_pnl_sum = 0.0
+        has_large_single_swing = False
+        swing_details = []
+
+        for it in normalized_items:
+            f_code = it.get("code", "")
+            f_mv = it.get("market_value", 0.0)
+            f_name = it.get("name", "")
+            q = fund_quotes.get(f_code, {})
+            gszzl = None
+            if isinstance(q, dict):
+                raw_gz = q.get("gszzl") or q.get("change_pct") or q.get("chg_pct")
+                if raw_gz is not None:
+                    try:
+                        gszzl = float(raw_gz)
+                    except (ValueError, TypeError):
+                        pass
+            elif isinstance(q, (int, float)):
+                gszzl = float(q)
+
+            if gszzl is not None:
+                delta_p = f_mv * (gszzl / 100.0)
+                intraday_pnl_sum += delta_p
+                if abs(gszzl) >= 2.0:
+                    has_large_single_swing = True
+                    swing_details.append(f"{f_name}({f_code}) 盘中估值 {gszzl:+.2f}%")
+
+        intraday_chg_pct = (intraday_pnl_sum / total_portfolio_mv * 100.0) if total_portfolio_mv > 0.0 else 0.0
+
+        if (has_large_single_swing or abs(intraday_chg_pct) >= 1.0) and intraday_pnl_sum < 0.0:
+            consumed_cushion_ratio = (abs(intraday_pnl_sum) / cushion_yuan * 100.0) if cushion_yuan > 0.0 else 100.0
+            if consumed_cushion_ratio >= 20.0 or intraday_chg_pct <= -1.0:
+                alerts.append({
+                    "level": "yellow" if consumed_cushion_ratio < 50.0 else "red",
+                    "dimension": "盘中异动安全垫传导",
+                    "title": f"盘中异动下挫 {intraday_chg_pct:+.2f}%，安全垫实时消耗 ¥{abs(intraday_pnl_sum):,.2f} ({consumed_cushion_ratio:.1f}%)",
+                    "desc": f"组合受盘中异动冲击日内缩水 ¥{abs(intraday_pnl_sum):,.2f} ({intraday_chg_pct:+.2f}%)，" +
+                            f"消耗当前持仓安全垫的 {consumed_cushion_ratio:.1f}%！异动明细: {'; '.join(swing_details[:3])}。",
+                    "action": "启动盘中防守机制：严禁在下挫阶段追高博弈，待 14:30 尾盘估值锚定企稳后再行操作。",
+                    "action_type": "defense_mode",
+                    "intraday_pnl_sum": intraday_pnl_sum,
+                    "intraday_chg_pct": intraday_chg_pct,
+                    "consumed_cushion_ratio": consumed_cushion_ratio,
+                    "cushion_yuan": cushion_yuan,
+                })
 
         has_danger = any(a["level"] == "red" for a in alerts)
         has_warning = any(a["level"] == "yellow" for a in alerts)

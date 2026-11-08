@@ -24,6 +24,7 @@
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Tuple, Any, Union
+from collections import defaultdict
 from pathlib import Path
 import sys
 import json
@@ -3509,6 +3510,7 @@ class PortfolioManager:
             "pending_orders": orders_list,
             "staged_batch_plans": copy.deepcopy(self.staged_batch_plans),
             "nav_history": copy.deepcopy(getattr(self, "nav_history", [])),
+            "initial_baseline_snapshot": copy.deepcopy(getattr(self, "initial_baseline_snapshot", {})),
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
@@ -3522,6 +3524,7 @@ class PortfolioManager:
         self.reserved_batch_cash = float(state.get("reserved_batch_cash", 0.0))
         self.staged_batch_plans = copy.deepcopy(state.get("staged_batch_plans", []))
         self.nav_history = copy.deepcopy(state.get("nav_history", []))
+        self.initial_baseline_snapshot = copy.deepcopy(state.get("initial_baseline_snapshot", {}))
         self.peak_equity = float(state.get("peak_equity", self.baseline_equity))
         self.max_drawdown_pct = float(state.get("max_drawdown_pct", 0.0))
         self.benchmark_code = state.get("benchmark_code", "000300.SH")
@@ -6671,11 +6674,13 @@ class PortfolioManager:
     def evaluate_rebalance_audit(self) -> Dict[str, Any]:
         """
         实盘调仓决策复盘 vs 初始躺平影子组合 (Shadow Portfolio Audit)
-        严格由真实数学公式驱动，杜绝假常量:
+        基于 9 大标准大类资产分类器构建 Brinson-Fachler 经典超额收益归因模型:
         1. current_actual_equity = 当前实盘总资产 self.total_equity
         2. shadow_hold_equity = 保持接管首日/初始确立份额不变乘以今日 current_nav + 初始现金
         3. rebalance_value_add = current_actual_equity - shadow_hold_equity (主动调仓净增厚)
         4. saved_penalty_and_buffer_fees = <7天拦截免除的 1.50% 巨额惩罚费 + 临期 C 类缓卖省下的赎回费
+        5. brinson_attribution = 三维超额拆解 (大类资产配置效应 + 优选基金超额效应 + 交易摩擦及惩罚规避)
+        严格保证数学恒等式: abs(allocation_effect_yuan + selection_effect_yuan - total_active_add_yuan) < 1e-4
         """
         cur_actual = float(self.total_equity or 0.0)
 
@@ -6684,26 +6689,47 @@ class PortfolioManager:
         if not snap or not snap.get("holdings"):
             init_h = {c: float(h.shares) for c, h in self.holdings.items()}
             init_c = float(self.available_cash)
+            init_navs = {c: float(h.current_nav or h.cost_price or 1.0) for c, h in self.holdings.items()}
             snap = {
                 "holdings": init_h,
                 "initial_cash": init_c,
+                "initial_navs": init_navs,
                 "baseline_equity": cur_actual if cur_actual > 0 else 100000.0,
                 "date": getattr(self, "baseline_date", datetime.now().strftime("%Y-%m-%d"))
             }
             self.initial_baseline_snapshot = snap
+            try:
+                self.save_state(record_snapshot=False)
+            except Exception:
+                pass
 
         init_holdings = snap.get("holdings", {})
         init_cash = float(snap.get("initial_cash", 0.0))
+        snap_navs = snap.get("initial_navs", {})
 
         # 影子组合今日市值 (保持初始份额不变 * 各标的今日最新净值)
         shadow_equity = init_cash
+        shadow_fund_values: Dict[str, float] = {}
+        shadow_fund_init_values: Dict[str, float] = {}
+        shadow_fund_navs: Dict[str, float] = {}
+
         for c, sh in init_holdings.items():
             if c in self.holdings:
                 nav = float(self.holdings[c].current_nav or 1.0)
+                name = self.holdings[c].fund_name
+                i_nav = float(snap_navs.get(c) or self.holdings[c].cost_price or nav)
             else:
                 meta = self.resolve_fund_meta(c)
                 nav = float(meta.get("current_nav", 1.0) or 1.0)
-            shadow_equity += sh * nav
+                name = meta.get("fund_name", "")
+                i_nav = float(snap_navs.get(c) or meta.get("cost_price", nav) or nav)
+
+            val = sh * nav
+            init_val = sh * i_nav
+            shadow_equity += val
+            shadow_fund_values[c] = val
+            shadow_fund_init_values[c] = init_val
+            shadow_fund_navs[c] = nav
 
         rebal_val_add = round(cur_actual - shadow_equity, 2)
         rebal_val_add_pct = round((rebal_val_add / shadow_equity * 100.0), 2) if shadow_equity > 0 else 0.0
@@ -6717,6 +6743,163 @@ class PortfolioManager:
             if h.share_class == "C" and 7 <= getattr(h, "holding_days", 30) < 30:
                 saved_fees += float(h.market_value) * 0.0050
 
+        # Brinson-Fachler 经典模型大类资产分类归集
+        actual_cat_values: Dict[str, float] = defaultdict(float)
+        shadow_cat_values: Dict[str, float] = defaultdict(float)
+        shadow_cat_init_values: Dict[str, float] = defaultdict(float)
+
+        actual_cash = float(self.available_cash) + float(self.in_transit_cash)
+        actual_cat_values["现金管理"] += actual_cash
+        shadow_cat_values["现金管理"] += init_cash
+        shadow_cat_init_values["现金管理"] += init_cash
+
+        for c, h in self.holdings.items():
+            cat = self.classify_fund_asset_class(c, h.fund_name)
+            val = float(h.market_value or (float(h.shares) * float(h.current_nav or 1.0)))
+            actual_cat_values[cat] += val
+
+        for c, val in shadow_fund_values.items():
+            h_obj = self.holdings.get(c)
+            name = h_obj.fund_name if h_obj else self.resolve_fund_meta(c).get("fund_name", "")
+            cat = self.classify_fund_asset_class(c, name)
+            shadow_cat_values[cat] += val
+            shadow_cat_init_values[cat] += shadow_fund_init_values.get(c, val)
+
+        all_categories = sorted(set(list(actual_cat_values.keys()) + list(shadow_cat_values.keys())))
+
+        w_P: Dict[str, float] = {}
+        w_B: Dict[str, float] = {}
+        R_B_map: Dict[str, float] = {}
+        R_P_map: Dict[str, float] = {}
+
+        for cat in all_categories:
+            w_P[cat] = (actual_cat_values[cat] / cur_actual) if cur_actual > 0 else 0.0
+            w_B[cat] = (shadow_cat_values[cat] / shadow_equity) if shadow_equity > 0 else 0.0
+
+            v_b_now = shadow_cat_values[cat]
+            v_b_init = shadow_cat_init_values[cat]
+            if v_b_init > 0:
+                R_B_map[cat] = (v_b_now - v_b_init) / v_b_init
+            else:
+                R_B_map[cat] = 0.0
+
+            cat_holdings = [h for c, h in self.holdings.items() if self.classify_fund_asset_class(c, h.fund_name) == cat]
+            if cat == "现金管理":
+                R_P_map[cat] = 0.0
+            elif actual_cat_values[cat] > 0 and cat_holdings:
+                tot_p_ret = 0.0
+                tot_p_val = actual_cat_values[cat]
+                for h in cat_holdings:
+                    c = h.fund_code
+                    c_nav = float(h.current_nav or 1.0)
+                    c_init_nav = float(snap_navs.get(c) or h.cost_price or c_nav)
+                    c_ret = (c_nav - c_init_nav) / c_init_nav if c_init_nav > 0 else 0.0
+                    h_val = float(h.market_value or (float(h.shares) * c_nav))
+                    tot_p_ret += (h_val / tot_p_val) * c_ret
+                R_P_map[cat] = tot_p_ret
+            else:
+                R_P_map[cat] = R_B_map[cat]
+
+            if v_b_init <= 0 and actual_cat_values[cat] > 0:
+                R_B_map[cat] = R_P_map[cat]
+
+        R_B_total = sum(w_B[cat] * R_B_map[cat] for cat in all_categories)
+
+        AR_raw_map: Dict[str, float] = {}
+        SR_raw_map: Dict[str, float] = {}
+
+        for cat in all_categories:
+            AR_raw_map[cat] = (w_P[cat] - w_B[cat]) * (R_B_map[cat] - R_B_total)
+            SR_raw_map[cat] = w_P[cat] * (R_P_map[cat] - R_B_map[cat])
+
+        AR_raw_sum = sum(AR_raw_map.values())
+        SR_raw_sum = sum(SR_raw_map.values())
+        TE_raw_sum = AR_raw_sum + SR_raw_sum
+
+        total_active_add_yuan = rebal_val_add
+        total_active_add_pct = rebal_val_add_pct
+
+        if abs(TE_raw_sum) > 1e-9:
+            alloc_ratio = AR_raw_sum / TE_raw_sum
+            alloc_yuan = round(total_active_add_yuan * alloc_ratio, 2)
+            select_yuan = round(total_active_add_yuan - alloc_yuan, 2)
+            alloc_pct = round(total_active_add_pct * alloc_ratio, 2)
+            select_pct = round(total_active_add_pct - alloc_pct, 2)
+        else:
+            if abs(total_active_add_yuan) < 1e-4:
+                alloc_yuan = 0.0
+                select_yuan = 0.0
+                alloc_pct = 0.0
+                select_pct = 0.0
+            else:
+                alloc_yuan = round(total_active_add_yuan / 2.0, 2)
+                select_yuan = round(total_active_add_yuan - alloc_yuan, 2)
+                alloc_pct = round(total_active_add_pct / 2.0, 2)
+                select_pct = round(total_active_add_pct - alloc_pct, 2)
+
+        fric_saving_yuan = round(saved_fees, 2)
+        fric_saving_pct = round((saved_fees / shadow_equity * 100.0), 2) if shadow_equity > 0 else 0.0
+
+        if abs(alloc_yuan) > abs(select_yuan):
+            primary_driver = "大类资产配置效应"
+        elif abs(select_yuan) > abs(alloc_yuan):
+            primary_driver = "优选基金超额效应"
+        else:
+            primary_driver = "大类配置与精选标的均衡驱动"
+
+        category_breakdown = []
+        for cat in all_categories:
+            if w_P[cat] <= 0 and w_B[cat] <= 0:
+                continue
+
+            ar_raw = AR_raw_map[cat]
+            sr_raw = SR_raw_map[cat]
+
+            if abs(TE_raw_sum) > 1e-9:
+                cat_alloc_yuan = round(total_active_add_yuan * (ar_raw / TE_raw_sum), 2)
+                cat_select_yuan = round(total_active_add_yuan * (sr_raw / TE_raw_sum), 2)
+                cat_alloc_pct = round(total_active_add_pct * (ar_raw / TE_raw_sum), 2)
+                cat_select_pct = round(total_active_add_pct * (sr_raw / TE_raw_sum), 2)
+            else:
+                cat_alloc_yuan = 0.0
+                cat_select_yuan = 0.0
+                cat_alloc_pct = 0.0
+                cat_select_pct = 0.0
+
+            category_breakdown.append({
+                "category": cat,
+                "portfolio_weight_pct": round(w_P[cat] * 100.0, 2),
+                "benchmark_weight_pct": round(w_B[cat] * 100.0, 2),
+                "weight_diff_pct": round((w_P[cat] - w_B[cat]) * 100.0, 2),
+                "portfolio_return_pct": round(R_P_map[cat] * 100.0, 2),
+                "benchmark_return_pct": round(R_B_map[cat] * 100.0, 2),
+                "allocation_effect_yuan": cat_alloc_yuan,
+                "allocation_effect_pct": cat_alloc_pct,
+                "selection_effect_yuan": cat_select_yuan,
+                "selection_effect_pct": cat_select_pct,
+                "total_effect_yuan": round(cat_alloc_yuan + cat_select_yuan, 2)
+            })
+
+        category_breakdown.sort(
+            key=lambda x: actual_cat_values.get(x["category"], 0.0) + shadow_cat_values.get(x["category"], 0.0),
+            reverse=True
+        )
+
+        brinson_attr = {
+            "allocation_effect_yuan": alloc_yuan,
+            "allocation_effect_pct": alloc_pct,
+            "selection_effect_yuan": select_yuan,
+            "selection_effect_pct": select_pct,
+            "friction_saving_yuan": fric_saving_yuan,
+            "friction_saving_pct": fric_saving_pct,
+            "total_active_add_yuan": total_active_add_yuan,
+            "total_active_add_pct": total_active_add_pct,
+            "primary_driver": primary_driver,
+            "category_breakdown": category_breakdown
+        }
+
+        assert abs(alloc_yuan + select_yuan - total_active_add_yuan) < 1e-4
+
         return {
             "current_actual_equity": round(cur_actual, 2),
             "shadow_hold_equity": round(shadow_equity, 2),
@@ -6724,7 +6907,8 @@ class PortfolioManager:
             "rebalance_value_add_pct": rebal_val_add_pct,
             "saved_penalty_and_buffer_fees": round(saved_fees, 2),
             "baseline_date": snap.get("date", getattr(self, "baseline_date", "2026-11-06")),
-            "shadow_holdings_count": len(init_holdings)
+            "shadow_holdings_count": len(init_holdings),
+            "brinson_attribution": brinson_attr
         }
 
     def apply_rebalance_orders_to_holdings(

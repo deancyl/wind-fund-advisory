@@ -166,3 +166,24 @@
 ## 31. 可编辑持仓表未保存修改多层防护与金额核对防错规范 (Uncommitted Changes Multi-Layer Protection & Magnitude Conversion Standard)
 - **改表不丢数防御机制**：针对 `st.data_editor`，必须实装 `_has_uncommitted_holdings_changes` 实时探测用户在界面上所作的市值、份额、成本及调仓意愿变更；在表格上方渲染黄色警示占位器（`warn_placeholder`），并在用户点击“加入账本”、“修改现金池”、“同步真实净值”、“删除标的”等周边按钮时，前置静默调用 `_commit_edited_holdings_table` 入库，彻底杜绝输入丢失。
 - **中文数量级金融级防错折算**：全站所有大额金额输入框（建仓总资金、单笔定投、追加现金等）下方必须实时渲染 `🔢 金额核对`；当金额达到 1000 万元及以上时，必须自动呈现万元与亿元双重折算（如 `¥50,000,000.00 折合 5,000.00 万元 (0.50 亿元)`），杜绝用户由于输错 0 导致大额买卖滑点冲击。
+
+
+## 32. 基因演化防未来函数因果律与夏普无风险利率精算铁律 (Causal Quant Evolution & Sharpe Rf Deduction Invariant)
+- **严格滞后一期因果对齐**：在 `OnlineHeuristicFactorEvolver` 中，第 $t$ 日基于收盘特征 $F[t]$ 选出的 Top 3 赛道权重 $P[t]$，必须且仅允许作用于第 $t+1$ 日的真实收益率 $R[t+1]$（即 $P_{[:-1]}$ 对应 $R_{[1:]}$），彻底根除同日收盘特征乘同日收益的严重未来函数；
+- **日度收益率真实内扣双边换手摩擦**：在日度收益率序列合成中，必须真实扣除双边 20 bps 换手摩擦成本（$0.0020 \times \text{daily\_to}$），杜绝只在适应度打分中惩罚而在合成净值中虚高；
+- **夏普比率严格扣减年化 2.0% 无风险利率**：日均收益率必须严格减去日化无风险利率（$R_{f,\text{daily}} = 0.02 / 250.0$），彻底消除纯债凭借超低波动率白嫖虚高夏普的漏洞；
+- **推进式样本外演化轨迹真数据实装**：彻底废除 $lam = (t+1)/60.0$ 线性插值假轨迹，采用 12 切片 $\times$ 5 日 Walk-Forward 滚动演化真实记录样本外因子权重变迁。
+
+## 33. 真实规模三级穿透反查与清盘排雷零伪常数标准 (Authentic AUM Penetration & Liquidation Defense)
+- **清零 2.5 亿元假规模兜底**：在 `ActiveRiskSentry` 中彻底废除 `else: aum = 2.5` 假兜底；
+- **三级穿透真实反查链**：依次穿透元数据参数、`DataLoader.get_fund_metadata` 湖仓及 `CORE_STRATEGY_POOL`/`EXTENDED_FUND_CATALOG` 基金池；
+- **显式状态三色分级**：真实规模 $<0.5$ 亿元立即输出 `LIQUIDATION_DANGER` 红色清盘预警；三级反查仍无规模数据时，显式标记为 `PENDING_VERIFICATION` 规模待核验黄色警报，向投顾提供明确核验建议。
+
+## 34. 投资者适当性全周期主动巡检与盘中异动安全垫传导规范 (Investor Suitability Sentry & Intraday Cushion Shock Transmission)
+- **适当性契约严格巡检**：结合账本 C1 至 C5 风险偏好等级，实时检测权益资产占比上限与高波资产配置；C1 保守型客户持有超标权益或高波科技标的时，立即触发高危红色预警并提供一键降波建议单（精算超额人民币金额）；
+- **盘中估值异动对安全垫实时传导**：实时监控盘中估值异动（单基 $\ge 2\%$ 或组合 $\ge 1\%$），精算对持仓安全垫金额的实时消耗比例；当下挫消耗安全垫超 $20\%$ 或组合急跌超 $1\%$ 时，立即触发防御降波预警。
+
+## 35. Brinson-Fachler 经典模型三维超额收益归因与基线持久化铁律 (Brinson-Fachler 3D Attribution & Baseline Snapshot Persistence Invariant)
+- **经典三维超额收益拆解**：基于 9 大标准大类，将主动调仓净增厚精确拆解为：大类资产配置效应（Allocation Effect）、优选基金超额效应（Selection Effect）及交易摩擦与惩罚规避贡献（Friction Saving）；
+- **数学恒等式严格平账**：必须保证 $\text{alloc\_yuan} + \text{select\_yuan} = \text{total\_active\_add\_yuan}$（误差 $<10^{-4}$），并同源输出大类明细分解；
+- **初始基线快照持久化不变量**：`initial_baseline_snapshot` 必须纳入状态字典 `_export_state_dict` 与 `_import_state_dict` 序列化，确保跨会话、重启及重载后调仓对比基线永不丢失、永不被后续持仓状态覆写。

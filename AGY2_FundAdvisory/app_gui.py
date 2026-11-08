@@ -2572,11 +2572,27 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         })
                         st.line_chart(df_traj.set_index("日期"))
 
-                # 今日市场脉搏晨报 (<=80字) 与 历史牛熊拐点对照尺 (接入实时资讯与秒级感知时间)
+                # 今日市场脉搏晨报 (<=80字) 与 历史牛熊拐点对照尺 (接入实时资讯与信源验真指示徽章)
                 news_res = DataLoader.fetch_realtime_market_news_and_catalysts()
                 news_items = news_res.get("news", [])
                 latest_flash = news_items[0]["title"] if news_items else "A股主要指数处于关键均线右侧蓄势期，增量资金积极聚焦高股息红利与核心宽基。"
                 data_sense_time = news_res.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+                # 区分实时联网信源徽章与离线缓存快照徽章
+                is_realtime_news = bool(news_res.get("is_realtime", False))
+                news_src_label = str(news_res.get("source", "东方财富 7x24快讯" if is_realtime_news else "离线快照"))
+                if is_realtime_news:
+                    news_source_badge = (
+                        f'<span style="font-size: 10px; font-weight: 600; color: var(--color-down); '
+                        f'padding: 1px 6px; border-radius: 4px; background: rgba(34, 197, 94, 0.1); '
+                        f'border: 1px solid rgba(34, 197, 94, 0.25);">🟢 实时联网信源 ({news_src_label})</span>'
+                    )
+                else:
+                    news_source_badge = (
+                        f'<span style="font-size: 10px; font-weight: 600; color: var(--accent-primary); '
+                        f'padding: 1px 6px; border-radius: 4px; background: rgba(245, 158, 11, 0.1); '
+                        f'border: 1px solid rgba(245, 158, 11, 0.25);">🟠 离线本地缓存快照 (网络未连接) ⏱️ 快照时间: {data_sense_time}</span>'
+                    )
 
                 turnover_str = "1.2万亿"
                 vol_text = "放量活跃"
@@ -2615,6 +2631,7 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">
                         <span style="font-size: 11px; font-weight: 700; color: var(--accent-primary);">📢 今日市场脉搏晨报</span>
                         <div style="display: flex; gap: 8px; align-items: center;">
+                            {news_source_badge}
                             <span style="font-size: 10px; color: var(--text-secondary);">⏱️ 数据感知时间: {data_sense_time}</span>
                             <span style="font-size: 10px; color: var(--text-secondary);">全景量化串联 ｜ 历史拐点并列对照</span>
                         </div>
@@ -2639,8 +2656,15 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         rt_color = active_co["color_up"] if rt_chg >= 0 else active_co["color_down"]
                         core_logic_txt = sec.get("core_logic", "综合得分靠前")
                         sub_s = sec.get("sub_scores", {})
+                        val_score = float(sub_s.get("valuation", sec.get("s_val", 0.0)))
+                        mom_score = float(sub_s.get("momentum", sec.get("s_mom", 0.0)))
+                        snr_score = float(sub_s.get("kaufman_snr", sec.get("s_er", 0.0)))
+                        crowd_score = float(sub_s.get("anti_crowding", sec.get("s_crowd", 0.0)))
+                        vol_20_val = float(sec.get("vol_20", 15.0))
+                        mdd_20_val = float(sec.get("mdd_20", 8.0))
+
                         safe_markdown_html(f"""
-                        <div class="decision-card" style="padding: 10px 12px; height: 100%; border-top: 2px solid {tag_color};">
+                        <div class="decision-card" style="padding: 10px 12px; height: 100%; min-height: 220px; overflow: visible !important; border-top: 2px solid {tag_color};">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                                 <span style="font-size: 13px; font-weight: 700; color: var(--text-primary);">{sec['name']}</span>
                                 <div style="display: flex; gap: 4px; align-items: center;">
@@ -2648,10 +2672,13 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                                     <span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--bg-canvas); color: {tag_color}; border: 1px solid var(--border-subtle);">{sec['tag']}</span>
                                 </div>
                             </div>
-                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">
-                                综合得分: <b style="color: var(--text-primary);">{sec['total_score']}</b> ｜ 估值分位: {sec['val_percentile']:.0f}% ｜ 动量: {sub_s.get('momentum', 0.0):.0f}分
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 2px;">
+                                综合得分: <b style="color: var(--text-primary);">{sec['total_score']}</b> ｜ 估值:{val_score:.0f} 动量:{mom_score:.0f} 信噪:{snr_score:.0f} 拥挤:{crowd_score:.0f}
                             </div>
-                            <div style="font-size: 11px; color: var(--text-primary); background: var(--bg-elevated); padding: 3px 6px; border-radius: 4px; margin-bottom: 4px;">
+                            <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 4px;">
+                                🛡️ 风险指标: 20日波动 <b>{vol_20_val:.1f}%</b> ｜ 20日最大回撤 <b>-{mdd_20_val:.1f}%</b>
+                            </div>
+                            <div style="font-size: 11px; color: var(--text-primary); background: var(--bg-elevated); padding: 4px 6px; border-radius: 4px; margin-bottom: 4px; line-height: 1.35;">
                                 💡 入选依据：<b>{core_logic_txt}</b>
                             </div>
                             <div style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px;">
@@ -5894,7 +5921,7 @@ with tab_holdings_and_rebalance:
             col_aud1, col_aud2, col_aud3 = st.columns(3)
             with col_aud1:
                 safe_markdown_html(f"""
-                <div class="decision-card">
+                <div class="decision-card" style="min-height: 95px; height: auto !important; overflow: visible !important;">
                     <div class="decision-title">实盘总资产 vs 影子组合</div>
                     <div class="decision-val" style="color: var(--accent-primary);">¥{audit_res['current_actual_equity']:,.2f}</div>
                     <div class="decision-desc">
@@ -5908,7 +5935,7 @@ with tab_holdings_and_rebalance:
                 val_pct = audit_res['rebalance_value_add_pct']
                 c_val = "var(--color-up)" if val_add >= 0 else "var(--color-down)"
                 safe_markdown_html(f"""
-                <div class="decision-card">
+                <div class="decision-card" style="min-height: 95px; height: auto !important; overflow: visible !important;">
                     <div class="decision-title">主动调仓净增厚 (Alpha)</div>
                     <div class="decision-val" style="color: {c_val};">{val_add:+,.2f} 元</div>
                     <div class="decision-desc">
@@ -5919,7 +5946,7 @@ with tab_holdings_and_rebalance:
                 """)
             with col_aud3:
                 safe_markdown_html(f"""
-                <div class="decision-card">
+                <div class="decision-card" style="min-height: 95px; height: auto !important; overflow: visible !important;">
                     <div class="decision-title">AI 风控规避损失与损耗</div>
                     <div class="decision-val" style="color: var(--color-down);">¥{audit_res['saved_penalty_and_buffer_fees']:,.2f}</div>
                     <div class="decision-desc">
@@ -5928,6 +5955,100 @@ with tab_holdings_and_rebalance:
                     </div>
                 </div>
                 """)
+
+            # Brinson-Fachler 经典三维归因卡片
+            brinson_attr = audit_res.get("brinson_attribution", {})
+            alloc_yuan = brinson_attr.get("allocation_effect_yuan", 0.0)
+            alloc_pct = brinson_attr.get("allocation_effect_pct", 0.0)
+            select_yuan = brinson_attr.get("selection_effect_yuan", 0.0)
+            select_pct = brinson_attr.get("selection_effect_pct", 0.0)
+            fric_yuan = brinson_attr.get("friction_saving_yuan", audit_res['saved_penalty_and_buffer_fees'])
+            fric_pct = brinson_attr.get("friction_saving_pct", 0.0)
+            c_alloc = "var(--color-up)" if alloc_yuan >= 0 else "var(--color-down)"
+            c_select = "var(--color-up)" if select_yuan >= 0 else "var(--color-down)"
+
+            st.markdown("###### 🏛️ Brinson-Fachler 经典三维超额收益归因 (Allocation vs Selection)")
+            st.caption("买方投顾穿透归因：将主动调仓净增厚严格拆解为大类资产配置效应、优选基金超额效应与交易摩擦防御贡献。")
+            col_b1, col_b2, col_b3 = st.columns(3)
+            with col_b1:
+                safe_markdown_html(f"""
+                <div class="decision-card" style="min-height: 100px; height: auto !important; overflow: visible !important; border-top: 2px solid var(--accent-primary);">
+                    <div class="decision-title">🏛️ 大类资产配置效应 (Allocation)</div>
+                    <div class="decision-val" style="color: {c_alloc};">{alloc_yuan:+,.2f} 元</div>
+                    <div class="decision-desc">
+                        配置超额贡献: <b>{alloc_pct:+.2f}%</b><br>
+                        基于宏观大类与赛道轮动超配/低配增厚
+                    </div>
+                </div>
+                """)
+            with col_b2:
+                safe_markdown_html(f"""
+                <div class="decision-card" style="min-height: 100px; height: auto !important; overflow: visible !important; border-top: 2px solid var(--color-up);">
+                    <div class="decision-title">🎯 优选基金超额效应 (Selection)</div>
+                    <div class="decision-val" style="color: {c_select};">{select_yuan:+,.2f} 元</div>
+                    <div class="decision-desc">
+                        选基超额贡献: <b>{select_pct:+.2f}%</b><br>
+                        同一资产大类内部优选冠军标的阿尔法
+                    </div>
+                </div>
+                """)
+            with col_b3:
+                safe_markdown_html(f"""
+                <div class="decision-card" style="min-height: 100px; height: auto !important; overflow: visible !important; border-top: 2px solid var(--color-down);">
+                    <div class="decision-title">🛡️ 交易摩擦及惩罚规避 (Friction)</div>
+                    <div class="decision-val" style="color: var(--color-down);">¥{fric_yuan:,.2f}</div>
+                    <div class="decision-desc">
+                        费率增厚贡献: <b>+{fric_pct:.2f}%</b><br>
+                        守死 &lt;7天 1.50% 巨额惩罚赎回费守护成果
+                    </div>
+                </div>
+                """)
+
+            # 多大类资产归因明细表
+            category_breakdown = brinson_attr.get("category_breakdown", [])
+            if category_breakdown:
+                st.markdown("###### 📑 9大资产大类 Brinson-Fachler 归因明细")
+                df_breakdown = pd.DataFrame([
+                    {
+                        "资产大类": item["category"],
+                        "实盘权重": f"{item['portfolio_weight_pct']:.2f}%",
+                        "基准权重": f"{item['benchmark_weight_pct']:.2f}%",
+                        "权重偏离": f"{item['weight_diff_pct']:+.2f}%",
+                        "实盘收益": f"{item['portfolio_return_pct']:+.2f}%",
+                        "基准收益": f"{item['benchmark_return_pct']:+.2f}%",
+                        "配置效应(元)": f"{item['allocation_effect_yuan']:+,.2f}",
+                        "选基效应(元)": f"{item['selection_effect_yuan']:+,.2f}",
+                        "合计增厚(元)": f"{item['total_effect_yuan']:+,.2f}",
+                    }
+                    for item in category_breakdown
+                ])
+                st.dataframe(df_breakdown, use_container_width=True, hide_index=True)
+
+            # 买方投顾穿透复盘点评
+            st.markdown("###### 💡 买方投顾穿透复盘点评")
+            primary_driver = brinson_attr.get("primary_driver", "大类资产配置效应")
+            if val_add >= 0:
+                commentary = (
+                    f"本次实盘调仓相比初始接管基准（躺平影子组合）取得净增厚 <b>+{val_add:,.2f} 元 (+{val_pct:.2f}%)</b>。"
+                    f"穿透归因显示，超额收益核心驱动力为<b>【{primary_driver}】</b>（大类资产配置贡献 <b>{alloc_yuan:+,.2f} 元</b>，"
+                    f"优选基金超额贡献 <b>{select_yuan:+,.2f} 元</b>）。"
+                    f"同时，AI 风控严格守底线，累计为组合规避 <b>¥{fric_yuan:,.2f}</b> 的交易摩擦与赎回惩罚，实现稳健增厚。"
+                )
+            else:
+                commentary = (
+                    f"本次实盘调仓相较初始影子基准净偏离 <b>{val_add:,.2f} 元 ({val_pct:.2f}%)</b>，"
+                    f"归因分析表明主要受<b>【{primary_driver}】</b>影响（大类配置偏离 <b>{alloc_yuan:+,.2f} 元</b>，"
+                    f"优选基金偏离 <b>{select_yuan:+,.2f} 元</b>）。"
+                    f"但买方投顾风控引擎成功拦截流动性损耗，为您守住 <b>¥{fric_yuan:,.2f}</b> 的刚性惩罚赎回费，"
+                    f"有效控制了潜在回撤并保留了高安全边际底仓。"
+                )
+            safe_markdown_html(f"""
+            <div class="decision-card" style="padding: 10px 14px; border-left: 3px solid var(--accent-primary); background: var(--bg-surface); min-height: 50px; overflow: visible !important;">
+                <div style="font-size: 12px; color: var(--text-primary); line-height: 1.5;">
+                    {commentary}
+                </div>
+            </div>
+            """)
 
         with dock_tab4:
             st.markdown("##### ⏳ 在途订单确认与 T+1 对账中心")

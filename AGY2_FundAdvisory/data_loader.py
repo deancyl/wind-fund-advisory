@@ -362,6 +362,8 @@ def fetch_realtime_market_news_and_catalysts(
         
         result = {
             "status": "success",
+            "is_realtime": True,
+            "source_type": "online_realtime",
             "source": source_used,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -386,13 +388,22 @@ def fetch_realtime_market_news_and_catalysts(
         _REALTIME_NEWS_MEM_CACHE["data"] = result
         return result
         
-    # 6. 降级：读取磁盘历史缓存
+    # 6. 降级：读取磁盘历史缓存 (严格保留快照原始时间戳，严禁使用 datetime.now() 伪造)
     if REALTIME_NEWS_CACHE_FILE.exists():
         try:
             with open(REALTIME_NEWS_CACHE_FILE, "r", encoding="utf-8") as f:
                 cached = json.load(f)
-            cached["source"] = "cached_fallback"
+            cached["source"] = "离线本地缓存快照"
             cached["status"] = "cached_fallback"
+            cached["source_type"] = "offline_cached_snapshot"
+            cached["is_realtime"] = False
+            # 严格保留快照原本的 updated_at/timestamp，严禁使用 datetime.now() 冒充实时时间！
+            orig_ts = cached.get("updated_at") or cached.get("timestamp")
+            if not orig_ts:
+                mtime = os.path.getmtime(REALTIME_NEWS_CACHE_FILE)
+                orig_ts = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+            cached["timestamp"] = orig_ts
+            cached["updated_at"] = orig_ts
             cached["news"] = cached.get("news") or cached.get("flash_news", [])
             _REALTIME_NEWS_MEM_CACHE["ts"] = now_ts
             _REALTIME_NEWS_MEM_CACHE["data"] = cached
@@ -400,31 +411,36 @@ def fetch_realtime_market_news_and_catalysts(
         except Exception:
             pass
             
-    # 7. 极致离线保底结构体 (保底也提供真实宏观基线，保证 len(flash_news) >= 1)
-    fallback_time = datetime.now().strftime("%H:%M:%S")
+    # 7. 极致离线保底结构体 (明确标注系统离线预置基线，严禁使用 datetime.now() 冒充实时抓取)
+    fallback_time = "09:30:00"
+    fallback_dt = "2026-11-01 09:30:00 (离线预置)"
     fallback_items = [
         {
             "title": "央行持续投放逆回购呵护跨期流动性，银行间流动性合理充裕",
             "digest": "央行持续开展公开市场逆回购操作，保持流动性合理充裕，引导市场利率平稳运行。",
             "time": fallback_time,
-            "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "datetime": fallback_dt,
             "tags": ["宏观流动性"],
-            "matched_sectors": ["pure_bond"]
+            "matched_sectors": ["pure_bond"],
+            "source": "系统离线预置基线"
         },
         {
             "title": "A股主要宽基指数震荡筑底，高股息央国企防御属性凸显",
             "digest": "两市交投平稳，红利低波与核心资产估值处于长期价值击球区间。",
             "time": fallback_time,
-            "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "datetime": fallback_dt,
             "tags": ["A股大盘", "赛道催化"],
-            "matched_sectors": ["dividend_low_vol", "csi_dividend", "csi_300"]
+            "matched_sectors": ["dividend_low_vol", "csi_dividend", "csi_300"],
+            "source": "系统离线预置基线"
         }
     ]
     offline_res = {
         "status": "cold_start_fallback",
-        "source": "cold_start_fallback",
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "source": "系统离线预置基线",
+        "source_type": "offline_baseline",
+        "is_realtime": False,
+        "timestamp": fallback_dt,
+        "updated_at": fallback_dt,
         "timestamp_sec": now_ts,
         "news": fallback_items,
         "flash_news": fallback_items,
@@ -434,7 +450,7 @@ def fetch_realtime_market_news_and_catalysts(
             for s in SECTOR_KEYWORD_RULES.keys()
         },
         "summary_bullets": [it["title"] for it in fallback_items],
-        "pulse_summary": "离线状态保底模式：宏观大势维持稳健底仓与抗波动策略。"
+        "pulse_summary": "离线状态保底模式：宏观大势维持稳健底仓与抗波动策略 (离线预置快照)。"
     }
     return offline_res
 
