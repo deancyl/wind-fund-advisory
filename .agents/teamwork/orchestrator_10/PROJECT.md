@@ -49,7 +49,7 @@
 |---|------|-------|-------------|--------|
 | M1 | 量化因果律核心纠偏与真数据底座实装 | Features 1-13 (`advisory_engine.py`, `data_loader.py`): 因果滞后对齐, 换手摩擦内扣, 夏普扣减 Rf, Walk-Forward 滚动轨迹, 交易日对齐, 估值中枢, 规模反查, 适当性与异动传导, 末端K线重算, 证据链, 快讯验真 | none | DONE |
 | M2 | Brinson 三维归因、基线持久化与 UI 全栈闭环 | Features 14-17 (`portfolio_manager.py`, `app_gui.py`): Brinson-Fachler 经典归因拆解, 基线快照持久化, Top 3 风险收益对称展示, 晨报信源指示徽章, Tab 2 Brinson 归因账单与投顾点评 | M1 | DONE |
-| M3 | 全量测试验证、服务重启、多模态走查与 Git 归档 | Features 18-21: G9 专项测试, 55 项测试全通, 四大裁判文件只读法证, 8501 重启自检, GEMINI.md/PROGRESS_LOG.md 沉淀, Git Tag v3.9-G9, G10 指令 | M1, M2 | IN_PROGRESS |
+| M3 | 全量测试验证、服务重启、多模态走查与 Git 归档 | Features 18-21: G9 专项测试, 59 项测试全通, 四大裁判文件只读法证, 8501 重启自检, GEMINI.md/PROGRESS_LOG.md 沉淀, Git Tag v3.9-G9, G10 指令 | M1, M2 | DONE |
 
 ## Interface Contracts
 ### M1 ↔ M2: Factor Evolver & Risk Sentry to Portfolio/UI

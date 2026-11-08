@@ -1,5 +1,5 @@
 ## Current Status
-Last visited: 2026-11-08T00:37:00Z
+Last visited: 2026-11-08T00:52:00Z
 
 ## Iteration Status
 Current iteration: 1 / 32
@@ -12,11 +12,11 @@ Current iteration: 1 / 32
   - [x] Dispatched `worker_g9_m2` (dfceca8c) [COMPLETED]
   - [x] Dispatched M2 Validation group: Reviewer 1 (APPROVE), Reviewer 2 (APPROVE), Challenger 1 (APPROVE), Challenger 2 (APPROVE), Auditor (CLEAN)
   - [x] Milestone 2 Gate PASS (GATE_STATUS.md)
-- [/] Milestone 3: Full Test Suite Pass, Service Restart, Multi-Modal Walkthrough & Git v3.9-G9 Tag
+- [x] Milestone 3: Full Test Suite Pass, Service Restart, Multi-Modal Walkthrough & Git v3.9-G9 Tag
   - [x] Write targeted test suite `tests/test_g9_causal_brinson_and_suitability.py` (9/9 tests PASSED)
-  - [/] Run full test suite regression (50+ tests), verify 4 read-only referee files
-  - [ ] Clean temporary scripts, ensure clean ledger state in data/ledgers_index.json
-  - [ ] Smooth service restart on 8501 and HTTP probe check
-  - [ ] Update GEMINI.md & PROGRESS_LOG.md
-  - [ ] Git commit, git tag v3.9-G9, and git push (NO GitHub Release)
-  - [ ] Formulate G10 generation instructions and report to parent
+  - [x] Run full test suite regression (59/59 tests PASSED in 63.41s), verify 4 read-only referee files
+  - [x] Clean temporary scripts, ensure clean ledger state in data/ledgers_index.json
+  - [x] Smooth service restart on 8501 and HTTP probe check (HTTP_STATUS: 200)
+  - [x] Update workspace GEMINI.md & PROGRESS_LOG.md
+  - [x] Git commit, git tag v3.9-G9, and git push (NO GitHub Release)
+  - [x] Formulate G10 generation instructions and report to parent

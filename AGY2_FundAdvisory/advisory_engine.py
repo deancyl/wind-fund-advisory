@@ -1374,6 +1374,61 @@ class OpportunityRadarEngine:
         filtered = [s for s in all_sec if s["s_crowd"] >= 45.0]
         return filtered[:n]
 
+    @classmethod
+    def calculate_dynamic_correlation_matrix(
+        cls,
+        matrix_df: Optional[pd.DataFrame] = None,
+        lookback: int = 120,
+        decay_factor: float = 0.94,
+        downside_only: bool = False
+    ) -> Dict[str, Any]:
+        """
+        跨资产与细分赛道动态相关性/下行半协方差矩阵计算算子。
+        从 DataLoader 加载全收益矩阵，按交易日对齐，调用 PortfolioManager.compute_ewma_correlation。
+        """
+        try:
+            from data_loader import DataLoader
+        except ImportError:
+            from AGY2_FundAdvisory.data_loader import DataLoader
+        try:
+            from portfolio_manager import PortfolioManager
+        except ImportError:
+            from AGY2_FundAdvisory.portfolio_manager import PortfolioManager
+
+        df = matrix_df if matrix_df is not None else DataLoader().load_total_return_matrix()
+        if df is None or df.empty:
+            return {}
+
+        df_work = df.copy()
+        if 'date' in df_work.columns:
+            df_work['date'] = pd.to_datetime(df_work['date'])
+            df_work = df_work.sort_values('date').set_index('date')
+
+        cols = [c for c in df_work.columns if c not in ('date', 'index') and not df_work[c].dropna().empty]
+        core_cols = [c for c in ["H00922", "H30269", "H00300", "STAR50_STITCH", "H00852", "H11009", "AU9999"] if c in cols]
+        if not core_cols:
+            core_cols = cols[:7]
+
+        bench_series = df_work["H00300"].dropna() if "H00300" in df_work.columns else None
+
+        corr_matrix = {}
+        for c1 in core_cols:
+            corr_matrix[c1] = {}
+            for c2 in core_cols:
+                if c1 == c2:
+                    corr_matrix[c1][c2] = 1.0
+                else:
+                    s1 = df_work[c1].dropna()
+                    s2 = df_work[c2].dropna()
+                    corr_s = PortfolioManager.compute_ewma_correlation(
+                        s1, s2, decay_factor=decay_factor, downside_only=downside_only, bench_series=bench_series
+                    )
+                    val = float(corr_s.iloc[-1]) if not corr_s.empty else 0.0
+                    corr_matrix[c1][c2] = round(val, 4)
+
+        return corr_matrix
+
+
 
 class ActiveRiskSentry:
     """主动风险预警哨：六维主动风险巡检与本地预警哨持久化"""
@@ -1841,18 +1896,24 @@ class ActiveRiskSentry:
             corr_eval = PortfolioManager.evaluate_dynamic_correlation_mutation(
                 holdings=holdings,
                 threshold=0.75,
-                simulated_corr=sim_corr_val
+                stress_threshold=0.80,
+                simulated_corr=sim_corr_val,
+                market_snapshot=snapshot
             )
             if corr_eval and corr_eval.get("is_triggered"):
+                is_shift = corr_eval.get("is_liquidity_shift_triggered", False)
                 alerts.append({
                     "level": corr_eval.get("alert_level", "yellow"),
                     "dimension": "动态相关性突变",
                     "title": corr_eval.get("alert_title"),
                     "desc": corr_eval.get("alert_message"),
-                    "action": "触发组合集中度降级：动态削减重仓敞口，增量平移至纯债固收/黄金对冲压舱石。",
+                    "action": "触发组合集中度降级与流动性平移预案：动态削减重仓及高波敞口，增量平移至纯债固收 (002351) 与黄金对冲压舱石 (000216)。" if is_shift else "触发组合集中度降级：动态削减重仓敞口，增量平移至纯债固收/黄金对冲压舱石。",
                     "action_type": "correlation_mutation_defense",
                     "current_correlation": corr_eval.get("current_correlation"),
                     "threshold": corr_eval.get("threshold", 0.75),
+                    "stress_threshold": corr_eval.get("stress_threshold", 0.80),
+                    "is_liquidity_shift_triggered": is_shift,
+                    "downside_correlation": corr_eval.get("downside_correlation"),
                     "adjusted_weights": corr_eval.get("adjusted_weights"),
                     "cut_details": corr_eval.get("cut_details"),
                 })
@@ -2346,7 +2407,35 @@ class SmartExecutionDCAEngine:
     get_fund_20d_metrics = get_fund_real_volatility_and_bias
 
     @classmethod
+    def calculate_otc_fund_liquidity_haircut(
+        cls,
+        order_amount: float,
+        fund_code: str,
+        fund_name: str = "",
+        volatility: Optional[float] = None,
+        is_etf: Optional[bool] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        针对场外公募基金，结合季报前五大重仓股日均成交额与基金规模比例，
+        基于非线性 Almgren-Chriss / Kyle's lambda 模型精算流动性折价惩罚。
+        """
+        try:
+            from data_loader import DataLoader
+        except ImportError:
+            from AGY2_FundAdvisory.data_loader import DataLoader
+        return DataLoader.calculate_otc_fund_liquidity_haircut(
+            order_amount=order_amount,
+            fund_code=fund_code,
+            fund_name=fund_name,
+            volatility=volatility,
+            is_etf=is_etf,
+            **kwargs
+        )
+
+    @classmethod
     def calculate_vwap_execution_slippage(
+
         cls,
         order_amount: float,
         fund_code: str,
@@ -2397,6 +2486,13 @@ class SmartExecutionDCAEngine:
                 "slippage_saved_bps": 0.0,
                 "slippage_saved_yuan": 0.0,
                 "vwap_slices": [],
+                "fund_aum_yuan": 0.0,
+                "top5_adv_yuan": 0.0,
+                "redemption_ratio_pct": 0.0,
+                "liquidity_haircut_bps": 0.0,
+                "liquidity_haircut_yuan": 0.0,
+                "total_execution_friction_bps": 0.0,
+                "total_execution_friction_yuan": 0.0,
             }
 
         # 真实波动率与单基乖离率穿透 (消除三档固定常数 0.04/0.14/0.18 及 else 0.18)
@@ -2504,6 +2600,20 @@ class SmartExecutionDCAEngine:
             if vwap_slices:
                 vwap_slices[-1]["slice_amount"] = round(amt - sum(s["slice_amount"] for s in vwap_slices[:-1]), 2)
 
+        # R3 针对场外公募基金的非线性底层资产流动性折价惩罚精算
+        haircut_res = cls.calculate_otc_fund_liquidity_haircut(
+            order_amount=amt,
+            fund_code=fc,
+            fund_name=fn,
+            volatility=vol,
+            is_etf=is_etf
+        )
+        haircut_bps = float(haircut_res.get("liquidity_haircut_bps", 0.0))
+        haircut_yuan = float(haircut_res.get("liquidity_haircut_yuan", 0.0))
+        aum_yuan = float(haircut_res.get("fund_aum_yuan", 0.0))
+        top5_adv_yuan = float(haircut_res.get("top5_adv_yuan", adv if is_etf else 1.5e9))
+        redemption_ratio = float(haircut_res.get("redemption_ratio_pct", 0.0))
+
         return {
             "fund_code": fc,
             "fund_name": fn,
@@ -2519,6 +2629,13 @@ class SmartExecutionDCAEngine:
             "slippage_saved_bps": saved_bps,
             "slippage_saved_yuan": saved_yuan,
             "vwap_slices": vwap_slices,
+            "fund_aum_yuan": aum_yuan,
+            "top5_adv_yuan": top5_adv_yuan,
+            "redemption_ratio_pct": round(redemption_ratio, 4),
+            "liquidity_haircut_bps": round(haircut_bps, 2),
+            "liquidity_haircut_yuan": round(haircut_yuan, 2),
+            "total_execution_friction_bps": round(impact_vwap_bps + haircut_bps, 2),
+            "total_execution_friction_yuan": round(impact_vwap_yuan + haircut_yuan, 2),
         }
 
     @staticmethod
@@ -2923,6 +3040,9 @@ class SmartExecutionDCAEngine:
 
 
 # 下沉工具方法便捷导出 (保持向后兼容)
+calculate_dynamic_correlation_matrix = OpportunityRadarEngine.calculate_dynamic_correlation_matrix
+calculate_otc_fund_liquidity_haircut = SmartExecutionDCAEngine.calculate_otc_fund_liquidity_haircut
+
 try:
     from AGY2_FundAdvisory.strategy_bridge import find_same_company_conversions, evaluate_macro_dividend_policy
 except ImportError:
@@ -2931,3 +3051,4 @@ except ImportError:
     except ImportError:
         find_same_company_conversions = None
         evaluate_macro_dividend_policy = None
+

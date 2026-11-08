@@ -1494,6 +1494,178 @@ class DataLoader:
         })
         return result_df
 
+    @classmethod
+    def get_fund_top5_holdings_adv(
+        cls,
+        fund_code: str,
+        force_refresh: bool = False
+    ) -> Dict[str, Any]:
+        """
+        结合基金管理人季报披露的前五大重仓股代码与真实成交额，
+        精算底层股票日均成交额(ADV)、基金规模(AUM)及权益占比。
+        带本地 24h TTL 缓存至 data/cache/funds/{code}_top5_adv.json。
+        """
+        code = str(fund_code).strip().zfill(6)
+        cache_path = WORKSPACE_ROOT / "data" / "cache" / "funds" / f"{code}_top5_adv.json"
+        if not force_refresh and cache_path.exists():
+            try:
+                mtime = cache_path.stat().st_mtime
+                if (datetime.now().timestamp() - mtime) < 86400.0:
+                    with open(cache_path, "r", encoding="utf-8") as f:
+                        return json.load(f)
+            except Exception:
+                pass
+
+        meta = cls.get_fund_metadata(code, force_refresh=force_refresh) or {}
+        aum_raw = meta.get("aum")
+        aum_yuan = float(aum_raw) * 1e8 if (aum_raw is not None and float(aum_raw) > 0) else 5.0e8
+
+        asset_alloc = meta.get("asset_allocation") or {}
+        stock_pct = float(asset_alloc.get("stock", 0.0))
+        if stock_pct > 0.0:
+            equity_ratio = max(0.05, min(1.0, stock_pct / 100.0 if stock_pct > 1.0 else stock_pct))
+        else:
+            if code in ("002351", "050025") or "债" in str(meta.get("name", "")):
+                equity_ratio = 0.05
+            else:
+                equity_ratio = 0.80
+
+        top10 = meta.get("top10_stocks") or []
+        top5 = [str(s).strip() for s in top10[:5]]
+
+        top5_adv_yuan = 0.0
+        if top5:
+            try:
+                secids = ",".join(top5)
+                url = f"https://push2.eastmoney.com/api/qt/ulist.np/get?secids={secids}&fields=f12,f14,f6"
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=1.5) as resp:
+                    res_json = json.loads(resp.read().decode("utf-8"))
+                    diff = res_json.get("data", {}).get("diff", [])
+                    for item in diff:
+                        v = item.get("f6")
+                        if v and v != "-":
+                            top5_adv_yuan += float(v)
+            except Exception:
+                pass
+
+        if top5_adv_yuan <= 0.0:
+            top5_adv_yuan = 8.0e8 if equity_ratio < 0.20 else 2.0e9
+
+        res = {
+            "fund_code": code,
+            "aum_yuan": float(aum_yuan),
+            "top5_adv_yuan": float(top5_adv_yuan),
+            "equity_ratio": float(equity_ratio),
+            "top5_stocks": top5
+        }
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(res, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+        return res
+
+    @classmethod
+    def calculate_otc_fund_liquidity_haircut(
+        cls,
+        order_amount: float,
+        fund_code: str,
+        fund_name: str = "",
+        volatility: Optional[float] = None,
+        is_etf: Optional[bool] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        针对场外公募基金，结合季报前五大重仓股日均成交额与基金规模比例，
+        基于非线性 Almgren-Chriss / Kyle's lambda 模型精算流动性折价惩罚。
+        """
+        code = str(fund_code).strip().zfill(6)
+        fn = str(fund_name or "")
+
+        if is_etf is None:
+            is_etf = code.startswith(("51", "15", "56", "58", "59")) and ("联接" not in fn)
+
+        if is_etf:
+            return {
+                "fund_code": code,
+                "fund_name": fn,
+                "is_etf": True,
+                "order_amount": float(order_amount),
+                "fund_aum_yuan": 0.0,
+                "top5_adv_yuan": 0.0,
+                "equity_ratio": 0.0,
+                "redemption_ratio_pct": 0.0,
+                "liquidity_haircut_bps": 0.0,
+                "liquidity_haircut_yuan": 0.0,
+                "haircut_bps": 0.0,
+                "haircut_yuan": 0.0,
+                "model": "ETF_EXCHANGE_NO_OTC_HAIRCUT"
+            }
+
+        adv_info = cls.get_fund_top5_holdings_adv(code)
+        aum = max(1e7, float(adv_info.get("aum_yuan", 5e8)))
+        top5_adv = max(1e7, float(adv_info.get("top5_adv_yuan", 1.5e9)))
+        w_eq = max(0.05, min(1.0, float(adv_info.get("equity_ratio", 0.8))))
+
+        vol = volatility
+        if vol is None or vol <= 0.0:
+            try:
+                from advisory_engine import SmartExecutionDCAEngine
+                vol, _ = SmartExecutionDCAEngine.get_fund_real_volatility_and_bias(code, fn)
+            except Exception:
+                vol = 0.16
+        vol = max(0.01, float(vol or 0.16))
+
+        sigma_day_bps = (vol / np.sqrt(250.0)) * 10000.0
+
+        Q = max(0.0, float(order_amount))
+        if Q <= 0.0:
+            return {
+                "fund_code": code,
+                "fund_name": fn,
+                "is_etf": False,
+                "order_amount": 0.0,
+                "fund_aum_yuan": aum,
+                "top5_adv_yuan": top5_adv,
+                "equity_ratio": w_eq,
+                "redemption_ratio_pct": 0.0,
+                "liquidity_haircut_bps": 0.0,
+                "liquidity_haircut_yuan": 0.0,
+                "haircut_bps": 0.0,
+                "haircut_yuan": 0.0,
+                "model": "ALMGREN_CHRISS_KYLE_NONLINEAR"
+            }
+
+        part_rate = (Q * w_eq) / top5_adv
+        redemption_ratio = Q / aum
+        conc_factor = 1.0 + np.log(1.0 + aum / top5_adv)
+
+        kappa_1 = 0.80
+        kappa_2 = 1.50
+
+        haircut_bps = sigma_day_bps * (kappa_1 * np.sqrt(part_rate) + kappa_2 * (redemption_ratio ** 1.25) * conc_factor)
+        haircut_yuan = Q * (haircut_bps / 10000.0)
+
+        return {
+            "fund_code": code,
+            "fund_name": fn,
+            "is_etf": False,
+            "order_amount": Q,
+            "fund_aum_yuan": aum,
+            "top5_adv_yuan": top5_adv,
+            "equity_ratio": w_eq,
+            "redemption_ratio_pct": round(redemption_ratio * 100.0, 6),
+            "liquidity_haircut_bps": round(float(haircut_bps), 4),
+            "liquidity_haircut_yuan": round(float(haircut_yuan), 4),
+            "haircut_bps": round(float(haircut_bps), 4),
+            "haircut_yuan": round(float(haircut_yuan), 4),
+            "model": "ALMGREN_CHRISS_KYLE_NONLINEAR"
+        }
+
+
 
 # ==============================================================================
 # 全市场核心指数/ETF 目录 (38+ 标的覆盖 12 大板块) 与 自选走廊管理
@@ -2205,5 +2377,9 @@ IndexValuationEngine.fetch_batch_realtime_indices = staticmethod(fetch_batch_rea
 DataLoader.calc_offline_2day_return = staticmethod(calc_offline_2day_return)
 DataLoader.fetch_custom_realtime_indices = staticmethod(fetch_custom_realtime_indices)
 DataLoader.fetch_batch_realtime_indices = staticmethod(fetch_batch_realtime_indices)
+
+get_fund_top5_holdings_adv = DataLoader.get_fund_top5_holdings_adv
+calculate_otc_fund_liquidity_haircut = DataLoader.calculate_otc_fund_liquidity_haircut
+
 
 

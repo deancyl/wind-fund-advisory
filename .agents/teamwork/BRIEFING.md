@@ -1,13 +1,13 @@
-# BRIEFING — 2026-11-08T00:27:30Z
+# BRIEFING — 2026-11-08T04:54:30Z
 
 ## Mission
-Orchestrate G9 Generation: Quantitative causality correction, anti-lookahead walk-forward rolling evolution, real data anti-hallucination grounding, Brinson attribution, and investor suitability active risk control.
+Orchestrate G10 Generation: multi-asset correlation stress mutation defense, extreme liquidity dynamic slippage compensation, and see-through Monte Carlo stress testing.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: d:\Google\Workspace\Wind\.agents\teamwork\
-- Orchestrator: 5800028b-e19d-49b8-8eac-cb2568bf857d
-- Victory Auditor: to be spawned on victory claim
+- Orchestrator: 22f2ddb7-c220-44ca-b889-a5c0901cc3b3
+- Victory Auditor: [to be spawned on victory claim]
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -18,19 +18,18 @@ Orchestrate G9 Generation: Quantitative causality correction, anti-lookahead wal
 - Zero look-ahead bias (T-day close signal executes at T+1), mandatory 2.0% risk-free rate deduction for Sharpe ratio
 - No pseudo-random numbers, linear interpolation pseudo-series, or static constants for financial metrics
 - Strict workspace-only rule for GEMINI.md / PROGRESS_LOG.md; never touch global GEMINI.md
-- No GitHub Releases; tag v3.9-G9 only
+- No GitHub Releases; tag v3.10-G10 only
 - Browser visual walkthrough via /browser on http://localhost:8501
+- Redundant full regression suite pruning: focused delta testing, AST/regex redline verification, service health probe
 
 ## User Context
-- **Last user request**: [skip-interview] G9 generation quantitative causality correction, anti-lookahead walk-forward evolution, real data grounding, Brinson attribution and suitability active risk control.
+- **Last user request**: Approved task prompt for G10 Generation (R1-R6)
 - **Pending clarifications**: none
-- **Delivered results**: [none]
+- **Delivered results**: Milestone M1 (GATE PASSED) & Milestone M2 (GATE PASSED); transitioning to Milestone M3
 
 ## Project Status
-- **Phase**: Milestone 3 (In Progress: worker_g9_m3 executing G9 targeted test suite, full regression, service restart & walkthrough, GEMINI.md / PROGRESS_LOG.md update, Git tag v3.9-G9 sync, and G10 instructions generation)
-- **M1 Gate Verdict**: PASS (Unanimous approve)
-- **M2 Gate Verdict**: PASS (Unanimous approve)
-- **Active Crons**: task-35 (Progress Reporting */8), task-36 (Liveness Check */10)
+- **Phase**: in progress (Phase M3: Full regression, Git archiving v3.10-G10, G11 self-bootstrap)
+- **Active Crons**: task-34 (progress reporting */8), task-35 (liveness check */10)
 
 ## Victory Audit Status
 - **Triggered**: no
@@ -39,10 +38,8 @@ Orchestrate G9 Generation: Quantitative causality correction, anti-lookahead wal
 
 ## Artifact Index
 - .agents/teamwork/ORIGINAL_REQUEST.md — Authoritative user request record
-- .agents/teamwork/orchestrator_10/PROJECT.md — Global architecture and 21-feature inventory
-- .agents/teamwork/orchestrator_10/DISPATCH.md — Orchestrator dispatch record
-- .agents/teamwork/orchestrator_10/plan.md — Orchestrator execution plan
-- .agents/teamwork/orchestrator_10/GATE_STATUS.md — Milestone 1 & 2 Gate Status (PASS)
-- .agents/teamwork/orchestrator_10/progress.md — Orchestrator progress record
-- .agents/teamwork/worker_g9_m1/handoff.md — Milestone 1 worker handoff report
-- .agents/teamwork/worker_g9_m2/handoff.md — Milestone 2 worker handoff report
+- .agents/teamwork/orchestrator_11/progress.md — G10 Orchestrator progress tracker
+- .agents/teamwork/orchestrator_11/SCOPE.md — G10 Survey findings and architecture scope
+- .agents/teamwork/worker_g10_m1/handoff.md — M1 implementation handoff
+- .agents/teamwork/worker_remediation_g10_m1/handoff.md — M1 remediation handoff
+- .agents/teamwork/worker_g10_m2/handoff.md — M2 service restart & walkthrough handoff

@@ -187,3 +187,19 @@
 - **经典三维超额收益拆解**：基于 9 大标准大类，将主动调仓净增厚精确拆解为：大类资产配置效应（Allocation Effect）、优选基金超额效应（Selection Effect）及交易摩擦与惩罚规避贡献（Friction Saving）；
 - **数学恒等式严格平账**：必须保证 $\text{alloc\_yuan} + \text{select\_yuan} = \text{total\_active\_add\_yuan}$（误差 $<10^{-4}$），并同源输出大类明细分解；
 - **初始基线快照持久化不变量**：`initial_baseline_snapshot` 必须纳入状态字典 `_export_state_dict` 与 `_import_state_dict` 序列化，确保跨会话、重启及重载后调仓对比基线永不丢失、永不被后续持仓状态覆写。
+
+## 36. 相关性压力突变防御与跨资产流动性平移铁律 (规则 29 / Correlation Stress Mutation Defense & Cross-Asset Liquidity Shift Invariant)
+- **0.80 极端压力阈值跳升与共振预警**：在 `evaluate_dynamic_correlation_mutation` 中，当大盘指数急跌且红利低波与高 Beta 权益标的下行相关系数突破 0.80 阈值时，确定性输出 `MUTATION_ALERT` 红色高危预警并标记 `is_liquidity_shift_triggered = True`；
+- **全域进攻标的削减修复漏科技漏洞**：流动性平移预案不仅削减顺周期，强制将所有高估值、高 Beta 标的（含科创芯片 `011613` 等科技成长进攻板块）纳入阶梯削减范围（削减 $20\% \sim 35\%$）；
+- **跨资产避险流动性平移与权重归一化**：将释放出的全部权重按 60% 纯债 (`002351`) + 40% 实物黄金联接 (`000216`) 比例定向注入防御资产，调整后组合总权重严格归一化为 $\sum w_i = 1.000000$（精度 $10^{-6}$），守死权重守恒底线。
+
+## 37. 场外公募底层非线性流动性折价惩罚模型规范 (规则 30 / OTC Fund Non-Linear Liquidity Haircut Penalty Standard)
+- **底层资产穿透与非线性冲击函数**：针对场外公募基金，废除单一线性换算与伪常数；基于季报披露的前五大重仓股日均成交额（$ADV_{\text{top5}}$）、基金规模（$AUM$）与权益比例（$w_{\text{eq}}$），建立非线性复合折价惩罚模型：$\text{Haircut}_{\text{bps}} = \sigma_{\text{day\_bps}} \times [\kappa_1 (Q \cdot w_{\text{eq}} / ADV_{\text{top5}})^{0.5} + \kappa_2 (Q / AUM)^{1.25} (1 + \ln(1 + AUM/ADV_{\text{top5}}))]$；
+- **严格单调递增与零平台不变量**：订单规模从 1,000 元至 50 万元折价基点必须严格单调递增（$\text{bps}_{50\text{w}} > \text{bps}_{5\text{w}} > \text{bps}_{1\text{k}}$），彻底消除恒定截断常数平台；
+- **场内 ETF 物理隔离与 simulate_execution 只读红线**：场内 ETF（代码 51/15/56/58/59 开头且非联接）物理隔离不计提场外底层折价（`haircut_bps = 0.0`），同时严格保持 `DataLoader.simulate_execution` 默认签名与扣费逻辑 100% 只读。
+
+## 38. 穿透式多周期蒙特卡洛极端承压规范 (规则 31 / See-Through Multi-Cycle Monte Carlo Stress Testing Specification)
+- **10,000 次块重采样极限承压**：基于 Circular Block Bootstrap（块长 10 天、10,000 次重采样），结合投资者风险等级 C1 至 C5，针对 2008 年金融危机、2015 年流动性踩踏及 2024 年初小盘股流动性危机三大极端情景，输出预测最大回撤与流动性变现天数；
+- **极值统计数学公理硬约束**：在所有压力情景下，必须严格遵循极值统计数学公理 $\text{CVaR}_{99\%} \ge \text{VaR}_{99\%} \ge \text{VaR}_{95\%}$，严禁出现逆序反转数学缺陷；
+- **FIFO 锁仓防线与折价损失叠加**：变现天数测算必须严格结合持仓批次先进先出（FIFO）规则与 $<7$ 天惩罚锁仓防线，并真实叠加底层资产流动性折价损失（Haircut Discount Loss），为大额账本提供可信的极端抗风险决策底座。
+

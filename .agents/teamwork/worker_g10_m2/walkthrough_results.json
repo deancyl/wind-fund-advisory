@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-11-08T04:48:20Z",
+  "health_endpoint": {
+    "status": 200,
+    "body": "ok",
+    "ok": true
+  },
+  "col_sentry": {
+    "corr_card_found": true,
+    "stress_card_found": true,
+    "cvar_metric_found": true,
+    "liq_days_metric_found": true,
+    "risk_tol_metric_found": true
+  },
+  "tab2_holdings": {
+    "cushion_card_found": true,
+    "mc3d_expander_found": true,
+    "plotly_3d_rendered": true
+  },
+  "tab1_new_capital": {
+    "mc3d_expander_found": true,
+    "plotly_3d_rendered": true,
+    "liquidity_haircut_table_found": true
+  },
+  "theme_dark": {
+    "status": "verified"
+  },
+  "mobile_640": {
+    "tab_geometries": {
+      "🌱 新资建仓": {
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "overflow": false
+      },
+      "💼 持仓调仓": {
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "overflow": false
+      },
+      "📈 组合回测": {
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "overflow": false
+      },
+      "🔍 穿透工具": {
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "overflow": false
+      }
+    },
+    "has_overflow": false,
+    "commonmark_leaks": 0,
+    "commonmark_clean": true
+  },
+  "all_checks_passed": true,
+  "milestone_m2_status": "PASSED"
+}
