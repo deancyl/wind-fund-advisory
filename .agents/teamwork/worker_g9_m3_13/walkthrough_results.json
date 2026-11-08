@@ -1,0 +1,34 @@
+{
+  "health": {
+    "status": 200,
+    "body": "ok",
+    "ok": true
+  },
+  "desktop_light": {},
+  "desktop_dark": {},
+  "mobile_640": {
+    "docWidth": 640,
+    "scrollWidth": 640,
+    "windowWidth": 640,
+    "hasDocumentOverflow": false,
+    "scrollableContainers": 2
+  },
+  "html_code_block_leaks": [],
+  "components_detected": {
+    "action_switch": true,
+    "inflection_ruler": true,
+    "top3_sectors": true,
+    "tab_count": 7,
+    "tab1_l1_inputs": true,
+    "tab1_l2_expander": true,
+    "tab2_cushion": true,
+    "tab2_fast_entry": true,
+    "tab2_view_mode": true
+  },
+  "screenshots": [
+    "D:\\Google\\Workspace\\Wind\\data\\screenshots\\g9_m3_desktop_light_main.png",
+    "D:\\Google\\Workspace\\Wind\\data\\screenshots\\g9_m3_desktop_light_tab1.png",
+    "D:\\Google\\Workspace\\Wind\\data\\screenshots\\g9_m3_desktop_light_tab2.png",
+    "D:\\Google\\Workspace\\Wind\\data\\screenshots\\g9_m3_mobile_640.png"
+  ]
+}

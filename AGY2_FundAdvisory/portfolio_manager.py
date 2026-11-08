@@ -299,6 +299,26 @@ class FundHolding:
             return min((b.holding_days for b in self.batches), default=30)
         return 30
 
+    @holding_days.setter
+    def holding_days(self, val: int):
+        val = int(val)
+        if getattr(self, "batches", None):
+            for b in self.batches:
+                b.holding_days = val
+                b.safety_lock = (val < 7)
+        else:
+            self.batches = [
+                HoldingBatch(
+                    batch_id=f"B_{self.fund_code}_001",
+                    buy_date="",
+                    shares=self.shares,
+                    cost_nav=self.cost_price,
+                    holding_days=val,
+                    safety_lock=(val < 7)
+                )
+            ]
+
+
 # 全局兼容类型别名，确保 HoldingItem 与 FundHolding 完全等价
 HoldingItem = FundHolding
 

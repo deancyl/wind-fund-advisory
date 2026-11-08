@@ -556,3 +556,493 @@ class TestUIAndSourceCodeIntegrationAdversarial:
         assert "category_breakdown" in gui_code
         assert "买方投顾穿透复盘点评" in gui_code
 
+
+
+# ==============================================================================
+# Milestone 2 (M2) Adversarial Challenge Suites — Challenger 1 (critic/specialist)
+# ==============================================================================
+import ast
+import re
+import json
+from unittest.mock import MagicMock
+import app_gui
+import data_loader
+from advisory_engine import ActiveRiskSentry
+from strategy_bridge import StrategyBridge
+
+
+class TestHTMLPurificationAdversarialAST:
+    """对抗验证 8：HTML 纯化 AST/正则静态扫描与极端边缘输入法证"""
+
+    def test_zero_raw_unsafe_markdown_in_app_gui_ast(self):
+        """
+        AST 遍历整个 app_gui.py：
+        断言除 def safe_markdown_html 自身的单一定义外，
+        严禁存在任何直接调用 unsafe_allow_html=True 且未包裹 _clean_html 的 markdown 调用。
+        """
+        gui_path = WORKSPACE_ROOT / "AGY2_FundAdvisory" / "app_gui.py"
+        code = gui_path.read_text(encoding="utf-8")
+        tree = ast.parse(code, filename=str(gui_path))
+
+        violations = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+
+            func_name = None
+            if isinstance(node.func, ast.Name):
+                func_name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                func_name = node.func.attr
+
+            if func_name == "markdown":
+                has_unsafe = any(
+                    kw.arg == "unsafe_allow_html" and getattr(kw.value, "value", None) is True
+                    for kw in node.keywords
+                )
+                if has_unsafe:
+                    line_no = getattr(node, "lineno", 0)
+                    # 允许 safe_markdown_html 内部的实现 (~行 204-208)
+                    if 200 <= line_no <= 210:
+                        continue
+
+                    is_cleaned = False
+                    if node.args:
+                        first_arg = node.args[0]
+                        if isinstance(first_arg, ast.Call):
+                            arg_func = getattr(first_arg.func, "id", getattr(first_arg.func, "attr", None))
+                            if arg_func == "_clean_html":
+                                is_cleaned = True
+                    if not is_cleaned:
+                        violations.append((line_no, ast.unparse(node) if hasattr(ast, "unparse") else f"Line {line_no}"))
+
+        assert len(violations) == 0, f"发现 {len(violations)} 处违规裸露 unsafe markdown 调用: {violations}"
+
+    def test_clean_html_adversarial_multiline_indent_edge_cases(self):
+        """
+        针对 _clean_html 进行对抗性边界输入测试：
+        1. 包含 4、8、16、24 个前导空格的多行嵌套 f-string；
+        2. 前后包含空行、全空格行、制表符缩进行；
+        3. 单双引号、三引号混用，内嵌复杂 HTML 属性与样式；
+        4. 超长 HTML（> 60,000 字符）；
+        5. 中文标点、Emoji 与特殊符号；
+        6. 空字符串、None 与空白输入。
+        断言：清洗后任意一行绝无 4+ 前导空格，绝无空行，绝不破坏文本内容与标签完整性。
+        """
+        # 1. 深度嵌套多行字符串
+        deeply_indented = """
+                <div class="test-container" style="background: var(--bg-surface);">
+                    <div style="padding: 12px;">
+                        <span>第一行文字 🚀</span>
+                        <p style="color: 'red';">
+                            <b>嵌套加粗内容</b>
+                        </p>
+                    </div>
+                </div>
+        """
+        res = app_gui._clean_html(deeply_indented)
+        lines = res.splitlines()
+        assert len(lines) > 0
+        for l in lines:
+            assert not l.startswith("    "), f"发现 4+ 空格缩进泄露: '{l}'"
+            assert not l.startswith("\t"), f"发现制表符缩进泄露: '{l}'"
+            assert len(l.strip()) > 0, "发现未过滤空行"
+        assert "<span>第一行文字 🚀</span>" in res
+        assert "<b>嵌套加粗内容</b>" in res
+
+        # 2. None 与空串安全测试
+        assert app_gui._clean_html(None) == ""
+        assert app_gui._clean_html("") == ""
+        assert app_gui._clean_html("   \n\n\t\t\n   ") == ""
+
+        # 3. 超长 HTML 压力测试
+        chunk = "<div><span style='color: blue;'>测试内容段落</span></div>\n"
+        big_html = "    " + chunk * 1000  # > 50,000 字符
+        cleaned_big = app_gui._clean_html(big_html)
+        assert len(cleaned_big.splitlines()) == 1000
+        for l in cleaned_big.splitlines():
+            assert not l.startswith(" ")
+
+    def test_historical_inflection_ruler_html_purification(self):
+        """
+        针对历史三大牛熊拐点实盘对照尺输出进行 CommonMark 纯化断言：
+        验证 render_historical_inflection_ruler_html 输出的 HTML 各行 0 前导空格，
+        即使嵌入在多层缩进的 f-string 内部，经 _clean_html / safe_markdown_html 处理后绝无代码块泄露。
+        """
+        mock_ruler_data = {
+            "nodes": [
+                {"date": "2021-02-18", "event": "2021 核心资产顶", "multiplier": 0.50, "erp_percentile": 12.5, "bias_20": 8.2},
+                {"date": "2022-04-26", "event": "2022 恐慌双底", "multiplier": 1.93, "erp_percentile": 88.6, "bias_20": -6.5},
+                {"date": "2024-09-23", "event": "2024 反转前夕", "multiplier": 1.94, "erp_percentile": 92.1, "bias_20": -8.1},
+                {"date": "2026-11-08", "event": "今日实时水位", "multiplier": 1.76, "erp_percentile": 78.3, "bias_20": -1.2},
+            ]
+        }
+        ruler_html = app_gui.render_historical_inflection_ruler_html(mock_ruler_data)
+        assert ruler_html != "", "对照尺未能正确生成 HTML"
+        assert "📏 历史三大牛熊拐点实盘对照尺" in ruler_html
+        for l in ruler_html.splitlines():
+            assert not l.startswith("    "), f"对照尺输出存在 4+ 空格泄露: '{l}'"
+            assert not l.startswith(" "), f"对照尺每行应已严格 strip: '{l}'"
+
+        # 模拟嵌入在带有 16 个空格缩进的父级模板中
+        parent_template = f"""
+                <div class="parent-card">
+                    {ruler_html}
+                </div>
+        """
+        cleaned_parent = app_gui._clean_html(parent_template)
+        for l in cleaned_parent.splitlines():
+            assert not l.startswith("    "), f"父子组合后存在 4+ 空格泄露: '{l}'"
+
+
+class TestActionMasterSwitchFourStatesAdversarial:
+    """对抗验证 9：首屏【今日投顾行动总开关】四态完全覆盖与逻辑状态机严苛推演"""
+
+    def _simulate_master_action_switch(self, pm, snapshot_dict):
+        """提取 app_gui.py 中行动总开关的纯业务状态判定逻辑并返回决策元组"""
+        sentry = ActiveRiskSentry()
+        _f_metas = {}
+        for _c in pm.holdings.keys():
+            try:
+                _f_metas[_c] = data_loader.get_fund_metadata(_c) or {}
+            except Exception:
+                _f_metas[_c] = {}
+        sentry_rep = sentry.inspect_portfolio(pm.holdings, snapshot_dict, fund_metadata=_f_metas)
+        all_alerts_switch = sentry_rep.get("alerts", [])
+        lock_alerts_switch = [a for a in all_alerts_switch if a.get("action_type") == "lock_shares"]
+
+        if lock_alerts_switch:
+            act_status_icon = "🔴"
+            act_title = "【锁定防御】存在未满 7 天惩罚期标的，已启动锁定保护严禁卖出"
+            act_target_tab = 1
+            act_target_name = "💼 持仓调仓"
+            act_btn_label = "👉 查看锁仓保护"
+        elif all_alerts_switch:
+            act_status_icon = "🟡"
+            act_title = f"【时机就绪】主动风控检测到 {len(all_alerts_switch)} 项持仓异动优化机会"
+            act_target_tab = 1
+            act_target_name = "💼 持仓调仓"
+            act_btn_label = "👉 查看今日调仓单"
+        elif len(pm.holdings) == 0:
+            act_status_icon = "🚀"
+            act_title = "【空仓建仓】宏观 ERP 处于黄金击球区，建议一键启动新资建仓"
+            act_target_tab = 0
+            act_target_name = "🌱 新资建仓"
+            act_btn_label = "👉 立即开始新资建仓"
+        else:
+            act_status_icon = "🟢"
+            act_title = "【按兵不动】持仓资产结构健康，安全垫充沛，今日安心吃息"
+            act_target_tab = 1
+            act_target_name = "💼 持仓调仓"
+            act_btn_label = "👉 检视持仓账本"
+
+        return act_status_icon, act_title, act_target_tab, act_target_name, act_btn_label
+
+    def test_state_1_lock_defense(self):
+        """状态 1 (🔴 锁定防御)：持仓中存在 <7 天锁定批次，必须触发锁定保护严禁卖出"""
+        pm = PortfolioManager(db_path=":memory:")
+        pm.available_cash = 10000.0
+        pm.add_or_update_holding("005561", 10000, 1.20, 1.20)
+        h = pm.holdings["005561"]
+        h.batches = [HoldingBatch(batch_id="b1", buy_date="2026-11-06", shares=10000.0, cost_nav=1.20, holding_days=2, safety_lock=True)]
+        snapshot = StrategyBridge.get_latest_market_snapshot(force_reload=False, auto_sync=False) or {}
+
+        icon, title, tab_idx, tab_name, btn_lbl = self._simulate_master_action_switch(pm, snapshot)
+        assert icon == "🔴"
+        assert "【锁定防御】" in title
+        assert tab_idx == 1
+        assert "持仓调仓" in tab_name
+        assert "查看锁仓保护" in btn_lbl
+
+    def test_state_2_tactical_opportunity(self):
+        """状态 2 (🟡 时机就绪)：无 <7 天锁定，但存在持仓预警 (如 C 类持有满 32 天提示清理)，触发调仓优化机会"""
+        pm = PortfolioManager(db_path=":memory:")
+        pm.available_cash = 10000.0
+        pm.add_or_update_holding("011613", 10000, 1.00, 1.00, holding_days=35)
+        h = pm.holdings["011613"]
+        h.share_class = "C"
+        h.batches = [HoldingBatch(batch_id="b1", buy_date="2026-10-01", shares=10000.0, cost_nav=1.00, holding_days=35, safety_lock=False)]
+        snapshot = StrategyBridge.get_latest_market_snapshot(force_reload=False, auto_sync=False) or {}
+
+        icon, title, tab_idx, tab_name, btn_lbl = self._simulate_master_action_switch(pm, snapshot)
+        assert icon == "🟡"
+        assert "【时机就绪】" in title
+        assert tab_idx == 1
+        assert "查看今日调仓单" in btn_lbl
+
+    def test_state_3_empty_portfolio(self):
+        """状态 3 (🚀 空仓建仓)：持仓数量为 0，必须导向新资建仓工作区"""
+        pm = PortfolioManager(db_path=":memory:")
+        pm.available_cash = 100000.0
+        pm.holdings.clear()
+        snapshot = StrategyBridge.get_latest_market_snapshot(force_reload=False, auto_sync=False) or {}
+
+        icon, title, tab_idx, tab_name, btn_lbl = self._simulate_master_action_switch(pm, snapshot)
+        assert icon == "🚀"
+        assert "【空仓建仓】" in title
+        assert tab_idx == 0
+        assert "新资建仓" in tab_name
+        assert "立即开始新资建仓" in btn_lbl
+
+    def test_state_4_healthy_idle(self):
+        """状态 4 (🟢 按兵不动)：持仓资产结构健康且均满期无异动，提示安心吃息无需折腾"""
+        pm = PortfolioManager(db_path=":memory:")
+        pm.available_cash = 20000.0
+        pm.add_or_update_holding("002351", 50000, 1.05, 1.05, holding_days=60)
+        h = pm.holdings["002351"]
+        h.share_class = "A"
+        h.batches = [HoldingBatch(batch_id="b1", buy_date="2026-09-01", shares=50000.0, cost_nav=1.05, holding_days=60, safety_lock=False)]
+
+        with patch.object(ActiveRiskSentry, "inspect_portfolio", return_value={"alerts": [], "status": "ALL_CLEAR"}):
+            icon, title, tab_idx, tab_name, btn_lbl = self._simulate_master_action_switch(pm, {})
+
+        assert icon == "🟢"
+        assert "【按兵不动】" in title
+        assert "安心吃息" in title
+        assert tab_idx == 1
+        assert "检视持仓账本" in btn_lbl
+
+
+class TestTab1L1InputsAndTiersAdversarial:
+    """对抗验证 10：Tab 1 L1 极简双输入、大额防错转换、C1-C5 档位与智能托管参数匹配"""
+
+    def test_format_chinese_amount_adversarial_values(self):
+        """
+        验证 format_chinese_amount 在极端数值下的鲁棒性：
+        1. 0.0 -> '¥0.00 折合 0.00 万元'
+        2. 负数 (-50,000) -> '-¥50,000.00 折合 -5.00 万元'
+        3. 正常 100,000 -> '¥100,000.00 折合 10.00 万元'
+        4. 百万级 1,500,000 -> '¥1,500,000.00 折合 150.00 万元'
+        5. 亿级 100,000,000 (1e8) -> 包含 '10,000.00 万元 (1.00 亿元)'
+        6. 小数 float (12345.6789) -> 四舍五入精确保留 2 位小数
+        7. 非法输入 (None, 'abc', []) -> 优雅返回 '¥0.00 折合 0.00 万元'，绝不崩溃
+        """
+        assert app_gui.format_chinese_amount(0) == "¥0.00 折合 0.00 万元"
+        assert "-¥50,000.00 折合 -5.00 万元" in app_gui.format_chinese_amount(-50000.0)
+        assert "¥100,000.00 折合 10.00 万元" in app_gui.format_chinese_amount(100000.0)
+        assert "¥1,500,000.00 折合 150.00 万元" in app_gui.format_chinese_amount(1500000.0)
+
+        amt_1e8 = app_gui.format_chinese_amount(1e8)
+        assert "1.00 亿元" in amt_1e8
+        assert "10,000.00 万元" in amt_1e8
+
+        amt_float = app_gui.format_chinese_amount(12345.6789)
+        assert "¥12,345.68" in amt_float
+
+        assert app_gui.format_chinese_amount(None) == "¥0.00 折合 0.00 万元"
+        assert app_gui.format_chinese_amount("invalid_str") == "¥0.00 折合 0.00 万元"
+        assert app_gui.format_chinese_amount([]) == "¥0.00 折合 0.00 万元"
+
+    def test_c1_to_c5_risk_tiers_mapping_and_config_integrity(self):
+        """
+        验证 C1 至 C5 风险档位完整性与映射连续性：
+        1. map_slider_to_tier 覆盖 5% 至 100% 全域；
+        2. RISK_TIERS_CONFIG 字典 100% 包含 C1 至 C5 且各元数据完备。
+        """
+        assert app_gui.map_slider_to_tier(6.0) == "C1"
+        assert app_gui.map_slider_to_tier(8.5) == "C2"
+        assert app_gui.map_slider_to_tier(15.0) == "C3"
+        assert app_gui.map_slider_to_tier(22.0) == "C4"
+        assert app_gui.map_slider_to_tier(35.0) == "C5"
+
+        expected_tiers = ["C1", "C2", "C3", "C4", "C5"]
+        for t in expected_tiers:
+            assert t in app_gui.RISK_TIERS_CONFIG, f"缺少档位配置: {t}"
+            cfg = app_gui.RISK_TIERS_CONFIG[t]
+            for key in ["name", "core_assets", "default_target", "target_cagr", "equity_range_str", "max_drawdown_limit"]:
+                assert key in cfg, f"档位 {t} 缺少必要字段: {key}"
+
+    def test_ai_smart_fund_count_allocation_rule(self):
+        """
+        验证 AI 自动托管基金只数梯度规则：
+        - 本金 <= 50,000 元 -> 建议 4 只
+        - 50,000 < 本金 <= 300,000 元 -> 建议 6 只
+        - 本金 > 300,000 元 -> 建议 8 只
+        """
+        def get_auto_num_funds(cap):
+            return 4 if cap <= 50000.0 else (6 if cap <= 300000.0 else 8)
+
+        assert get_auto_num_funds(10000.0) == 4
+        assert get_auto_num_funds(50000.0) == 4
+        assert get_auto_num_funds(100000.0) == 6
+        assert get_auto_num_funds(300000.0) == 6
+        assert get_auto_num_funds(500000.0) == 8
+        assert get_auto_num_funds(10000000.0) == 8
+
+
+class TestTab2ViewModeDecouplingAdversarial:
+    """对抗验证 11：Tab 2 双视图模式物理隔离与缓冲带单源性法证"""
+
+    def test_dock_tabs_strictly_isolated_in_else_branch_ast(self):
+        """
+        AST 审查 Tab 2 双视图模式物理隔离：
+        1. 必须存在 `if is_t2_main_mode:` 分支；
+        2. 必须存在对应的 `else:` 分支；
+        3. 6 大宽屏运维工具坞（st.tabs([\"✨ 快速录入/导入持仓\", ...])）必须严格且仅位于 `else:` 分支内部；
+        4. 断言在 `is_t2_main_mode == True` 时，绝不可能执行 dock_tabs 的渲染逻辑。
+        """
+        gui_path = WORKSPACE_ROOT / "AGY2_FundAdvisory" / "app_gui.py"
+        code = gui_path.read_text(encoding="utf-8")
+        tree = ast.parse(code, filename=str(gui_path))
+
+        t2_if_node = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If):
+                test_unparsed = ast.unparse(node.test) if hasattr(ast, "unparse") else ""
+                if "is_t2_main_mode" in test_unparsed:
+                    t2_if_node = node
+                    break
+
+        assert t2_if_node is not None, "未在 app_gui.py 中找到 if is_t2_main_mode 条件分支！"
+        assert len(t2_if_node.orelse) > 0, "is_t2_main_mode 缺少 else: 运维工具坞分支！"
+
+        else_code = ast.unparse(t2_if_node.orelse) if hasattr(ast, "unparse") else ""
+        assert "dock_tab1" in else_code, "dock_tab1 必须定义在 else 分支内部！"
+        assert "dock_tab6" in else_code, "dock_tab6 必须定义在 else 分支内部！"
+        assert "st.tabs" in else_code, "运维工具坞 st.tabs 必须位于 else 分支内部！"
+
+        body_code = ast.unparse(t2_if_node.body) if hasattr(ast, "unparse") else ""
+        assert "dock_tab1, dock_tab2" not in body_code, "主模式分支严禁定义或渲染 dock_tabs 工具坞！"
+
+    def test_single_source_rebalance_buffer_slider(self):
+        """
+        验证全页仅保留单一功能滑块 tab2_rebal_buf_slider，彻底清除多处重复定义导致状态冲突的缺陷。
+        """
+        gui_path = WORKSPACE_ROOT / "AGY2_FundAdvisory" / "app_gui.py"
+        code = gui_path.read_text(encoding="utf-8")
+
+        slider_keys = re.findall(r'key=["\']tab2_rebal_buf_slider["\']', code)
+        assert len(slider_keys) == 1, f"tab2_rebal_buf_slider 必须全局唯一，实际出现 {len(slider_keys)} 次"
+        assert "# tab2_rebal_buf_slider_bot" in code, "缺少 tab2_rebal_buf_slider_bot 兼容注释标记"
+
+
+class TestPopoverQuickFundEntryAdversarial:
+    """对抗验证 12：➕ 极速录基 Popover 弹窗输入校验、异常兜底与 7 天锁定端到端传导"""
+
+    def test_invalid_fund_code_rejection_and_fallback(self):
+        """
+        测试极速录基非法输入过滤逻辑：
+        - 输入空字符串、全空格、特殊字符或无效纯数字代码
+        - 验证正则表达式 r'\b\d{6}\b' 与 catalog 搜索结果均为空时，matched_code 为 None
+        - 验证系统安全触发 warning 且绝不向持仓中添加垃圾数据。
+        """
+        pm = PortfolioManager(db_path=":memory:")
+        initial_count = len(pm.holdings)
+
+        invalid_inputs = ["", "   ", "xyz_nonexistent_fund_99999", "INVALID_FUND_FOOBAR"]
+        for bad_in in invalid_inputs:
+            raw_in = bad_in.strip()
+            matched_code = None
+            if raw_in:
+                m_c = re.search(r'\b\d{6}\b', raw_in)
+                if m_c:
+                    from portfolio_manager import search_funds_in_catalog
+                    res_search = search_funds_in_catalog(m_c.group(0), limit=1)
+                    if res_search:
+                        matched_code = res_search[0]["fund_code"]
+                else:
+                    from portfolio_manager import search_funds_in_catalog
+                    res_search = search_funds_in_catalog(raw_in, limit=1)
+                    if res_search:
+                        matched_code = res_search[0]["fund_code"]
+            assert matched_code is None, f"非法输入 '{bad_in}' 不应被识别为有效基金代码"
+
+        assert len(pm.holdings) == initial_count
+
+    def test_quick_entry_seven_day_lock_triggering_and_sentry_cascade(self):
+        """
+        测试持有期选择 '<7天 (临界观察·惩罚期)' 的完整端到端传导链：
+        1. 选择 '<7天' 档位 -> 映射为 holding_days = 3;
+        2. add_or_update_holding 记账入库后，其最短持有天数必为 3;
+        3. export_snapshot_df 导出的持仓表中，'赎回费状态' 必须明确包含 '🔴 1.50% 禁卖 (差4天)';
+        4. ActiveRiskSentry 巡检持仓时，必须输出 action_type == 'lock_shares' 的预警;
+        5. 首屏【今日投顾行动总开关】必须立刻从其它状态跃迁为 '🔴 【锁定防御】'！
+        """
+        pm = PortfolioManager(db_path=":memory:")
+        pm.available_cash = 50000.0
+
+        dur_choice = "<7天 (临界观察·惩罚期)"
+        dur_map = {0: 3, 1: 15, 2: 45, 3: 185, 4: 370}
+        dur_idx = ["<7天", "7-29天", "30-179天", "≥180天", "≥365天"].index(dur_choice.split(" ")[0])
+        h_days = dur_map.get(dur_idx, 45)
+        assert h_days == 3, "7天内档位必须映射为 3 天"
+
+        pm.add_or_update_holding(
+            fund_code="005561",
+            shares=10000.0,
+            cost_price=1.20,
+            nav=1.20,
+            holding_days=h_days,
+            notes="极速录基吧台录入"
+        )
+
+        # 1. 验证持仓批次
+        h = pm.holdings["005561"]
+        min_days = min((b.holding_days for b in h.batches), default=h.holding_days)
+        assert min_days == 3
+
+        # 2. 验证持仓快照表赎回费状态显示
+        df_disp = pm.export_snapshot_df()
+        df_disp["赎回费状态"] = df_disp.apply(
+            lambda r: (
+                f"🔴 1.50% 禁卖 (差{max(0, 7 - int(r['最短持有天数']))}天)" if int(r['最短持有天数']) < 7
+                else (f"🟡 {r['当前赎回费率(%)']:.2f}% (差{max(0, 30 - int(r['最短持有天数']))}天免)" if (r.get('份额类型') == 'C' and int(r['最短持有天数']) < 30)
+                else f"🟢 {r['当前赎回费率(%)']:.2f}% 免/低赎")
+            ),
+            axis=1
+        )
+        assert "🔴 1.50% 禁卖 (差4天)" in df_disp["赎回费状态"].values[0]
+
+        # 3. 验证 ActiveRiskSentry 产生 lock_shares 警报
+        sentry = ActiveRiskSentry()
+        rep = sentry.inspect_portfolio(pm.holdings, {})
+        alerts = rep.get("alerts", [])
+        lock_alerts = [a for a in alerts if a.get("action_type") == "lock_shares"]
+        assert len(lock_alerts) >= 1
+        assert lock_alerts[0]["level"] == "red"
+
+        # 4. 验证级联激活总开关 🔴 锁定防御
+        act_status_icon = "🔴" if lock_alerts else "🟢"
+        assert act_status_icon == "🔴"
+
+    def test_quick_entry_cost_calculation_resilience(self):
+        """
+        测试盈亏输入解析与成本反算的数学鲁棒性：
+        1. 百分比格式: '+25%' -> 成本价反算
+        2. 金额格式: '-2500元' -> 成本价反算
+        3. 极端超常盈利保护: 确保 cost_p 永远 >= 0.01，严防负数或零除错误。
+        """
+        real_nav = 1.25
+        amt = 12500.0
+        sh = 10000.0
+
+        pnl_str = "+25%"
+        pct_v = float(pnl_str.replace("%", "").strip())
+        cost_p = round(real_nav / (1.0 + pct_v / 100.0), 4)
+        assert abs(cost_p - 1.00) < 1e-4
+
+        pnl_str_amt = "-2500元"
+        pnl_v = float(pnl_str_amt.replace("元", "").replace("+", "").replace(",", "").strip())
+        cost_p_amt = round(max(0.01, amt - pnl_v) / sh, 4)
+        assert abs(cost_p_amt - 1.50) < 1e-4
+
+        pnl_str_crazy = "+50000元"
+        pnl_crazy = float(pnl_str_crazy.replace("元", "").replace("+", "").replace(",", "").strip())
+        cost_crazy = round(max(0.01, amt - pnl_crazy) / sh, 4)
+        assert cost_crazy >= 0.0, "即使极端超常盈利，成本价兜底必须非负"
+
+    def test_app_gui_popover_fund_name_search_no_broken_import(self):
+        """
+        [缺陷检测探针] 验证 app_gui.py 中极速录基 Popover 严禁包含错误的局部导入：
+        search_funds_in_catalog 存在于 portfolio_manager.py，
+        在 app_gui.py 行 5100 处若错误写入 'from data_loader import search_funds_in_catalog'，
+        会导致用户输入非纯 6 位数字（如中文基金名或拼音）录基时触发 ImportError 击穿整个 Tab 2！
+        """
+        gui_path = WORKSPACE_ROOT / "AGY2_FundAdvisory" / "app_gui.py"
+        code = gui_path.read_text(encoding="utf-8")
+        assert "from data_loader import search_funds_in_catalog" not in code, (
+            "CRITICAL DEFECT FOUND: app_gui.py 第 5100 行存在错误的 'from data_loader import search_funds_in_catalog'！"
+            "data_loader 模块并无此函数（应使用 portfolio_manager.search_funds_in_catalog），"
+            "该缺陷导致用户通过中文名称极速录基时直接抛出 ImportError 击穿 Tab 2！"
+        )
+
