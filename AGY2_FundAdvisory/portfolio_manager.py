@@ -6966,7 +6966,7 @@ class PortfolioManager:
                 self.delete_holding(fcode)
                 self.available_cash += float(cur_h.market_value if cur_h else 0.0)
                 updated_count += 1
-            elif "减持" in action_desc and cur_h:
+            elif any(k in action_desc for k in ["减持", "减仓", "建议减仓", "卖出"]) and cur_h:
                 sell_amt = min(abs(amt_chg), float(cur_h.market_value))
                 sell_shares = round(sell_amt / real_nav, 2)
                 # FIFO 扣减批次
@@ -6986,7 +6986,7 @@ class PortfolioManager:
                 cur_h.market_value = round(cur_h.shares * real_nav, 2)
                 self.available_cash += sell_amt
                 updated_count += 1
-            elif "增持" in action_desc or "建仓" in action_desc or "买入" in action_desc:
+            elif any(k in action_desc for k in ["增持", "加仓", "建议加仓", "建仓", "买入"]):
                 buy_amt = abs(amt_chg)
                 buy_shares = round(buy_amt / real_nav, 2)
                 if cur_h:

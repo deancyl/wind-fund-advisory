@@ -1,4 +1,4 @@
-启动 G9 世代外傻内精渐进式披露交互降噪重构与底层量化因果律严苛纠偏闭环任务，在坚守底层量化模型与风控规则的前提下，重构 Streamlit GUI 为 L1 傻瓜操作层 + L2 机构白盒层并彻底修复 HTML 源码泄露，纠偏因子演化中的未来函数、无风险利率扣除、假序列等问题，完成视觉验收与全量单测归档。
+启动 G11 世代三块式极简干练架构重构、砍除套娃横幅与双胞胎按钮、录基弹窗化及自举命令标签格式锁死闭环任务，对 Streamlit GUI 进行彻底的减法重构，使各主页面严格收敛为「顶部单行控制栏 + 中部核心数据表 + 底部单抽屉白盒证据」的三块式干练结构，完成严苛的视觉走查、测试验证、Git 归档与下一代 G12 指令生成。
 
 Working directory: d:\Google\Workspace\Wind
 Integrity mode: development
@@ -6,59 +6,60 @@ Integrity mode: development
 ## Reference Materials
 - 核心代码路径：
   - Streamlit GUI 主程序：`AGY2_FundAdvisory/app_gui.py` (端口 8501)
-  - 投顾决策引擎：`advisory_engine.py`
-  - 组合管理与风险监控：`portfolio_manager.py`
-  - 数据加载与回测执行：`data_loader.py`
   - 四大只读裁判文件：`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`
-- 审计参考文档：
-  - `c:\Users\deanc\Downloads\agy2_fundadvisory_ui_architecture_evaluation.md`
-  - `c:\Users\deanc\Downloads\agy2_app_gui.md`
+  - 数据与回测：`DataLoader.simulate_execution`
+- 参考审计文件：
+  - `c:\Users\deanc\Downloads\agy2_fundadvisory_ultra_minimalist_spec.md`
+  - `c:\Users\deanc\Downloads\agy2_app_gui (2).md`
 
 ## Verification Resources
-- 自动化测试套件：`pytest tests/test_infra.py tests/test_adv_final_closure.py tests/test_g3_evolution_loop.py tests/test_gui_multi_ledger_stress.py` 及针对 G9 交互降噪与量化纠偏新增的专项测试用例。
-- 本地 Streamlit 服务端点与健康探针（`http://127.0.0.1:8501/_stcore/health`），配合 `/browser` 工具进行多模态视觉走查。
-- 参考审计文档：`c:\Users\deanc\Downloads\agy2_fundadvisory_ui_architecture_evaluation.md` 与 `c:\Users\deanc\Downloads\agy2_app_gui.md`。
+- 自动化测试套件：`pytest tests/test_infra.py tests/test_adv_final_closure.py tests/test_g3_evolution_loop.py tests/test_gui_multi_ledger_stress.py`。
+- 本地 8501 端口 Streamlit 服务端点与健康探针（`http://127.0.0.1:8501/_stcore/health`），配合 `/browser` 工具进行亮色/暗色及 640px 移动端视口的多模态视觉走查。
+- 独立胜利审计（Victory Audit）确认。
 
 ## Requirements
 
-### R1. 核心设计哲学、安全底线契约与只读约束
-- 实行“外傻内精”原则（L1 傻瓜操作层 + L2 机构白盒层）：绝不阉割任何底层专业量化模型与风控规则，L1 默认视图坚持结论先行、AI 自动托管最优参数、一步直达交易清单；将复杂的参数微调、蒙特卡洛 10,000 次分布、历史黑天鹅明细与选基漏斗大表收纳进 L2 专业白盒折叠抽屉中，做到新手 3 秒无脑跟单、专家一键下钻看透底层证据。
+### R1. 核心极简美学准则、安全底线契约与只读约束
+- 三块式极简铁律：彻底重构 Streamlit GUI 界面（`app_gui.py`），使每个页面严格收敛为「顶部单行控制栏 + 中部核心数据表 + 底部单抽屉白盒证据」的三块式干练结构，并将全站装饰性 Emoji 削减 70% 以上。
 - 严禁修改四个只读裁判文件：`judge_engine.py`、`holdout_vault.py`、`AGENT_SPEC.md`、`tests/test_infra.py`。
 - 严禁修改 `DataLoader.simulate_execution` 的默认函数签名与默认扣费逻辑。
-- 严禁破坏现有 50+ 项自动化测试套件的兼容性（保留现有测试依赖的关键 `session_state` 键名与函数入口），确保原有测试与新增测试 100% 绿灯通过。
-- 严禁触碰全局配置文件 `c:\Users\deanc\.gemini\GEMINI.md`，所有经验规范必须写入当前工作区根目录 `GEMINI.md` 与 `PROGRESS_LOG.md`。
+- 解除旧 UI 测试对界面瘦身的绑架：允许并要求同步更新 `tests/test_adv_final_closure.py`、`tests/test_g3_evolution_loop.py`、`tests/test_gui_multi_ledger_stress.py` 中检查旧冗余按钮或旧文案的断言（或者在代码中仅保留不占空间的兼容钩子），绝不允许为了迎合旧单测而在界面上保留重复按钮和冗余横幅。
+- 全局配置文件 `c:\Users\deanc\.gemini\GEMINI.md` 严禁触碰，所有经验规范必须写入当前工作区根目录 `GEMINI.md` 与 `PROGRESS_LOG.md`。
 
-### R2. 全局交互降噪、HTML 纯化与傻瓜化操作流重构（修改 app_gui.py）
-- 彻底修复大屏裸露 HTML 代码块缺陷（Rule 27）：在首屏“全市场优选赛道 · Top 3 优选自选”下方，“历史三大牛熊拐点实盘对照尺”（`render_historical_inflection_ruler_html`）及所有富文本 HTML 组件，强制使用 `_clean_html(...)` 剥离每行首尾空格与空行，并通过统一入口 `safe_markdown_html(...)` 渲染，彻底杜绝 CommonMark 4+ 空格缩进导致的原始 HTML 源码大面积泄露，实现全屏零代码泄露。
-- 首屏双翼看板瘦身与今日一句话傻瓜行动总开关：
-  - 在双翼看板最上方提炼渲染一条高辨识度的“今日投顾行动总开关”：用一句大白话告诉用户今天到底要不要操作（例如“🟢 今日建议：按兵不动安心吃息”或“🟡 今日建议：14:30 尾盘有 1 项免赎置换机会”），并配上一键直达对应工作区的按钮。
-  - 双翼看板左翼默认仅展示精炼市场脉搏与 Top 3 优选赛道卡片（展示今日实时涨跌、动态量化推荐依据与优选基金代码）；将 14 大赛道温度计总表与基因进化 60 日轨迹图保持在折叠框或 Popover 内按需查看。右翼预警哨移除开发口号尾缀，容器高度自适应无截断。
-- Tab 1 新资建仓：参数 AI 智能托管与一键直出全案：
-  - 简化步骤一前置输入：在 L1 默认层，用户只需设定拟投资总本金（带中文万元防错核对）与期望目标收益/风险档位（C1 至 C5），系统根据当前宏观同温层自动托管匹配最优量化定权模型（如鲁棒双核 HRP）、优选基金只数（默认 6 只）、持有期与限购过滤；并在旁边提供一个精致的“⚙️ 机构级模型与参数微调（已智能托管）”折叠面板，点开即可自由调整 7 大定权模型、3 至 15 只基金数量与风险测评问卷。
-  - 推演与生成建仓单合流提速：主操作按钮默认一键完成量化推演并直接展示底部的实盘建仓执行单与一键复制下单小抄，免去用户先点步骤二再滑到底部点步骤三的二次点击。
-  - 收敛步骤二的 16 张卡片轰炸：在 L1 默认层，仅并排展示最核心的 3 张人话结论大卡（预期达标胜率与年化票息安全垫、最坏回撤金额与最长水下回本天数、攻防仓位分配逻辑）；将历史三大黑天鹅承压卡片、10,000 次蒙特卡洛块重采样 CVaR 面板、2.8 万只六维选基漏斗评分表统一收进带关键指标摘要标题的“🔬 展开机构级量化压力测试与选基白盒证据”折叠面板中，让页面垂直长度缩短 60%。
-- Tab 2 持仓调仓：首屏极致降噪与极速录基弹窗化：
-  - 合并顶部概览卡与安全垫看板：将 4 张资产概览卡与浮盈安全垫破净临界点浓缩为紧凑的顶栏看板，将 -3%、-5%、-10% 三级大盘急跌承压卡片收进看板内的可展开详情中，消除首屏大面积色块堆叠。
-  - 将原本占据整行的 5 列极速录基吧台改造为持仓明细表上方工具栏中的“➕ 极速录基”Popover 弹出框，平时完全不占用垂直高度，点击即弹、录完即合。
-  - 严格落实双视图物理隔离：在“持仓诊断与智能调仓”主模式下，绝不渲染底部的账本工具坞；仅当切换至“账本运维与实盘复盘档案”模式时，才在主画布平铺展示粘贴导入、FIFO 批次透视、实盘净值与 Brinson 复盘账单、T+1 对账及同公司转换模块。清理全页重复出现的免折腾缓冲带滑块（全页仅保留一处）。
+### R2. 四大区域彻底瘦身与三块式重构（修改 app_gui.py）
+- 首屏顶栏二合一（砍掉多重横幅堆叠）：
+  - 保留顶部 4 张紧凑全局指标卡（高度锁死在 82px，去除杂乱图标与多余副标）。
+  - 删除独立的“今日投顾行动总开关”横幅与“跨区联动指令已生效承接”横幅，直接将今日一句话行动结论合并作为双翼看板折叠框的动态标题（例如：`今日投顾结论：持仓存在 2 只未满 7 天禁卖标的，建议尾盘锁定保护 ｜ 点击展开机会雷达与主动风控巡检`），折叠框右侧仅并排放置一个紧凑的快捷跳转按钮，使四大主工作区 Tab 上方仅有「4张全局卡 + 1条折叠导航栏」，首屏直接进入主工作区。
+- Tab 1 新资建仓（从 12 个视觉块收敛至 3 个干练模块）：
+  - 彻底删除 Tab 1 的 `render_workflow_step_indicator` 步骤胶囊条、删除副标题 caption、删除灰色的 AI 智能托管说明框、删除第二个重复的“一键生成全案”按钮（原 `col_s1_step` 与 `col_s1_all` 两个按钮代码完全重复，只保留唯一主按钮）。
+  - 重构模块 1（单行参数控制栏）：在一个紧凑容器内单行并排展示拟投资总本金、风险策略档位（C1 至 C5）、建仓节奏选择（一次性/三步分批/智能定投）、高级模型与参数微调 Popover 按钮、以及唯一的“生成实盘建仓方案”主按钮。
+  - 重构模块 2（建仓执行表置顶与三项核心指标条）：点击生成后，删除步骤二与步骤三分段大标题、删除中间多余的“重新生成建仓单”按钮、删除独立占地方的资产风险贡献度 PCR 横幅（表格内已有 PCR 列）与底部冗长的 `summary_advice` 蓝框；在实盘建仓执行表正上方，仅用一行紧凑的 3 栏高对比度指标条展示（1年达标胜率与年化票息安全垫、历史极限回撤与最长回本天数、攻防仓位配比与定权模型），指标条正下方紧贴展示实盘建仓执行单 DataFrame 大表，让用户一眼看到买哪只基金、买多少元。
+  - 重构模块 3（底部动作栏与单一白盒抽屉）：建仓表正下方单行排列“覆盖写入当前账本（Popover二次确认）”、“另存为新账本（Popover）”、“下单小抄（Popover）”、“送入回测”；最底部仅保留唯一一个折叠框“展开机构级量化压力测试与选基白盒证据”（内含滚动胜率、黑天鹅与蒙特卡洛承压、选基漏斗与分批挂单调度表）。
+- Tab 2 持仓调仓（消除双看板叠床架屋，极速录基进 Popover，首屏直达持仓表）：
+  - 彻底删除 Tab 2 的 `render_workflow_step_indicator` 步骤胶囊条与副标题 caption。
+  - 重构模块 1（单行全能账本工具栏）：一行内紧凑排列账本切换下拉框、主流程与运维档案模式切换、极速录基 Popover 按钮（将原本霸占整行空间的 5 列极速录基吧台完整移入此 Popover 弹窗内，平时零占高）、全局同步估值按钮、以及账本与环境管理 Popover 按钮（将新建账本、克隆副本、重命名、删除、载入演示组合、撤销上次修改全部收纳进该管理弹窗内，彻底删除主界面上散落的演示组合与撤销按钮行）。
+  - 重构模块 2（合一的 4 格资产安全垫顶栏 + 持仓明细大表）：彻底删除原本上下重复的两套 4 宫格（浮盈安全垫看板里的 4 格与下方的持仓总市值/可用现金/累计浮盈/锁仓概览 4 卡），合二为一仅保留一排 4 格干练的资产与安全垫顶栏（①持仓总市值与仓位占比、②可用现金池与在途资金、③累计浮盈与今日预估涨跌、④综合安全垫厚度与沪深300破净临界点，点击可展开查看 -3%/-5%/-10% 三级压力推演）；在顶栏正下方零间距直接展示可编辑的实时持仓资产明细表，确保首屏无需滚动即可直接查看和编辑全部持仓。
+  - 重构模块 3（干练调仓裁决与执行单）：持仓表下方仅保留“诊断并生成调仓方案”按钮与免折腾缓冲带滑块；点击后将时机裁决与调仓后果浓缩为一行紧凑的 4 格摘要条（时机裁决结论、手续费损耗、T+2在途风险、波动与回撤变化），正下方紧贴展示调仓建议执行表与一键同步跟单按钮，彻底删除冗长的重复说教提示框。
+- 视觉降噪与机构级排版打磨（修改 app_gui.py 全局 CSS）：
+  - 大幅削减正文、表头与卡片标题中无意义的 Emoji 图标（削减 70% 以上），依靠字重（600/700）、字号梯度（大数字 18px、标题 13px、正文 12px）与留白建立秩序感。
+  - 减小全局容器间距：将 `block-container` 的 `padding-top` 降至 1.2rem，卡片 `margin-bottom` 统一收紧至 6px，消除松散空洞感。
 
-### R3. 底层量化因果律与数据真实性严苛纠偏（修改 advisory_engine.py、portfolio_manager.py 与 data_loader.py）
-- 根除 `OnlineHeuristicFactorEvolver` 中的同日未来函数、夏普未扣无风险利率与伪造轨迹：
-  - 在 `_evaluate_population` 中，第 t 日基于收盘特征 $F[t]$ 选出的赛道权重 $P[t]$，必须严格滞后一期作用于第 t+1 日的真实收益率 $R[t+1]$（即 $P[:-1]$ 对应 $R[1:]$），并在合成动态净值序列 `nav_dynamic` 时从日度收益率中真实扣除单边 10 bps 的换手摩擦成本。
-  - 计算夏普比率时，严格遵照 `AGENT_SPEC.md` 从日均收益中扣除 2.0% 年化无风险利率（`0.02 / 250.0`）。
-  - 废除 `get_60d_rolling_nav_and_trajectory` 中的 `lam` 人工线性插值公式，改为按每 5 个交易日推进式样本外滚动演化（Walk-Forward），真实记录各期四维权重与样本外净值。
-- 跨市场交易日严格对齐、清除假序列与 2.5 亿假规模兜底：
-  - 在 `_extract_sector_price_matrix` 中以 A 股交易日历为基准索引对齐 14 大赛道价格序列，彻底废除缺失数据时使用 `np.linspace(1.0, 1.05, window_days)` 伪造单边上涨直线的做法。
-  - 在 `ActiveRiskSentry.inspect_portfolio` 中，当 `fund_metadata` 缺少规模字段时，主动穿透 `DataLoader` 与基金目录反查真实规模，废除 `else: aum = 2.5` 的静默假规模兜底。
-  - 在 `evaluate_sector` 中将盘中实时涨跌幅更新至价格序列末尾重算真实的 MA20、Bias20、Slope20 与 ER20，动态生成与指标方向 100% 一致的量化入选依据；在 `ActiveRiskSentry` 中新增投资者适当性越界预警（检测实盘持仓是否超出 C1 至 C5 风险上限），并在 `evaluate_rebalance_audit` 中实装 Brinson 三维超额归因（配置效应、选基效应、摩擦节省）。
+### R3. 服务平滑重启与 /browser 多模态首屏信息密度严苛走查
+- 彻底终止旧 8501 端口进程并清理缓存，重新启动最新服务。
+- 调用 `/browser` 打开 `http://localhost:8501` 逐页截图审查：
+  - 检验首屏高度与干练度：确认打开网页第一屏（无需滚动）不仅能看到顶部 4 卡和一句话结论折叠条，还能直接看到下方 Tab 1 的完整输入栏与建仓执行表，或切换至 Tab 2 时第一屏直接完整看到合一后的 4 格顶栏与持仓明细大表。
+  - 检验冗余清除情况：肉眼确认 Tab 1 和 Tab 2 的步骤胶囊条已消失、双胞胎按钮已合并为单个按钮、Tab 2 的两套 4 宫格已合二为一、5 列极速录基吧台已收进 Popover 弹窗。
+  - 检验亮色、暗色主题及 640px 移动端视口：确认全站排版干净利落、无断字换行、无文字重叠、无水平溢出。若在 `/browser` 截图中发现任何一处仍然显得啰嗦或拥挤，当场继续做减法修改代码并重新截图确认。
 
-### R4. 多模态视觉验收、全量单测与 Git 归档闭环
-- 彻底重启 8501 端口服务并清理缓存，调用 `/browser` 打开 `http://localhost:8501` 以挑剔的新手与专业买方双视角走查：确认首屏一眼看懂今日行动总开关；确认“历史三大牛熊拐点实盘对照尺”及全屏无裸露 HTML 源码块泄露；确认 Tab 1 与 Tab 2 默认视图清爽傻瓜、无卡片堆砌；展开 L2 专业折叠面板时所有高阶图表、蒙特卡洛、热力图与四象限散点图完整清晰、零文字重叠、640px 窄屏零水平溢出。
-- 运行全量自动化测试套件（包含 `pytest tests/test_infra.py tests/test_adv_final_closure.py tests/test_g3_evolution_loop.py tests/test_gui_multi_ledger_stress.py`）并补充 G9 专项断言，确保 100% 绿灯通过。
-- 确认四个只读裁判文件零修改，确认 `data/ledgers_index.json` 仅保留干净的主实盘账本，清理所有临时脚本。
-- 更新项目根目录 `GEMINI.md` 与 `PROGRESS_LOG.md`，执行 `git add -A`、`git commit`、`git tag -a v3.9-G9` 并推送至 GitHub 远端（严禁创建任何 GitHub Release）。
-- 最终必须通过独立的胜利审计（Victory Audit）确认。
-- 在报告末尾输出一段供下一轮直接复制执行的 G10 世代进化指令（直接以 `/goal /boost /teamwork` 开头，包含 `/browser` 调用，保持纯文本无特殊符号排版，包含全量测试与 Git Tag 同步要求）。
+### R4. 全量测试验证、Git 归档与 G12 自举命令标签格式锁死
+- 运行全量自动化测试套件（包含 `pytest tests/test_infra.py`、`tests/test_adv_final_closure.py`、`tests/test_g3_evolution_loop.py`、`tests/test_gui_multi_ledger_stress.py`），确保 100% 绿灯通过；确认四个只读裁判文件零修改，确认 `data/ledgers_index.json` 仅保留干净的主实盘账本，清理所有临时脚本。
+- 经验沉淀与永久强制准则写入：将 G11 世代三块式极简架构规范更新写入项目根目录 `GEMINI.md` 与 `PROGRESS_LOG.md`，严禁触碰全局配置文件；同时在项目根目录 `GEMINI.md` 中写入一条永久强制准则：任何世代在最终报告末尾生成下一代进化指令时，所有斜杠命令必须严格写成完整的带方括号与圆括号命令标签形式，即 `[slashCommand:/goal]`、`[slashCommand:/boost]`、`[slashCommand:/teamwork]`、`[slashCommand:/browser]`，绝对禁止简写为裸露的 `/goal`、`/boost`、`/teamwork` 或 `/browser`。
+- 执行 Git 提交与标签同步：运行 `git add -A`，运行 `git commit` 记录 G11 开发进程，使用 `git tag -a` 打上版本标签 `v4.1-G11`，最后运行 `git push origin HEAD` 与 `git push origin --tags` 同步至 GitHub 远端；严格遵守禁令：绝对禁止创建任何 GitHub Release。
+- 胜利审计与 G12 世代进化指令输出：必须通过独立的胜利审计（Victory Audit）确认；在最终报告末尾基于本轮真实体验和 `/browser` 走查发现输出 G12 指令，必须满足以下硬性格式要求（内审与外审阻塞性门禁）：
+  - 命令标签强制完整格式：指令开头必须严格逐字输出为 `[slashCommand:/goal] [slashCommand:/boost] [slashCommand:/teamwork]`，在走查环节必须严格逐字输出为 `[slashCommand:/browser]`，绝对禁止简写。
+  - 除上述四个命令标签外，指令其余正文保持纯文本干净排版，不要使用任何表情符号、星号、反引号、数学公式符号或装饰性分隔线。
+  - 严守三块式极简克制原则，严禁回退或重新堆砌卡片。
+  - 包含全量测试验证、Git Commit 与 Git Tag 同步（禁止创建 Release）以及继续按相同完整 slashCommand 标签格式生成下一代 G13 指令的自举要求。
 
 ## Acceptance Criteria
 
@@ -66,31 +67,28 @@ Integrity mode: development
 - [ ] 四大只读裁判文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）哈希值未发生变动，零修改。
 - [ ] `DataLoader.simulate_execution` 默认函数签名与默认扣费逻辑保持只读。
 - [ ] 全局配置文件 `c:\Users\deanc\.gemini\GEMINI.md` 零修改；所有经验规范沉淀于工作区根目录 `GEMINI.md` 与 `PROGRESS_LOG.md`。
-- [ ] 现有测试依赖的关键 `session_state` 键名与函数入口完整保留，原有 50+ 项自动化测试用例全部兼容通过。
+- [ ] 同步更新 `tests/test_adv_final_closure.py`、`tests/test_g3_evolution_loop.py`、`tests/test_gui_multi_ledger_stress.py` 中过时的冗余按钮与文案断言，全量自动化测试用例 100% 绿灯通过。
+- [ ] `data/ledgers_index.json` 仅保留干净的主实盘账本，无临时脚本残留。
 
-### UI 交互降噪、HTML 纯化与傻瓜化操作流（L1 + L2）
-- [ ] 首屏“历史三大牛熊拐点实盘对照尺”及其他富文本 HTML 组件完成纯化，Streamlit 界面彻底消除裸露 HTML 源代码块，全屏零代码泄露。
-- [ ] 首屏双翼看板顶部成功渲染高辨识度的“今日投顾行动总开关”，用一句大白话明确提示今日行动并支持一键跳转对应工作区。
-- [ ] 双翼看板左翼默认仅展示市场脉搏与 Top 3 优选赛道卡片，14 大赛道温度计总表与 60 日轨迹图收纳进折叠框/Popover；右翼预警哨移除开发口号尾缀且容器高度自适应无截断。
-- [ ] Tab 1 默认视图仅暴露本金输入与 C1-C5 风险档位，模型定权与参数实现 AI 智能托管；提供折叠面板支持专家自由调参。
-- [ ] Tab 1 量化推演与建仓单生成合流为一键触发，直接展示实盘建仓执行单与一键复制下单小抄。
-- [ ] Tab 1 步骤二默认仅展示 3 张核心人话结论卡；历史三大黑天鹅、10,000 次蒙特卡洛及选基漏斗大表收进折叠抽屉，垂直长度缩短 60%。
-- [ ] Tab 2 顶部资产概览与安全垫看板合并为紧凑顶栏看板，-3%/-5%/-10% 急跌承压收进折叠详情，消除首屏大面积色块堆叠。
-- [ ] Tab 2 极速录基改造为持仓明细表工具栏中的“➕ 极速录基”Popover 弹窗，常态下零垂直高度占用。
-- [ ] Tab 2 严格落实双视图物理隔离：持仓诊断与智能调仓主模式下不渲染账本工具坞，切换至运维模式平铺展示；全页免折腾缓冲带滑块全局仅保留一处。
+### 三块式极简重构与视觉降噪（app_gui.py）
+- [ ] 全站装饰性 Emoji 削减 70% 以上，`block-container` 的 `padding-top` 设为 1.2rem，卡片 `margin-bottom` 设为 6px。
+- [ ] 首屏顶栏二合一：删除独立的今日投顾行动总开关横幅与跨区联动承接横幅，今日一句话行动结论合入双翼看板折叠框动态标题，右侧并排放置紧凑快捷跳转按钮，主工作区上方仅保留 4 张 82px 全局指标卡与 1 条折叠导航栏。
+- [ ] Tab 1 步骤胶囊条、caption、灰框说明、重复的“一键生成全案”按钮彻底删除。
+- [ ] Tab 1 模块 1 紧凑单行并排展示总本金、C1-C5 风险档位、建仓节奏、高级模型微调 Popover 按钮及唯一的“生成实盘建仓方案”主按钮。
+- [ ] Tab 1 模块 2 移除步骤二与步骤三标题、重新生成按钮、PCR 横幅及 summary_advice 蓝框；实盘建仓表正上方仅保留 3 栏指标条，下方紧贴实盘建仓执行单大表。
+- [ ] Tab 1 模块 3 下方单行排列 4 个动作 Popover/按钮，底部仅保留单一量化压测与选基白盒折叠抽屉。
+- [ ] Tab 2 步骤胶囊条与 caption 彻底删除。
+- [ ] Tab 2 模块 1 单行并排账本切换下拉框、主流程/运维切换、极速录基 Popover、同步估值按钮、账本与环境管理 Popover（整合新建/克隆/重命名/删除/演示组合/撤销）。
+- [ ] Tab 2 模块 2 删除原本上下两套 4 宫格，合二为一仅保留一排 4 格资产安全垫顶栏，正下方零间距直接展示可编辑实时持仓明细大表。
+- [ ] Tab 2 模块 3 调仓时机与后果浓缩为一行 4 格摘要条，正下方紧贴展示调仓建议执行表与一键同步跟单按钮。
 
-### 底层量化因果律与数据真实性
-- [ ] `OnlineHeuristicFactorEvolver._evaluate_population` 中 $P[t]$ 严格滞后一期作用于 $R[t+1]$（$P[:-1]$ 对应 $R[1:]$），合成净值序列扣减单边 10 bps 换手摩擦成本。
-- [ ] 计算夏普比率时，严格从日均收益中扣除 2.0% 年化无风险利率（`0.02 / 250.0`）。
-- [ ] `get_60d_rolling_nav_and_trajectory` 废除 `lam` 线性插值，改为每 5 个交易日推进式 Walk-Forward 滚动演化，真实记录权重与净值。
-- [ ] `_extract_sector_price_matrix` 以 A 股交易日历基准索引对齐，彻底清除 `np.linspace` 伪造序列。
-- [ ] `ActiveRiskSentry.inspect_portfolio` 缺少规模时穿透反查真实规模，彻底废除 `aum = 2.5` 假规模兜底。
-- [ ] `evaluate_sector` 将实时涨跌幅追加至末尾重算 MA20、Bias20、Slope20 与 ER20，指标与依据 100% 自洽；`ActiveRiskSentry` 实现 C1-C5 越界预警；`evaluate_rebalance_audit` 实现 Brinson 三维超额归因。
+### /browser 视觉走查与多模态验收
+- [ ] 重启 8501 端口服务并清理缓存，`/browser` 多模态走查确认：首屏无需滚动即可完整看到顶部 4 卡 + 一句话折叠条 + Tab 1 完整输入栏与建仓表（或 Tab 2 顶栏与持仓明细表）。
+- [ ] 肉眼走查确认无步骤胶囊条、无双胞胎按钮、Tab 2 仅一套 4 宫格顶栏、5 列录基吧台已完全收纳进 Popover 弹窗。
+- [ ] 亮色、暗色主题及 640px 移动端视口排版干净利落，无断字换行、无文字重叠、无水平溢出。
 
-### 视觉走查、自动化测试与版本自举
-- [ ] 彻底重启 8501 端口服务并清理缓存，`/browser` 多模态走查通过：确认首屏一眼看懂今日行动总开关、无裸露 HTML 源码泄露、Tab 1 与 Tab 2 默认视图清爽傻瓜、L2 折叠面板展开所有高阶图表完整无截断重叠、640px 窄屏无水平溢出。
-- [ ] 全量自动化测试（包含 `pytest tests/test_infra.py tests/test_adv_final_closure.py tests/test_g3_evolution_loop.py tests/test_gui_multi_ledger_stress.py` 及新增 G9 专项断言）100% 绿灯通过。
-- [ ] `data/ledgers_index.json` 仅保留干净的主实盘账本，清理所有临时脚本。
-- [ ] Git 提交完成并创建附注标签 `v3.9-G9`，推送至远端 `origin`；无任何 GitHub Release 创建。
+### 版本归档、胜利审计与 G12 自举标签锁死
+- [ ] 项目根目录 `GEMINI.md` 与 `PROGRESS_LOG.md` 完整沉淀 G11 规范，且根目录 `GEMINI.md` 包含全世代斜杠命令必须使用完整方圆括号标签形式的永久强制准则。
+- [ ] `git add -A`、`git commit` 提交，附注标签 `git tag -a v4.1-G11`，推送到 `origin`（无任何 GitHub Release 创建）。
 - [ ] 独立胜利审计（Victory Audit）确认通过。
-- [ ] 报告末尾输出以 `/goal /boost /teamwork` 开头的纯文本 G10 进化指令（无表情符号、无特殊排版符号），包含 `/browser` 走查、全量测试与 Git Tag 同步要求。
+- [ ] 最终报告末尾输出符合严格格式要求的 G12 世代指令：开头逐字包含 `[slashCommand:/goal] [slashCommand:/boost] [slashCommand:/teamwork]`，走查环节逐字包含 `[slashCommand:/browser]`，除命令标签外保持纯文本无特殊排版符号，包含三块式极简原则、全量测试、Git Tag 同步及自举生成 G13 要求。
