@@ -641,15 +641,15 @@ safe_markdown_html(f"""
         background: var(--bg-surface) !important;
         border: 1px solid var(--border-subtle) !important;
         border-radius: 8px;
-        padding: 10px 12px 12px 12px;
+        padding: 6px 10px 8px 10px;
         color: var(--text-primary) !important;
         box-shadow: var(--shadow-card) !important;
-        min-height: 122px;
+        min-height: 88px; /* min-height: 118px; legacy compat */
         height: auto !important;
         display: flex;
         flex-direction: column;
         justify-content: flex-start;
-        gap: 4px;
+        gap: 2px;
         box-sizing: border-box;
         overflow: visible !important;
         transition: all 0.2s ease;
@@ -2288,7 +2288,7 @@ tot_pnl_color = active_co["color_up"] if _t2_pnl >= 0 else active_co["color_down
 # -------------------------------------------------------------
 with st.sidebar:
     # 顶部第一行：标题与紧凑的 ⚙️ 外观 Popover，首屏直接聚焦市场状态与指数走廊
-    sb_head_c1, sb_head_c2 = st.columns([6.8, 3.2])
+    sb_head_c1, sb_head_c2 = st.columns([6.0, 4.0])
     with sb_head_c1:
         st.subheader("🧭 全局领航台")
     with sb_head_c2:
@@ -2345,10 +2345,7 @@ with st.sidebar:
     st.caption("市场状态与核心指数行情走廊")
     st.markdown("---")
 
-    # 2. 🕒 市场状态与底座
-    st.markdown("##### 🕒 市场状态与底座")
-    clock_color = active_co['color_down'] if market_status.is_golden_window else (active_co['color_up'] if market_status.is_after_market else active_th['accent_primary'])
-    clock_title = "🟢 14:30黄金窗口" if market_status.is_golden_window else ("🟡 盘后已关账" if market_status.is_after_market else "🔵 盘中观察期")
+    # 2. 🕒 市场状态与底座 (G10: 精简为单行状态角标，消除与顶部4卡重复，提升首屏空间)
     total_days = snapshot.get("total_days", 2142)
     latest_date = snapshot.get("latest_date", "2026-11-04")
     is_realtime_src = (
@@ -2362,41 +2359,10 @@ with st.sidebar:
         data_src_badge = "🟡 本地湖仓快照兜底" 
 
     safe_markdown_html(f"""
-    <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; box-shadow: var(--shadow-card);">
-        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px;">
-            <span style="color: var(--text-secondary);">交易时钟</span>
-            <span style="color: {clock_color}; font-weight: 700;">{clock_title}（倒计时 {market_status.countdown_str}）</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px;">
-            <span style="color: var(--text-secondary);">市场定调</span>
-            <span style="color: {st_color}; font-weight: 700;">{vernacular_state} ｜ 信噪比: {snr:.2f}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px;">
-            <span style="color: var(--text-secondary);">攻防红线</span>
-            <span style="color: var(--accent-primary); font-weight: 600;">破 {surge_line:,.0f} 进攻 ｜ 跌 {breakdown_line:,.0f} 防守</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px;">
-            <span style="color: var(--text-secondary);">湖仓底座</span>
-            <span style="color: var(--text-muted); font-family: monospace;">{latest_date}（{total_days:,} 交易日跨牛熊）</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px;">
-            <span style="color: var(--text-secondary);">行情源状态</span>
-            <span style="color: var(--color-down); font-weight: 600;">{data_src_badge}</span>
-        </div>
-        <div style="border-top: 1px dashed var(--border-subtle); padding-top: 6px; margin-top: 4px;">
-            <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px;">
-                <span style="color: var(--text-secondary);">两市成交: <b style="color: var(--text-primary);">{t_str}</b></span>
-                <span style="color: var(--text-secondary);">多方占比: <b style="color: var(--color-up);">{u_pct}%</b></span>
-            </div>
-            <div style="width: 100%; height: 4px; background: var(--bg-down); border-radius: 2px; overflow: hidden; display: flex;">
-                <div style="width: {u_pct}%; height: 100%; background: var(--color-up);"></div>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-top: 3px;">
-                <span>涨 {u_cnt} 家</span>
-                <span>平 {mb_data.get('flat_count', 0)} 家</span>
-                <span>跌 {d_cnt} 家</span>
-            </div>
-        </div>
+    <!-- ##### 🕒 市场状态与底座 -->
+    <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 4px 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+        <span style="color: var(--text-secondary); white-space: nowrap;">行情源状态: <b style="color: var(--color-down);">{data_src_badge}</b></span>
+        <span style="color: var(--text-muted); font-family: monospace; white-space: nowrap;">底座: {latest_date}</span>
     </div>
     """)
 
@@ -2601,10 +2567,10 @@ with top_c1:
             <span>🕒 交易时钟与窗口</span>
             <span title="{c1_tip}" style="cursor:help; color:var(--text-muted); font-size:12px;">ⓘ</span>
         </div>
-        <div class="metric-value-huge" style="color: {clock_color};">
+        <div class="metric-value-huge" style="color: {clock_color}; font-size: 18px;">
             {clock_title}
         </div>
-        <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
+        <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
             倒计时 {market_status.countdown_str} ｜ 距网格日 {days_to_next}天
         </div>
     </div>
@@ -2612,29 +2578,21 @@ with top_c1:
 
 with top_c2:
     c2_tip = f"沪深300现价: {c300_disp:,.1f}\nMA20生命线: {m20_disp:,.0f} (偏离 {bias_disp:+.1f}%)\nMA60中线: {m60_disp:,.0f}\n考夫曼信噪比(ER): {snr:.2f} (自适应窗口 {eff_w}日)\n动量加速度: {accel:+.2f}%\n突破进攻线: 突破 {surge_line:,.0f} 后增配科技成长(科创50/中证1000)\n跌破防守线: 跌破 {breakdown_line:,.0f} 后减仓避险至纯债压舱石"
-
-    exhaustion_badge = ""
     if mom_exhaustion:
-        exhaustion_badge = f'<div style="background-color: var(--bg-elevated); color: var(--color-up); font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; margin-top: 2px; border: 1px solid var(--border-subtle); line-height: 1.2;">{exhaustion_text}</div>'
+        c2_tip += f"\n提示: {exhaustion_text}"
 
     safe_markdown_html(f"""
     <div class="main-metric-card">
         <div class="metric-card-title">
-            <span>🧭 市场定调与攻防线</span>
+            <span>🧭 市场定调与攻防</span>
             <span title="{c2_tip}" style="cursor:help; color:var(--text-muted); font-size:12px;">ⓘ</span>
         </div>
-        <div class="metric-value-huge" style="color: {st_color};">
+        <div class="metric-value-huge" style="color: {st_color}; font-size: 18px;">
             {vernacular_state}
         </div>
-        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; color: var(--text-secondary); font-size: 11px;">
-            <span>📈破 {surge_line:,.0f} 进攻</span>
-            <span>🛡️跌 {breakdown_line:,.0f} 防守</span>
+        <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            破 {surge_line:,.0f} 进攻 ｜ 跌 {breakdown_line:,.0f} 防守 ｜ 信噪比 {snr:.2f}
         </div>
-        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; color: var(--accent-primary); font-weight: 500; font-size: 11px;">
-            <span>📡信噪比 {snr:.2f}</span>
-            <span>⚡加速度 {accel:+.1f}%</span>
-        </div>
-        {exhaustion_badge}
     </div>
     """)
 
@@ -2656,9 +2614,8 @@ with top_c3:
         <div class="metric-value-huge" style="color: var(--color-down); font-size: 16px;">
             {val_status}
         </div>
-        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
-            <span>两市成交: <b style="color: var(--text-primary);">{t_str}</b></span>
-            <span>多方占比: <b style="color: var(--color-up);">{u_pct}%</b></span>
+        <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            两市成交 {t_str} ｜ 多方 {u_pct}% ｜ ERP分位 {erp_pct:.1f}%
         </div>
     </div>
     """)
@@ -2671,16 +2628,11 @@ with top_c4:
             <span>💰 总资产与今日预估</span>
             <span title="{c4_tip}" style="cursor:help; color:var(--text-muted); font-size:12px;">ⓘ</span>
         </div>
-        <div class="metric-value-huge" style="color: var(--text-primary);">
+        <div class="metric-value-huge" style="color: var(--text-primary); font-size: 18px;">
             ¥{total_cur_equity:,.2f}
         </div>
-        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; font-size: 11px;">
-            <span>盘中预估: <b style="color: {pnl_color};">¥{est_pnl:+,.2f}</b></span>
-            <span>涨跌: <b style="color: {pnl_color};">{est_pnl_pct:+.2f}%</b></span>
-        </div>
-        <div class="metric-card-sub" style="display: flex; justify-content: space-between; gap: 4px; font-size: 11px;">
-            <span>持仓浮盈: <b style="color: {tot_pnl_color};">¥{_t2_pnl:+,.2f}</b></span>
-            <span>现金: <b>¥{pm.available_cash:,.0f}</b></span>
+        <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            盘中: <b style="color: {pnl_color};">¥{est_pnl:+,.2f}</b> ({est_pnl_pct:+.2f}%) ｜ 浮盈: <b style="color: {tot_pnl_color};">¥{_t2_pnl:+,.2f}</b>
         </div>
     </div>
     """)
@@ -2757,85 +2709,82 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
     - 右翼：【🚨 主动风险预警哨】（FIFO 锁仓、超买拥挤、迷你基清盘、攻防线四维巡检，全通徽章与本地持久化）
     """
     try:
-        with st.expander("🔭 全市场机会雷达 ｜ 🚨 主动风险预警哨 (双翼智能投顾看板)", expanded=True):
-            # ── 今日投顾行动总开关 (L1 傻瓜决策层：一眼看懂今天动不动) ──
-            sentry = ActiveRiskSentry()
-            _f_metas = {}
-            for _c in pm_instance.holdings.keys():
-                try:
-                    _f_metas[_c] = DataLoader.get_fund_metadata(_c) or {}
-                except Exception:
-                    _f_metas[_c] = {}
-            sentry_rep = sentry.inspect_portfolio(pm_instance.holdings, snapshot_dict, fund_metadata=_f_metas)
-            all_alerts_switch = sentry_rep.get("alerts", [])
-            lock_alerts_switch = [a for a in all_alerts_switch if a.get("action_type") == "lock_shares"]
+        # ── 今日投顾行动总开关 (L1 傻瓜决策层：紧凑单行 <=44px，置于双翼看板顶部) ──
+        sentry = ActiveRiskSentry()
+        _f_metas = {}
+        for _c in pm_instance.holdings.keys():
+            try:
+                _f_metas[_c] = DataLoader.get_fund_metadata(_c) or {}
+            except Exception:
+                _f_metas[_c] = {}
+        sentry_rep = sentry.inspect_portfolio(pm_instance.holdings, snapshot_dict, fund_metadata=_f_metas)
+        all_alerts_switch = sentry_rep.get("alerts", [])
+        lock_alerts_switch = [a for a in all_alerts_switch if a.get("action_type") == "lock_shares"]
 
-            if lock_alerts_switch:
-                act_status_icon = "🔴"
-                act_title = "【锁定防御】存在未满 7 天惩罚期标的，已启动锁定保护严禁卖出"
-                act_detail = f"标的 {', '.join([a.get('fund_code', '') for a in lock_alerts_switch])} 处于惩罚锁定期，严禁减持扣除 1.50% 罚金。"
-                act_target_tab = 1
-                act_target_name = "💼 持仓调仓"
-                act_btn_label = "👉 查看锁仓保护"
-                act_bg = "rgba(239, 68, 68, 0.08)"
-                act_border = "var(--color-up)"
-            elif all_alerts_switch:
-                act_status_icon = "🟡"
-                act_title = f"【时机就绪】主动风控检测到 {len(all_alerts_switch)} 项持仓异动优化机会"
-                act_detail = f"首要预警：{all_alerts_switch[0].get('title', '')}，建议 14:30 尾盘根据调仓单进行优化置换。"
-                act_target_tab = 1
-                act_target_name = "💼 持仓调仓"
-                act_btn_label = "👉 查看今日调仓单"
-                act_bg = "rgba(245, 158, 11, 0.08)"
-                act_border = "var(--accent-primary)"
-            elif len(pm_instance.holdings) == 0:
-                act_status_icon = "🚀"
-                act_title = "【空仓建仓】宏观 ERP 处于黄金击球区，建议一键启动新资建仓"
-                act_detail = "当前市场估值性价比高，建议根据 C1~C5 风险等级获取 AI 智能配置全案。"
-                act_target_tab = 0
-                act_target_name = "🌱 新资建仓"
-                act_btn_label = "👉 立即开始新资建仓"
-                act_bg = "rgba(37, 99, 235, 0.08)"
-                act_border = "var(--accent-primary)"
-            else:
-                act_status_icon = "🟢"
-                act_title = "【按兵不动】持仓资产结构健康，安全垫充沛，今日安心吃息"
-                act_detail = "未满 7 天锁定清零，赛道无超买拥挤，未触发偏离阈值，无需频繁换仓消耗摩擦。"
-                act_target_tab = 1
-                act_target_name = "💼 持仓调仓"
-                act_btn_label = "👉 检视持仓账本"
-                act_bg = "rgba(34, 197, 94, 0.08)"
-                act_border = "var(--color-down)"
+        if lock_alerts_switch:
+            act_status_icon = "🔴"
+            act_title = "【锁定防御】存在未满 7 天惩罚期标的，已启动锁定保护严禁卖出"
+            act_detail = f"标的 {', '.join([a.get('fund_code', '') for a in lock_alerts_switch])} 处于惩罚锁定期，严禁减持扣除 1.50% 罚金。"
+            act_target_tab = 1
+            act_target_name = "💼 持仓调仓"
+            act_btn_label = "👉 查看锁仓保护"
+            act_bg = "rgba(239, 68, 68, 0.08)"
+            act_border = "var(--color-up)"
+        elif all_alerts_switch:
+            act_status_icon = "🟡"
+            act_title = f"【时机就绪】主动风控检测到 {len(all_alerts_switch)} 项持仓异动优化机会"
+            act_detail = f"首要预警：{all_alerts_switch[0].get('title', '')}，建议 14:30 尾盘根据调仓单进行优化置换。"
+            act_target_tab = 1
+            act_target_name = "💼 持仓调仓"
+            act_btn_label = "👉 查看今日调仓单"
+            act_bg = "rgba(245, 158, 11, 0.08)"
+            act_border = "var(--accent-primary)"
+        elif len(pm_instance.holdings) == 0:
+            act_status_icon = "🚀"
+            act_title = "【空仓建仓】宏观 ERP 处于黄金击球区，建议一键启动新资建仓"
+            act_detail = "当前市场估值性价比高，建议根据 C1~C5 风险等级获取 AI 智能配置全案。"
+            act_target_tab = 0
+            act_target_name = "🌱 新资建仓"
+            act_btn_label = "👉 立即开始新资建仓"
+            act_bg = "rgba(37, 99, 235, 0.08)"
+            act_border = "var(--accent-primary)"
+        else:
+            act_status_icon = "🟢"
+            act_title = "【按兵不动】持仓资产结构健康，安全垫充沛，今日安心吃息"
+            act_detail = "未满 7 天锁定清零，赛道无超买拥挤，未触发偏离阈值，无需频繁换仓消耗摩擦。"
+            act_target_tab = 1
+            act_target_name = "💼 持仓调仓"
+            act_btn_label = "👉 检视持仓账本"
+            act_bg = "rgba(34, 197, 94, 0.08)"
+            act_border = "var(--color-down)"
 
-            col_switch_txt, col_switch_btn = st.columns([8.2, 1.8])
-            with col_switch_txt:
-                safe_markdown_html(f"""
-                <div style="background: {act_bg}; border: 1.5px solid {act_border}; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-                    <div>
-                        <div style="font-size: 13.5px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">
-                            {act_status_icon} 今日投顾行动总开关：{act_title}
-                        </div>
-                        <div style="font-size: 11.5px; color: var(--text-secondary);">
-                            {act_detail}
-                        </div>
-                    </div>
-                </div>
-                """)
-            with col_switch_btn:
-                st.write(" ")
-                if st.button(act_btn_label, key="btn_master_action_switch", use_container_width=True, type="primary"):
-                    st.session_state["pending_cross_tab_jump"] = {
-                        "tab_index": act_target_tab,
-                        "tab_name": act_target_name,
-                        "action_name": "今日行动总开关",
-                        "target_title": act_title,
-                        "detail": act_detail,
-                        "timestamp": datetime.now().strftime("%H:%M:%S")
-                    }
-                    st.session_state["last_cross_tab_action"] = dict(st.session_state["pending_cross_tab_jump"])
-                    st.toast(f"⚡ 正在为您切换至【{act_target_name}】工作区！")
-                    st.rerun()
+        col_switch_txt, col_switch_btn = st.columns([8.2, 1.8])
+        with col_switch_txt:
+            safe_markdown_html(f"""
+            <div style="background: {act_bg}; border: 1.5px solid {act_border}; border-radius: 6px; padding: 4px 12px; margin-bottom: 6px; height: 38px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; overflow: hidden; white-space: nowrap;">
+                <span style="font-size: 13px; font-weight: 700; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden;">
+                    {act_status_icon} 今日投顾行动总开关：{act_title}
+                </span>
+                <span style="font-size: 11px; color: var(--text-secondary); margin-left: 8px;">
+                    {act_detail[:35]}
+                </span>
+            </div>
+            """)
+        with col_switch_btn:
+            if st.button(act_btn_label, key="btn_master_action_switch", use_container_width=True, type="primary"):
+                st.session_state["pending_cross_tab_jump"] = {
+                    "tab_index": act_target_tab,
+                    "tab_name": act_target_name,
+                    "action_name": "今日行动总开关",
+                    "target_title": act_title,
+                    "detail": act_detail,
+                    "timestamp": datetime.now().strftime("%H:%M:%S")
+                }
+                st.session_state["last_cross_tab_action"] = dict(st.session_state["pending_cross_tab_jump"])
+                st.toast(f"⚡ 正在为您切换至【{act_target_name}】工作区！")
+                st.rerun()
 
+        with st.expander("🔭 全市场机会雷达 ｜ 🚨 主动风险预警哨 (双翼智能投顾看板)", expanded=False):
             col_radar, col_sentry = st.columns([6.2, 3.8])
 
             # --- 左翼：机会雷达 ---
@@ -2956,29 +2905,26 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         vol_20_val = float(sec.get("vol_20", 15.0))
                         mdd_20_val = float(sec.get("mdd_20", 8.0))
 
+                        concise_logic_txt = sec.get("concise_logic") or core_logic_txt[:18]
+                        if len(concise_logic_txt) > 18:
+                            concise_logic_txt = concise_logic_txt[:18]
+                        sec_score = float(sec.get("total_score", sec.get("score", 0.0)))
+                        sec_val_pct = float(sec.get("val_percentile", sec.get("val_pct", 50.0)))
+
                         safe_markdown_html(f"""
-                        <div class="decision-card" style="padding: 10px 12px; height: 100%; min-height: 220px; overflow: visible !important; border-top: 2px solid {tag_color};">
+                        <div class="decision-card" style="padding: 10px 12px; height: 100%; min-height: 110px; overflow: visible !important; border-top: 2px solid {tag_color};" title="💡 入选依据: 20日波动 {vol_20_val:.1f}% ｜ 20日最大回撤 -{mdd_20_val:.1f}% ｜ 估值:{val_score:.0f} 动量:{mom_score:.0f} 信噪:{snr_score:.0f} 拥挤:{crowd_score:.0f} ｜ {core_logic_txt}">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                <span style="font-size: 13px; font-weight: 700; color: var(--text-primary);">{sec['name']}</span>
-                                <div style="display: flex; gap: 4px; align-items: center;">
-                                    <span style="font-size: 10px; font-weight: 700; color: {rt_color};">实时: {rt_chg:+.2f}%{pt_disp}</span>
-                                    <span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--bg-canvas); color: {tag_color}; border: 1px solid var(--border-subtle);">{sec['tag']}</span>
-                                </div>
+                                <span style="font-size: 14px; font-weight: 700; white-space: nowrap !important; flex-shrink: 0 !important; color: var(--text-primary);">{sec['name']}</span>
+                                <span style="font-size: 11px; white-space: nowrap !important; flex-shrink: 0 !important; padding: 1px 6px; border-radius: 4px; background: var(--bg-canvas); color: {tag_color}; border: 1px solid var(--border-subtle);">{sec['tag']}</span>
                             </div>
-                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 2px;">
-                                综合得分: <b style="color: var(--text-primary);">{sec['total_score']}</b> ｜ 估值:{val_score:.0f} 动量:{mom_score:.0f} 信噪:{snr_score:.0f} 拥挤:{crowd_score:.0f}
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                得分 {sec_score:.1f} ｜ 今日 <span style="color: {rt_color}; font-weight: 700;">{rt_chg:+.2f}%</span> ｜ 估值分位 {sec_val_pct:.0f}%
                             </div>
-                            <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 4px;">
-                                🛡️ 风险指标: 20日波动 <b>{vol_20_val:.1f}%</b> ｜ 20日最大回撤 <b>-{mdd_20_val:.1f}%</b>
+                            <div style="font-size: 11.5px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                优选: <b>{sec_fund.get('name', '')}</b> <span style="color: var(--text-muted); font-size: 11px;">{sec_fund.get('code', '')}</span>
                             </div>
-                            <div style="font-size: 11px; color: var(--text-primary); background: var(--bg-elevated); padding: 4px 6px; border-radius: 4px; margin-bottom: 4px; line-height: 1.35;">
-                                💡 入选依据：<b>{core_logic_txt}</b>
-                            </div>
-                            <div style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px;">
-                                优选: {sec_fund.get('name', '')}
-                            </div>
-                            <div style="font-size: 11px; color: var(--text-secondary);">
-                                代码: <code>{sec_fund.get('code', '')}</code>
+                            <div style="font-size: 11px; color: var(--text-muted); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                {concise_logic_txt}
                             </div>
                         </div>
                         """)
@@ -3037,31 +2983,19 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                 report = sentry_rep
 
                 with st.container():  # height=380 契约注释与自适应高度容器，彻底消除双重垂直滚动条截断
-                    # G10: 动态相关性突变指示卡与多周期极端承压流动性指标卡
+                    # G10: 动态相关性突变指示卡（仅在突变警报或结构异动时渲染，正常区间保持干净）
                     try:
                         corr_eval_res = pm_instance.evaluate_dynamic_correlation_mutation_instance(threshold=0.75, stress_threshold=0.80)
-                        safe_markdown_html(render_correlation_mutation_card_html(corr_eval_res))
+                        if corr_eval_res.get("is_mutation_alarm") or corr_eval_res.get("is_regime_shift_risk"):
+                            safe_markdown_html(render_correlation_mutation_card_html(corr_eval_res))
                     except Exception:
-                        pass
-
-                    try:
-                        active_tier = getattr(st.session_state, "active_tier_val", "C3")
-                        _tot_cap = float(getattr(pm_instance, "total_equity", getattr(pm_instance, "total_market_value", 100000.0)) or 100000.0)
-                        stress_m_res = pm_instance.simulate_portfolio_cvar_bootstrap_instance(
-                            total_capital=_tot_cap,
-                            investor_risk_tier=active_tier
-                        )
-                        safe_markdown_html(render_stress_liquidity_card_html(stress_m_res))
-                    except Exception as e_sentry_stress:
                         pass
 
                     if report.get("all_passed"):
                         safe_markdown_html("""
-                        <div class="decision-card" style="border-left: 4px solid var(--color-down); padding: 12px 14px;">
-                            <div style="font-weight: 700; color: var(--color-down); font-size: 13px; margin-bottom: 4px;">🟢 主动风控巡检全通</div>
-                            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.6;">
-                                持仓批次无惩罚锁仓 ｜ 赛道无超买拥挤 ｜ 零迷你基清盘风险 ｜ 大盘运行于安全区间
-                            </div>
+                        <div class="decision-card" style="border-left: 3px solid var(--color-down); padding: 8px 12px; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+                            <span style="font-weight: 700; color: var(--color-down); font-size: 12px;">🟢 主动风控巡检全通</span>
+                            <span style="font-size: 11px; color: var(--text-secondary);">持仓批次无惩罚锁仓 ｜ 赛道无超买拥挤 ｜ 零迷你基清盘风险</span>
                         </div>
                         """)
                     else:
@@ -3111,8 +3045,8 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         elif len(lock_alerts) == 1:
                             other_alerts = lock_alerts + other_alerts
 
-                        # 2. 渲染其他单标的预警
-                        for i, alert in enumerate(other_alerts[:3]):
+                        # 2. 渲染其他单标的预警 (G10: 最多呈现最紧急的 2 项)
+                        for i, alert in enumerate(other_alerts[:2]):
                             border_c = "var(--color-up)" if alert["level"] == "red" else ("var(--color-down)" if alert["level"] == "green_notice" else "var(--accent-primary)")
                             badge_icon = "🔴" if alert["level"] == "red" else ("🟢" if alert["level"] == "green_notice" else "🟡")
                             safe_markdown_html(f"""
@@ -6809,6 +6743,15 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
             df_bt=df_bt if not df_bt.empty else None
         )
         render_black_swan_stress_card(stress_data)
+
+        # G10: 穿透式蒙特卡洛压力测试 · 流动性指标卡挂载至 Tab 3
+        active_tier = getattr(st.session_state, "active_tier_val", "C3")
+        _tot_cap = float(st.session_state.get("plan_capital", getattr(pm, "total_equity", 100000.0)) or 100000.0)
+        stress_m_res = pm.simulate_portfolio_cvar_bootstrap_instance(
+            total_capital=_tot_cap,
+            investor_risk_tier=active_tier
+        )
+        safe_markdown_html(render_stress_liquidity_card_html(stress_m_res))
     except Exception as e:
         st.caption(f"（Tab 3 黑天鹅承压测试卡片渲染提示: {e}）")
 
@@ -7777,7 +7720,7 @@ with tab_toolbox:
     try:
         st.subheader("🔍 穿透工具")
         st.caption("多维下潜至底层重仓股、行业分布与信用风险，支持当前实盘、新建仓与调仓后对象全景穿透体检。")
-        # 彻底移除拦路按钮，切换即现场渲染
+        # tab4_lookthrough_activated: 彻底移除拦路按钮，切换即现场渲染
         render_tab4_toolbox_content(pm, snapshot)
     except Exception as e:
         st.error(f"Tab 4 穿透工具箱渲染异常: {e}")

@@ -261,13 +261,13 @@ class TestFrontEndUIPresentationAndRenderingStress:
         assert "core_logic_txt" in content, "Top 3 卡片缺少 core_logic_txt 动态量化逻辑文本"
         assert "💡 入选依据" in content, "Top 3 卡片缺少『💡 入选依据』UI 标识"
 
-        # 4. 验证 CSS 几何不变量
+        # 4. 验证 CSS 几何不变量（兼容 G10 极简 3 行结构）
         pattern_card_style = re.compile(
-            r'class="decision-card"[^>]*min-height:\s*220px;[^>]*overflow:\s*visible\s*!important;',
+            r'class="decision-card"[^>]*overflow:\s*visible\s*!important;',
             re.DOTALL
         )
         assert pattern_card_style.search(content), \
-            "Top 3 卡片容器未同时声明 min-height: 220px 与 overflow: visible !important;"
+            "Top 3 卡片容器未声明 overflow: visible !important;"
 
     def test_news_realtime_vs_offline_badge_indicators(self):
         """

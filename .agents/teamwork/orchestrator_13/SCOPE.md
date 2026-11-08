@@ -10,17 +10,17 @@
   - Brinson-Fachler 经典模型：大类配置效应、选基效应、摩擦规避三维拆解，恒等式严格平账。
   - `FundHolding.holding_days` 添加 setter 修复 C 类赎回测试拦截。
 - **Streamlit GUI Layer**: `AGY2_FundAdvisory/app_gui.py`
-  - HTML 纯化（Rule 27）：`_clean_html` 剥离每行首尾空格与空行，全域 100% 收口至 `safe_markdown_html`，全屏 0 灰色代码块泄露。
+  - HTML 纯化（Rule 27 / Rule 41）：`_clean_html` 剥离每行首尾空格与空行，全域 100% 收口至 `safe_markdown_html`，全屏 0 灰色代码块泄露。
   - 首屏双翼看板：顶端渲染“今日投顾行动总开关”大白话横幅 + 一键跳转工作区按钮；左翼 Top 3 赛道卡片精炼，14 赛道温度计与 60 日演化轨迹维持折叠/Popover；右翼预警哨容器高度自适应无截断。
   - Tab 1 新资建仓：L1 双输入（拟投资本金 + C1-C5 风险档位），AI 智能托管定权模型与基金只数；L2 机构级参数与 7 大模型折叠微调面板；一键合流直出建仓单；步骤二收敛为 3 张人话大卡（怎么赚钱/风险底线/为什么能赢），10k 蒙特卡洛、三大黑天鹅与选基漏斗大表收纳进 L2 白盒抽屉。
   - Tab 2 持仓调仓：顶部概览卡与安全垫看板合并为紧凑顶栏，-3%/-5%/-10% 急跌承压收进折叠详情；极速录基改造为表格工具栏中的“➕ 极速录基” Popover 弹窗；严格双视图物理隔离，单源 `tab2_rebal_buf_slider`。
 - **Verification & Safe Release**:
   - 四大只读裁判文件与 DataLoader 只读契约零变动。
-  - 8501 端口静默平滑重启与 `_stcore/health` 探针。
-  - `/browser` 桌面与 640px 移动端多模态视觉走查。
-  - 全量自动化测试 100% 绿灯。
-  - Git commit, tag `v3.9-G9` (无 GitHub Release)，纯文本 G10 进化指令输出。
-  - 独立胜利审计 (Victory Audit)。
+  - 8501 端口静默平滑重启与 `_stcore/health` 探针（HTTP 200 ok）。
+  - `/browser` 桌面与 640px 移动端多模态视觉走查全部通过。
+  - 全量自动化测试 103/103 绿灯。
+  - Git commit `34950f8`, tag `v3.9-G9` (无 GitHub Release)，纯文本 G10 进化指令输出。
+  - 独立胜利审计 (Victory Audit) VICTORY_VERIFIED。
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
@@ -45,39 +45,13 @@
 | 18 | 四大只读裁判与 DataLoader 契约保护 | 锁定 SHA-256 哈希与 simulate_execution 签名 | M3 | R1 |
 | 19 | 本地 8501 端口平滑重启与探活 | 原生 CREATE_NO_WINDOW 托管，_stcore/health 返回 200 | M3 | R4 |
 | 20 | /browser 桌面与 640px 视觉走查 | 桌面与 640px 窄屏全要素走查，确认 0 代码泄露与 0 截断 | M3 | R4 |
-| 21 | 全量单测回归与 G9 专项断言 100% | 运行 50+ 项现有测试及 G9 专项用例，100% 绿灯 | M3 | R4 |
-| 22 | Git 标签归档与 G10 纯文本指令自举 | commit, tag v3.9-G9, 禁 Release, 输出无特殊符号 G10 指令 | M3 | R4 |
-| 23 | 独立胜利审计 (Victory Audit) | 独立智能体最终审计确认验收通过 | M3 | R4 |
+| 21 | 全量单测回归与 G9 专项断言 100% | 运行 103 项测试套件，100% 绿灯全部通过 | M3 | R4 |
+| 22 | Git 标签归档与 G10 纯文本指令自举 | commit 34950f8, tag v3.9-G9, 禁 Release, 输出无特殊符号 G10 指令 | M3 | R4 |
+| 23 | 独立胜利审计 (Victory Audit) | 独立智能体最终审计确认验收通过 (VICTORY_VERIFIED) | M3 | R4 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
 | M1 | 底层量化因果律与数据真实性严苛纠偏 | Features 1-9 (advisory_engine.py, portfolio_manager.py, data_loader.py) | none | DONE |
 | M2 | GUI 交互降噪、HTML 纯化与傻瓜化操作流重构 | Features 10-17 (app_gui.py) | none | DONE |
-| M3 | 服务平滑重启、视觉走查、全量单测与 Git 归档自举 | Features 18-23 (tests, 8501 health, /browser, git tag, Victory Audit) | M1, M2 | IN_PROGRESS |
-
-## Interface Contracts
-### M1 ↔ M2: Data & Model Engine Interface to GUI
-- `OnlineHeuristicFactorEvolver.get_60d_rolling_nav_and_trajectory`: returns dict `{'dates': list[str], 'nav_dynamic': list[float], 'nav_static': list[float], 'trajectory': list[dict]}`.
-- `OpportunityRadarEngine.evaluate_sector`: returns dict with keys `ma20`, `bias_20`, `slope_20`, `er_20`, `sub_scores`, `quantitative_evidence`, `optimal_fund`.
-- `ActiveRiskSentry.inspect_portfolio`: returns dict with key `alerts` (list of alert dicts with `level`, `dimension`, `title`, `detail`, `action_type`, `excess_mv`).
-- `PortfolioManager.evaluate_rebalance_audit`: returns dict with `brinson_attribution` (keys: `allocation_effect_yuan`, `selection_effect_yuan`, `total_active_add_yuan`, etc.).
-- `FundHolding`: contains `@property def holding_days` and `@holding_days.setter`.
-
-### M2 ↔ M3: GUI Session State & Widget Key Contracts
-- `session_state` keys preserved: `active_ledger_id`, `active_tier_val`, `mlm`, `pm`, `sel_tab2_active_ledger`, `slider_target_return`, `tab1_step_reached`, `tab1_trigger_sim`, `tab2_diag_cache`, `tab2_diagnosed`, `tab2_rebal_cache`, `tab2_rebalanced`, `target_return_val`.
-- Widget keys preserved: `btn_apply_bp_tier`, `chk_confirm_t1_overwrite`, `btn_undo_t1_overwrite`, `btn_run_simulation_now`, `btn_t1_run_all`, `btn_bar_add_holding`, `btn_tab2_diagnose`, `btn_tab2_all`, `rad_tab2_view_mode`, `tab2_rebal_buf_slider`.
-- Compatible comments: `# tab2_rebal_buf_slider_bot`.
-
-## Code Layout
-- `AGY2_FundAdvisory/`
-  - `advisory_engine.py`: M1
-  - `portfolio_manager.py`: M1
-  - `data_loader.py`: M1
-  - `app_gui.py`: M2
-- `tests/`: M3
-  - `test_infra.py` (READ-ONLY)
-  - `test_adv_final_closure.py`
-  - `test_g3_evolution_loop.py`
-  - `test_gui_multi_ledger_stress.py`
-  - `test_g9_causal_brinson_and_suitability.py`
+| M3 | 服务平滑重启、视觉走查、全量单测与 Git 归档自举 | Features 18-23 (tests, 8501 health, /browser, git tag, Victory Audit) | M1, M2 | DONE |

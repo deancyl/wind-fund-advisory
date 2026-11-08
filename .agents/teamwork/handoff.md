@@ -1,80 +1,28 @@
-# Sentinel Final Handoff Report — G10 世代多资产相关性突变防御与穿透式压力测试全量交付
+# Project Sentinel Final Handoff Report
 
-## 1. 观察 (Observation)
+## 1. Observation
+- **Mission Execution**: G9 世代外傻内精渐进式披露交互降噪重构与底层量化因果律严苛纠偏闭环任务由 `orchestrator_13` 编排、专项 Worker、Reviewer、Challenger 及 Auditor 多智能体矩阵协同完成。
+- **Milestone 1**: 底层量化因果律纠偏（$P[:-1] \to R[1:]$ 滞后对齐、扣除单边 10 bps 换手摩擦成本、夏普扣 2.0% 年化无风险利率、12 切片推进式 Walk-Forward 滚动演化、AUM 穿透反查、适当性越界预警及 Brinson 归因落地）已全量闭环。
+- **Milestone 2**: 全站裸调 `st.markdown(..., unsafe_allow_html=True)` 彻底收口至 `safe_markdown_html`，Rule 27 HTML 纯化静态与动态扫描违规数清零（彻底根除牛熊拐点对照尺 CommonMark 4+ 空格缩进源码泄露）；首屏新增高辨识度“今日投顾行动总开关”；Tab 1 实施 L1 极简双输入与 AI 自动托管，步骤一推演直出建仓单，16 张卡片收敛为 3 人话大卡 + 白盒证据抽屉；Tab 2 安全垫三级承压折叠化，极速录基实现 Popover 弹窗（常态 0 高度占用），主流程与宽屏运维工具坞实现物理分支隔离；行 5100 局部导入与行 2766 类方法调用缺陷已精准修复。
+- **Milestone 3**: 8501 端口服务平滑无窗口重启，健康探针 `_stcore/health` 返回 HTTP 200 "ok"；Playwright 多模态走查确认桌面端与 640px 移动端 0 源码泄露、0 截断、0 水平溢出；全量 103 项自动化测试 100% 绿灯全部通过；经验规则 39-41 局域沉淀于工作区 `GEMINI.md` 与 `PROGRESS_LOG.md`；代码提交 `34950f8`，打标附注标签 `v3.9-G9` 推送至远端 `origin`，且 0 GitHub Release 创建。
+- **Independent Victory Audit**: 独立胜利审计员 `victory_auditor_10`（ID: `74ce992d-857e-4115-90ab-11f5821ce709`）完成全维度独立复核，出具 `VERDICT: VICTORY CONFIRMED`。
 
-1. **项目执行链路全景**：
-   - Sentinel 接收到 G10 任务指令后，录入 `.agents/teamwork/ORIGINAL_REQUEST.md`，路由至通用路径编排器 `teamwork_orchestrator`（`orchestrator_11`）。
-   - 编排器以 Project Pattern 驱动，经历 Phase 0 深度勘测（3 位 Explorer 勘测 R2、R3、R4/R5/R6 并建立 SCOPE.md）、Milestone M1 金融量化与流动性风控核心整改（Worker M1 + Reviewer 1/2 + Challenger 1/2 + Forensic Auditor，针对 Challenger 2 实证指出的 FIFO 锁与 pm_instance 缺陷派发 Worker Remediation 精准修复，经 Challenger Remediation 二次实证压测全绿通过，全票 PASS）、Milestone M2 本地服务平滑重启与多模态视觉走查（Worker M2，8501 端口平滑重启、_stcore/health HTTP 200、首屏双翼与 Tab 1/2 指标卡/3D曲面图全挂载、640px 移动端零水平溢出、零 CommonMark 泄露全绿通过）以及 Milestone M3 收官验证（Worker M3，65 项全量回归测试 100% 绿灯全过、四大裁判文件 0 字节只读保真、工作区 GEMINI 经验规则 29-31 沉淀、PROGRESS_LOG 更新、Git 提交 commit 301ffeb 与标签 v3.10-G10 推送至远端 origin，零 GitHub Release）。
-2. **司法级独立胜利审计 (Victory Audit)**：
-   - 编排器汇报收官后，Sentinel 严格履行独立审计铁律，立即派发独立胜利审计官 `teamwork_victory_auditor`（`victory_auditor_9`）执行三阶段阻塞式独立法证：
-     - **Phase A 时间线核验**：Git commit `301ffeb`、tag `v3.10-G10` 及远端推送确认，确认零 GitHub Release；`ORIGINAL_REQUEST.md` 需求矩阵 100% 覆盖。
-     - **Phase B 防作弊与不可篡改法证**：四大裁判文件物理 0 修改（SHA-256 哈希完全一致）；`DataLoader.simulate_execution` 签名与默认扣费逻辑完全只读；零伪随机数、零线性插值、零保底常数、零未来函数；夏普比率计算强制扣除 2.0% 年化无风险利率（0.02 / 250.0）；全局 `c:\Users\deanc\.gemini\GEMINI.md` 绝对零触碰，规则 29-31 局域沉淀于工作区 `GEMINI.md` 与 `PROGRESS_LOG.md`；`data/ledgers_index.json` 仅保留 `main_live` 主实盘账本，项目根目录零临时脚本。
-     - **Phase C 独立测试执行与探针**：零共享上下文独立重新执行 6 大测试套件共 65 项测试，`65 passed, 121 warnings in 79.74s, 0 failed, 0 errors`，100% 绿灯；`http://127.0.0.1:8501/_stcore/health` 返回 `HTTP 200 ok`。
-   - 胜利审计官最终裁决：**VICTORY CONFIRMED**。
-3. **环境清理完备**：
-   - Sentinel 监控 Cron 1 与 Cron 2 已完全终止（killed）；
-   - 所有子智能体已完全清理（`manage_subagents(action='kill_all')`）。
+## 2. Logic Chain
+1. **任务分层推进与门禁防线**: 遵循外傻内精契约，将量化因果律（M1）、交互降噪与 HTML 纯化（M2）、走查与归档（M3）分步攻关，并在各阶段调度 Reviewer/Challenger/Auditor 门禁矩阵对抗拦截，成功捕获并纠治局部导入缺陷。
+2. **Rule 27 双重纯化体系**: 源头函数包裹 `_clean_html` 强制去除每行前导空格，渲染端统一调用 `safe_markdown_html`，从语法底层消除 Markdown 解析器将 4+ 空格文本误识别为 `<pre><code>` 的可能。
+3. **独立胜利审计终审背书**: 拦截 Orchestrator 完工声明，由独立 Victory Auditor 重新复核四大裁判文件哈希（100% 匹配）、DataLoader 签名与费率（0 diff）、全局配置隔离、103 项单测绿灯及 G10 自举指令格式，确保质量铁律不可伪造。
 
----
+## 3. Caveats
+- 工作区保留 8501 后台托管服务，后续会话可直接通过浏览器访问 `http://localhost:8501`。
+- 本地 `data/ledgers_index.json` 仅保留 `main_live` 主实盘账本，测试临时文件已清理干净。
+- 全局 `c:\Users\deanc\.gemini\GEMINI.md` 绝对 0 修改，所有知识资产沉淀于工作区内部。
 
-## 2. 逻辑链 (Logic Chain)
+## 4. Conclusion
+G9 世代全案工程圆满交付，所有要求与验收标准 100% 达成，取得 `VICTORY CONFIRMED` 独立审计裁决。所有后台监控与子代理已完整注销清理。
 
-```
-[原始需求录入 ORIGINAL_REQUEST.md]
-  │
-  ├─► [总指挥编排器 orchestrator_11 调度]
-  │     ├─► Phase 0: 3 位 Explorer 勘测并建立 SCOPE.md 接口契约
-  │     ├─► Milestone 1: 下行半协方差测算、0.80 突变跨资产平移预案 (60%纯债+40%黄金)、重仓 ADV/AUM 场外非线性冲击折价、10,000次块重采样蒙特卡洛极端承压 (CVaR99 >= VaR99 >= VaR95, C1-C5变现天数)
-  │     │     └─► 门禁对抗: Challenger 2 拦截 FIFO 锁缺陷 -> Worker Remediation 修复 -> Challenger Remediation 二次实证通过 (M1 Gate PASS)
-  │     ├─► Milestone 2: 8501 服务平滑重启 (PID 37328)、双翼右翼指示卡与流动性卡片点亮、Tab 1/2 3D曲面图与折价表挂载、640px 移动端零溢出与 CommonMark 纯化 (M2 Gate PASS)
-  │     └─► Milestone 3: 65 项全量回归测试 100% 绿灯、四大裁判只读哈希零变动、工作区 GEMINI 沉淀规则 29-31、Git commit 301ffeb 与 tag v3.10-G10 远端同步
-  │
-  ├─► [编排器宣告胜利 (Victory Claimed)]
-  │     │
-  │     ▼ (强阻断门禁，不轻信汇报)
-  │
-  └─► [派发独立胜利审计官 victory_auditor_9 司法级核验]
-        ├─► Phase A (时间线 & 交付范围): PASS
-        ├─► Phase B (四大裁判文件 & DataLoader 扣费不变性 & 全局配置隔离): PASS
-        └─► Phase C (65 项独立全量回归测试 & 8501 HTTP 200 探针): PASS
-              │
-              ▼
-        [裁决结果: VICTORY CONFIRMED]
-              │
-              ▼
-        [清理 Crons & 子代理，交付最终汇报与 G11 指令]
-```
-
----
-
-## 3. 局限与前提假设 (Caveats)
-
-1. **8501 端口托管**：Streamlit 服务由后台守护进程（PID 37328）托管，监听 `0.0.0.0:8501`，健康探针持续返回 `HTTP 200 "ok"`，本地可通过浏览器直接访问；
-2. **只读裁判文件与契约**：严格受到物理写保护，本世代与未来世代绝对禁止任何形式的篡改；
-3. **测试告警说明**：全量测试执行中出现的 InsecureRequestWarning 属于测试环境中天天基金/东方财富 SSL 备用抓取源产生的正常网络提示，不影响业务因果逻辑与断言结果。
-
----
-
-## 4. 结论 (Conclusion)
-
-G10 世代任务全部工程与量化指标均已以最高标准达到交付要求，四大裁判文件零修改，生产代码零未来函数、零伪常数、零线性假序列，65 项测试全量通过，获得胜利审计官 **VICTORY CONFIRMED** 终裁，项目正式圆满竣工。
-
----
-
-## 5. 验证方法 (Verification Method)
-
-用户或后续代理可通过以下命令进行全量成果独立复查：
-```powershell
-# 1. 全量自动化测试回归 (65 项全绿)
-py -3 -m pytest tests/test_g10_correlation_liquidity_and_stress.py tests/test_infra.py tests/test_adv_final_closure.py tests/test_g3_evolution_loop.py tests/test_gui_multi_ledger_stress.py tests/test_g9_causal_brinson_and_suitability.py -v
-
-# 2. 四大裁判文件只读核验 (输出为空)
-git diff --stat AGY2_FundAdvisory/judge_engine.py AGY2_FundAdvisory/holdout_vault.py AGY2_FundAdvisory/AGENT_SPEC.md tests/test_infra.py
-
-# 3. 8501 服务存活探针核验 (返回 HTTP 200 ok)
-py -3 -c "import urllib.request; resp = urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=10); print('HTTP_STATUS:', resp.getcode())"
-
-# 4. Git 提交与标签核验 (显示 301ffeb 与 v3.10-G10)
-git log -1 --oneline
-git tag -l "v3.10-G10"
-```
+## 5. Verification Method
+- 四大裁判文件哈希校验：`py -3 scripts/verify_referee_hashes.py`
+- HTML 纯化 AST 静态扫描：`py -3 scripts/audit_ast_html_purification.py`
+- 8501 端口存活探针：`curl -I http://127.0.0.1:8501/_stcore/health`
+- 全量自动化测试：`py -3 -m pytest tests/test_infra.py tests/test_adv_final_closure.py tests/test_g3_evolution_loop.py tests/test_gui_multi_ledger_stress.py tests/test_challenger_g9_m2_adversarial.py tests/test_g9_causal_brinson_and_suitability.py tests/test_challenger_g9_m2_stress.py` (103 passed)
+- Git 版本与标签：`git log -1` (commit `34950f8`), `git tag -v v3.9-G9`

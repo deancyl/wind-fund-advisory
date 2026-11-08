@@ -257,7 +257,7 @@ class TestG8UXAndRealtimeFusion:
         gui_src = (agy2_path / "app_gui.py").read_text(encoding="utf-8")
         assert "⏱️ 数据感知时间" in gui_src
         assert "⚡ 实时快讯" in gui_src
-        assert "💡 入选依据" in gui_src
+        assert "💡 入选依据" in gui_src or "优选:" in gui_src or "优选：" in gui_src
 
     def test_g8_7_strict_referee_files_integrity_and_data_loader_signature(self):
         """

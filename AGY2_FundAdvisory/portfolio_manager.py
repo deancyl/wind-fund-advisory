@@ -8892,8 +8892,15 @@ class PortfolioManager:
             h_days = max(10, int(horizon_days))
             n_blocks = int(np.ceil(h_days / b_size))
 
-            daily_drift = port_ret / max(20.0, float(h_days))
-            daily_vol = max(0.005, abs(port_ret) * 0.15 / np.sqrt(h_days))
+            # G10: 引入历史危机真实交易日跨度校准日均漂移与日均波动率，与 Tab 3 蒙特卡洛(~12%规模)严谨对齐
+            sc_days_map = {
+                "2008_financial_crisis": 210.0,
+                "2015_liquidity_stampede": 52.0,
+                "2024_smallcap_liquidity": 25.0
+            }
+            t_days_sc = sc_days_map.get(sc["id"], 60.0)
+            daily_drift = (port_ret / t_days_sc) * (min(float(h_days), t_days_sc) / float(h_days))
+            daily_vol = max(0.005, 0.0075 * (1.1 + 0.1 * s_idx))
             base_rets = rng.normal(daily_drift, daily_vol, size=120)
 
             st_idx = rng.randint(0, len(base_rets), size=(n_sim, n_blocks))
@@ -8913,7 +8920,7 @@ class PortfolioManager:
             raw_cvar = float(np.mean(worst_1pct)) * 100.0 if len(worst_1pct) > 0 else var_99
             cvar_99 = max(var_99, raw_cvar)
 
-            pred_mdd = max(var_95, abs(port_ret) * 100.0 if port_ret < 0 else var_95)
+            pred_mdd = max(var_95, var_99 * 0.95)
             pred_mdd_pct = round(min(99.0, max(0.5, pred_mdd)), 2)
             var_95_pct = round(var_95, 2)
             var_99_pct = round(max(var_95_pct, var_99), 2)

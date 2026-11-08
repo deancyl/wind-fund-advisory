@@ -1,14 +1,16 @@
-# BRIEFING — 2026-11-08T06:33:40Z
+# BRIEFING — 2026-11-08T09:25:50Z
 
 ## Mission
-Orchestrate G9 Generation: Progressive disclosure interaction noise reduction (L1 dummy + L2 whitebox), HTML leakage elimination, and quant causality & data authenticity correction.
+Orchestrate G10 Generation: Pixel-level visual subtraction, eliminate word-break wrapping and duplicate cards, A-share news whitelist filtering, and elevate main workspace Tabs to fold.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: d:\Google\Workspace\Wind\.agents\teamwork\
 - Orchestrator: e2e9b1b9-848d-4b67-b5e8-3f65177957b7 (orchestrator_12)
-- Orchestrator (active): 2831984c-f528-4299-90cd-e299c33dd502 (orchestrator_13)
-- Victory Auditor: [to be spawned on victory claim]
+- Orchestrator (active): 496bfcfb-72ea-446e-b3dc-c85871c12398 (orchestrator_14)
+- Victory Auditor (active): to be spawned on victory claim
+- Orchestrator (G10): 496bfcfb-72ea-446e-b3dc-c85871c12398 (orchestrator_14)
+- Victory Auditor (G10): to be spawned on victory claim
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -29,17 +31,22 @@ Orchestrate G9 Generation: Progressive disclosure interaction noise reduction (L
 - A-share calendar reindex alignment for sector price matrix, no np.linspace fake lines
 - Penetrate real AUM from DataLoader, remove silent 2.5B default fallback
 - Report must end with clean plain-text G10 bootstrap prompt starting with /goal /boost /teamwork
+- [G10] Zero word break/line wrap in sector cards & status badges (white-space: nowrap; flex-shrink: 0)
+- [G10] Eliminate duplicate cards: remove render_stress_liquidity_card_html (-36.1% CVaR) from right sentry; remove green healthy card when correlation < 0.75
+- [G10] Sidebar status compressed to single-line badge, free up fold for index corridor
+- [G10] Financial news whitelist filtering in DataLoader.fetch_realtime_market_news_and_catalysts
+- [G10] Vertical height compression: top 4 cards min-height 88px, dual-wing compact/collapsed, Tabs 1-4 visible above fold at 1080p
+- [G10] Unified card style for Tab 1 & Tab 2 (radius 8px, border 1px subtle, consistent typography)
+- [G10] Git tag v4.0-G10 without GitHub release; report ends with plain text G11 bootstrap prompt
 
 ## User Context
-- **Last user request**: Approved task prompt for G9 Generation (R1-R4) with [skip-interview]
+- **Last user request**: G10 Generation request with [skip-interview]
 - **Pending clarifications**: none
-- **Delivered results**: Dispatched orchestrator_13; start notification sent to caller.
+- **Delivered results**: Phase 0 complete, Phase 1 M1 code implementation launched
 
 ## Project Status
-- **Phase**: in progress (orchestrator_13 active, worker_g9_m3_13 executing M3 visual walkthrough & service probe, Cron 1 iter 10 reported)
-- **Active Crons**:
-  - Cron 1 (Progress Reporting): 7d75cd39-0b64-4f11-a031-b7ba0c660795/task-30 (*/8 * * * *)
-  - Cron 2 (Liveness Check): 7d75cd39-0b64-4f11-a031-b7ba0c660795/task-32 (*/10 * * * *)
+- **Phase**: in progress (Phase 1: M1 code implementation by worker_g10_m1_14)
+- **Active Crons**: task-26 (Cron 1: Progress */8m), task-28 (Cron 2: Liveness */10m)
 
 ## Victory Audit Status
 - **Triggered**: no
@@ -49,4 +56,4 @@ Orchestrate G9 Generation: Progressive disclosure interaction noise reduction (L
 ## Artifact Index
 - .agents/teamwork/ORIGINAL_REQUEST.md — Authoritative user request record
 - .agents/teamwork/BRIEFING.md — Persistent sentinel memory
-- .agents/teamwork/orchestrator_13/ — Working directory for active G9 Project Orchestrator
+- .agents/teamwork/orchestrator_14/ — Working directory for active G10 Project Orchestrator

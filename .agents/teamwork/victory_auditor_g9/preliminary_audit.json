@@ -1,0 +1,33 @@
+{
+  "checks": {
+    "Check 1: Referee Files SHA256": {
+      "status": "PASS",
+      "details": "AGY2_FundAdvisory/judge_engine.py: SHA256 MATCH (76F930371176DE7EE6A413174B030101E3210AC6E037F5D10FE229AF31CC07BE); AGY2_FundAdvisory/holdout_vault.py: SHA256 MATCH (88122EAF647040A410E2FD95DA81077DB10149A498A47340FF40B670BD031D2A); AGY2_FundAdvisory/AGENT_SPEC.md: SHA256 MATCH (A346586F9BD2DC0EE83E665BD18E7A6471464C9F7B658E392B989B800CD63957); tests/test_infra.py: SHA256 MATCH (48BEE0DA300D7C0A0848EC1376E4B9B2E55224D2736081713B4340F0362CD100)"
+    },
+    "Check 2: DataLoader.simulate_execution Integrity": {
+      "status": "PASS",
+      "details": "Signature intact: def simulate_execution(weights_df, prices_df, is_otc=True, penalty_days=7, penalty_rate=0.015, etf_impact=0.001); Fee constants verified (penalty_rate=0.015, penalty_days=7, A-class 30d=0.005)"
+    },
+    "Check 3: Global vs Workspace Configs": {
+      "status": "PASS",
+      "details": "Global GEMINI clean (0 workspace rule leak); Workspace GEMINI has G9 Rules: True; PROGRESS_LOG updated with G9 M3: True"
+    },
+    "Check 4: HTML Purification & Visual Artifacts": {
+      "status": "PASS",
+      "details": "Total raw st.markdown(..., unsafe_allow_html=True) calls: 0; walkthrough_results.json reports 0 html code block leaks; All 4 visual screenshots exist"
+    },
+    "Check 5: Service Health Probe": {
+      "status": "PASS",
+      "details": "HTTP 200, body='ok'"
+    },
+    "Check 7: Data Cleanliness & Git State": {
+      "status": "PASS",
+      "details": "ledgers_index.json strictly contains only main_live (ledger_ids: ['main_live'], active: main_live); Recent commits:\n4228c8e docs(worker_g9_m3): complete milestone 3 handoff report and progress\n34950f8 feat(G9): complete progressive disclosure UI decluttering and quant causality closure\nc5a6770 docs(progress): record official release v1.0.5\n3bd2a09 docs(release): archive v1.0.5 release notes\nf1b7d23 docs(release): update README, WIKI and project metadata for official release v1.0.5; Commit 34950f8 feat(G9) verified in git log; Tag v3.9-G9 points to commit 34950f8; Tag v3.9-G9 points exactly to G9 feat commit 34950f8; GitHub releases list verified: 0 release for v3.9-G9"
+    },
+    "Check 8: G10 Evolutionary Plain-Text Instruction Compliance": {
+      "status": "PASS",
+      "details": "Starts with '/goal /boost /teamwork'; Includes '/browser'; 0 emojis found; 0 asterisks found; 0 backticks found; 0 math symbols found; 0 decorative dividers found"
+    }
+  },
+  "verdict": "PENDING"
+}

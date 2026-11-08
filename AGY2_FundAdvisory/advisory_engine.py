@@ -1157,7 +1157,10 @@ class OpportunityRadarEngine:
 
         if bias_20 > 6.0:
             mom_txt = f"正乖离 +{bias_20:.1f}% 触发反超买均值回归约束"
-        elif bias_20 >= 0.0 and slope_20 > 5.0:
+        elif er_20 < 0.35 and slope_20 > 0.0:
+            # G10: 考夫曼信噪比低时严禁输出右侧共振，准确表述为震荡企稳
+            mom_txt = f"底部震荡筑底、均线初现企稳(斜率 +{slope_20:.1f})"
+        elif bias_20 >= 0.0 and slope_20 > 5.0 and er_20 >= 0.35:
             mom_txt = f"均线斜率 +{slope_20:.1f} 右侧共振稳步上行"
         elif -8.0 <= bias_20 < 0.0 and slope_20 > 0.0:
             mom_txt = f"负乖离 {bias_20:.1f}% 呈现超跌反抽拐点"
@@ -1326,6 +1329,23 @@ class OpportunityRadarEngine:
             meta_core_logic=meta.get("core_logic", "")
         )
 
+        # G10: 生成 <= 18 汉字的干练一句话入选逻辑
+        if val_pct <= 25.0:
+            concise_logic = "低估黄金坑，底部震荡企稳" if er < 0.35 else ("极度低估，右侧动量确立" if slope_20 > 5.0 else "历史极低估，安全边际充足")
+        elif sec_id in ["pure_bond", "domestic_gold"]:
+            concise_logic = "低波稳健，防御避险压舱"
+        elif er < 0.35 and slope_20 > 0.0:
+            concise_logic = "底部震荡筑底，均线初现企稳"
+        elif bias_20 >= 0.0 and slope_20 > 5.0 and er >= 0.35:
+            concise_logic = "均线上行，右侧趋势共振"
+        elif bias_20 > 6.0:
+            concise_logic = "超买正乖离，注意均值回归"
+        elif s_crowd >= 80.0:
+            concise_logic = "筹码清爽，估值性价比良好"
+        else:
+            concise_logic = "量化综合优选，稳健蓄势"
+        concise_logic = concise_logic[:18]
+
         return {
             "sector_id": sec_id,
             "name": meta["name"],
@@ -1350,6 +1370,7 @@ class OpportunityRadarEngine:
             "realtime_chg_pct": round(float(chg_pct), 2),
             "realtime_change": round(float(chg_val), 3 if p_rt < 100.0 else 2),
             "core_logic": core_logic,
+            "concise_logic": concise_logic,
             "sub_scores": {
                 "valuation": round(s_val, 1),
                 "momentum": round(s_mom, 1),
