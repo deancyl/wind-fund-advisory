@@ -1497,9 +1497,200 @@ class OpportunityRadarEngine:
         return corr_matrix
 
 
+def calculate_fx_adjusted_intraday_valuation(
+    fund_code: str,
+    fund_name: str = "",
+    raw_valuation_pct: float = 0.0,
+    usdcnh_change_pct: Optional[float] = None
+) -> Dict[str, Any]:
+    """
+    QDII 与跨市场资产实时离岸汇率 (USD/CNH) 波动穿透纠偏引擎。
+    结合当日汇率波动实时纠偏标的盘中估值，消除美股、全球半导体及黄金资产因汇率滞后导致的估值失真。
+    计算公式：
+    复合人民币盘中涨跌幅 = (1 + 基础资产原币收益率) * (1 + 离岸人民币汇率变动率) - 1
+    """
+    clean_code = str(fund_code).strip().zfill(6)
+    fn = str(fund_name or "")
+
+    # 判断是否为跨币种/海外 QDII/黄金/半导体资产
+    is_us_qdii = any(k in fn for k in ["标普", "纳指", "纳斯达克", "美股", "海外", "QDII", "全球"]) or clean_code in ("050025", "017436", "017437", "001071", "513500", "159941")
+    is_hk_hstech = any(k in fn for k in ["恒生", "港股"]) or clean_code in ("013402", "513180")
+    is_gold = any(k in fn for k in ["黄金", "AU"]) or clean_code in ("000216", "000217", "518880")
+    is_semi = any(k in fn for k in ["半导体", "芯片"]) or clean_code in ("008888", "013841", "512760")
+
+    # 获取实时美元对离岸人民币 (USD/CNH) 变动率
+    if usdcnh_change_pct is None:
+        try:
+            from data_loader import DataLoader
+            fx_info = DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
+            usdcnh_change_pct = float(fx_info.get("change_pct", -0.05))
+        except Exception:
+            usdcnh_change_pct = -0.05
+
+    fx_chg = float(usdcnh_change_pct)
+    is_applicable = is_us_qdii or is_hk_hstech or is_gold or is_semi
+
+    if is_us_qdii:
+        # 美股/美元资产：100% 承受 USD/CNH 汇率损益
+        corrected_pct = round(((1.0 + raw_valuation_pct / 100.0) * (1.0 + fx_chg / 100.0) - 1.0) * 100.0, 2)
+        fx_drift_bps = round((corrected_pct - raw_valuation_pct) * 100.0, 1)
+        asset_type = "美股海外QDII"
+        note = f"美股美元资产全额穿透 USD/CNH 汇率波幅 ({fx_chg:+.2f}%)，纠偏估值失真 {fx_drift_bps:+.1f} bps"
+    elif is_gold:
+        # 黄金现货：国际现货伦敦金计价为美元，内外盘金价联动穿透汇率变动
+        corrected_pct = round(((1.0 + raw_valuation_pct / 100.0) * (1.0 + fx_chg / 100.0) - 1.0) * 100.0, 2)
+        fx_drift_bps = round((corrected_pct - raw_valuation_pct) * 100.0, 1)
+        asset_type = "黄金跨市场对冲"
+        note = f"内外盘金价联动穿透汇率变动 ({fx_chg:+.2f}%)，盘中平价纠偏 {fx_drift_bps:+.1f} bps"
+    elif is_hk_hstech:
+        # 港币与美元联系汇率制 (HKD 锚定 USD，波动约为 USD/CNH 的 90%)
+        effective_fx = fx_chg * 0.90
+        corrected_pct = round(((1.0 + raw_valuation_pct / 100.0) * (1.0 + effective_fx / 100.0) - 1.0) * 100.0, 2)
+        fx_drift_bps = round((corrected_pct - raw_valuation_pct) * 100.0, 1)
+        asset_type = "港股科技海外资产"
+        note = f"联系汇率制传导折算 ({effective_fx:+.2f}%)，盘中估值纠偏 {fx_drift_bps:+.1f} bps"
+    elif is_semi:
+        # 全球半导体供应链 (约 35% 权重受海外供应链计价与汇率敏感度影响)
+        effective_fx = fx_chg * 0.35
+        corrected_pct = round(((1.0 + raw_valuation_pct / 100.0) * (1.0 + effective_fx / 100.0) - 1.0) * 100.0, 2)
+        fx_drift_bps = round((corrected_pct - raw_valuation_pct) * 100.0, 1)
+        asset_type = "半导体全球供应链"
+        note = f"半导体海外供应链敞口汇率穿透 ({effective_fx:+.2f}%)，纠偏 {fx_drift_bps:+.1f} bps"
+    else:
+        corrected_pct = round(raw_valuation_pct, 2)
+        fx_drift_bps = 0.0
+        asset_type = "A股纯境内标的"
+        note = "纯人民币底层资产，无跨市场汇率滞后敞口"
+
+    return {
+        "fund_code": clean_code,
+        "fund_name": fn,
+        "raw_valuation_pct": round(raw_valuation_pct, 2),
+        "usdcnh_change_pct": round(fx_chg, 4),
+        "corrected_valuation_pct": corrected_pct,
+        "corrected_pct": corrected_pct,
+        "fx_drift_bps": fx_drift_bps,
+        "is_applicable": is_applicable,
+        "asset_type": asset_type,
+        "note": note
+    }
+
+
+class ArbitrageAdvisoryResult(list):
+    """兼具 List 与 Dict 属性的套利建议返回载体"""
+    def __init__(self, items: List[Dict[str, Any]]):
+        super().__init__(items)
+        self.proposals = items
+        self.advisories = items
+        self.has_arbitrage_opportunity = len(items) > 0
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, str):
+            if key in ("proposals", "advisories"):
+                return self.proposals
+            elif key == "has_arbitrage_opportunity":
+                return self.has_arbitrage_opportunity
+            raise KeyError(key)
+        return super().__getitem__(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key in ("proposals", "advisories"):
+            return self.proposals
+        elif key == "has_arbitrage_opportunity":
+            return self.has_arbitrage_opportunity
+        return default
+
+
+def generate_etf_feeder_arbitrage_advisory(
+    holdings: Optional[Any] = None,
+    candidate_sensors: Optional[List[Dict[str, Any]]] = None,
+    **kwargs
+) -> ArbitrageAdvisoryResult:
+    """
+    场内 ETF 与场外联接基金尾盘 14:45 折溢价一键套利置换建议引擎。
+    根据实时 IOPV 与二级市场市价折溢价率：
+    1. 溢价率 > +1.0%：提示场外申购低成本联接基金（或卖出场内溢价份额套利），避开场内买入溢价泡沫；
+    2. 折价率 < -1.0%：提示场内低吸折价份额，享折价收敛红利；
+    3. 输出标准化置换操作建议单与预期节省基点。
+    """
+    if holdings is None and "current_holdings" in kwargs:
+        holdings = kwargs["current_holdings"]
+    if candidate_sensors is None and "arbitrage_sensors" in kwargs:
+        candidate_sensors = kwargs["arbitrage_sensors"]
+
+    if candidate_sensors is None:
+        try:
+            from data_loader import DataLoader
+            candidate_sensors = DataLoader.fetch_etf_feeder_arbitrage_sensors(use_cache=True)
+        except Exception:
+            candidate_sensors = []
+
+    holding_codes = set()
+    if holdings:
+        if isinstance(holdings, dict):
+            holding_codes = {str(k).strip().zfill(6) for k in holdings.keys()}
+        elif isinstance(holdings, (list, tuple)):
+            for h in holdings:
+                c = str(getattr(h, "fund_code", None) or getattr(h, "code", "") or (h.get("code") if isinstance(h, dict) else "")).strip().zfill(6)
+                if c:
+                    holding_codes.add(c)
+
+    advisories = []
+    for sensor in candidate_sensors:
+        etf_c = sensor["etf_code"]
+        feeder_c = sensor["feeder_code"]
+        d_prem = float(sensor.get("discount_premium_pct", 0.0))
+        sig = sensor.get("arbitrage_signal", sensor.get("signal", "NEUTRAL"))
+
+        # 判断是否关联当前持仓
+        is_held = (etf_c in holding_codes) or (feeder_c in holding_codes)
+
+        if sig in ("PREMIUM_BUY_FEEDER", "BUY_FEEDER") or d_prem > 1.0:
+            gain_bps = round((d_prem - 0.15) * 100.0, 1)  # 扣减联接基金前端申购费 0.15%
+            advisories.append({
+                "sector_id": sensor.get("sector_id", ""),
+                "name": sensor.get("name", ""),
+                "arbitrage_type": "PREMIUM_BUY_FEEDER",
+                "badge": "🚨 场内高溢价 · 建议申购场外联接",
+                "etf_code": etf_c,
+                "etf_name": sensor.get("etf_name", ""),
+                "feeder_code": feeder_c,
+                "feeder_name": sensor.get("feeder_name", ""),
+                "discount_premium_pct": d_prem,
+                "price": sensor.get("price", sensor.get("etf_price")),
+                "iopv": sensor.get("iopv", sensor.get("etf_iopv")),
+                "expected_gain_bps": max(0.0, gain_bps),
+                "expected_spread_bps": round(abs(d_prem) * 100.0, 1),
+                "is_held": is_held,
+                "one_click_action": f"场外申购 {feeder_c} ({sensor.get('feeder_name')})",
+                "recommendation": f"场内 {sensor.get('etf_name')}({etf_c}) 溢价达 +{d_prem:.2f}%！尾盘 14:45 建议暂停二级市场追买，改在场外按 15:00 净值申购联接基金 ({feeder_c})，避免买入溢价泡沫，预期节省 {gain_bps:.1f} bps。"
+            })
+        elif sig in ("DISCOUNT_BUY_ETF", "BUY_ETF") or d_prem < -1.0:
+            gain_bps = round((abs(d_prem) - 0.10) * 100.0, 1)  # 扣减场内买入佣金/滑点 0.10%
+            advisories.append({
+                "sector_id": sensor.get("sector_id", ""),
+                "name": sensor.get("name", ""),
+                "arbitrage_type": "DISCOUNT_BUY_ETF",
+                "badge": "💎 场内深折价 · 建议二级市场低吸",
+                "etf_code": etf_c,
+                "etf_name": sensor.get("etf_name", ""),
+                "feeder_code": feeder_c,
+                "feeder_name": sensor.get("feeder_name", ""),
+                "discount_premium_pct": d_prem,
+                "price": sensor.get("price", sensor.get("etf_price")),
+                "iopv": sensor.get("iopv", sensor.get("etf_iopv")),
+                "expected_gain_bps": max(0.0, gain_bps),
+                "expected_spread_bps": round(abs(d_prem) * 100.0, 1),
+                "is_held": is_held,
+                "one_click_action": f"场内低吸 {etf_c} ({sensor.get('etf_name')})",
+                "recommendation": f"场内 {sensor.get('etf_name')}({etf_c}) 折价达 {d_prem:.2f}%！尾盘 14:45 建议优先在二级市场低吸场内折价份额，坐享折价向参考净值收敛的额外红利，预期增厚收益 {gain_bps:.1f} bps。"
+            })
+
+    return ArbitrageAdvisoryResult(advisories)
+
 
 class ActiveRiskSentry:
-    """主动风险预警哨：六维主动风险巡检与本地预警哨持久化"""
+    """主动风险预警哨：十维主动风险巡检与本地预警哨持久化"""
 
     def __init__(self, watchdog_path: Optional[str] = None):
         self.watchdog_path = watchdog_path or "data/portfolio_watchdog.json"
@@ -1673,10 +1864,28 @@ class ActiveRiskSentry:
             if cat:
                 sector_mv_map[cat] = sector_mv_map.get(cat, 0.0) + mv
 
+            comp = ""
+            if isinstance(h, dict):
+                comp = str(h.get("company", ""))
+            else:
+                comp = str(getattr(h, "company", ""))
+            if not comp:
+                try:
+                    from portfolio_manager import PortfolioManager
+                    comp = PortfolioManager.resolve_fund_meta(code).get("company", "")
+                except Exception:
+                    pass
+            if not comp:
+                for k_c in ["易方达", "华夏", "华安", "富国", "博时", "招商", "广发", "创金合信", "工银", "银华", "国泰", "鹏华", "汇添富", "南方"]:
+                    if k_c in name:
+                        comp = f"{k_c}基金"
+                        break
+
             item_dict = {
                 "code": code,
                 "name": name,
                 "share_class": share_class,
+                "company": comp,
                 "min_days": min_days,
                 "holding_days": holding_days,
                 "bias_20": bias_20,
@@ -2238,6 +2447,11 @@ class ActiveRiskSentry:
                 gszzl = float(q)
 
             if gszzl is not None:
+                # 接入 QDII 与跨市场资产实时离岸汇率 (USD/CNH) 波动穿透纠偏
+                fx_adj = calculate_fx_adjusted_intraday_valuation(f_code, f_name, raw_valuation_pct=gszzl)
+                if fx_adj.get("is_applicable"):
+                    gszzl = fx_adj.get("corrected_valuation_pct", gszzl)
+
                 delta_p = f_mv * (gszzl / 100.0)
                 intraday_pnl_sum += delta_p
                 if abs(gszzl) >= 2.0:
@@ -2262,6 +2476,97 @@ class ActiveRiskSentry:
                     "consumed_cushion_ratio": consumed_cushion_ratio,
                     "cushion_yuan": cushion_yuan,
                 })
+
+        # -------------------------------------------------------------
+        # 维度 10: 同类基金管理人集中度与高波科技类行业暴露上限监控
+        # -------------------------------------------------------------
+        if total_portfolio_mv > 0.0:
+            # 1. 单一基金管理人集中度监控 (上限 35.0%)
+            comp_mv_map: Dict[str, float] = {}
+            for it in normalized_items:
+                c_mv = float(it.get("market_value", 0.0))
+                c_comp = it.get("company", "") or "其他独立管理人"
+                comp_mv_map[c_comp] = comp_mv_map.get(c_comp, 0.0) + c_mv
+
+            for comp_name, comp_mv in sorted(comp_mv_map.items(), key=lambda x: x[1], reverse=True):
+                if comp_name in ("其他独立管理人", ""):
+                    continue
+                comp_ratio = comp_mv / total_portfolio_mv
+                if comp_ratio > 0.35:
+                    excess_comp_mv = (comp_ratio - 0.35) * total_portfolio_mv
+                    alerts.append({
+                        "level": "yellow",
+                        "dimension": "同类集中度与单基上限",
+                        "title": f"【管理人集中度超标】{comp_name} 旗下持仓占比 {comp_ratio*100:.1f}% 超过 35.0% 安全上限",
+                        "desc": f"组合在单一基金公司 ({comp_name}) 的合计敞口达到 ¥{comp_mv:,.2f} ({comp_ratio*100:.1f}%)，"
+                                f"超出 35.0% 集中度防线 (超配 ¥{excess_comp_mv:,.2f})！存在管理人投研风格飘移与单点依赖风险。",
+                        "action": f"建议启动管理人平衡平移：将超配的 ¥{excess_comp_mv:,.2f} 资金定向平移至非同系头部公募旗下优质标的，分散单一机构风险。",
+                        "action_type": "rebalance_manager_concentration",
+                        "company": comp_name,
+                        "company_mv": comp_mv,
+                        "ratio": comp_ratio,
+                        "excess_amount": excess_comp_mv,
+                    })
+
+            # 2. 高波科技类行业暴露上限监控 (上限 35.0%)
+            high_vol_tech_mv = 0.0
+            high_vol_tech_funds = []
+            for it in normalized_items:
+                c_code = it.get("code", "")
+                c_name = it.get("name", "")
+                c_mv = float(it.get("market_value", 0.0))
+                c_sec = it.get("sector") or it.get("category") or ""
+                is_tech = (
+                    any(k in c_name for k in ["芯片", "半导体", "集成电路", "科创", "恒生科技", "科技", "算力"])
+                    or c_code in ["008888", "013841", "011612", "011613", "013402", "588000", "512760", "513180"]
+                    or c_sec in ["semiconductor", "star_50", "hstech"]
+                )
+                if is_tech:
+                    high_vol_tech_mv += c_mv
+                    high_vol_tech_funds.append(f"{c_name}({c_code})")
+
+            if high_vol_tech_mv > 0.0:
+                tech_ratio = high_vol_tech_mv / total_portfolio_mv
+                if tech_ratio > 0.35:
+                    excess_tech_mv = (tech_ratio - 0.35) * total_portfolio_mv
+                    alerts.append({
+                        "level": "yellow",
+                        "dimension": "同类集中度与单基上限",
+                        "title": f"【高波科技行业暴露超标】高波科技赛道占比 {tech_ratio*100:.1f}% 超过 35.0% 上限",
+                        "desc": f"组合在高波科技成长赛道 (含 {', '.join(high_vol_tech_funds[:3])}) 的合计敞口达到 ¥{high_vol_tech_mv:,.2f} ({tech_ratio*100:.1f}%)，"
+                                f"超出 35.0% 行业暴露上限 (超配 ¥{excess_tech_mv:,.2f})！科技板块高 Beta 属性在行情震荡回踩时将加剧组合波动。",
+                        "action": f"建议启动行业平衡平移：将超配的 ¥{excess_tech_mv:,.2f} 科技敞口平移至低波红利 (005561) 或纯债固收 (002351) 压舱石，实现平滑降波。",
+                        "action_type": "rebalance_sector_exposure",
+                        "sector": "高波科技成长",
+                        "sector_mv": high_vol_tech_mv,
+                        "ratio": tech_ratio,
+                        "excess_amount": excess_tech_mv,
+                    })
+
+            # 3. 尾盘 14:45 折溢价套利机会巡检
+            try:
+                from data_loader import DataLoader
+                arb_sensors = DataLoader.fetch_etf_feeder_arbitrage_sensors(use_cache=True)
+                holding_codes_set = {it.get("code") for it in normalized_items if it.get("code")}
+                for arb in arb_sensors:
+                    etf_c = arb["etf_code"]
+                    feeder_c = arb["feeder_code"]
+                    d_prem = arb["discount_premium_pct"]
+                    if (etf_c in holding_codes_set or feeder_c in holding_codes_set) and abs(d_prem) >= 1.0:
+                        alerts.append({
+                            "level": "yellow",
+                            "dimension": "尾盘折溢价套利",
+                            "title": f"【尾盘套利机会】{arb['name']} 场内折溢价率达 {d_prem:+.2f}%",
+                            "desc": f"标的 {arb['etf_name']}({etf_c}) 与场外联接 ({feeder_c}) 出现显著价差 ({d_prem:+.2f}%)，触发 1.0% 套利阈值！",
+                            "action": arb["suggestion"],
+                            "action_type": "etf_arbitrage_switch",
+                            "etf_code": etf_c,
+                            "feeder_code": feeder_c,
+                            "discount_premium_pct": d_prem,
+                        })
+            except Exception:
+                pass
+
 
         has_danger = any(a["level"] == "red" for a in alerts)
         has_warning = any(a["level"] == "yellow" for a in alerts)

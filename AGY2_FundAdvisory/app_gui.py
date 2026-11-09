@@ -124,7 +124,9 @@ from advisory_engine import (
     OpportunityRadarEngine,
     ActiveRiskSentry,
     SmartExecutionDCAEngine,
-    RADAR_SECTOR_CATALOG
+    RADAR_SECTOR_CATALOG,
+    calculate_fx_adjusted_intraday_valuation,
+    generate_etf_feeder_arbitrage_advisory
 )
 
 _MODULE_MAP = {
@@ -2894,6 +2896,7 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                 cgb_10y_str = macro_ind.get("cgb_10y_str", "1.62%")
                 gold_summary = macro_ind.get("gold_summary", "黄金ETF 8.25元")
                 nasdaq_summary = macro_ind.get("nasdaq_summary", "隔夜纳指 +1.09%")
+                usdcnh_summary = macro_ind.get("usdcnh_summary", "离岸人民币 7.2450 (+0.00%)")
                 sent_color = "var(--color-up)" if sent_score >= 60 else ("var(--color-down)" if sent_score <= 40 else "var(--accent-primary)")
 
                 pulse_card_html = f"""
@@ -2909,7 +2912,7 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                     <div style="font-size: 11px; color: var(--text-primary); line-height: 1.4; margin-bottom: 4px;">
                         {pulse_brief}<br>
                         ⚡ 实时快讯: <span style="color: var(--accent-primary);">{latest_flash}</span><br>
-                        🔥 舆情情绪温度: <span style="color: {sent_color}; font-weight: 700;">{sent_score:.0f}分 ({sent_label})</span> ｜ 🌐 跨市场联动: 10Y国债 {cgb_10y_str} ｜ {gold_summary} ｜ {nasdaq_summary}
+                        🔥 舆情情绪温度: <span style="color: {sent_color}; font-weight: 700;">{sent_score:.0f}分 ({sent_label})</span> ｜ 🌐 跨市场联动: 10Y国债 {cgb_10y_str} ｜ 💱 {usdcnh_summary} ｜ {gold_summary} ｜ {nasdaq_summary}
                     </div>
                     {ruler_bar_html}
                 </div>
@@ -3006,9 +3009,32 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         df_thermometer = pd.DataFrame(df_rows)
                         st.dataframe(df_thermometer, use_container_width=True, hide_index=True)
 
+                # G13: 场内 ETF 与场外联接基金 14:45 尾盘折溢价套利感知
+                with st.expander("⚡ 场内ETF与场外联接 14:45 尾盘折溢价套利感知", expanded=False):
+                    st.caption("🧭 毫秒级监测场内核心 ETF（黄金/沪深300/科创50/芯片/标普500/恒生科技）市价与实时 IOPV。溢价 > +1.0% 提示场外低成本申购，折价 < -1.0% 提示场内折价低吸。")
+                    try:
+                        arb_sensors = DataLoader.fetch_etf_feeder_arbitrage_sensors(use_cache=True)
+                        arb_rows = []
+                        for item in arb_sensors:
+                            sig = item.get("signal", "NEUTRAL")
+                            sig_badge = "🚨 溢价申购联接" if sig == "PREMIUM_BUY_FEEDER" else ("💎 折价场内低吸" if sig == "DISCOUNT_BUY_ETF" else "⚪ 处于平价区间")
+                            arb_rows.append({
+                                "对冲套利对": f"{item.get('name', '')} ({item.get('etf_code')}/{item.get('feeder_code')})",
+                                "场内市价": f"{item.get('etf_price', 0.0):.4f}",
+                                "参考净值(IOPV)": f"{item.get('etf_iopv', 0.0):.4f}",
+                                "折溢价率": f"{item.get('discount_premium_pct', 0.0):+.2f}%",
+                                "套利信号": sig_badge,
+                                "实操建议": item.get("action_advice", "暂无"),
+                            })
+                        if arb_rows:
+                            df_arb = pd.DataFrame(arb_rows)
+                            st.dataframe(df_arb, use_container_width=True, hide_index=True)
+                    except Exception as e_arb:
+                        st.caption(f"（折溢价套利感知初始化: {e_arb}）")
+
             # --- 右翼：主动风险哨 ---
             with col_sentry:
-                safe_markdown_html("<div style='font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;'>🚨 主动风险预警哨 · 六维主动巡检</div>")
+                safe_markdown_html("<div style='font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;'>🚨 主动风险预警哨 · 十维主动巡检</div>")
                 report = sentry_rep
 
                 with st.container():  # height=380 契约注释与自适应高度容器，彻底消除双重垂直滚动条截断
@@ -3108,6 +3134,12 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                                 btn_lbl = f"💼 查看【{fcode}】反弹减亏诊断"
                             elif act_type == "rebalance_sector":
                                 btn_lbl = "⚖️ 平衡赛道敞口"
+                            elif act_type == "rebalance_manager_concentration":
+                                btn_lbl = "⚖️ 平衡管理人集中度"
+                            elif act_type == "rebalance_sector_exposure":
+                                btn_lbl = "⚖️ 压降高波科技敞口"
+                            elif act_type == "etf_arbitrage_switch":
+                                btn_lbl = "⚡ 一键折溢价套利"
                             elif act_type == "replace_fund":
                                 btn_lbl = f"🚨 置换【{fcode}】为标杆公募"
                             elif act_type == "defense_mode":
@@ -3126,11 +3158,13 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                                             st.session_state.tab2_locked_funds = []
                                         if fcode and fcode not in st.session_state.tab2_locked_funds:
                                             st.session_state.tab2_locked_funds.append(fcode)
-                                    elif act_type in ["take_profit", "deep_loss_rebalance", "rebalance_sector"]:
+                                    elif act_type in ["take_profit", "deep_loss_rebalance", "rebalance_sector", "rebalance_manager_concentration", "rebalance_sector_exposure", "etf_arbitrage_switch"]:
                                         st.session_state.tab2_pending_take_profit = {
                                             "fund_code": fcode,
-                                            "ratio": float(alert.get("take_profit_ratio", 0.40)),
+                                            "ratio": float(alert.get("take_profit_ratio", 0.30)),
                                         }
+                                        if act_type == "etf_arbitrage_switch":
+                                            st.session_state.tab2_arb_switch = alert.get("arbitrage_info", {})
                                     elif act_type in ["switch_a_class", "replace_fund"]:
                                         st.session_state.tab2_c_replace = fcode
                                     elif act_type in ["defense_mode", "offense_mode"]:
@@ -5574,6 +5608,31 @@ with tab_holdings_and_rebalance:
                         else:
                             st.caption("💡 针对场外公募基金已实装 14:30 尾盘净值锁定与跨日分批执行优化模型，规避早盘盲买冲高回落未知净值偏差风险。")
 
+                    # G13: 同基金公司内部免赎极速转换方案与摩擦节省精算
+                    try:
+                        same_co_plan = pm.optimize_same_company_conversions(rebalance_plan=ai_orders_res.get("pm_plan"))
+                        if same_co_plan.get("has_conversions"):
+                            safe_markdown_html(f"""
+                            <div class="decision-card" style="border-left: 3px solid var(--accent-primary); padding: 10px 14px; margin-bottom: 12px; background: var(--bg-surface);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                    <div style="font-size: 13px; font-weight: 700; color: var(--accent-primary);">
+                                        🔄 同基金公司内部免赎极速转换方案 (0在途 · 摩擦优化)
+                                    </div>
+                                    <span style="font-size: 11.5px; color: var(--color-up); font-weight: 600;">
+                                        ⚡ 节省资金成本与费率 ¥{same_co_plan['total_saved_yuan']:,.2f} ({same_co_plan['avg_saved_bps']:.1f} bps)
+                                    </span>
+                                </div>
+                                <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 6px;">
+                                    {same_co_plan['summary']}
+                                </div>
+                                <div style="font-size: 11px; color: var(--text-primary); background: var(--bg-card); padding: 6px 10px; border-radius: 4px;">
+                                    ⏱️ 转换免除传统【赎回➔现金到账(3~5天)➔重新申购】在途资金占用风险与再申购费，精算年化 2.0% 资金成本节省。
+                                </div>
+                            </div>
+                            """)
+                    except Exception as e_same_co:
+                        pass
+
                     rebal_order_map = {str(v.get("fund_code")): v for v in vwap_rebal_orders}
                     rows_display = []
                     for it in items:
@@ -5610,8 +5669,16 @@ with tab_holdings_and_rebalance:
                             op_action = "✅ 维持持有"
                             op_point = "仓位均衡·在容差内"
 
-                        # 附加交割清算与基金属性标签
-                        if pm.is_qdii_fund(f_code, f_name):
+                        # 附加交割清算与基金属性标签及跨币种实时离岸汇率纠偏
+                        fx_adj = calculate_fx_adjusted_intraday_valuation(f_code, f_name, raw_valuation_pct=rt_gszzl)
+                        if fx_adj.get("is_applicable"):
+                            corr_val = fx_adj.get("corrected_pct", rt_gszzl)
+                            drift = fx_adj.get("fx_drift_bps", 0.0)
+                            if abs(drift) >= 0.5:
+                                op_point += f"·💱汇率纠偏至{corr_val:+.2f}%({drift:+.1f}bp)"
+                            elif pm.is_qdii_fund(f_code, f_name):
+                                op_point += "·跨时区T+2确认"
+                        elif pm.is_qdii_fund(f_code, f_name):
                             op_point += "·跨时区T+2确认"
                         elif any(k in pm.classify_fund_asset_class(f_code, f_name) for k in ["纯债", "固收", "债券"]):
                             op_point += "·票息久期底仓"

@@ -3776,6 +3776,21 @@ class PortfolioManager:
         except Exception:
             pass
 
+        # 补充持仓或基金名称中的基金公司智能识别 (G13 同公司转换闭环)
+        if hasattr(self, "holdings") and code in self.holdings:
+            h = self.holdings[code]
+            if getattr(h, "company", None):
+                m["company"] = h.company
+            if getattr(h, "fund_name", None) and (not m.get("fund_name") or "公募基金_" in m.get("fund_name", "")):
+                m["fund_name"] = h.fund_name
+
+        if not m.get("company") or m.get("company") == "外部基金公司":
+            fn = m.get("fund_name", "")
+            for c_prefix in ["易方达", "华夏", "广发", "华安", "富国", "博时", "招商", "国泰", "景顺长城", "汇添富", "嘉实", "中欧", "兴全", "创金合信", "工银瑞信", "南方", "天弘", "交银施罗德"]:
+                if c_prefix in fn:
+                    m["company"] = f"{c_prefix}基金"
+                    break
+
         return m
 
     def takeover_mode_a(
@@ -6599,6 +6614,13 @@ class PortfolioManager:
                     should_intercept = util["should_intercept"]
                     interception_badge = util["interception_badge"]
 
+                    # 同公司转换免除 3~5 天在途风险与再申购费精算 (G13)
+                    saved_transit_days = 3.5
+                    saved_repurchase_fee = round(switch_amount * 0.0012, 2)
+                    saved_capital_cost = round(switch_amount * 0.02 * (saved_transit_days / 365.0), 2)
+                    total_saved_yuan = round(saved_repurchase_fee + saved_capital_cost, 2)
+                    saved_bps = round(total_saved_yuan / switch_amount * 10000.0, 2) if switch_amount > 0 else 0.0
+
                     executable_routes.append({
                         "route_priority": "PRIORITY_1_SWITCH",
                         "title": f"【优先级 1：同公司基金转换】{s['fund_name']} ➡️ {b['fund_name']}" if not should_intercept else f"【优先级 1：同公司基金转换】{s['fund_name']} ➡️ {b['fund_name']} [{interception_badge}]",
@@ -6606,11 +6628,18 @@ class PortfolioManager:
                         "from_name": s["fund_name"],
                         "to_code": b_code,
                         "to_name": b["fund_name"],
+                        "company": s_comp,
                         "switch_shares": switch_shares,
                         "switch_amount": switch_amount,
                         "advantage": "享受 T+1 同步转换确认，申购费补差减免，资金 0 在途时滞！" if not should_intercept else interception_badge,
                         "est_fee": round(switch_amount * 0.0015, 2),
                         "confirm_cycle": "T+1",
+                        "saved_transit_days": saved_transit_days,
+                        "saved_repurchase_fee": saved_repurchase_fee,
+                        "saved_capital_cost": saved_capital_cost,
+                        "total_saved_yuan": total_saved_yuan,
+                        "saved_bps": saved_bps,
+                        "friction_saving_summary": f"免除 3~5 天在途占用与再申购费，精算节省 ¥{total_saved_yuan:,.2f} ({saved_bps:.1f} bps)",
                         "net_utility": util,
                         "delta_u": util["delta_u"],
                         "should_intercept": should_intercept,
@@ -6757,6 +6786,79 @@ class PortfolioManager:
             "intercepted_routes": [r for r in executable_routes if r.get("should_intercept", False)],
             "available_cash": self.available_cash,
             "in_transit_cash": self.in_transit_cash
+        }
+
+    def optimize_same_company_conversions(
+        self,
+        target_weights: Optional[Dict[str, float]] = None,
+        rebalance_plan: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        同基金公司内部免赎极速转换优化器与摩擦节省精算：
+        对于处于相同基金公司（如易方达、华夏、广发、华安、富国、博时、招商、创金合信等）旗下的不同产品，
+        优先生成同公司内部基金极速转换建议：
+        1. 免除常规赎回转申购长达 3 至 5 个交易日（标准取 3.5 天）的在途资金占用风险与再申购费（按 0.12% 测算）；
+        2. 基于 2.0% 年化无风险利率/货币基金收益率精算在途资金闲置占用机会成本；
+        3. 输出分厘平账的转换节省账单 (¥ 与 bps) 与一键执行路由。
+        """
+        if rebalance_plan is None:
+            rebalance_plan = self.generate_rebalance_plan(target_weights=target_weights or {}, min_buffer_pct=0.0)
+
+        routes = rebalance_plan.get("routes", [])
+        switch_routes = [r for r in routes if r.get("route_priority") == "PRIORITY_1_SWITCH"]
+
+        conversions = []
+        total_switch_amt = 0.0
+        total_saved_yuan = 0.0
+
+        for r in switch_routes:
+            s_amt = float(r.get("switch_amount", 0.0))
+            if s_amt <= 0.0:
+                continue
+            saved_days = float(r.get("saved_transit_days", 3.5))
+            saved_fee = float(r.get("saved_repurchase_fee", round(s_amt * 0.0012, 2)))
+            saved_cap = float(r.get("saved_capital_cost", round(s_amt * 0.02 * (saved_days / 365.0), 2)))
+            tot_saved = float(r.get("total_saved_yuan", round(saved_fee + saved_cap, 2)))
+            saved_bps = float(r.get("saved_bps", round(tot_saved / s_amt * 10000.0, 2))) if s_amt > 0 else 0.0
+
+            total_switch_amt += s_amt
+            total_saved_yuan += tot_saved
+
+            conversions.append({
+                "from_code": r.get("from_code"),
+                "from_name": r.get("from_name"),
+                "to_code": r.get("to_code"),
+                "to_name": r.get("to_name"),
+                "company": r.get("company", ""),
+                "switch_shares": r.get("switch_shares", 0.0),
+                "switch_amount": s_amt,
+                "saved_transit_days": saved_days,
+                "saved_repurchase_fee": saved_fee,
+                "saved_capital_cost": saved_cap,
+                "total_saved_yuan": tot_saved,
+                "saved_bps": saved_bps,
+                "confirm_cycle": "T+1",
+                "execution_route": "同公司内部极速转换通道 (T+1确认，0在途沉淀，免再申购费)",
+                "anti_stall_advantage": f"规避常规赎回转申购长达 {saved_days:.0f} 个交易日在途资金踩踏与反弹踏空风险",
+                "title": r.get("title", ""),
+            })
+
+        avg_bps = round(total_saved_yuan / total_switch_amt * 10000.0, 2) if total_switch_amt > 0 else 0.0
+
+        summary = (
+            f"共甄选 {len(conversions)} 笔同公司免赎极速转换方案，合计转换 ¥{total_switch_amt:,.2f}，"
+            f"资金 0 在途时滞，精算节省摩擦与资金占用 ¥{total_saved_yuan:,.2f} ({avg_bps:.1f} bps)！"
+            if conversions else "当前组合未触发同公司转换匹配项"
+        )
+
+        return {
+            "has_conversions": len(conversions) > 0,
+            "conversions": conversions,
+            "total_switch_amount": round(total_switch_amt, 2),
+            "total_saved_yuan": round(total_saved_yuan, 2),
+            "avg_saved_bps": avg_bps,
+            "saved_transit_days": 3.5,
+            "summary": summary
         }
 
 
