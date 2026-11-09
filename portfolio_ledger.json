@@ -6,16 +6,16 @@
   "available_cash": 5000.0,
   "in_transit_cash": 0.0,
   "reserved_batch_cash": 0.0,
-  "total_market_value": 94257.0,
-  "total_equity": 99257.0,
+  "total_market_value": 104555.5,
+  "total_equity": 109555.5,
   "peak_equity": 173137.5,
   "max_drawdown_pct": 42.67,
   "benchmark_code": "000300.SH",
   "benchmark_baseline_nav": 1.0,
   "benchmark_current_nav": 1.0,
-  "portfolio_return_pct": -0.74,
+  "portfolio_return_pct": 9.56,
   "benchmark_return_pct": 0.0,
-  "alpha_return_pct": -0.74,
+  "alpha_return_pct": 9.56,
   "holdings": [
     {
       "fund_code": "005561",
@@ -23,11 +23,11 @@
       "share_class": "A",
       "shares": 10000.0,
       "cost_price": 1.5,
-      "current_nav": 1.5,
-      "market_value": 15000.0,
+      "current_nav": 2.236,
+      "market_value": 22360.0,
       "cost_basis": 15000.0,
-      "floating_pnl": 0.0,
-      "floating_pnl_pct": 0.0,
+      "floating_pnl": 7360.0,
+      "floating_pnl_pct": 49.07,
       "first_buy_date": "2026-09-22",
       "dividend_method": "cash",
       "batches": [
@@ -37,9 +37,9 @@
           "shares": 10000.0,
           "cost_nav": 1.5,
           "fee": 0.0,
-          "holding_days": 0,
+          "holding_days": 1,
           "safety_lock": true,
-          "notes": "手动新增持仓"
+          "notes": "代码智能联动与市值反算入库"
         }
       ],
       "company": "创金合信基金",
@@ -54,11 +54,11 @@
       "share_class": "A",
       "shares": 20000.0,
       "cost_price": 1.0,
-      "current_nav": 0.961,
-      "market_value": 19220.0,
+      "current_nav": 0.963,
+      "market_value": 19260.0,
       "cost_basis": 20000.0,
-      "floating_pnl": -780.0,
-      "floating_pnl_pct": -3.9,
+      "floating_pnl": -740.0,
+      "floating_pnl_pct": -3.7,
       "first_buy_date": "2026-09-07",
       "dividend_method": "cash",
       "batches": [
@@ -68,7 +68,7 @@
           "shares": 20000.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 62,
+          "holding_days": 63,
           "safety_lock": false,
           "notes": "代码智能联动与市值反算入库"
         }
@@ -85,11 +85,11 @@
       "share_class": "A",
       "shares": 5000.0,
       "cost_price": 1.0,
-      "current_nav": 1.0,
-      "market_value": 5000.0,
+      "current_nav": 1.6044,
+      "market_value": 8022.0,
       "cost_basis": 5000.0,
-      "floating_pnl": 0.0,
-      "floating_pnl_pct": 0.0,
+      "floating_pnl": 3022.0,
+      "floating_pnl_pct": 60.44,
       "first_buy_date": "2026-08-08",
       "dividend_method": "cash",
       "batches": [
@@ -99,9 +99,9 @@
           "shares": 5000.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 0,
+          "holding_days": 1,
           "safety_lock": true,
-          "notes": "手动新增持仓"
+          "notes": "代码智能联动与市值反算入库"
         }
       ],
       "company": "易方达基金",
@@ -116,11 +116,11 @@
       "share_class": "A",
       "shares": 10000.0,
       "cost_price": 1.0,
-      "current_nav": 3.0545,
-      "market_value": 30545.0,
+      "current_nav": 3.0022,
+      "market_value": 30022.0,
       "cost_basis": 10000.0,
-      "floating_pnl": 20545.0,
-      "floating_pnl_pct": 205.45,
+      "floating_pnl": 20022.0,
+      "floating_pnl_pct": 200.22,
       "first_buy_date": "2026-09-07",
       "dividend_method": "cash",
       "batches": [
@@ -130,7 +130,7 @@
           "shares": 10000.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 62,
+          "holding_days": 63,
           "safety_lock": false,
           "notes": "代码智能联动与市值反算入库"
         }
@@ -143,15 +143,15 @@
     },
     {
       "fund_code": "017436",
-      "fund_name": "华安纳斯达克100ETF联接A",
+      "fund_name": "华宝纳斯达克精选股票发起式(QDII)A",
       "share_class": "A",
       "shares": 10000.0,
       "cost_price": 1.0,
-      "current_nav": 1.9343,
-      "market_value": 19343.0,
+      "current_nav": 1.9864,
+      "market_value": 19864.0,
       "cost_basis": 10000.0,
-      "floating_pnl": 9343.0,
-      "floating_pnl_pct": 93.43,
+      "floating_pnl": 9864.0,
+      "floating_pnl_pct": 98.64,
       "first_buy_date": "2026-09-22",
       "dividend_method": "cash",
       "batches": [
@@ -161,7 +161,7 @@
           "shares": 10000.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 47,
+          "holding_days": 48,
           "safety_lock": false,
           "notes": "代码智能联动与市值反算入库"
         }
@@ -178,11 +178,11 @@
       "share_class": "C",
       "shares": 5000.0,
       "cost_price": 1.0,
-      "current_nav": 1.0298,
-      "market_value": 5149.0,
+      "current_nav": 1.0055,
+      "market_value": 5027.5,
       "cost_basis": 5000.0,
-      "floating_pnl": 149.0,
-      "floating_pnl_pct": 2.98,
+      "floating_pnl": 27.5,
+      "floating_pnl_pct": 0.55,
       "first_buy_date": "2026-10-02",
       "dividend_method": "cash",
       "batches": [
@@ -192,7 +192,7 @@
           "shares": 5000.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 37,
+          "holding_days": 38,
           "safety_lock": false,
           "notes": "代码智能联动与市值反算入库"
         }
@@ -218,6 +218,12 @@
       "total_equity": 99257.0,
       "account_nav": 0.9926,
       "benchmark_nav": 1.0
+    },
+    {
+      "date": "2026-11-09",
+      "total_equity": 109555.5,
+      "account_nav": 1.0956,
+      "benchmark_nav": 1.0
     }
   ],
   "initial_baseline_snapshot": {
@@ -241,5 +247,5 @@
     "baseline_equity": 171729.5,
     "date": "2026-11-06"
   },
-  "updated_at": "2026-11-08 08:14:28"
+  "updated_at": "2026-11-09 22:17:37"
 }
