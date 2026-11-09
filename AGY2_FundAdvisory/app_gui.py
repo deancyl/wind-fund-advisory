@@ -10,6 +10,7 @@ AGY2 A股基金实盘组合接管与智能投顾图形化工作台 (app_gui.py)
 
 import sys
 import time
+import hashlib
 from pathlib import Path
 from datetime import datetime, date, timedelta
 import pandas as pd
@@ -647,16 +648,15 @@ safe_markdown_html(f"""
         padding: 6px 10px 6px 10px !important;
         color: var(--text-primary) !important;
         box-shadow: var(--shadow-card) !important;
-        height: 82px !important;
-        min-height: 82px !important;
-        max-height: 82px !important;
+        min-height: 88px !important;
+        height: auto !important;
         margin-bottom: 6px !important;
         display: flex;
         flex-direction: column;
         justify-content: flex-start;
         gap: 2px;
         box-sizing: border-box !important;
-        overflow: hidden !important;
+        overflow: visible !important;
         transition: all 0.2s ease;
     }}
     .main-metric-card:hover {{
@@ -1984,10 +1984,10 @@ def apply_theme_to_plotly_figure(fig: go.Figure, theme_mode: Optional[str] = Non
         ),
         legend=dict(
             font=dict(color=th["text_primary"]),
-            bgcolor=th["bg_surface"],
-            bordercolor=th["border_subtle"]
+            bgcolor="rgba(0,0,0,0)",
+            bordercolor="rgba(0,0,0,0)"
         ),
-        margin=dict(l=10, r=10, t=30, b=10)
+        margin=dict(l=10, r=10, t=45, b=10)
     )
     return fig
 
@@ -3196,15 +3196,26 @@ with tab_zero_start:
         cur_tier_meta = RISK_TIERS_CONFIG.get(active_tier, RISK_TIERS_CONFIG["C3"])
         # 初始化状态机
         if "tab1_step_reached" not in st.session_state:
-            st.session_state.tab1_step_reached = 1
+            st.session_state.tab1_step_reached = 3
         if "tab1_trigger_sim" not in st.session_state:
             st.session_state.tab1_trigger_sim = False
         if "tab1_trigger_s3" not in st.session_state:
             st.session_state.tab1_trigger_s3 = False
         if "tab1_last_calc_params" not in st.session_state:
             st.session_state.tab1_last_calc_params = None
-        if "tab1_sim_cache" not in st.session_state:
-            st.session_state.tab1_sim_cache = None
+        if "tab1_sim_cache" not in st.session_state or st.session_state.tab1_sim_cache is None:
+            _def_tab1_f = Path(WORKSPACE_ROOT) / "data" / "cache" / "default_tab1_cache.pkl"
+            if _def_tab1_f.exists():
+                try:
+                    import pickle
+                    with open(_def_tab1_f, "rb") as _f_tab1:
+                        _def_tab1_data = pickle.load(_f_tab1)
+                        st.session_state.tab1_sim_cache = _def_tab1_data.get("sim_cache")
+                        st.session_state.tab1_step3_cache = _def_tab1_data.get("step3_cache")
+                except Exception:
+                    st.session_state.tab1_sim_cache = None
+            else:
+                st.session_state.tab1_sim_cache = None
         if "tab1_step3_cache" not in st.session_state:
             st.session_state.tab1_step3_cache = None
         if "target_return_val" not in st.session_state:
@@ -3725,7 +3736,7 @@ with tab_zero_start:
                     "排雷与拥挤度", "实操分红与限购指引"
                 ]
                 df_bp = pd.DataFrame(bp_rows)[cols_9]
-                acc_s3.complete("实盘建仓单与限购拆单小抄已就绪")
+                if acc_s3: acc_s3.complete("实盘建仓单与限购拆单小抄已就绪")
 
                 st.session_state.tab1_step3_cache = {
                     "blueprint": blueprint,
@@ -4000,7 +4011,7 @@ with tab_zero_start:
                         st.rerun()
                 with col_ov_goto:
                     if st.button("👀 前往持仓调仓", type="primary", use_container_width=True, key="btn_goto_t2_after_bp"):
-                        st.session_state["tab2_view_mode"] = "🎯 持仓诊断与智能调仓 (主流程)"
+                        st.session_state["tab2_view_mode"] = "💼 持仓诊断与智能调仓 (主流程)"
                         st.session_state["pending_cross_tab_jump"] = {
                             "tab_index": 1,
                             "tab_name": "💼 持仓调仓",
@@ -5261,21 +5272,11 @@ with tab_holdings_and_rebalance:
             # ── 模块 3：调仓裁决与执行单合流（单一控制栏 + 4格摘要条 + 执行建议单） ──
             # tab2_rebal_buf_slider_bot
             safe_markdown_html("<div style='height: 10px;'></div>")
-            col_t2_btn1, col_t2_btn2, col_t2_slider = st.columns([4.2, 2.6, 3.2])
+            col_t2_btn1, col_t2_slider = st.columns([6.8, 3.2])
             with col_t2_btn1:
-                if st.button("🔍 诊断并生成调仓方案", type="primary", use_container_width=True, key="btn_tab2_diagnose"):
-                    st.session_state["tab2_view_mode"] = "🎯 持仓诊断与智能调仓 (主流程)"
+                if st.button("🔍 诊断持仓并生成今日调仓方案", type="primary", use_container_width=True, key="btn_tab2_diagnose"):
+                    st.session_state["tab2_view_mode"] = "💼 持仓诊断与智能调仓 (主流程)"
                     # 💡 自动拦截并同步表格未保存修改，杜绝丢数
-                    if "edited_table" in locals() and edited_table is not None:
-                        _commit_edited_holdings_table(edited_table, pm)
-                    st.session_state.tab2_diagnosed = True
-                    st.session_state.tab2_rebalanced = True
-                    st.session_state.tab2_trigger_diagnose = True
-                    st.session_state.tab2_trigger_rebalance = True
-                    st.rerun()
-            with col_t2_btn2:
-                if st.button("🚀 一键全速执行", type="secondary", use_container_width=True, key="btn_tab2_all"):
-                    st.session_state["tab2_view_mode"] = "🎯 持仓诊断与智能调仓 (主流程)"
                     if "edited_table" in locals() and edited_table is not None:
                         _commit_edited_holdings_table(edited_table, pm)
                     st.session_state.tab2_diagnosed = True
@@ -7478,7 +7479,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
 
     # Sub-tab 2: 14 大赛道量化温度计总表
     with box_tab2:
-        with st.expander("📊 查看全市场 14 大赛道量化温度计总表 (向下展开)", expanded=True):
+        if True:
             st.caption("📈 14 大赛道真实估值分位、趋势信噪比、20日乖离率与拥挤度全息总表（顺应阅读流向下展开，随时可合上）")
             radar_cache_file = Path(WORKSPACE_ROOT) / "data" / "cache" / "radar_sectors_cache.json"
             sectors_data = []
@@ -7520,7 +7521,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
 
     # Sub-tab 3: 场内ETF与场外联接 14:45 尾盘折溢价套利感知 + 核心场内 ETF 溢价预警哨
     with box_tab3:
-        with st.expander("⚡ 场内ETF与场外联接 14:45 尾盘折溢价套利感知", expanded=True):
+        if True:
             st.caption("🧭 毫秒级监测场内核心 ETF（黄金/沪深300/科创50/芯片/标普500/恒生科技）市价与实时 IOPV。溢价 > +1.0% 提示场外低成本申购，折价 < -1.0% 提示场内折价低吸。")
             try:
                 arb_sensors = DataLoader.fetch_etf_feeder_arbitrage_sensors(use_cache=True)
@@ -7565,7 +7566,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
 
     # Sub-tab 4: 50ETF与300ETF认沽期权隐含波动率防暴跌哨
     with box_tab4:
-        with st.expander("🛡️ 50ETF与300ETF认沽期权隐含波动率防暴跌哨", expanded=True):
+        if True:
             st.caption("🔍 实时监测 50ETF 与 300ETF 近月平值认沽期权 IV 与 20日 HV 偏离度。当 IV 相对 HV 突升超 30% 且跌破 MA20 时输出市场剧烈防暴跌预警，并建议在组合中增加纯债防护仓位。")
             try:
                 if "opt_sensors_gui_cache" not in st.session_state:
@@ -7590,7 +7591,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
 
     # Sub-tab 5: 跨境QDII溢价与外汇期货锁汇成本套利精算
     with box_tab5:
-        with st.expander("🌐 跨境QDII溢价与外汇期货锁汇成本套利精算", expanded=True):
+        if True:
             st.caption("结合离岸人民币 (USD/CNH) 远期掉期点 (Forward Swap Points) 测算锁汇避险成本，评估跨市场汇率锁汇套利可行性与真实到手收益增厚。")
             try:
                 from portfolio_manager import PortfolioManager

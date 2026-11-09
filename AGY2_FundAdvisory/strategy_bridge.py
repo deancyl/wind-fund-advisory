@@ -4649,11 +4649,10 @@ class StrategyBridge:
             base_s = df_mat[idx_col].astype(float).values
             base_ret = np.zeros(n_days)
             base_ret[1:] = base_s[1:] / np.maximum(base_s[:-1], 1e-8) - 1.0
-            # 注入真实年化超额 Alpha 与极微小独立特质波动（确保相关性矩阵非奇异，支持 HRP 聚类）
-            daily_alpha = float(item["alpha"]) / 250.0
-            idio_noise = np_rng.normal(0.0, 0.0008, size=n_days)
+            # 严格基于底层基准序列计算，不添加人为合成 Alpha，仅保留极微小特质波动确保协方差矩阵非奇异以支持 HRP 聚类
+            idio_noise = np_rng.normal(0.0, 0.0001, size=n_days)
             idio_noise[0] = 0.0
-            f_ret = base_ret + daily_alpha + idio_noise
+            f_ret = base_ret + idio_noise
             f_nav = np.cumprod(1.0 + f_ret)
             nav_dict[fcode] = f_nav
 

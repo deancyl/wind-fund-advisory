@@ -3661,8 +3661,13 @@ class PortfolioManager:
             today_date = datetime.now().date()
 
         for o in self.pending_orders:
-            if o.status == "PENDING" and o.action == "SELL":
-                in_transit += (o.shares * o.est_nav - o.est_fee)
+            if o.status == "PENDING":
+                if o.action == "SELL":
+                    in_transit += max(0.0, o.shares * o.est_nav - o.est_fee)
+                elif o.action == "BUY":
+                    in_transit += max(0.0, float(o.amount))
+                elif o.action == "SWITCH":
+                    in_transit += max(0.0, float(o.amount) - float(o.est_fee))
 
         self.in_transit_cash = round(max(0.0, in_transit), 2)
 
