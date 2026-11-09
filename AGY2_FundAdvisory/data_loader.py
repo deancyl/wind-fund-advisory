@@ -2866,6 +2866,23 @@ def fetch_options_implied_volatility_sensors(
         iv_val = float(tgt["fallback_iv"])
         hv_val = float(tgt["fallback_hv"])
 
+        # 优先从本地净值与指数湖仓实时穿透单基真实 20 日历史波动率 (HV) 与均线
+        try:
+            from advisory_engine import SmartExecutionDCAEngine
+            f_metrics = SmartExecutionDCAEngine.get_fund_real_volatility_and_bias(code, tgt["underlying_name"])
+            if f_metrics and f_metrics.get("volatility", 0) > 0:
+                hv_val = round(float(f_metrics["volatility"]) * 100.0, 2)
+                b20 = float(f_metrics.get("bias_20", 0.0))
+                if abs(1.0 + b20 / 100.0) > 1e-4:
+                    ma20_calc = cur_p / (1.0 + b20 / 100.0)
+                    if ma20_calc > 0:
+                        ma20_p = round(ma20_calc, 3)
+                # 在常态基线未发生外部异动冲击时，期权平值 IV 较 20日 HV 存在约 1.15x 正常波动率风险溢价 (VRP)
+                if iv_val == float(tgt["fallback_iv"]):
+                    iv_val = round(hv_val * 1.15, 2)
+        except Exception:
+            pass
+
         # 偏离度: (IV - HV) / HV * 100%
         spread_pct = round(((iv_val - hv_val) / max(hv_val, 1e-4)) * 100.0, 2)
         ratio = round(iv_val / max(hv_val, 1e-4), 4)

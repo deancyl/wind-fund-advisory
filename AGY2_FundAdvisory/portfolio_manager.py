@@ -6914,8 +6914,19 @@ class PortfolioManager:
                 pass
 
         # 识别是否为目标 QDII / 跨市场美股与芯片资产
-        is_sp500 = any(k in fn for k in ["标普", "500"]) or clean_code in ("050025", "513500", "017436")
-        is_nasdaq = any(k in fn for k in ["纳指", "纳斯达克", "100"]) or clean_code in ("000834", "017437", "513100", "159941")
+        fn_upper = fn.upper()
+        is_sp500 = (
+            any(k in fn for k in ["标普", "标普500"])
+            or any(k in fn_upper for k in ["S&P", "SP500", "SPX"])
+            or ("500" in fn and not any(k in fn for k in ["中证", "沪深", "深证", "科创", "上证"]))
+            or clean_code in ("050025", "513500", "017436")
+        )
+        is_nasdaq = (
+            any(k in fn for k in ["纳指", "纳斯达克"])
+            or any(k in fn_upper for k in ["NASDAQ", "NDX", "QQQ"])
+            or ("100" in fn and not any(k in fn for k in ["中证", "深证", "红利", "上证", "国证"]))
+            or clean_code in ("000834", "017437", "513100", "159941")
+        )
         is_semi = any(k in fn for k in ["半导体", "芯片"]) or clean_code in ("008888", "014543", "512760", "013841")
 
         if is_sp500:
@@ -7062,7 +7073,7 @@ class PortfolioManager:
         针对单日定投金额超过 10,000 元的订单，优化分批调度器：
         结合单基历史日均波幅 (Daily Volatility) 与成交量加权，动态生成跨 3 至 5 个交易日的平抑建仓调度表，并在 Tab 1 提供分日执行建议。
         """
-        amt = float(order_amount)
+        amt = round(float(order_amount or 0.0), 2)
         fc = str(fund_code).strip().zfill(6)
         fn = str(fund_name or "")
         if not fn or fn.startswith("公募基金_"):
@@ -7073,6 +7084,11 @@ class PortfolioManager:
                 pass
 
         is_large = amt > 10000.0
+
+        # 成交量加权与流动性冲击参与率精算 (ADV Participation Ratio)
+        adv = float(adv_yuan) if adv_yuan is not None and float(adv_yuan) > 0 else None
+        impact_ratio = (amt / adv) if adv else 0.0
+        impact_ratio_pct = round(impact_ratio * 100.0, 4)
 
         # 获取或估算日均波幅 (daily_volatility)
         d_vol = daily_volatility
@@ -7102,6 +7118,9 @@ class PortfolioManager:
                 "requires_multi_day_split": False,
                 "split_days": 1,
                 "daily_volatility_pct": d_vol_pct,
+                "adv_yuan": adv,
+                "participation_ratio_pct": impact_ratio_pct,
+                "volume_weighted": bool(adv is not None),
                 "schedule": [
                     {
                         "day": "T日",
@@ -7117,7 +7136,8 @@ class PortfolioManager:
             }
 
         # 大额订单 (> 10,000 元): 结合日均波幅与成交量加权动态确定 3 ~ 5 个交易日
-        if d_vol_pct >= 1.50:
+        # 若日均波幅 >= 1.50% 或大单占 ADV 比例 >= 1.0% (高流动性压力)，平抑分拆为 5 个交易日
+        if d_vol_pct >= 1.50 or impact_ratio >= 0.01:
             split_days = 5
             weights = [25.0, 25.0, 20.0, 15.0, 15.0]
             timings = [
@@ -7127,7 +7147,8 @@ class PortfolioManager:
                 ("T+3日", 3, "技术通道顺势推进", "通道均线跟踪，若遇超买适度降速"),
                 ("T+4日", 4, "尾盘动态结顶收口", "匹配跨期基准，完成大额定投尾差吸纳"),
             ]
-        elif d_vol_pct >= 0.80:
+        # 若日均波幅 >= 0.80% 或占 ADV 比例 >= 0.3%，平抑分拆为 4 个交易日
+        elif d_vol_pct >= 0.80 or impact_ratio >= 0.003:
             split_days = 4
             weights = [30.0, 30.0, 25.0, 15.0]
             timings = [
@@ -7173,9 +7194,12 @@ class PortfolioManager:
             "requires_multi_day_split": True,
             "split_days": split_days,
             "daily_volatility_pct": d_vol_pct,
+            "adv_yuan": adv,
+            "participation_ratio_pct": impact_ratio_pct,
+            "volume_weighted": bool(adv is not None),
             "schedule": schedule,
             "total_scheduled_amount": tot_scheduled,
-            "guidance": f"订单金额 ¥{amt:,.2f} (>¥10,000)，单基日均波幅 {d_vol_pct:.2f}%，已生成跨 {split_days} 个交易日的平抑建仓调度表，有效杜绝日内大单击穿盘口与未知净值冲高回落风险。"
+            "guidance": f"订单金额 ¥{amt:,.2f} (>¥10,000)，单基日均波幅 {d_vol_pct:.2f}%{'，占ADV比 ' + str(impact_ratio_pct) + '%' if adv else ''}，已生成跨 {split_days} 个交易日的平抑建仓调度表，有效杜绝日内大单击穿盘口与未知净值冲高回落风险。"
         }
 
     def schedule_large_dca_batches_instance(self, order_amount: float, fund_code: str, **kwargs) -> Dict[str, Any]:

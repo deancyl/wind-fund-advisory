@@ -370,3 +370,80 @@ def test_gui_apptest_tab1_and_tab2_g14_visual_and_whitebox_integrity():
     at.run(timeout=75)
     assert not at.exception, f"AppTest 切换智能定投异常: {at.exception}"
 
+
+def test_qdii_fx_arbitrage_domestic_500_and_100_isolation():
+    """
+    【反张冠李戴核验】核验国内中证500与深证100等境内指数基金绝不被误判为美股标普500或纳斯达克100：
+    1. 中证500ETF (510500) 含有'500'但绝非标普500，必须判为其他跨境QDII或境内标的，不得赋予标普500的3.20%常态溢价；
+    2. 易方达深证100ETF (159901) 含有'100'但绝非纳指100，不得误判为美股纳斯达克100；
+    3. 标普500ETF联接 (050025) 真实命中美股标普500；
+    4. 纳斯达克100 (000834) 真实命中美股纳斯达克100。
+    """
+    res_csi500 = PortfolioManager.calculate_qdii_fx_hedged_arbitrage(
+        fund_code="510500",
+        fund_name="南方中证500ETF",
+        spot_usdcnh=7.2500
+    )
+    assert res_csi500["asset_category"] != "美股标普500", "中证500ETF绝不能被误判为美股标普500！"
+
+    res_sz100 = PortfolioManager.calculate_qdii_fx_hedged_arbitrage(
+        fund_code="159901",
+        fund_name="易方达深证100ETF",
+        spot_usdcnh=7.2500
+    )
+    assert res_sz100["asset_category"] != "美股纳斯达克100", "深证100ETF绝不能被误判为美股纳斯达克100！"
+
+    res_real_sp = PortfolioManager.calculate_qdii_fx_hedged_arbitrage(
+        fund_code="050025",
+        fund_name="博时标普500ETF联接A",
+        spot_usdcnh=7.2500
+    )
+    assert res_real_sp["asset_category"] == "美股标普500"
+
+    res_real_nasdaq = PortfolioManager.calculate_qdii_fx_hedged_arbitrage(
+        fund_code="000834",
+        fund_name="大成纳斯达克100A",
+        spot_usdcnh=7.2500
+    )
+    assert res_real_nasdaq["asset_category"] == "美股纳斯达克100"
+
+
+def test_large_dca_batches_scheduler_adv_volume_weighting_elevation():
+    """
+    【成交量加权与流动性冲击核验】
+    当低波资产定投订单金额占日均成交额 ADV 比例较高时 (如 order_amount / ADV >= 1.0%)：
+    即使标的日均波幅极低 (如纯债 d_vol = 0.002, 常规仅拆解 3 天)，
+    分批调度器必须结合成交量加权将其自适应提升至 5 天，避免大单击穿流动性盘口！
+    同时在返回结果中必须输出 adv_yuan, participation_ratio_pct 与 volume_weighted=True。
+    """
+    # 纯债低波标的 (日均波幅 0.2% < 0.8%)，若订单为 50,000 元且 ADV 仅 2,000,000 元 (参与率达 2.5% >= 1.0%)
+    sched_adv_elevated = PortfolioManager.schedule_large_dca_batches(
+        order_amount=50000.0,
+        fund_code="002351",
+        fund_name="易方达裕祥回报债券A",
+        daily_volatility=0.002,
+        adv_yuan=2000000.0
+    )
+    assert sched_adv_elevated["volume_weighted"] is True
+    assert sched_adv_elevated["adv_yuan"] == 2000000.0
+    assert sched_adv_elevated["participation_ratio_pct"] == 2.5000
+    assert sched_adv_elevated["split_days"] == 5, "大额订单占 ADV 比超过 1% 必须自适应提升为 5 天挂单！"
+    assert len(sched_adv_elevated["schedule"]) == 5
+    tot = sum(s["slice_amount"] for s in sched_adv_elevated["schedule"])
+    assert abs(tot - 50000.0) < 0.01
+
+
+def test_510050_shanghai_50_index_parquet_penetration():
+    """
+    【真实湖仓穿透核验】核验 510050 (华夏上证50ETF) 与 000016 真实穿透至本地 indices/000016.SH.parquet：
+    1. 严禁回退至 Tier 4 沪深300假基准 (vol 0.1750, bias -1.34)；
+    2. 必须真实从 000016.SH.parquet 计算过去 20 日真实年化波动率与 bias_20；
+    3. volatility 处于真实区间 (约 10% ~ 13%)。
+    """
+    metrics = SmartExecutionDCAEngine.get_fund_real_volatility_and_bias("510050", "华夏上证50ETF")
+    assert metrics["volatility"] > 0.0
+    # 验证不是 0.1750 (沪深300回退基准)
+    assert metrics["volatility"] != 0.1750, f"510050 不应使用沪深300假回退基准: {metrics}"
+    assert 0.08 <= metrics["volatility"] <= 0.15, f"510050 上证50真实波动率应在 8%~15% 区间，实际: {metrics['volatility']}"
+
+

@@ -1785,16 +1785,19 @@ def evaluate_option_volatility_hedge_warning(
         is_surge = bool(s.get("is_iv_surge", spread >= 30.0))
 
         # 判断是否跌破 MA20
-        is_below = s.get("is_below_ma20", False)
-        if not is_below:
+        if "is_below_ma20" in s:
+            is_below = bool(s["is_below_ma20"])
+        else:
             mp = float(s.get("market_price", 0.0))
             m20 = float(s.get("ma20", 0.0))
             if mp > 0 and m20 > 0:
                 is_below = (mp < m20)
-            elif bias_20 is not None and bias_20 < 0:
-                is_below = True
-            elif c300_point is not None and c300_ma20 is not None and c300_point < c300_ma20:
-                is_below = True
+            elif bias_20 is not None:
+                is_below = (bias_20 < 0)
+            elif c300_point is not None and c300_ma20 is not None:
+                is_below = (c300_point < c300_ma20)
+            else:
+                is_below = False
 
         if is_surge and is_below:
             has_warning = True
@@ -1823,7 +1826,7 @@ def evaluate_option_volatility_hedge_warning(
 
 
 class ActiveRiskSentry:
-    """主动风险预警哨：十维主动风险巡检与本地预警哨持久化"""
+    """主动风险预警哨：十二维主动风险巡检与本地预警哨持久化"""
 
     def __init__(self, watchdog_path: Optional[str] = None):
         self.watchdog_path = watchdog_path or "data/portfolio_watchdog.json"
@@ -2759,7 +2762,17 @@ class ActiveRiskSentry:
         # -------------------------------------------------------------
         try:
             holding_codes_set = {it.get("code") for it in normalized_items if it.get("code")}
-            qdii_targets = [c for c in holding_codes_set if c in ("050025", "513500", "000834", "017436", "017437", "513100", "008888", "014543", "512760")]
+            qdii_targets = []
+            for it in normalized_items:
+                c = it.get("code")
+                n = it.get("name", "")
+                if not c:
+                    continue
+                if c in ("050025", "513500", "000834", "017436", "017437", "513100", "008888", "014543", "512760", "159941"):
+                    qdii_targets.append(c)
+                elif any(k in n for k in ["标普", "纳指", "纳斯达克", "QDII", "美股", "海外"]):
+                    qdii_targets.append(c)
+            qdii_targets = list(dict.fromkeys(qdii_targets))
             if qdii_targets:
                 from portfolio_manager import PortfolioManager
                 qdii_arb_rep = PortfolioManager.evaluate_all_qdii_fx_arbitrage(
@@ -3028,6 +3041,7 @@ class SmartExecutionDCAEngine:
             "511010": "csindex_H11009.parquet",
             "000216": "indices/AU9999.SGE.parquet", "000217": "indices/AU9999.SGE.parquet",
             "518880": "indices/AU9999.SGE.parquet",
+            "510050": "indices/000016.SH.parquet", "000016": "indices/000016.SH.parquet",
             "007339": "csindex_H00300.parquet", "110020": "csindex_H00300.parquet",
             "510300": "csindex_H00300.parquet", "000300": "csindex_H00300.parquet",
             "000478": "csindex_H00905.parquet", "001053": "csindex_H00905.parquet",
