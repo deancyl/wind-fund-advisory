@@ -1,48 +1,30 @@
-# Task Assignment: Reviewer M1-1 (Data Engine & Cache Integrity Reviewer)
+## 2026-11-09T17:13:00Z
+You are reviewer_m1_1, a code review and QA agent.
+Your working directory is: d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\
 
-## Authoritative Request File
-`d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md` (MUST read completely before proceeding)
-`d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md` (Master Architecture & Milestone Contracts)
-`d:\Google\Workspace\Wind\GEMINI.md` (Workspace Rules)
-`d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m1\handoff.md` (Worker M1 Handoff Report)
+MANDATORY FIRST STEP:
+Read the full user specification at:
+d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
 
-## Scope & Review Objective
-Perform an independent, objective review and verification of Milestone 1 (Features 1-5):
-1. Code verification in `AGY2_FundAdvisory/data_loader.py` and `cache_manager.py`:
-   - Feature 1: Confirm EastMoney `f6, f104, f105, f106` implementation, complete deletion of `3210/1780` fake constants.
-   - Feature 2: Confirm `IndexValuationEngine`, dynamic percentiles, and complete purging of `INDEX_PE_METAS`.
-   - Feature 3: Confirm `FundPurchaseCacheManager`, parquet cache in `data/cache/fund_purchase.parquet` with read latency < 50ms, and wiring into `portfolio_manager.py` / `portfolio_optimizer.py`.
-   - Feature 4: Confirm `FundMetadataManager`, Tiantian Fund API extraction (AUM liquidation check <0.5亿, manager tenure, quarterly assets, top 10 stocks), 24h TTL cache, and offline fallback.
-2. Run automated test commands:
-   - `py -3 -m pytest tests/test_infra.py`
-   - `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_m1_open_data_and_cache.py -v"`
-   - `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_infra.py -v"`
-3. Verify referee files SHA-256 hashes are untouched (`tests/test_infra.py`, `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`).
-4. Give a clear verdict: `APPROVE` or `REQUEST_CHANGES`.
+Read the project scope and architecture at:
+d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_18\PROJECT.md
 
-## Working Directory
-`d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1/`
+Read the worker's handoff report at:
+d:\Google\Workspace\Wind\.agents\teamwork\worker_m1_rep\handoff.md
 
-## Output Requirements
-Write your full review report to:
-`d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\handoff.md`
-Then call `send_message` to parent.
+YOUR MISSION (Review Milestone 1):
+Independently examine the implementation of Milestone 1 across app_gui.py, portfolio_manager.py, strategy_bridge.py:
+1. 3D surface chart removal: verify render_monte_carlo_stress_table is used and render_monte_carlo_3d_chart is kept as an alias. Verify RuleTree code box is replaced with a clean 2D parameter mechanism table.
+2. Right-wing alert sentry: verify condition checks al_lvl in ("red", "critical", "CRITICAL") for red badge 🔴, al_lvl in ("yellow", "warning", "WARNING") for yellow badge 🟡. Verify desc/action extraction and severity sorting.
+3. Tab 2 DataFrame column headers: verify mapped to 执行阶段, 窗口类型, 分配比例, 建议挂单金额(元), 微观执行策略 with percentage and currency formatting. Verify duplicate blue button at bottom is removed.
+4. Tab 4 secondary navigation: verify single-row compact st.segmented_control (or horizontal radio fallback). Verify 017436 name is unified to "华安纳斯达克100ETF联接A". Verify 存量标的_XXXXXX is eliminated and new buy targets don't trigger 7-day lock-ins.
+5. "📱 手机极简盯盘视图 / 🖥️ 桌面专业模式" toggle: verify sidebar toggle and 3-card stream rendering.
+6. Run build & test commands:
+   py -3 -m pytest tests/test_infra.py
+   py -3 -m pytest tests/test_adv_final_closure.py
+   py -3 -m pytest tests/test_delta_m1_guardrails.py
+7. Physical safety redlines: verify judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py, DataLoader.simulate_execution are 100% untouched.
 
-## 2026-11-04T10:23:55Z
-You are Reviewer M1-1 for Milestone 1.
-Working directory: d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1/
-Read your task dispatch file: d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\DISPATCH.md
-Read the authoritative request file: d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
-Read master architecture: d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
-Read Worker Prod M1 Handoff: d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m1\handoff.md
-Read workspace rules: d:\Google\Workspace\Wind\GEMINI.md
-
-Examine correctness, completeness, and robustness of Features 1-4 (data_loader.py, cache_manager.py, portfolio_manager.py).
-Run test commands:
-- py -3 -m pytest tests/test_infra.py
-- cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_m1_open_data_and_cache.py -v"
-- cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_infra.py -v"
-Verify referee file SHA-256 hashes.
-Write your review report and clear verdict (APPROVE or REQUEST_CHANGES) to:
+Write your review report and definitive verdict (APPROVE or REQUEST_CHANGES) to:
 d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\handoff.md
-Notify parent when done via send_message. You are read-only; DO NOT modify any source code files.
+Send a completion message back to the orchestrator.

@@ -1,21 +1,41 @@
-## 2026-11-04T11:46:48Z
-你作为对抗性质询者（Challenger M2-2），对 Milestone 2 在多 Tab 交互、侧边栏控盘联动与持仓编辑场景下的健壮性执行经验性质询。
+# Milestone 2 Challenger 2 Dispatch
 
-【必须阅读的上下文文件】
-1. 原始需求文件：d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
-2. 架构与里程碑规范：d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
-3. 工作区准则：d:\Google\Workspace\Wind\GEMINI.md
-4. Worker 交付报告：d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m2\handoff.md
-5. 目标实现文件：d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py
+## Mission
+Perform adversarial stress testing on Milestone 2 UI components and friction logic:
+1. `render_chief_advisor_memo_card`: Test with malformed dictionary, HTML injection, missing badges or contents, verify no raw HTML code block leaks (CommonMark 4-space indent defense).
+2. `StrategyBridge.run_historical_time_machine_backtest`:
+   - Verify minimum sample limit (<60 days raises ValueError).
+   - Verify future slice limit (<2 days raises ValueError).
+   - Verify alpha vs H00300 and benchmark_nav calculations.
+3. Verify referee files are untouched: `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`.
+4. Run automated tests and write `handoff.md` with verdict.
 
-【你的工作目录】
-d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_2\
-请在你的工作目录下维护 BRIEFING.md、progress.md，并在完成审查后输出 handoff.md。
+## 2026-11-09T18:08:39Z
+You are `challenger_m2_2` for G15 Generation Milestone 2 (Phase 2): "破除唯算法论：实装五维投顾首席备忘录与历史任意时点盲测时光机".
 
-【挑战任务】
-1. 运行并验证交互对抗测试：
-   - `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_adversarial_m3_challenger2_interactive.py -v"`
-   - 验证在用户连续切换模式、载入演示组合、修改侧边栏滑块（目标档位、单日限购、调仓缓冲带）时，前端渲染与后台状态机是否保持严格一致且 0 异常。
-   - 验证 Tab 2 中持仓市值编辑反算份额的闭环与先进先出批次安全逻辑未被 UI 变更破坏。
-2. 记录测试输出，评估系统的健壮性。
-3. 在 handoff.md 中明确给出 Verdict：APPROVE 或 REQUEST_CHANGES，并使用 send_message 向 orchestrator (c98181d5-8d61-4839-8d62-5dbcef7c85af) 发送完成通知。
+Your working directory is:
+`d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_2\`
+Write your progress.md and handoff.md inside this directory.
+
+Review the authoritative project files before starting:
+- `d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md` (lines 169-204)
+- `d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_18\PROJECT.md`
+- `d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_2\DISPATCH.md`
+- Worker Handoff: `d:\Google\Workspace\Wind\.agents\teamwork\worker_m2\handoff.md`
+
+PHYSICAL SAFETY REDLINES (ZERO TOLERANCE):
+- Verify the 4 read-only referee files are 100% untouched: `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`.
+- Verify `DataLoader.simulate_execution` default signature and default fee logic are untouched.
+
+CHALLENGE TASKS:
+1. Adversarial verification of UI components:
+   - Check `render_chief_advisor_memo_card`: verify that it sanitizes HTML and does not trigger CommonMark 4-space code block syntax leakage.
+   - Test `render_chief_advisor_memo_card` when called with empty, partial, or malformed data.
+   - Check Tab 3 Time-Machine UI rendering: verify that preset dates work, custom date picker works, and Plotly curve generates cleanly without NaN / inf values.
+2. Adversarial verification of historical inflection points:
+   - Run `run_historical_time_machine_backtest` at key historical inflection points:
+     - 2021-02-18 (core assets peak)
+     - 2022-04-26 (market crash bottom)
+     - 2024-09-18 (pre-policy reversal bottom)
+     - Verify outputs match financial reality and historical market movements.
+3. Run automated tests and write a comprehensive handoff.md with a definitive qualitative verdict (APPROVE or REQUEST_CHANGES). Send a message to parent when done.

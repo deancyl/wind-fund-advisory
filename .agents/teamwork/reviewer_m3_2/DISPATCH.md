@@ -1,54 +1,24 @@
-# DISPATCH — Reviewer M3_2
+# DISPATCH — reviewer_m3_2
+## Mission
+Independent code and UX review of G15 Phase 3 implementation: Long screenshot slicing OCR import, tail fund cleaner (Dimension 13), and real 29-fund combat portfolio diagnosis.
 
-## Task
-Review Milestone 3 implementation (R6 CUSUM & R7 Streamlit UI): Focus on interface conformance, 9-column tables, 1080p fit, 4-step white-box expanders, and acceptance criteria.
+## Instructions
+1. Read `d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md` (lines 206-248).
+2. Read worker report: `d:\Google\Workspace\Wind\.agents\teamwork\worker_m3\handoff.md`.
+3. Check code quality, robustness, boundary edge cases, and UI/UX alignment:
+   - Check `slice_long_screenshot_for_ocr`: verify image slicing algorithm maintains 100% width, target_height=1000, overlap=150.
+   - Check `fuzzy_match_fund_by_name`: verify fuzzy matching logic with 28,177 fund dictionary, handling ellipsis and suffixes.
+   - Check `combat_29_funds`: verify 29 funds, market value 26,615.10 yuan, holding days >= 365.
+   - Check `ActiveRiskSentry` Dimension 13: verify 19 tail funds and 442.70 yuan recoverable cash correctly flagged.
+4. Run tests:
+   `py -3 -m pytest tests/test_g15_phase3_ocr_and_combat29.py tests/test_infra.py -v`
+5. Verify 4 read-only referee files are untouched: `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`.
+6. Write your structured verdict (`APPROVE` or `REQUEST_CHANGES`) to `handoff.md` and send message to parent.
 
-## Input Files
-- d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
-- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
-- d:\Google\Workspace\Wind\.agents\teamwork\worker_agent3_m3\handoff.md
-- d:\Google\Workspace\Wind\.agents\teamwork\worker_agent3_m3\changes.md
-- d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py
-- d:\Google\Workspace\Wind\AGY2_FundAdvisory\portfolio_manager.py
 
-## Working Directory
-d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m3_2\
-
-## Verification Requirements
-- Execute tests:
-  ```powershell
-  cd d:\Google\Workspace\Wind\AGY2_FundAdvisory
-  python -m pytest tests/test_architecture_m3.py -k "test_gui_step3_table_9_cols_and_no_truncation"
-  python -m pytest tests/test_acceptance_r1_r7.py
-  ```
-- Verify 9-column consistency, no text truncation in metric cards, and 1.2~1.8s delay timing.
-- Deliver handoff.md with explicit APPROVE or REQUEST_CHANGES verdict.
-
-## 2026-10-30T02:55:03Z
-你是 Milestone 3 Reviewer 2。
-工作目录：d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m3_2\
-
-【必读文件】：
-在开始工作前，必须完整阅读用户原始需求与架构设计：
-- d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
-- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
-- d:\Google\Workspace\Wind\.agents\teamwork\worker_agent3_m3\handoff.md
-- d:\Google\Workspace\Wind\.agents\teamwork\worker_agent3_m3\changes.md
-- d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m3_2\DISPATCH.md
-- 审查源码：d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py 与 portfolio_manager.py
-
-【审查目标与要求】：
-1. 深入审查 R6 CUSUM 变点检测（CUSUMFundChangePointDetector）与 R7 界面交互规范：
-   - 四阶推演面板（Step 1~4）默认 expanded=False，推演延时 1.2~1.8s（实测 1.45s 舒适阶梯）；
-   - 顶部 7 张核心卡片 15px 单行紧凑零截断，无任何省略号，专有名词收入 ⓘ 悬停提示；
-   - 步骤三建仓执行单保留 9 列变量定义与 15 字核心指令，存量调仓单精简为严格 9 列无横向滚动条，包含 5 大操作图标；
-   - 《三句话看懂本方案》三栏作战卡片正确渲染；
-2. 执行并验证测试：
-   cd d:\Google\Workspace\Wind\AGY2_FundAdvisory
-   python -m pytest tests/test_architecture_m3.py -k "test_gui_step3_table_9_cols_and_no_truncation"
-   python -m pytest tests/test_acceptance_r1_r7.py
-3. 审查代码健壮性、边界与极端情况。
-4. 结果交付：在工作目录写入 handoff.md，包含清晰的 Observation, Logic Chain, Caveats, Conclusion (明确 APPROVE 或 REQUEST_CHANGES), Verification Method。完成时向父编排器发送消息汇报。
-
-## 2026-10-30T03:05:38Z
-账号配额已轮换恢复，请继续执行审查任务并完成 handoff.md 交付。
+## 2026-11-09T19:18:44Z
+You are reviewer_m3_2. Your working directory is d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m3_2.
+Read d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m3_2\DISPATCH.md and d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md.
+Review G15 Phase 3 implementation in portfolio_manager.py, advisory_engine.py, multi_ledger_manager.py, app_gui.py, and tests/test_g15_phase3_ocr_and_combat29.py.
+Check algorithm edge cases, fuzzy matching precision, accounting consistency, and UI integration.
+Run tests and write your verdict (APPROVE or REQUEST_CHANGES) with rationale to handoff.md, then send a message to parent (ID: 9a123e21-7525-4c57-9715-710c2a94c199).

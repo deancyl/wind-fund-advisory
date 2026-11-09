@@ -1,7 +1,7 @@
-# BRIEFING — 2026-10-30T03:15:00Z
+# BRIEFING — 2026-11-10T03:25:00Z
 
 ## Mission
-审查 Milestone 3 的实现代码与质量：R6 CUSUM 变点检测、R7 Streamlit 四阶白盒 UI、反硬编码重构及健壮性。
+独立代码审查与对抗审查 G15 Phase 3 实现：手机长截图无损切片 OCR 识别导入、碎片尾仓清理器（ActiveRiskSentry 维度13）与 29 只基金实战账本（¥26,615.10）及 Tab 2 交互。
 
 ## 🔒 My Identity
 - Archetype: reviewer_critic
@@ -10,35 +10,38 @@
 - Original parent: 7eb668ae-6843-4834-9b3d-3455ac86af88
 - Milestone: Milestone 3
 - Instance: 1 of 1
+- Current parent: 9a123e21-7525-4c57-9715-710c2a94c199
+- Active Milestone: G15 Phase 3 (Milestone 3)
 
 ## 🔒 Key Constraints
 - Review-only — do NOT modify implementation code
 - Check for integrity violations (hardcoded test results, dummy facades, shortcuts, self-certifying work)
 - Issue clear verdict: APPROVE or REQUEST_CHANGES
 - Reply in Chinese
+- 4 physical referee files strictly untouched: judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py
+- DataLoader.simulate_execution signature and default friction strictly untouched
 
 ## Current Parent
-- Conversation ID: 7eb668ae-6843-4834-9b3d-3455ac86af88
-- Updated: 2026-10-30T03:15:00Z
+- Conversation ID: 9a123e21-7525-4c57-9715-710c2a94c199
+- Updated: 2026-11-10T03:25:00Z
 
 ## Review Scope
 - **Files to review**:
-  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py`
-  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\portfolio_manager.py`
-  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_architecture_m3.py`
-  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_ui_and_logic_refinements.py`
-  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_e2e_gui_render.py`
-  - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_adversarial_m3_challenger1.py`
-  - `d:\Google\Workspace\Wind\.agents\teamwork\worker_agent3_m3\handoff.md`
-  - `d:\Google\Workspace\Wind\.agents\teamwork\worker_agent3_m3\changes.md`
-- **Interface contracts**: `d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md`, `ORIGINAL_REQUEST.md`
-- **Review criteria**: correctness, style, conformance, integrity, adversarial stress-testing
+  - `AGY2_FundAdvisory/portfolio_manager.py` (slice_long_screenshot_for_ocr, fuzzy_match_fund_by_name, parse_screenshot_ocr_holdings, sweep_tail_and_c_class)
+  - `AGY2_FundAdvisory/advisory_engine.py` (ActiveRiskSentry Dimension 13 碎片尾仓清理)
+  - `AGY2_FundAdvisory/multi_ledger_manager.py` (combat_29_funds 预置注册与会计恒等式平账)
+  - `AGY2_FundAdvisory/app_gui.py` (Tab 2 📸 截图导入 popover, 🧹 碎片尾仓建议卡, combat_29_funds 专属诊断重塑卡)
+  - `tests/test_g15_phase3_ocr_and_combat29.py`
+  - `tests/test_adv_final_closure.py`
+  - `tests/test_infra.py`
+- **Interface contracts**: `ORIGINAL_REQUEST.md`, `GEMINI.md`
+- **Review criteria**: correctness, integrity, accounting identity, edge-case robustness, UX usability
 
 ## Key Decisions Made
-- [2026-10-30T03:00:00Z] 完成 AST 静态反硬编码审计：确认 `app_gui.py` 静态 `cat_map` 彻底删除，全量迁移至 `classify_fund_asset_class`。
-- [2026-10-30T03:08:00Z] 确认 4 个物理裁判只读文件（judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py）100% 保持只读零修改。
-- [2026-10-30T03:12:00Z] 确认独立运行 `test_e2e_gui_render.py::test_bug6_streamlit_apptest_full_render` 100% PASSED；发现 AppTest 在全套并发执行时因外部天天基金/东方财富真实网络耗时存在 45s 超时抖动边界风险（标记为 Minor 发现）。
-- [2026-10-30T03:15:00Z] 裁定最终审查结论：APPROVE（通过），无任何诚信违规，逻辑与架构完备。
+- [2026-11-10T03:20:00Z] 验证 4 个物理裁判只读文件（judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py）与 data_loader.py 均 0 修改，严格符合物理红线。
+- [2026-11-10T03:21:00Z] 运行自动化测试：`test_g15_phase3_ocr_and_combat29.py` (5/5 PASS) 与 `test_adv_final_closure.py` (14/14 PASS)，共计 19 项全部通过；全套回归及裁判测试 (27/27 PASS)。
+- [2026-11-10T03:23:00Z] 对抗性压力测试验证：空输入、损坏图片、微小图片、病态重叠比例、极端未收录名称、C类29天 vs 30天门禁、A类364天 vs 365天门禁、腰部基金保护等场景全部稳健通过，无除零与异常逃逸。
+- [2026-11-10T03:25:00Z] 裁定最终审查结论：APPROVE（通过），无任何诚信违规。
 
 ## Artifact Index
 - `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m3_1\BRIEFING.md` — persistent working memory
@@ -46,15 +49,15 @@
 - `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m3_1\handoff.md` — final 5-component handoff report
 
 ## Review Checklist
-- **Items reviewed**: R6 CUSUM 变点检测引擎、R7 四阶白盒 UI 与节奏、AST 反硬编码审计、双向变盘触发线、全套自动化测试
+- **Items reviewed**: 长截图高清切片无损分割、RapidOCR 结合与空间聚类、全市场 28,177 基金字典模糊匹配、会计恒等式与负收益保真、碎片尾仓免赎清理器（第13维）、combat_29_funds 账本平账与三阶重塑
 - **Verdict**: APPROVE
-- **Unverified claims**: 均已独立验证完成
+- **Unverified claims**: 均已实测独立验证通过
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - `cat_map` 是否伪装为局部常量（已通过 AST walk 确认完全不存在）
-  - CUSUM 变点检测在松弛容忍内是否误报、反超后是否自愈、1000次随机变参是否除零或负值（已通过 challenger1 7项对抗测试确认严格合规）
-  - 4个裁判文件是否被篡改（已通过 git diff HEAD 确认 0 修改）
-- **Vulnerabilities found**:
-  - Minor: AppTest 渲染测试期间存在未 Mock 的公网真实网络请求（天天基金与东财），在高并发或网络偶发延迟时贴近 45s 超时线，建议 M4 测试中将 timeout 提升至 60s 或增加本地 Mock。
-- **Untested angles**: M4 全量 246+ 项回归测试（属于 Milestone 4 职责范围）。
+  - 切片算法在极端重叠或图片比切片小的情况下是否死循环（验证：已测试，安全）
+  - OCR 解析在亏损标的上是否依然存在 abs() 反转（验证：已彻底移除 abs，负收益严格保真）
+  - 碎片尾仓清理器是否会误杀腰部持仓（如 005827 蓝筹精选）（验证：已通过条件隔离保护，仅扫描 <100 或 <200 且为 C类/指数联接/体验金）
+  - 29 只基金市值总和是否严格平账至 ¥26,615.10（验证：精确等于 26615.10）
+- **Vulnerabilities found**: 无阻塞性缺陷
+- **Untested angles**: 无

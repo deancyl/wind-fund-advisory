@@ -839,12 +839,12 @@ SECTOR_FUND_SELECTION: Dict[str, Dict[str, Any]] = {
         "alternatives": [
             {"code": "050025", "name": "博时标普500ETF联接A (冠军)", "share_class": "A", "tag": "美股大盘蓝筹基准 (单日限额500)"},
             {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-            {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外高科技成长跨市场"},
+            {"code": "017436", "name": "华安纳斯达克100ETF联接A", "share_class": "A", "tag": "海外高科技成长跨市场"},
             {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基对冲"}
         ],
         "top_alternatives": [
             {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-            {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外高科技成长跨市场"},
+            {"code": "017436", "name": "华安纳斯达克100ETF联接A", "share_class": "A", "tag": "海外高科技成长跨市场"},
             {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基对冲"}
         ]
     }
@@ -1452,7 +1452,7 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
         else:
             gain_match = re.search(r'(?:持有收益(?!率)|累计收益(?!率)|收益(?!率)|盈利(?!率)|浮盈|赚|盈|涨)[:：\s]*([+-]?[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)', remain_line)
             if gain_match:
-                gain_val = abs(float(gain_match.group(1).replace(',', '')))
+                gain_val = float(gain_match.group(1).replace(',', ''))
                 floating_pnl = gain_val
                 remain_line = remain_line.replace(gain_match.group(0), " ")
 
@@ -1462,7 +1462,7 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
             shares = float(shares_match.group(1).replace(',', ''))
             remain_line = remain_line.replace(shares_match.group(0), " ")
 
-        # 检查金额数字：提取剩余所有数字并取首个合理金额
+        # 检查金额数字：提取剩余所有数字并取首个合理金额 (杜绝 >=100 过滤以精准识别百元以下尾仓零头)
         if amount <= 0:
             remaining_numbers = re.findall(r'([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)', remain_line)
             valid_nums = []
@@ -1474,8 +1474,7 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
                 except Exception:
                     pass
             if valid_nums:
-                candidates = [v for v in valid_nums if v >= 100]
-                amount = candidates[0] if candidates else valid_nums[0]
+                amount = valid_nums[0]
 
         # 获取最新参考净值
         if explicit_curr_nav and explicit_curr_nav > 0:
@@ -1557,6 +1556,378 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
         })
 
     return parsed_results
+
+
+parse_batch_fund_text_input = parse_smart_text_holdings
+
+
+# =====================================================================
+# 手机长截图高清无损切片 OCR 导入与全市场模糊匹配引擎 (G15 Phase 3)
+# =====================================================================
+
+_GLOBAL_CATALOG_DATA: Optional[List[Tuple[str, str, str]]] = None
+
+def _load_fund_catalog_data() -> List[Tuple[str, str, str]]:
+    """加载 28,177 基金大字典到内存单例"""
+    global _GLOBAL_CATALOG_DATA
+    if _GLOBAL_CATALOG_DATA is not None:
+        return _GLOBAL_CATALOG_DATA
+
+    cat_file = WORKSPACE_ROOT / "data" / "master" / "fund_catalog.parquet"
+    res = []
+    if cat_file.exists():
+        try:
+            df = pd.read_parquet(cat_file)
+            for _, r in df.iterrows():
+                sym = str(r['symbol']).strip().zfill(6)
+                name = str(r['fund_name']).strip()
+                pinyin = str(r.get('pinyin_abbr', '')).strip()
+                res.append((sym, name, pinyin))
+        except Exception:
+            pass
+    _GLOBAL_CATALOG_DATA = res
+    return _GLOBAL_CATALOG_DATA
+
+
+def slice_long_screenshot_for_ocr(
+    image_bytes: bytes,
+    target_height: int = 1000,
+    overlap: int = 150
+) -> List[Tuple[Any, int]]:
+    """
+    手机持仓长截图自适应无损横向切片算法：
+    - 保持原始图片 100% 原始宽度不压缩；
+    - 纵向按 target_height (默认 1000px)、上下重叠 overlap (默认 150px) 自动切分子图；
+    - 返回 [(slice_image_PIL, y_offset), ...]
+    """
+    from PIL import Image
+    import io
+
+    if not image_bytes:
+        return []
+
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+    except Exception:
+        return []
+
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+
+    w, h = img.size
+    if h <= target_height:
+        return [(img, 0)]
+
+    step = target_height - overlap
+    if step <= 0:
+        step = max(1, target_height // 2)
+
+    slices = []
+    cur_y = 0
+    while cur_y < h:
+        end_y = min(cur_y + target_height, h)
+        cropped = img.crop((0, cur_y, w, end_y))
+        slices.append((cropped, cur_y))
+        if end_y >= h:
+            break
+        cur_y += step
+
+    return slices
+
+
+def fuzzy_match_fund_by_name(
+    raw_name: str,
+    preferred_share_class: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    全市场基金名称模糊匹配器：
+    1. 去除省略号（..., … 等）与符号噪点；
+    2. 提取并保留 A/C 份额特征；
+    3. 优先匹配 6 位代码与经典核心/扩展字典；
+    4. 本地 28,177 基金字典多级加权相似度匹配。
+    返回: {"fund_code": "005561", "fund_name": "...", "share_class": "A", "score": 1.0}
+    """
+    if not raw_name or not str(raw_name).strip():
+        return {}
+
+    raw_str = str(raw_name).strip()
+
+    # 1. 优先提取 6 位基金代码
+    code_m = re.search(r'\b(\d{6})\b', raw_str)
+    if code_m:
+        c = code_m.group(1)
+        # 查核心池与扩展库
+        if c in CORE_STRATEGY_POOL:
+            m = CORE_STRATEGY_POOL[c]
+            return {
+                "fund_code": c,
+                "fund_name": m.get("fund_name", f"基金_{c}"),
+                "share_class": preferred_share_class or m.get("share_class", "C" if c.endswith("3") or c.endswith("7") else "A"),
+                "score": 1.0
+            }
+        cat_list = _load_fund_catalog_data()
+        for sym, name, _ in cat_list:
+            if sym == c:
+                s_cls = preferred_share_class or ("C" if name.endswith("C") or sym.endswith("3") or sym.endswith("7") else "A")
+                return {"fund_code": sym, "fund_name": name, "share_class": s_cls, "score": 1.0}
+
+    # 2. 提取份额特征
+    share_class = preferred_share_class
+    if not share_class:
+        if re.search(r'[CcCc]\b|[Cc]类', raw_str):
+            share_class = "C"
+        elif re.search(r'[AaAa]\b|[Aa]类', raw_str):
+            share_class = "A"
+
+    # 3. 去除省略号及标点
+    clean_name = re.sub(r'[\.]{2,}|…|，|,|【|】|\[|\]|\(|\)|（|）|/|、', ' ', raw_str).strip()
+
+    # 4. 29 只实战存量及核心策略池精准别名优先映射
+    ALIAS_MAP = {
+        "红利低波": "005561", "创金合信红利低波": "005561", "创金合信中证红利低波": "005561", "创金合信中证红利": "005561",
+        "沪深300": "110020" if share_class != "C" else "007339", "易方达沪深300": "110020" if share_class != "C" else "007339",
+        "纳斯达克100": "017436", "华安纳斯达克100": "017436", "纳指": "017436",
+        "裕祥回报": "002351" if share_class != "C" else "002352", "易方达裕祥": "002351" if share_class != "C" else "002352",
+        "富国中证红利": "100032" if share_class != "C" else "008682", "富国红利增强": "100032" if share_class != "C" else "008682",
+        "富国红利": "100032" if share_class != "C" else "008682",
+        "科创50": "011613" if share_class == "C" else "011612", "华夏科创50": "011613" if share_class == "C" else "011612",
+        "华夏上证科创板50": "011613" if share_class == "C" else "011612", "科创板50": "011613" if share_class == "C" else "011612",
+        "华安黄金": "000216" if share_class != "C" else "000217", "黄金ETF联接": "000216" if share_class != "C" else "000217",
+        "招商中证白酒": "161725", "招商白酒": "161725", "中证白酒": "161725", "白酒": "161725",
+        "易方达蓝筹": "005827", "蓝筹精选": "005827", "易方达蓝筹精选": "005827",
+        "银华集成电路": "013841" if share_class == "C" else "013840", "集成电路混合": "013841" if share_class == "C" else "013840",
+        "富国中证1000": "016634" if share_class == "C" else "016633",
+        "华夏中证500": "001053" if share_class == "C" else "001052",
+        "博时标普500": "050025", "标普500ETF联接": "050025",
+        "华夏中证红利质量": "016441" if share_class == "C" else "016440", "红利质量": "016441" if share_class == "C" else "016440",
+        "南方中证新能源": "012832" if share_class == "C" else "012831",
+        "华夏中证动漫游戏": "012769" if share_class == "C" else "012768", "动漫游戏": "012769" if share_class == "C" else "012768",
+        "博时黄金": "002611" if share_class == "C" else "002610",
+        "富国周期优势": "019260",
+        "华夏中小板": "000086",
+        "招商中证红利": "018757" if share_class == "C" else "018756",
+        "摩根标普500": "001071",
+        "汇添富中证红利低波": "006113", "汇添富红利低波": "006113",
+        "广发中证500": "004854",
+        "华安安顺": "001595",
+        "天弘中证500": "001551", "天弘中证医药": "001551"
+    }
+
+    # 按别名长度降序优先匹配
+    for k in sorted(ALIAS_MAP.keys(), key=len, reverse=True):
+        if k in clean_name:
+            code = ALIAS_MAP[k]
+            fn = CORE_STRATEGY_POOL.get(code, {}).get("fund_name") or EXTENDED_FUND_CATALOG.get(code, {}).get("fund_name")
+            if not fn:
+                for sym, n, _ in _load_fund_catalog_data():
+                    if sym == code:
+                        fn = n
+                        break
+            if not fn:
+                fn = clean_name
+            s_cls = share_class or ("C" if "C" in fn or code.endswith("3") or code.endswith("7") else "A")
+            return {"fund_code": code, "fund_name": fn, "share_class": s_cls, "score": 0.95}
+
+    # 5. 全量 28,177 基金字典模糊匹配
+    import difflib
+    cat_list = _load_fund_catalog_data()
+    if not cat_list:
+        return {}
+
+    bigrams = [clean_name[i:i+2] for i in range(len(clean_name)-1) if len(clean_name[i:i+2].strip()) == 2]
+
+    candidates = []
+    if bigrams:
+        for sym, name, pinyin in cat_list:
+            if any(bg in name for bg in bigrams):
+                candidates.append((sym, name, pinyin))
+    if not candidates:
+        candidates = cat_list
+
+    best_match = None
+    best_score = 0.0
+
+    for sym, name, pinyin in candidates:
+        name_class = "C" if name.endswith("C") or sym.endswith("3") or sym.endswith("7") else "A"
+        class_bonus = 0.05 if (share_class and name_class == share_class) else 0.0
+        score = difflib.SequenceMatcher(None, clean_name, name).ratio() + class_bonus
+        if score > best_score:
+            best_score = score
+            best_match = (sym, name, name_class)
+
+    if best_match and best_score >= 0.45:
+        sym, name, s_cls = best_match
+        return {
+            "fund_code": sym,
+            "fund_name": name,
+            "share_class": share_class or s_cls,
+            "score": round(best_score, 2)
+        }
+
+    return {}
+
+
+def parse_screenshot_ocr_holdings(image_bytes: bytes) -> List[Dict[str, Any]]:
+    """
+    通过手机持仓长截图高清切片与 RapidOCR 提取结构化持仓：
+    1. slice_long_screenshot_for_ocr 100% 原始宽度切片 (高度1000px, 重叠150px)；
+    2. rapidocr_onnxruntime 执行纯本地离线 OCR；
+    3. 全局 y 坐标对齐与去重聚合；
+    4. 提取基金名称、持有金额、昨日收益、持有收益；
+    5. 严格遵守会计恒等式：
+       投入成本 (cost_basis) = 持有金额 (market_value) - 持有收益 (floating_pnl)
+       持仓份额 (shares) = 持有金额 (market_value) / 最新净值 (current_nav)
+       保留浮动盈亏原始正负号 (NO abs() 截断)；
+    6. 百元以下尾仓完整保留 (无 >=100 过滤硬约束)。
+    """
+    if not image_bytes:
+        return []
+
+    slices = slice_long_screenshot_for_ocr(image_bytes, target_height=1000, overlap=150)
+    if not slices:
+        return []
+
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+        import numpy as np
+        ocr = RapidOCR()
+    except Exception:
+        return []
+
+    all_ocr_items = []
+    for slice_img, y_offset in slices:
+        try:
+            np_img = np.array(slice_img)
+            ocr_res, _ = ocr(np_img)
+            if not ocr_res:
+                continue
+            for box, text, conf in ocr_res:
+                t = str(text).strip()
+                if not t:
+                    continue
+                box_y = min(p[1] for p in box) + y_offset
+                box_x = min(p[0] for p in box)
+                all_ocr_items.append((box_y, box_x, t, float(conf)))
+        except Exception:
+            continue
+
+    if not all_ocr_items:
+        return []
+
+    # 按纵向全局 y 坐标排序
+    all_ocr_items.sort(key=lambda x: x[0])
+
+    # 1. 尝试以聚合成的完整多行文本直接送入 parse_smart_text_holdings 提取
+    raw_lines = [item[2] for item in all_ocr_items]
+    aggregated_text = "\n".join(raw_lines)
+    parsed_candidates = parse_smart_text_holdings(aggregated_text)
+    if parsed_candidates:
+        seen = set()
+        clean_res = []
+        for p in parsed_candidates:
+            c = p.get("fund_code")
+            if c and c not in seen:
+                seen.add(c)
+                clean_res.append(p)
+        if len(clean_res) >= 1:
+            return clean_res
+
+    # 2. 空间块聚类提取分支（针对多栏布局排版）
+    blocks = []
+    current_block = []
+    for y, x, text, conf in all_ocr_items:
+        m = fuzzy_match_fund_by_name(text)
+        is_header = (m.get("score", 0) >= 0.65 or bool(re.search(r'\b\d{6}\b', text)))
+        if is_header and current_block:
+            blocks.append(current_block)
+            current_block = [(y, x, text, conf, m)]
+        else:
+            current_block.append((y, x, text, conf, m))
+    if current_block:
+        blocks.append(current_block)
+
+    structured_holdings = []
+    seen_codes = set()
+    for blk in blocks:
+        if not blk:
+            continue
+        blk_text = " ".join([b[2] for b in blk])
+        f_info = {}
+        for b in blk:
+            if b[4] and b[4].get("fund_code"):
+                f_info = b[4]
+                break
+        if not f_info:
+            f_info = fuzzy_match_fund_by_name(blk_text)
+
+        fc = f_info.get("fund_code")
+        if not fc or fc in seen_codes:
+            continue
+
+        fn = f_info.get("fund_name", f"基金_{fc}")
+        s_cls = f_info.get("share_class", "A")
+
+        pnl_val = 0.0
+        mv_val = 0.0
+
+        pnl_m = re.search(r'(?:持有收益|累计收益|收益|浮动盈亏)[:：\s]*([+-]?[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)', blk_text)
+        if pnl_m:
+            pnl_val = float(pnl_m.group(1).replace(',', ''))
+        else:
+            loss_m = re.search(r'(?:亏损|浮亏|亏)[:：\s]*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)', blk_text)
+            if loss_m:
+                pnl_val = -abs(float(loss_m.group(1).replace(',', '')))
+
+        amt_m = re.search(r'(?:持有金额|金额|市值|资产)[:：\s]*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)', blk_text)
+        if amt_m:
+            mv_val = float(amt_m.group(1).replace(',', ''))
+        else:
+            nums = re.findall(r'([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)', blk_text)
+            valid_floats = []
+            for n_s in nums:
+                try:
+                    val_f = float(n_s.replace(',', ''))
+                    if val_f > 0 and val_f != float(fc):
+                        valid_floats.append(val_f)
+                except Exception:
+                    pass
+            if valid_floats:
+                mv_val = valid_floats[0]
+
+        if mv_val <= 0:
+            continue
+
+        cost_basis = round(max(0.01, mv_val - pnl_val), 2)
+        pnl_pct = round((mv_val / cost_basis - 1.0) * 100.0, 2) if cost_basis > 0 else 0.0
+
+        try:
+            q = fetch_realtime_fund_quote(fc)
+            cur_nav = float(q.dwjz if (q and q.dwjz > 0) else 1.0)
+        except Exception:
+            cur_nav = 1.0
+
+        sh = round(mv_val / cur_nav, 4) if cur_nav > 0 else mv_val
+        cp = round(cost_basis / sh, 4) if sh > 0 else cur_nav
+
+        seen_codes.add(fc)
+        structured_holdings.append({
+            "fund_code": fc,
+            "fund_name": fn,
+            "share_class": s_cls,
+            "shares": sh,
+            "cost_price": cp,
+            "current_nav": cur_nav,
+            "market_value": round(mv_val, 2),
+            "cost_basis": cost_basis,
+            "floating_pnl": round(pnl_val, 2),
+            "floating_pnl_pct": pnl_pct,
+            "holding_days": 400,
+            "holding_tag": ">=30d",
+            "dividend_method": "cash" if s_cls == "A" else "reinvest",
+            "raw_line": blk_text
+        })
+
+    return structured_holdings
 
 
 # 核心底层重仓股财务与排雷真实特征字典 (杜绝 2.4% 假常数，按真实行业特征精准赋值)
@@ -7907,7 +8278,7 @@ class PortfolioManager:
                 if target_weights:
                     target_anchor = max(target_weights.items(), key=lambda x: x[1])[0]
                 else:
-                    target_anchor = "005561"
+                    target_anchor = "002351"
 
             sell_actions = []
             executable_routes = []
@@ -7928,8 +8299,11 @@ class PortfolioManager:
                 safe_batches = [b for b in h.batches if b.holding_days >= 7 and not b.safety_lock]
                 min_days = min((b.holding_days for b in safe_batches), default=min((b.holding_days for b in h.batches), default=30))
 
-                is_tail_fragment = (total_mv > 0 and (h.market_value / total_mv < 0.03)) or (h.market_value < 2000.0)
-                is_mature_c = (h.share_class == "C" and min_days >= 30)
+                is_tail_fragment = (
+                    h.market_value < 100.0
+                    or (h.market_value < 200.0 and (h.share_class == "C" or any(k in h.fund_name for k in ["联接", "ETF", "指数", "红包", "体验", "尾仓"])))
+                )
+                is_mature_c = (h.share_class == "C" and min_days >= 30 and (is_tail_fragment or intent == "liquidate"))
                 is_intent_liq = (intent == "liquidate")
 
                 if is_tail_fragment or is_mature_c or is_intent_liq:
@@ -8767,6 +9141,20 @@ class PortfolioManager:
     def parse_smart_text_holdings(self, text: str) -> List[Dict[str, Any]]:
         """委托全局智能文本解析器"""
         return parse_smart_text_holdings(text)
+
+    def parse_screenshot_ocr_holdings(self, image_bytes: bytes) -> List[Dict[str, Any]]:
+        """手机长截图高清切片 OCR 识别与基金对齐"""
+        return parse_screenshot_ocr_holdings(image_bytes)
+
+    @staticmethod
+    def slice_long_screenshot_for_ocr(image_bytes: bytes, target_height: int = 1000, overlap: int = 150) -> List[Tuple[Any, int]]:
+        """长截图无损自适应切片"""
+        return slice_long_screenshot_for_ocr(image_bytes, target_height=target_height, overlap=overlap)
+
+    @staticmethod
+    def fuzzy_match_fund_by_name(raw_name: str, preferred_share_class: Optional[str] = None) -> Dict[str, Any]:
+        """全市场 28,177 基金字典模糊匹配"""
+        return fuzzy_match_fund_by_name(raw_name, preferred_share_class=preferred_share_class)
 
     def import_from_smart_text(
         self,

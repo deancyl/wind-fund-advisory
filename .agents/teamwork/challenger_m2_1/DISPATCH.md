@@ -1,21 +1,43 @@
-## 2026-11-04T11:46:48Z
-你作为对抗性质询者（Challenger M2-1），对 Milestone 2 的 5 套高定主题切换、暗黑模式对比度及前端空间几何不变量执行经验性质询与对抗压测。
+# Milestone 2 Challenger 1 Dispatch
 
-【必须阅读的上下文文件】
-1. 原始需求文件：d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
-2. 架构与里程碑规范：d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
-3. 工作区准则：d:\Google\Workspace\Wind\GEMINI.md（特别注意 Rule 14 前端空间几何不变量与反测试虚荣、Rule 15 Flexbox 防挤压与横向滚动）
-4. Worker 交付报告：d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m2\handoff.md
-5. 目标实现文件：d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py
+## Mission
+Perform adversarial challenge & empirical verification on Milestone 2:
+1. `generate_chief_advisor_memo`: Test edge cases (None inputs, zero holdings, missing keys, extreme macro indicators like inverted yield curve, DR007 spikes, ERP extremes).
+2. `run_historical_time_machine_backtest`:
+   - Empirically verify Point-in-Time integrity: ensure changing future data does NOT change historical weights at T.
+   - Verify transaction frictions: subscription fee, C-share daily sales fee, step-down redemption fees FIFO (<7d 1.50%).
+   - Verify boundary dates (e.g., historical extreme days: 2021-02-18, 2022-04-26, 2024-09-18, 2025-11-09).
+3. Verify referee files are untouched: `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`.
+4. Run automated tests and write `handoff.md` with verdict.
 
-【你的工作目录】
-d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_1\
-请在你的工作目录下维护 BRIEFING.md、progress.md，并在完成审查后输出 handoff.md。
+## 2026-11-09T18:07:57Z
+You are `challenger_m2_1` for G15 Generation Milestone 2 (Phase 2): "破除唯算法论：实装五维投顾首席备忘录与历史任意时点盲测时光机".
 
-【挑战任务】
-1. 编写专门的对抗测试脚本（如 `test_challenger_m2_themes_adversarial.py`）：
-   - 测试通过 Streamlit AppTest 动态遍历全部 5 套主题（`light_slate`, `dark_terminal`, `nordic_paper`, `deep_titanium`, `nordic_frost`）以及 2 套涨跌配色模式（A股红涨绿跌 vs 国际绿涨红跌），验证渲染过程中 0 抛异常（`assert not at.exception`）。
-   - 检查暗色主题（如 `dark_terminal`、`deep_titanium`）下是否有不可读的硬编码白色背景块或黑色文字。
-   - 验证 CSS 关键容器具有 `overflow: visible`，底部预留 >= 10px 安全呼吸空间；行情药丸具有 `flex: 0 0 auto` 与 `white-space: nowrap`，在极限窄屏下无文本截断。
-2. 执行测试并记录耗时与测试结果。
-3. 在 handoff.md 中明确给出 Verdict：APPROVE 或 REQUEST_CHANGES，并使用 send_message 向 orchestrator (c98181d5-8d61-4839-8d62-5dbcef7c85af) 发送完成通知。
+Your working directory is:
+`d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_1\`
+Write your progress.md and handoff.md inside this directory.
+
+Review the authoritative project files before starting:
+- `d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md` (lines 169-204)
+- `d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_18\PROJECT.md`
+- `d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_1\DISPATCH.md`
+- Worker Handoff: `d:\Google\Workspace\Wind\.agents\teamwork\worker_m2\handoff.md`
+
+PHYSICAL SAFETY REDLINES (ZERO TOLERANCE):
+- Verify the 4 read-only referee files are 100% untouched: `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`.
+- Verify `DataLoader.simulate_execution` default signature and default fee logic are untouched.
+
+CHALLENGE TASKS:
+1. Adversarial verification of `generate_chief_advisor_memo`:
+   - Empty/None inputs handling.
+   - Extreme inputs: negative DR007 spread, inverted yield curves, ERP percentiles (0% and 100%), deep loss holdings (>-50%), large tail fragments.
+   - Verify all 5 dimensions return structured text without crashing or raising exceptions.
+2. Adversarial verification of `StrategyBridge.run_historical_time_machine_backtest`:
+   - Verify Point-in-Time integrity: does running backtest at target_date strictly ignore all data after target_date?
+   - Verify fee deductions:
+     - 0.12% front-end subscription fee applied on day 0
+     - Daily 0.40% / 250 sales service fee deducted
+     - FIFO step-down redemption fee: <7 days 1.50%, <30 days 0.50%, <180 days 0.35%, <365 days 0.15%, >=365 days 0.00%
+   - Verify benchmark calculations (H00300 and BENCHMARK_50_50).
+   - Verify boundary conditions (<60 days raises ValueError; <2 days forward raises ValueError).
+3. Run automated tests and write a comprehensive handoff.md with a definitive qualitative verdict (APPROVE or REQUEST_CHANGES). Send a message to parent when done.

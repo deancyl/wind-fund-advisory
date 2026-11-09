@@ -1,31 +1,51 @@
-# DISPATCH - Reviewer M2-2 (Color Purge, Dynamic PnL Colors & Layout Consistency)
-- Task: Verify Milestone 2 Features 7, 8, 10 in AGY2_FundAdvisory/app_gui.py
-- Working directory: .agents/teamwork/reviewer_m2_2/
-- Original request: d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
-- Scope document: d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
-- Worker handoff: d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m2\handoff.md
+# Milestone 2 Reviewer 2 Dispatch
 
-## 2026-11-04T11:46:48Z
-你作为专业代码审查员（Reviewer M2-2），对 Milestone 2（Features 7, 8, 10: 颜色清洗、动态涨跌色联动、顶部行情带与侧边栏）执行独立、客观、严谨的代码审查与测试复核。
+## Mission
+Perform independent code review & verification for Milestone 2 (Phase 2):
+- Five-Dimensional Chief Advisor Memo (`advisory_engine.py` & `app_gui.py`)
+- Historical Point-in-Time Blind Backtesting Time Machine (`strategy_bridge.py` & `app_gui.py` Tab 3)
+- Targeted test suite `tests/test_g15_phase2_memo_and_timemachine.py`
 
-【必须阅读的上下文文件】
-1. 原始需求文件：d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
-2. 架构与里程碑规范：d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
-3. 工作区准则：d:\Google\Workspace\Wind\GEMINI.md
-4. Worker 交付报告：d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m2\handoff.md
-5. 目标实现文件：d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py
+## Target Files
+- `AGY2_FundAdvisory/advisory_engine.py`
+- `AGY2_FundAdvisory/strategy_bridge.py`
+- `AGY2_FundAdvisory/app_gui.py`
+- `tests/test_g15_phase2_memo_and_timemachine.py`
+- Reference: `d:\Google\Workspace\Wind\.agents\teamwork\worker_m2\handoff.md`
+- Specs: `d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md`
 
-【你的工作目录】
-d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_2\
-请在你的工作目录下维护 BRIEFING.md、progress.md，并在完成审查后输出 handoff.md。
+## Safety Checks
+- Verify 4 referee files are 100% untouched: `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`.
+- Run pytest suites and verify all pass.
 
-【审查重点】
-1. Feature 7（色彩字面量清理与动态多配色联动）：扫描确认 safe_markdown_html 与 Plotly 图表中已消除 `#ffffff`、`#f8fafc`、`#0f172a` 等硬编码十六进制颜色；Python 端动态计算的盈亏颜色（`pnl_c`、`pnl_color` 等）及 Plotly 涨跌色必须动态读取当前激活的 `active_co["color_up"]` 与 `active_co["color_down"]`，支持 A 股红涨绿跌与国际绿涨红跌全站实时联动。
-2. Feature 10（顶部行情带与侧边栏职责）：
-   - 顶部 4 张核心状态卡下方全宽呈现 6 大指数行情带（展示真实估值标签、点位与涨跌幅）；
-   - 左侧边栏移除阻塞主线程的逐个 SVG 分时微图循环请求，聚焦于四大控盘职责，且首个按钮 `at.sidebar.button[0]` 保持为载入演示组合（兼容既有自动化测试）。
-3. 运行验证命令：
-   - `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_deep_remodel_final.py -v"`
-   - `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_infra.py -v"`
-   - 校验 4 个裁判文件的 SHA-256 哈希是否完好。
-4. 在 handoff.md 中明确给出 Verdict：APPROVE 或 REQUEST_CHANGES，并使用 send_message 向 orchestrator (c98181d5-8d61-4839-8d62-5dbcef7c85af) 发送完成通知。
+## 2026-11-09T18:07:44Z
+From: 9a123e21-7525-4c57-9715-710c2a94c199
+Content:
+You are `reviewer_m2_2` for G15 Generation Milestone 2 (Phase 2): "破除唯算法论：实装五维投顾首席备忘录与历史任意时点盲测时光机".
+
+Your working directory is:
+`d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_2\`
+Write your progress.md and handoff.md inside this directory.
+
+Review the authoritative project files before starting:
+- `d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md` (lines 169-204)
+- `d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_18\PROJECT.md`
+- `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_2\DISPATCH.md`
+- Worker Handoff: `d:\Google\Workspace\Wind\.agents\teamwork\worker_m2\handoff.md`
+
+PHYSICAL SAFETY REDLINES (ZERO TOLERANCE):
+- Verify the 4 read-only referee files are 100% untouched: `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`.
+- Verify `DataLoader.simulate_execution` default signature and default fee logic are untouched.
+
+REVIEW TASKS:
+1. Examine code implementation:
+   - `AGY2_FundAdvisory/advisory_engine.py`: `generate_chief_advisor_memo(snapshot, holdings, radar_top3, sentry_rep, **kwargs)` structure, return keys, and fallback behavior.
+   - `AGY2_FundAdvisory/app_gui.py`: `render_chief_advisor_memo_card(memo_data, title=...)` safe HTML rendering and dual mounting (initial screen wing_expander and Tab 1 top).
+   - `AGY2_FundAdvisory/strategy_bridge.py`: `StrategyBridge.run_historical_time_machine_backtest(target_date, tier="C3", capital=100000.0, df=None)` Point-in-Time slicing, subscription fee, daily C-share sales fee, FIFO step-down redemption fees, and benchmark comparisons.
+   - `AGY2_FundAdvisory/app_gui.py`: Tab 3 top time machine UI (4 preset buttons, custom date picker, 4-horizon KPI cards, and Plotly curve).
+2. Run test suites:
+   `py -3 -m pytest tests/test_infra.py`
+   `py -3 -m pytest tests/test_adv_final_closure.py`
+   `py -3 -m pytest tests/test_delta_m1_guardrails.py`
+   `py -3 -m pytest tests/test_g15_phase2_memo_and_timemachine.py`
+3. Deliver a self-contained handoff.md with a definitive qualitative verdict (APPROVE or REQUEST_CHANGES) and send a completion message to parent.

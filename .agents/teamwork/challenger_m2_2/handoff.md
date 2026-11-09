@@ -1,121 +1,173 @@
-# Challenger 2 (Milestone 2) Empirical Review & Stress Test Report
+# 对抗性审查与压力测试交接报告 (Challenger Handoff Report - M2 Phase 2)
 
-## 1. Observation (客观事实与观测数据)
-
-### 1.1 基础设施与物理安全红线验证
-- 验证四大系统只读裁判基建文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）是否被非法触碰或修改。
-- 执行命令与输出：
-  ```powershell
-  cd AGY2_FundAdvisory
-  python -m pytest tests/test_infra.py
-  ```
-  结果：`15 passed in 7.41s`，15 项基础设施与防未来函数校验测试 100% 全部通过。`git status` 显示上述 4 个文件完全 clean。
-
-### 1.2 边界条件 1：`compute_ewma_volatility_and_correlation` 极值与缺损样本
-- 源码定位：`AGY2_FundAdvisory/data_loader.py` 第 436–485 行。
-- 实测输入：
-  1. `df is None`: 触发第 450 行 `if df is None or not hasattr(df, "columns") or len(df) < 10:` 保护，返回长度为 10 的 `pd.Series`（含纯债预设先验 `0.035`/`0.030`，股票 `0.18`）及 $10 \times 10$ 单位相关性矩阵，零异常。
-  2. `df` 为空 `pd.DataFrame()`: 触发第 450 行，安全返回先验波动率与单位矩阵，零异常。
-  3. `df` 行数少于 5 行（实测 1、2、3、4 行）以及 5~9 行：由第 450 行 `len(df) < 10` 拦截并优雅降级为先验分布，零崩溃。
-  4. `df` 虽有 12 行，但前 8 行包含 NaN 使得收益率行数 $<5$：触发第 471 行 `if len(ret_df) < 5:`，成功降级并返回基准先验波动率。
-  5. 20 行完全恒定价格（无方差）：经第 480 行 `ewma_var.clip(lower=1e-8)` 与第 482 行 `ret_df.corr().fillna(0.0)` 保护，年化波动率为正（$0.001587$），无 `ZeroDivisionError` 或 NaN 扩散。
-
-### 1.3 边界条件 2：`calculate_rebalance_net_utility` 金额极值
-- 源码定位：`AGY2_FundAdvisory/portfolio_manager.py` 第 4648–4767 行。
-- 实测输入：
-  1. `amount = 0.0`:
-     - 第 4672 行 `amt = float(max(0.0, amount))` 解析为 `0.0`。
-     - 赎回费、申购费、在途踏空成本均为 `0.0`。
-     - 预期 Alpha 增益为 `0.0`，$\Delta U = 0.0$。
-     - 触发第 4746 行 `should_intercept = bool(delta_u <= min_threshold)` 为 `True`。
-     - 标记徽章：`"🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动"`。
-     - 全程无 `ZeroDivisionError`。
-  2. `amount = -50000.0` (负数):
-     - 第 4672 行强制清洗为 `amt = 0.0`，杜绝负费用、负现金或负持仓倒扣，$\Delta U = 0.0$，安全拦截。
-  3. `amount = 1,000,000,000.0` (十亿巨额):
-     - 跨司调仓计算正常：数值保持有限浮点（`np.isfinite` 为 `True`），在途成本与手续费无溢出。
-     - 同司调仓（T+1 SWITCH）计算正常：`is_same_company = True`，在途踏空成本恒为 `0.0`。
-
-### 1.4 跨境基金 QDII (050025, 001071) 跨司调仓在途时差
-- 源码定位：`AGY2_FundAdvisory/portfolio_manager.py` 第 4718–4726 行。
-- 实测结果：
-  1. 换入博时标普500 (`to_fund_code="050025"`): `delta_t_arrive = 4` 天。
-  2. 换入摩根标普500 (`to_fund_code="001071"`): `delta_t_arrive = 4` 天。
-  3. QDII 互换 (`050025` -> `001071`, 跨司): `delta_t_arrive = 4` 天。
-  4. 对比普通 A 股基金 (`011612`): `delta_t_arrive = 2` 天。
-  5. 在途成本对比：QDII 在途风险折价约为普通国内基金的 $\sqrt{4/250} / \sqrt{2/250} = \sqrt{2} \approx 1.414$ 倍，符合真实金融在途风险模型。
-  6. **单向探测观察**：当转出基金为 QDII (`from_fund_code="050025"`) 而转入基金为普通国内基金 (`to_fund_code="011612"`) 时，第 4718 行因仅探测 `to_meta` 和 `to_code`，返回 `delta_t_arrive = 2`（见 Caveats）。
-
-### 1.5 报单生成与执行安全 (Order Generation & Execution Safety)
-- 源码定位：`AGY2_FundAdvisory/portfolio_manager.py` 第 5064–5065 行与第 5250–5252 行。
-- 实测场景：构造持仓持有刚买入 15 天的 `005561`（A类含赎回费），拟跨司换入 `011612`（现金为 0，触发两阶段换仓），调仓净效用 $\Delta U < 0$：
-  1. `generate_rebalance_plan` 生成结果：
-     - `plan["routes"]` 包含全量规划路径。
-     - `plan["executable_routes"]` **严格过滤排除了被拦截路由**（`len = 0`）。
-     - `plan["intercepted_routes"]` **完整收容被拦截路由**，且路由明确附带 `"🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动"` 徽章。
-  2. `submit_rebalance_orders` 执行安全：
-     - 将 `intercepted_routes` 传入：直接被第 5250 行 `if r.get("should_intercept", False): continue` 拦截，生成报单数为 `0`。
-     - 将全量 `routes` 传入：被拦截路由被二次核验剔除，严禁向 `pending_orders` 生成任何 BUY 单，`pending_orders` 条目数保持零增长。
+- **作者**: `challenger_m2_2` (Empirical Challenger / Critic & Specialist)
+- **目标工程**: `AGY2_FundAdvisory`
+- **对应里程碑**: G15 第二阶段 —— 破除唯算法论：实装「五维投顾首席备忘录」与「历史任意时点盲测时光机」
+- **父会话 ID**: `9a123e21-7525-4c57-9715-710c2a94c199`
+- **审查裁决**: **APPROVE** (通过交付，进入下一阶段)
+- **交接类型**: Hard Handoff (任务完全交付)
 
 ---
 
-## 2. Logic Chain (推理与推导逻辑链)
+## 1. 观察记录 (Observation)
 
-1. **EWMA 算子鲁棒性闭环**:
-   - 观测表明：数据源在生产环境下可能出现短样本、全空、全常量、或部分资产停牌 NaN 等极端情况。
-   - `DataLoader.compute_ewma_volatility_and_correlation` 建立了分层熔断机制：外层拦截 `None` 与 `len(df) < 10`；内层拦截有效收益率 `len(ret_df) < 5`；底层对计算出的方差施加 `clip(lower=1e-8)` 避免零方差导致后续波动率倒数权重除以 0；相关性矩阵使用 `fillna(0.0)` 防御。
-   - 逻辑推论：EWMA 计算算子具备极高数学自愈与防御韧性，不存在运行时崩溃点。
+### 1.1 物理只读安全红线核验
+直接运行 Git 差异与只读裁判文件状态检查：
+```powershell
+git status AGY2_FundAdvisory/judge_engine.py AGY2_FundAdvisory/holdout_vault.py AGENT_SPEC.md tests/test_infra.py
+git diff AGY2_FundAdvisory/data_loader.py
+```
+- **观察结果**:
+  - `AGY2_FundAdvisory/judge_engine.py`: 零变动，SHA256 哈希完全一致；
+  - `AGY2_FundAdvisory/holdout_vault.py`: 零变动；
+  - `AGENT_SPEC.md`: 零变动；
+  - `tests/test_infra.py`: 零变动；
+  - `DataLoader.simulate_execution` (在 `AGY2_FundAdvisory/data_loader.py:1437`):
+    ```python
+    def simulate_execution(
+        weights_df: pd.DataFrame,
+        prices_df: pd.DataFrame,
+        is_otc: bool = True,
+        penalty_days: int = 7,
+        penalty_rate: float = 0.015,
+        etf_impact: float = 0.001
+    ) -> pd.DataFrame:
+    ```
+    入参签名、默认实参及持有满 7 天 1.50% 阶梯扣费逻辑 100% 保持只读状态，未受任何改动。
 
-2. **调仓净效用 $\Delta U$ 与拦截器边界闭环**:
-   - 观测表明：`calculate_rebalance_net_utility` 统一将金额通过 `max(0.0, amount)` 进行防御性归一，无论传入 $0.0$、负数还是十亿级巨资，均能平滑处理。
-   - 净申购算法与在途成本算法中所有除数（如 $1.0 + \text{rate}$、$\sqrt{250}$、$\max(\text{nav}, 0.001)$）均有非零正数保底，数学上彻底根除了 `ZeroDivisionError`。
-   - 当金额为 0 或超额无法覆盖摩擦时，$\Delta U \le 0$ 严格触发 `should_intercept = True`。
-
-3. **执行管线与资金安全闭环**:
-   - 观测表明：`generate_rebalance_plan` 在字典输出层将规划路由严格二分为 `executable_routes` 与 `intercepted_routes`；
-   - 无论前端 UI 展示哪一层，底层的实际报单提交函数 `submit_rebalance_orders` 均挂载了无条件状态守卫 `if r.get("should_intercept", False): continue`，形成双重物理隔离屏障。
-   - 逻辑推论：被拦截换仓指令绝无可能渗透到挂单执行队列，保障了用户账户本金不被劣质换仓磨损。
-
----
-
-## 3. Caveats (注意事项与边界考量)
-
-1. **QDII 转出在途时差单向性判定设计细节**:
-   - 当前在 `portfolio_manager.py` 第 4718 行：
+### 1.2 UI 组件与 CommonMark 4-格缩进泄露对抗观察
+1. `AGY2_FundAdvisory/app_gui.py:249` 实装 `render_chief_advisor_memo_card(memo_data, title=...)`：
+   - 内部统一收口至 `safe_markdown_html(html_code)`，后者由 `_clean_html(html_str)` 进行逐行清洗：
      ```python
-     is_qdii = any(k in to_meta.get("fund_name", "") for k in ["QDII", "标普", "纳斯达克", "海外", "美股"]) or to_code in ["050025", "001071"]
-     delta_t_arrive = 4 if is_qdii else 2
+     lines = [line.strip() for line in html_str.splitlines()]
+     non_empty = [l for l in lines if l]
+     return "\n".join(non_empty)
      ```
-     当前代码主要根据**转入目标标的 (to_fund_code)** 是否为 QDII 来设定 4 天在途时差。
-   - **实盘机理分析**：在公募基金实际赎回流程中，若投资者**卖出赎回 QDII 产品**（如博时标普500），因跨境资金清算，资金赎回到账通常需要 4~6 个工作日，随后才能买入国内基金。若仅依据 `to_fund_code` 判定，当转出方为 QDII 而转入方为国内 A 股基金时，计算出的 `delta_t_arrive` 仅为 2 天。
-   - **影响评估**：这不影响目前 Milestone 2 的功能完整性与测试通过，但在途踏空折价会稍显乐观。建议在 Milestone 3 或后续迭代中扩展为双向判定：`is_qdii = is_to_qdii or is_from_qdii`。
+   - 实测对抗输入含 4 个空格缩进、8 个空格缩进、Tab 制表符缩进及多行空行的 HTML 片段：
+     清洗后所有行的行首空格数为 0，完全消除 CommonMark 将裸 HTML 误判为 `<pre><code>` 灰框代码块的可能。
+   - 对抗测试 HTML 注入与 XSS 载荷（`<script>alert(1)</script>`, `"><img src=x onerror=1>`）：
+     渲染管道安全吸纳，未破坏卡片盒模型与 DOM 结构。
+2. 畸形字典与边缘数据鲁棒性观察：
+   - `memo_data = None` 与 `memo_data = {}`：函数直接返回 `None`，不触发 `st.markdown`，表现优雅；
+   - 缺省部分字段的字典（如仅有 `macro_policy`）：正常渲染可用维度，其余维度缺省为空，不崩溃；
+   - **边缘缺陷发现 (Finding - Low)**：
+     当 `memo_data` 中包含被显式置为 `None` 或非 dict 类型的值时（例如 `{"macro_policy": None}` 或 `{"macro_policy": "not_a_dict"}`），第 256 行 `m_macro = memo_data.get("macro_policy", {})` 返回 `None`，后续第 279 行 `m_macro.get('badge', '')` 会抛出 `AttributeError: 'NoneType' object has no attribute 'get'`。
+     但在实盘调用链路中（`app_gui.py:3194` 与 `app_gui.py:4056`），上层调用均包裹了 `try ... except Exception: pass`，且数据生成端 `generate_chief_advisor_memo` 严格规范输出字典，故未在页面引发白屏，建议后续作为防御性编程予以固化。
+
+### 1.3 历史三大关键拐点盲测实证观察
+通过对抗脚本 `scripts/verify_inflection_points_deep.py` 驱动 `StrategyBridge.run_historical_time_machine_backtest`，对 A 股历史三大关键拐点进行盲测回放：
+1. **2021-02-18 核心资产（茅指数）极端见顶日**:
+   - 当时配置方案权重: `STAR50: 44%, H00300: 10%, H00852: 12%, H00905: 6%, H00922: 6%, AU9999: 14%, SPX_CNY: 6%, H11009: 2%`；
+   - 后续 1 年走势: 沪深300同期暴跌 `-19.69%` (最大回撤 `-20.23%`)；
+   - 投顾真实到手净收益: `-4.31%` (最大回撤 `-12.38%`)，录得 **+15.39% 超额 Alpha**，判定为 `✅ 大幅战胜基准`；
+   - 截至今日全周期: 投顾净收益 `+17.39%` vs 沪深300 `-18.74%` (超额 Alpha **+36.12%**，最大回撤收敛 9.46%)。
+2. **2022-04-26 市场恐慌砸盘双底日**:
+   - 当时配置方案权重: `H00922: 18%, H30269: 12%, AU9999: 20%, H11009: 50%`；
+   - 后续 1 年走势: 沪深300同期 `+7.93%` (最大回撤 `-21.11%`)；
+   - 投顾真实到手净收益: `+11.57%` (最大回撤仅 `-2.91%`)，超额 Alpha `+3.64%`，判定为 `✅ 大幅战胜基准`；
+   - 截至今日全周期: 投顾净收益 `+43.91%` vs 沪深300 `+21.67%`，最大回撤全程锁死在 `-3.81%` (大幅跑赢沪深300的 `-26.58%` 剧烈洗盘)。
+3. **2024-09-18 政策底暴烈反转启动日前夕**:
+   - 当时配置方案权重: `H00922: 18%, H30269: 12%, AU9999: 20%, H11009: 50%`；
+   - 后续 3 个月暴烈反弹: 沪深300同期 `+24.53%`；
+   - 投顾真实到手净收益: `+6.73%` (已完全扣除 0.12% 申购费与 0.35% 赎回费)，最大回撤仅 `-2.84%`，判定为 `🛡️ 回撤显著收敛少亏`。
+
+### 1.4 公募全套摩擦扣除与风险档位单调性
+- **申购费**: `strategy_net_nav` 起始点严格为 `0.998800` (扣除 12 bps 前端申购费)；
+- **日度销售服务费与现金收益**: 每天扣除 `0.5 * 0.40% / 250`，保留 5% 现金产生 `1.8% / 250` 利息；
+- **赎回费阶梯**:
+  - 3M (96天): 扣除 `0.35%` 阶梯赎回费 (`to_pocket_nav = gross_nav * 0.9965`)；
+  - 6M (194天): 扣除 `0.15%` 阶梯赎回费 (`to_pocket_nav = gross_nav * 0.9985`)；
+  - 1Y / 持有至今 (>=365天): 免赎回费 `0.00%`；
+- **风险档位单调性**:
+  在 2024-09-18 反转行情中，C1 至 C5 的净收益呈现严格单调递增：
+  `C1 (+11.84%) < C2 (+14.79%) < C3 (+17.05%) < C4 (+20.54%) < C5 (+21.55%)`，数学逻辑与风险偏好完全自洽。
+- **Plotly 曲线质量**:
+  所有回测输出的 DataFrame 经检验均为有限正数，**0 NaN, 0 Inf**。
+
+### 1.5 测试套件运行结果
+运行全量联合回归测试套件（含 12 项本轮新增对抗用例）：
+```powershell
+py -3 -m pytest tests/test_infra.py tests/test_delta_m1_guardrails.py tests/test_adv_final_closure.py tests/test_g15_phase2_memo_and_timemachine.py tests/test_adversarial_m2_challenger2_timemachine_and_memo.py -q
+```
+- **输出结果**: `53 passed, 34 warnings in 47.11s` (100% PASS)。
 
 ---
 
-## 4. Conclusion (交付结论与评审裁决)
+## 2. 逻辑推导链 (Logic Chain)
 
-- **评审裁决**: **APPROVE (通过)**
-- **裁决理由**:
-  1. 所有指派的极端边界条件与压力测试（None/空/<5行 EWMA、0/负/十亿金额效用计算、QDII 4天跨司时差、拦截路由安全屏障）全部验证通过，表现坚固，零崩溃。
-  2. 4 个系统只读裁判基石文件 100% 完好无损。
-  3. 全量测试套件（既有测试 + M2 新增测试 + 本次 Challenger 2 专项编写的 17 项逆向压力测试，共 111 项）全部通过。
+```
+[Observation 1.1] 4 大裁判文件无改动，DataLoader.simulate_execution 签名与默认扣费完好。
+        ↓ (推导: 物理安全红线零风险，符合准入基线)
+[Observation 1.2] _clean_html 严格过滤首尾空格与空行，CommonMark 4格缩进代码块泄露风险完全消除。
+        ↓ (推导: 前端富文本渲染满足反灰色裸代码泄露红线)
+[Observation 1.3] 历史时点盲测引擎在 2021.02、2022.04、2024.09 真实还原了公募大盘与投顾实操：
+                  - 2021 高位防守减亏，超额 Alpha 达 +15.39%；
+                  - 2022 底部建仓稳健，1年收益 +11.57% 且回撤低于 3%；
+                  - 2024 反转稳吃红利，3M 净收益达 +6.73%。
+        ↓ (推导: 投顾策略经受住历史三大拐点实证考验，不存在后视镜未来函数造假)
+[Observation 1.4] 申购费 (0.12%)、日度销售费、阶梯赎回费 (<7d 1.5%, <30d 0.5%, <180d 0.35%, <365d 0.15%) 与 C1~C5 收益单调性分厘无误。
+        ↓ (推导: 公募交易摩擦扣除真实、严谨，满足买方投顾净到手真实性)
+[Observation 1.5] 全套 53 项自动化测试与对抗套件 100% 绿灯。
+        ↓ (结论)
+[Final Verdict] Milestone 2 实装全面满足需求与工程质量要求，裁决 APPROVE。
+```
 
 ---
 
-## 5. Verification Method (独立复现与验证方法)
+## 3. 对抗性审查报告 (Challenge Report)
 
-在工作区 `d:\Google\Workspace\Wind\AGY2_FundAdvisory` 下运行以下命令即可 100% 独立复现全部验证结果：
+### 3.1 总体风险评估
+**Overall risk assessment**: **LOW** (工程实现完整、边界清晰、金融实证自洽)
+
+### 3.2 挑战项复核 (Challenges)
+
+#### [Low] Challenge 1: 备忘录组件在非 dict 子字段下的异常抵抗
+- **挑战假设**: `render_chief_advisor_memo_card` 假设 `memo_data` 的各子字段均为字典或缺省，若传入 `{"macro_policy": None}` 或 `{"macro_policy": "error"}` 可能引发异常。
+- **攻击实测**: 直接传入畸形值导致抛出 `AttributeError: 'NoneType' object has no attribute 'get'`。
+- **爆炸半径**: 仅在外部绕过主算子直接向卡片传入被篡改的缓存对象时触发。实际生产代码中已有 `try-except` 兜底，首屏与 Tab 1 不会崩溃。
+- **改进建议**: 在 `render_chief_advisor_memo_card` 内部为 `m_macro`, `m_intl`, `m_ind`, `m_path`, `m_act` 增加 `if isinstance(..., dict) else {}` 防护。
+
+#### [Passed] Challenge 2: CommonMark 4-空格灰框代码块泄露
+- **挑战假设**: 前端拼接的 HTML 在嵌套缩进或换行时产生 $\ge 4$ 个空格，导致 Streamlit 解析为 Markdown 代码块。
+- **攻击实测**: 注入多层缩进、换行及 Tab 字符，经 `_clean_html` 统一收口，所有行首空格被完全剥离，验证 100% 免疫。
+
+#### [Passed] Challenge 3: 盲测时光机未来函数与样本边界溢出
+- **挑战假设**: 输入极端日期（如数据不足 60 天的早期日期或超越当前最新行情的未来日期）引发矩阵索引越界崩溃。
+- **攻击实测**: 输入 2018-01-05 与 2027-01-01 均确定性抛出 `ValueError`，UI 端通过 `st.error` 优雅提示，未发生未捕获异常。
+
+---
+
+## 4. 局限与注意事项 (Caveats)
+
+1. **非交易日日期自动顺延**:
+   - 若用户在自定义日期中选择周末或节假日（如 2024-09-15 中秋节），切片逻辑会自然对齐至休市前最后一个交易日计算过去权重，并从开市后第一个交易日（2024-09-18）开始前推回测，实测逻辑正常。
+2. **第三阶段任务隔离**:
+   - 手机持仓长图无损切片（`slice_long_screenshot_for_ocr`）与 29 基真实存量账本（`combat_29_funds`）属于 Milestone 3 范围，本轮核验未涉及其实现细节。
+
+---
+
+## 5. 结论与裁决 (Conclusion)
+
+- **终局裁决**: **APPROVE** (批准通过)
+- **核心成果**:
+  1. 五维首席投顾备忘录算子及前端卡片同源挂载成功，CommonMark 4-格缩进代码块防御有效；
+  2. 历史任意时点盲测时光机完成严格 Point-in-Time 零未来函数回放与全套公募交易摩擦精算，在 2021.02、2022.04、2024.09 三大历史拐点展现出卓越的买方防守与反转捕获能力；
+  3. 4 大只读裁判文件与 `DataLoader.simulate_execution` 100% 保持只读；
+  4. 53 项全回归测试套件 100% 绿灯通过。
+
+---
+
+## 6. 独立验证方法 (Verification Method)
+
+任何智能体或评审人员可通过以下命令进行独立复核：
 
 ```powershell
-cd d:\Google\Workspace\Wind\AGY2_FundAdvisory
+# 1. 运行 Milestone 2 专用对抗压力测试套件 (12 passed)
+py -3 -m pytest tests/test_adversarial_m2_challenger2_timemachine_and_memo.py -v
 
-# 1. 执行本次 Challenger 2 编写的 17 项对抗边界与极限压测
-python -m pytest tests/test_adversarial_m2_challenger2.py -v
+# 2. 运行历史拐点深度实证验证脚本
+py -3 scripts/verify_inflection_points_deep.py
 
-# 2. 执行 M2 全量优化与对抗测试集 (26 项)
-python -m pytest tests/test_m2_r4_r5_optimization.py tests/test_adversarial_m2_challenger2.py -v
-
-# 3. 执行系统基石与业务回归测试 (82 项 + 29 项)
-python -m pytest tests/test_trading_clock_fee.py tests/test_portfolio_manager.py tests/test_infra.py tests/test_strategy_bridge.py tests/test_m2_r4_r5_optimization.py tests/test_adversarial_m2_challenger2.py -q
-python -m pytest tests/test_stress_quant_model_challenger.py tests/test_dynamic_risk_and_metrics.py -q
+# 3. 运行全套 53 项联合回归门禁测试
+py -3 -m pytest tests/test_infra.py tests/test_delta_m1_guardrails.py tests/test_adv_final_closure.py tests/test_g15_phase2_memo_and_timemachine.py tests/test_adversarial_m2_challenger2_timemachine_and_memo.py -q
 ```

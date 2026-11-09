@@ -166,11 +166,150 @@ class MultiLedgerManager:
             main_item = self._get_default_main_meta()
 
         final_ledgers = [main_item] + cleaned_ledgers
+
+        # 确保预置实战存量组合（29只·¥2.66万）存在
+        combat_item = next((l for l in final_ledgers if l.get("id") == "combat_29_funds"), None)
+        combat_json_path = self.ledgers_dir / "combat_29_funds.json"
+        if not combat_item or not combat_json_path.exists():
+            combat_meta = self._init_preset_combat_29_ledger()
+            if not combat_item:
+                final_ledgers.append(combat_meta)
+            else:
+                for idx, l in enumerate(final_ledgers):
+                    if l.get("id") == "combat_29_funds":
+                        final_ledgers[idx] = combat_meta
+                        break
+
         data["ledgers"] = final_ledgers
         if "active_ledger_id" not in data or not any(l.get("id") == data["active_ledger_id"] for l in final_ledgers):
             data["active_ledger_id"] = "main_live"
 
         self._write_index(data)
+
+    def _init_preset_combat_29_ledger(self) -> Dict[str, Any]:
+        """预置用户真实的 29 只基金实战存量账本 (¥26,615.10)"""
+        combat_json_path = self.ledgers_dir / "combat_29_funds.json"
+        combat_db_path = self.ledgers_dir / "combat_29_funds.db"
+
+        # 29 只基金明细 (7 核心 + 3 腰部 + 19 尾部碎片)
+        # 精确平账至 26,615.10 元，持有天数统一 400 天 (>365天免赎)
+        raw_items = [
+            # 7 大核心持仓 (¥25,128.29)
+            ("005561", "创金合信中证红利低波动指数A", "A", 5681.55, 112.88, 5568.67, "创金合信基金", True, "核心策略底仓"),
+            ("110020", "易方达沪深300ETF联接A", "A", 5279.05, 137.52, 5141.53, "易方达基金", True, "核心策略底仓"),
+            ("017436", "华安纳斯达克100ETF联接A", "A", 4536.85, 54.91, 4481.94, "华安基金", True, "核心策略底仓"),
+            ("002351", "易方达裕祥回报债券A", "A", 4101.71, -48.89, 4150.60, "易方达基金", True, "纯债压舱石"),
+            ("100032", "富国中证红利指数增强A", "A", 2432.90, -332.54, 2765.44, "富国基金", True, "红利增强龙头"),
+            ("011613", "华夏上证科创板50成份ETF联接C", "C", 2072.52, -428.48, 2501.00, "华夏基金", True, "科创成长进攻"),
+            ("000216", "华安黄金ETF联接A", "A", 1023.71, 34.81, 988.90, "华安基金", True, "黄金对冲底仓"),
+            # 3 只腰部持仓 (¥1,044.11)
+            ("161725", "招商中证白酒指数(LOF)A", "A", 524.24, -175.76, 700.00, "招商基金", False, "消费行业主题"),
+            ("000217", "华安黄金ETF联接C", "C", 395.73, 16.93, 378.80, "华安基金", False, "黄金配置C类"),
+            ("005827", "易方达蓝筹精选混合", "A", 124.14, -23.86, 148.00, "易方达基金", False, "主动偏股蓝筹"),
+            # 19 只碎片尾仓 (¥442.70，单只 < 200元，满400天免赎)
+            ("016634", "富国中证1000ETF联接C", "C", 89.60, -10.40, 100.00, "富国基金", False, "微盘宽基尾仓"),
+            ("001053", "华夏中证500ETF联接C", "C", 76.00, -24.00, 100.00, "华夏基金", False, "中盘宽基尾仓"),
+            ("050025", "博时标普500ETF联接A", "A", 52.07, 2.07, 50.00, "博时基金", False, "海外美股尾仓"),
+            ("002352", "易方达裕祥回报债券C", "C", 50.00, 0.00, 50.00, "易方达基金", False, "固收稳健尾仓"),
+            ("016441", "华夏中证红利质量ETF联接C", "C", 44.56, -5.44, 50.00, "华夏基金", False, "红利质量尾仓"),
+            ("013841", "银华集成电路混合C", "C", 42.07, -24.25, 66.32, "银华基金", False, "芯片科技尾仓"),
+            ("012832", "南方中证新能源ETF联接C", "C", 34.50, -15.50, 50.00, "南方基金", False, "新能源主题尾仓"),
+            ("012769", "华夏中证动漫游戏ETF联接C", "C", 28.67, -21.33, 50.00, "华夏基金", False, "动漫游戏主题尾仓"),
+            ("008682", "富国中证红利指数增强C", "C", 8.98, -1.02, 10.00, "富国基金", False, "红利增强C类尾仓"),
+            ("011612", "华夏上证科创板50成份ETF联接A", "A", 3.95, -1.05, 5.00, "华夏基金", False, "科创50A类尾仓"),
+            ("002611", "博时黄金ETF联接C", "C", 2.10, 0.10, 2.00, "博时基金", False, "黄金红包尾仓"),
+            ("019260", "富国周期优势混合A", "A", 1.85, -0.15, 2.00, "富国基金", False, "周期优势红包尾仓"),
+            ("000086", "华夏中小板ETF联接A", "A", 1.50, -0.50, 2.00, "华夏基金", False, "中小板体验金尾仓"),
+            ("018757", "招商中证红利ETF联接C", "C", 1.35, -0.65, 2.00, "招商基金", False, "红利红包尾仓"),
+            ("001071", "摩根标普500指数A", "A", 1.25, 0.25, 1.00, "摩根基金", False, "美股红包尾仓"),
+            ("006113", "汇添富中证红利低波动指数C", "C", 1.15, -0.85, 2.00, "汇添富基金", False, "红利低波红包尾仓"),
+            ("004854", "广发中证500ETF联接C", "C", 1.45, -0.55, 2.00, "广发基金", False, "中证500体验金尾仓"),
+            ("001595", "华安安顺灵活配置混合", "A", 1.06, -0.94, 2.00, "华安基金", False, "混合基金红包尾仓"),
+            ("001551", "天弘中证500ETF联接C", "C", 0.59, -0.41, 1.00, "天弘基金", False, "天弘体验金零头尾仓"),
+        ]
+
+        holdings_list = []
+        for code, name, s_cls, mv, pnl, cost_b, comp, is_core, tag in raw_items:
+            nav = 1.0000
+            sh = round(mv / nav, 4)
+            cp = round(cost_b / sh, 4) if sh > 0 else nav
+            pnl_pct = round((pnl / cost_b) * 100.0, 2) if cost_b > 0 else 0.0
+
+            holdings_list.append({
+                "fund_code": code,
+                "fund_name": name,
+                "share_class": s_cls,
+                "shares": sh,
+                "cost_price": cp,
+                "current_nav": nav,
+                "market_value": round(mv, 2),
+                "cost_basis": round(cost_b, 2),
+                "floating_pnl": round(pnl, 2),
+                "floating_pnl_pct": pnl_pct,
+                "first_buy_date": "2024-01-05",
+                "dividend_method": "cash" if s_cls == "A" else "reinvest",
+                "batches": [
+                    {
+                        "batch_id": f"B_COMBAT_{code}_001",
+                        "buy_date": "2024-01-05",
+                        "shares": sh,
+                        "cost_nav": cp,
+                        "fee": 0.0,
+                        "holding_days": 400,
+                        "safety_lock": False,
+                        "notes": "实战存量批次(满400天免赎)"
+                    }
+                ],
+                "company": comp,
+                "is_core_strategy": is_core,
+                "transition_tag": tag,
+                "rebalance_intent": "normal",
+                "cost_nav": cp
+            })
+
+        tot_mv = round(sum(h["market_value"] for h in holdings_list), 2)
+        avail_cash = 1000.0
+        tot_eq = round(tot_mv + avail_cash, 2)
+
+        payload = {
+            "version": "AGY2_PORTFOLIO_V2",
+            "takeover_mode": "B",
+            "baseline_date": "2024-01-05",
+            "baseline_equity": tot_eq,
+            "available_cash": avail_cash,
+            "in_transit_cash": 0.0,
+            "reserved_batch_cash": 0.0,
+            "total_market_value": tot_mv,
+            "total_equity": tot_eq,
+            "peak_equity": tot_eq,
+            "max_drawdown_pct": 0.0,
+            "benchmark_code": "000300.SH",
+            "benchmark_baseline_nav": 1.0,
+            "benchmark_current_nav": 1.0,
+            "portfolio_return_pct": 0.0,
+            "benchmark_return_pct": 0.0,
+            "alpha_return_pct": 0.0,
+            "holdings": holdings_list,
+            "pending_orders": [],
+            "staged_batch_plans": []
+        }
+
+        with open(combat_json_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        meta = {
+            "id": "combat_29_funds",
+            "name": "实战存量组合（29只·¥2.66万）",
+            "type": "live",
+            "file": "data/ledgers/combat_29_funds.json",
+            "db_file": "data/ledgers/combat_29_funds.db",
+            "default_tier": "C3",
+            "is_protected": False,
+            "created_at": "2024-01-05 00:00:00",
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "description": "真实个人基民存量持仓（29只，含7大核心+3只腰部+19只碎片尾仓，成立满1年以上）"
+        }
+        return meta
 
     def list_ledgers(self) -> List[Dict[str, Any]]:
         """获取全量账本元数据列表，确保 main_live 始终置顶且受物理保护"""

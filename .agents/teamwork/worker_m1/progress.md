@@ -1,17 +1,14 @@
-# Progress Log - Worker M1
+# Progress Tracker — worker_m1
 
-**Last visited**: 2026-11-03T15:06:00Z
-**Current status**: Implementing Milestone 1 changes across `portfolio_manager.py`, `strategy_bridge.py`, and `app_gui.py`.
+Last visited: 2026-11-09T16:16:30Z
 
-## Steps
-- [x] Create workspace files (DISPATCH.md, BRIEFING.md, progress.md)
-- [x] Read ORIGINAL_REQUEST.md, PROJECT.md, and Explorer reports
-- [x] Check baseline test execution (7 passed in 81.59s)
-- [x] Inspect target code in `app_gui.py`, `portfolio_manager.py`, `strategy_bridge.py`
-- [x] Plan implementation details step-by-step
-- [x] Implement in `portfolio_manager.py`: `replace_restricted_funds_with_alternatives`, `min_purchase_limit` in `generate_zero_start_blueprint`, and `norm_buffer` in `generate_rebalance_plan`
-- [x] Implement in `strategy_bridge.py`: `purchase_limit_filter` in `compute_n_funds_model_portfolio` and `generate_zero_start_blueprint`; `min_buffer_pct` in `evaluate_today_rebalance_suitability` and `simulate_rebalance_modes_and_consequences`
-- [x] Implement in `app_gui.py`: R1 CSS upgrade, R1 Redline unification, global state pre-initialization, R2 sidebar controller with button[0] as demo combo, Tab 1 params, and Tab 2 rebalance buffer passing
-- [ ] Complete remaining buffer references in Tab 2 execution buttons (`app_gui.py`)
-- [ ] Run test suite (`test_deep_remodel_final.py` & delta tests)
-- [ ] Finalize handoff.md and send completion message to orchestrator
+## Status: IN_PROGRESS
+- [x] Read DISPATCH.md, ORIGINAL_REQUEST.md, PROJECT.md, and explorer_g15_survey_1/handoff.md
+- [x] Baseline test verification: `test_infra.py` (14/14 pass), `test_adv_final_closure.py` (14/14 pass)
+- [x] Step 1: Chart Vanity Removal (app_gui.py - `render_monte_carlo_stress_table` implemented, 3D surface chart replaced, alias preserved; Tab 2 caller updated without expander nesting; Factor Evolver RuleTree `st.code` replaced with 2D parameter mechanism table)
+- [/] Step 2: Right-Wing Alert Sentry Bug (app_gui.py - in progress: badge color, desc/action extraction, sorting)
+- [ ] Step 3: Tab 2 DataFrame Column Headers & Buttons Layout (app_gui.py - format_micro_execution_slices_df, remove duplicate button, organize top toolbar)
+- [ ] Step 4: Tab 4 Secondary Navigation & Fund Name Consistency (app_gui.py - segmented control, portfolio_manager.py & strategy_bridge.py - 017436 name unification, eliminate 存量标的_XXXXXX & false 7-day lock-ins)
+- [ ] Step 5: Mobile View Toggle & 3 Single-Column Cards (app_gui.py - app_view_layout_mode)
+- [ ] Step 6: Test suite verification (test_infra.py & test_adv_final_closure.py)
+- [ ] Step 7: Handoff report & message orchestrator

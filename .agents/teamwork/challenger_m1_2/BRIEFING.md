@@ -1,75 +1,59 @@
-# BRIEFING — 2026-11-04T10:35:00Z
+# BRIEFING — 2026-11-09T17:30:00Z
 
 ## Mission
-Adversarially challenge and stress-test Milestone 1 (M1) Worker Prod deliverables: Screener Candidate Pool Boundary & 0-row cache pollution defense, Fund Liquidation Risk Boundary (<0.5亿 vs >=0.5亿 in portfolio_optimizer.py), and GUI Geometry & CSS Invariants (.index-pill-val-badge, .val-*, GEMINI.md Rules 14 & 15).
+Adversarial challenge and empirical verification of Milestone 1 changes (Monte Carlo stress table rendering, micro-execution slices DataFrame formatting, Right-Wing Alert Sentry sorting & deduplication, 017436 fund resolution, test suite execution, and edge-case probing).
 
 ## 🔒 My Identity
-- Archetype: EMPIRICAL CHALLENGER
+- Archetype: challenger
 - Roles: critic, specialist
-- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_2
-- Original parent: 5fd996d1-bc98-447a-9f35-c5aef5be2e1c
-- Milestone: Milestone 1 (M1)
+- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_2\
+- Original parent: 9a123e21-7525-4c57-9715-710c2a94c199
+- Milestone: Milestone 1
 - Instance: 2 of 2
-- Current Task Dispatcher: 7eb668ae-6843-4834-9b3d-3455ac86af88
-- Active Parent (2026-11-04): c98181d5-8d61-4839-8d62-5dbcef7c85af
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code (`AGY2_FundAdvisory/strategy_bridge.py` or any production source).
-- Never trust claims without running verification code yourself.
-- `.agents/teamwork/` must contain only metadata — source, tests, or data there is a violation.
-- All tests and stress scripts must run cleanly without uncaught exceptions causing production crashes.
-- Issue a clear verdict: APPROVE or REJECT.
-- Strictly adhere to GEMINI.md rules (Rules 14 & 15 geometry invariants, Rule 10/14 powershell execution).
+- Review-only — do NOT modify implementation code
+- Must empirically run all tests and adversarial test harnesses myself
+- Zero unverified claims; definitive verdict: APPROVE or REJECT
 
 ## Current Parent
-- Conversation ID: c98181d5-8d61-4839-8d62-5dbcef7c85af
-- Updated: 2026-11-04T10:35:00Z
+- Conversation ID: 9a123e21-7525-4c57-9715-710c2a94c199
+- Updated: not yet
 
 ## Review Scope
 - **Files to review**:
-  * `AGY2_FundAdvisory/market_screener.py` & `AGY2_FundAdvisory/cache_manager.py` (Candidate pool & 0-row cache defense)
-  * `AGY2_FundAdvisory/portfolio_optimizer.py` (Order sheet liquidation risk alerting < 0.5亿 vs >= 0.5亿)
-  * `AGY2_FundAdvisory/app_gui.py` (.index-pill-val-badge, .val-*, GEMINI.md Rules 14 & 15 geometry)
-- **Interface contracts**: `PROJECT.md`, `ORIGINAL_REQUEST.md`, `worker_prod_m1/handoff.md`, `GEMINI.md`
-- **Review criteria**:
-  1. Screener candidate pool quality: returns >= 7,000 valid candidates; empty DataFrame saving blocked; corrupted 0-row disk parquet rejected.
-  2. Fund liquidation boundary: AUM < 0.5亿 triggers `🚨【清盘预警】规模仅 {aum:.2f} 亿` in execution suggestions; AUM >= 0.5亿 (including boundary 0.50) has ZERO false positives; resilient to metadata lookup failure.
-  3. GUI geometry & CSS: `.index-pill-val-badge` and `.val-*` correctly defined with theme variable bindings; `.index-ticker-pill` has `flex: 0 0 auto !important` and `white-space: nowrap !important`; `.index-pills-scroll-wrap` has `overflow-x: auto !important` and `overflow-y: hidden;` adhering to GEMINI.md Rules 14 & 15.
-
-## Key Decisions Made
-- [2026-11-04] Verified baseline referee files SHA-256 hashes: 100% untouched and identical to baseline.
-- [2026-11-04] Implemented adversarial test suite `AGY2_FundAdvisory/tests/test_adversarial_m1_2_prod_screener_liquidation_gui.py` containing 11 test cases across all three challenge areas.
-- [2026-11-04] Empirically confirmed:
-  * Candidate pool contains 7,362 unique valid funds (>= 7,000 required).
-  * `save_candidate_pool` with empty DataFrame, empty schema DataFrame, and `None` strictly blocked from disk.
-  * Corrupted 0-row disk parquets return `None` preventing downstream 0-row contamination.
-  * `order_sheet` correctly injects `🚨【清盘预警】规模仅 {aum:.2f} 亿` for AUM < 0.5亿, with zero false positives for AUM >= 0.50亿.
-  * CSS classes `.index-pill-val-badge` and `.val-*` are scoped and bound; GEMINI.md Rules 14 & 15 geometry invariants are 100% satisfied.
-- [2026-11-04] Discovered 1 edge case observation: If `FundMetadataManager` returns `{"liquidation_risk": True, "aum": None}`, formatting `f"{_aum:.2f}"` raises `TypeError` which is caught by `except Exception: pass`, resulting in the alert being omitted rather than printing a fallback AUM message.
-- [2026-11-04] Verdict: APPROVE.
-
-## Artifact Index
-- `.agents/teamwork/challenger_m1_2/DISPATCH.md` — Incoming task assignment
-- `.agents/teamwork/challenger_m1_2/BRIEFING.md` — Situational awareness
-- `.agents/teamwork/challenger_m1_2/progress.md` — Execution heartbeat
-- `.agents/teamwork/challenger_m1_2/handoff.md` — Final empirical handoff report & verdict
-- `AGY2_FundAdvisory/tests/test_adversarial_m1_2_prod_screener_liquidation_gui.py` — Adversarial test harness (11 test cases)
+  - `AGY2_FundAdvisory/app_gui.py`
+  - `AGY2_FundAdvisory/portfolio_manager.py`
+  - `AGY2_FundAdvisory/strategy_bridge.py`
+  - `tests/test_delta_m1_guardrails.py`
+  - `tests/test_infra.py`
+  - `tests/test_adv_final_closure.py`
+  - `tests/test_challenger_m1_2_empirical.py`
+- **Interface contracts**: `PROJECT.md`, `ORIGINAL_REQUEST.md`
+- **Review criteria**: robustness, edge cases, no regressions, layout invariants, no 3D plotly surfaces
 
 ## Attack Surface
 - **Hypotheses tested**:
-  * Candidate pool size >= 7,000 valid funds: CONFIRMED (7,362 funds, 0 nulls, 0 duplicates, valid 6-digit codes)
-  * `save_candidate_pool` empty DataFrame pollution defense: CONFIRMED (empty DF and None blocked from disk)
-  * `get_candidate_pool` 0-row disk parquet defense: CONFIRMED (df.empty returns None)
-  * Liquidation alert triggered on AUM < 0.5亿: CONFIRMED (prepends `🚨【清盘预警】规模仅 {aum:.2f} 亿`)
-  * Liquidation alert avoids false positives on AUM >= 0.5亿 (boundary 0.50): CONFIRMED (no alert on 0.50, 0.51, 12.5)
-  * Order sheet resilience when metadata lookup fails: CONFIRMED (handled gracefully via try/except)
-  * CSS `.index-pill-val-badge` and `.val-*` definitions and theme bindings: CONFIRMED (.val-mid binds var(--bg-surface), etc.)
-  * GEMINI.md Rule 14 & 15 geometry invariants: CONFIRMED (min-height, gap >= 8px, flex: 0 0 auto !important, white-space: nowrap !important, overflow-x: auto !important)
+  - `render_monte_carlo_stress_table` resilience on None, empty, missing scenarios, extreme drawdowns, non-dict liquidation days: PASSED.
+  - `format_micro_execution_slices_df` resilience on empty, partial, non-numeric, and Chinese header preservation: PASSED.
+  - Right-Wing Alert Sentry case-insensitivity, red/critical top sorting, scale check deprioritization, desc/detail fallback: PASSED.
+  - `017436` canonical name resolution across PM, Bridge, UI, and rebalance 7-day penalty lock defense: PASSED.
+  - Physical referee files integrity: PASSED.
 - **Vulnerabilities found**:
-  * Edge case: If `_meta` has `"liquidation_risk": True` but `"aum": None`, `f"{_aum:.2f}"` in `portfolio_optimizer.py` line 1458 raises `TypeError` which is caught by `try...except`, causing the warning to be swallowed instead of displaying `规模未知`. (Low severity / defense-in-depth recommendation for M3).
-- **Untested angles**: None within M1 scope.
+  - None in implementation code.
+  - Noted test fragility in prior challenger test suite regarding pandas DataFrame float inference on None values and dynamic date calculation for holding days (addressed in `test_challenger_m1_2_empirical.py`).
+- **Untested angles**: All target mission areas empirically verified and stressed.
 
 ## Loaded Skills
-- **Source**: `d:\Google\Workspace\Wind\.agents\skills\lidaxiao-advisory\SKILL.md`
-- **Local copy**: `d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_2\lidaxiao_skill.md`
-- **Core methodology**: 李大霄投资四面体、黑五类排雷、微小盘迷你基清盘风险防范与安全边际
+None required.
+
+## Key Decisions Made
+- Executed all required test suites (`test_infra.py`, `test_adv_final_closure.py`, `test_delta_m1_guardrails.py`).
+- Authored and executed dedicated 19-case empirical adversarial test harness `tests/test_challenger_m1_2_empirical.py` (all passed).
+- Final verdict: APPROVE.
+
+## Artifact Index
+- `DISPATCH.md` — Incoming task prompt
+- `BRIEFING.md` — Persistent agent memory
+- `progress.md` — Liveness heartbeat
+- `handoff.md` — Final challenge report

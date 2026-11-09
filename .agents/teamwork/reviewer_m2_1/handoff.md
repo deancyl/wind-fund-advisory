@@ -1,132 +1,139 @@
-# Reviewer 1 (Milestone 2) Review & Adversarial Challenge Report
+# G15 第二阶段独立审查与对抗性挑战报告 (Handoff Report - Phase 2)
 
-## Review Summary
-**Verdict**: **APPROVE**
+- **审查员**: `reviewer_m2_1` (Reviewer & Adversarial Critic)
+- **被审查对象**: `worker_m2`
+- **任务目标**: G15 Generation Milestone 2 (Phase 2): "破除唯算法论：实装五维投顾首席备忘录与历史任意时点盲测时光机"
+- **父会话 ID**: `9a123e21-7525-4c57-9715-710c2a94c199`
+- **交接类型**: Hard Handoff (审查完全交付)
+- **审查结论**: **APPROVE (完全批准)**
 
 ---
 
-## 1. Observation (客观事实与观测数据)
+## 1. 观察记录 (Observation)
 
-### 1.1 文件变更与物理安全红线检查
-- **变更文件范围**:
-  - `AGY2_FundAdvisory/data_loader.py` (新增行 435–484，实现 `DataLoader.compute_ewma_volatility_and_correlation`)
-  - `AGY2_FundAdvisory/strategy_bridge.py` (新增行 134–149 `FUND_TO_PROXY_INDEX`、行 3544–3648 波动率倒数配权、纯债压舱石转移与 C1–C5 严格区间投影)
-  - `AGY2_FundAdvisory/portfolio_manager.py` (新增行 3768–3786 同司转换便利度加分、行 4648–4767 `calculate_rebalance_net_utility` 净效用精算、行 4996–5025 路由拦截标记、行 5250–5253 拦截过滤)
-  - `AGY2_FundAdvisory/tests/test_m2_r4_r5_optimization.py` (新增 9 项专用单元测试)
-- **4 大系统只读裁判基建文件**:
-  - `AGY2_FundAdvisory/judge_engine.py` (UNTOUCHED, `git diff` 为空)
-  - `AGY2_FundAdvisory/holdout_vault.py` (UNTOUCHED, `git diff` 为空)
-  - `AGY2_FundAdvisory/AGENT_SPEC.md` (UNTOUCHED, `git diff` 为空)
-  - `AGY2_FundAdvisory/tests/test_infra.py` (UNTOUCHED, `git diff` 为空)
+### 1.1 物理安全红线核验 (Physical Safety Redlines)
+1. **4 大只读裁判文件 SHA/Git Diff 核验**:
+   - 目标文件: `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`
+   - 执行命令: `git diff HEAD -- judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py`
+   - 观察结果: 返回为空（退出码 0），上述 4 个文件 100% 未触碰、哈希完全一致。
+2. **基线执行仿真算子锁定核验**:
+   - 目标函数: `AGY2_FundAdvisory/data_loader.py` 行 1437 处 `DataLoader.simulate_execution`
+   - 执行命令: `git diff HEAD -- AGY2_FundAdvisory/data_loader.py`
+   - 观察结果: 返回为空（退出码 0），函数默认签名 `(weights_df, prices_df, is_otc=True, penalty_days=7, penalty_rate=0.015, etf_impact=0.001)` 及扣费逻辑绝对锁定，零篡改。
 
-### 1.2 独立自动化测试执行结果
-执行命令：
+### 1.2 生产代码实现观察 (Production Code Inspection)
+1. **五维全息投顾首席备忘录算子** (`AGY2_FundAdvisory/advisory_engine.py` 行 4137-4351):
+   - 实装 `generate_chief_advisor_memo(snapshot=None, holdings=None, radar_top3=None, sentry_rep=None, **kwargs)`；
+   - 完整输出五大核心决策维度：
+     - `macro_policy`: 包含 `cgb_10y` (1.6258%), `dr007` (1.389%), `dr007_bp` (-11.1 bp), `erp_pct` (81.9%), `badge` 与解读文本；
+     - `international_fx`: 包含 `usdcnh_rate` (7.2450), `usdcnh_chg`, `gold_price` (¥628.5/g), `nasdaq_chg`, 提示跨境 QDII 溢价与汇率双向波动风险；
+     - `industry_valuation`: 输出低估值黄金击球区（Top 3 机会赛道与高股息纯债）与超买拥挤区（乖离率 > 6%、拥挤度 < 60）；
+     - `portfolio_pathology`: 遍历持仓，精准识别浮亏超 10% 的核心亏损拖累源、金额小于 ¥200 的长尾碎片尾仓及单标集中度超 35% 风险；
+     - `action_directive`: 结合均线负乖离与估值温度定调今日 14:30 尾盘行动准则（如“逆向定投吸筹”、“维持底仓吃息”或“逢高适度止盈”），重申未满 7 天 1.5% 惩罚费红线；
+   - 容错与优雅降级: 遇输入为 `None` 或 `{}` 时平滑回退，网络离线时平滑读取 snapshot 或静态基线；
+   - 导出别名: `get_chief_advisor_memo` 与 `OpportunityRadarEngine.generate_chief_advisor_memo` 均已就绪。
+2. **买方参谋备忘录前端同源卡片与双向挂载** (`AGY2_FundAdvisory/app_gui.py`):
+   - 行 249-329 实装 `render_chief_advisor_memo_card(memo_data, title=...)`，统一收口至 `safe_markdown_html`，通过 `_clean_html` 彻底剥离行首行尾空格，物理防御 CommonMark 4+ 空格缩进代码块泄露；
+   - 行 3193-3204 成功挂载于首屏 `wing_expander` 投顾参谋展开区顶栏；
+   - 行 4055-4066 成功挂载于 Tab 1「🌱 新资建仓」方案与核心指标条上方，实现同源双向渲染。
+3. **历史任意时点盲测时光机引擎** (`AGY2_FundAdvisory/strategy_bridge.py` 行 7194-7352):
+   - 实装 `StrategyBridge.run_historical_time_machine_backtest(target_date, tier="C3", capital=100000.0, df=None)`；
+   - **严格 Point-in-Time 零未来数据泄露**:
+     `hist_slice = df[df_dates <= dt_target].copy()`
+     仅利用历史切片调用 `strategy_fn_for_tier(hist_slice, tier=tier)` 重演当时权重；
+   - **全额公募交易摩擦精算**:
+     - 初始净值扣除 0.12% 申购费 (`init_nav = 1.0 * (1 - 0.0012) = 0.9988`)；
+     - 日度计提 0.40% C 类销售服务费与 5% 现金管理缓冲（1.8% 年化收益）；
+     - 退出时按持有自然日严格执行公募 FIFO 阶梯赎回费（`<7d`: 1.50%, `<30d`: 0.50%, `<180d`: 0.35%, `<365d`: 0.15%, `>=365d`: 0.00%）；
+   - 输出 3M(63d), 6M(126d), 1Y(252d), 持有至今(全量) 的真实到手净收益率、最大回撤、同期沪深 300 / 股债 50/50 基准收益及超额 Alpha。
+4. **Tab 3 顶部时光机盲测界面** (`AGY2_FundAdvisory/app_gui.py` 行 6670-6759):
+   - 置顶展示 `st.expander("🕰️ 历史任意时点时光机盲测验证（检验投顾真赚钱能力）", expanded=True)`；
+   - 提供 4 大快捷预设按钮（`🔥 2024.09 底部反转前`, `😱 2022.04 恐慌砸盘底`, `🏔️ 2021.02 核心资产见顶日`, `📅 1年前今日`）与 `st.date_input` 自定义日期选择器；
+   - 响应式渲染 4 周期到手净收益与最大回撤指标卡，并调用 Plotly 渲染全扣费净值与沪深300/股债平衡基准对比走势图。
+
+### 1.3 自动化测试与对抗性实测结果
+1. **只读裁判测试**: `py -3 -m pytest tests/test_infra.py -v` -> **14 passed** in 6.45s.
+2. **回归基线测试**: `py -3 -m pytest tests/test_adv_final_closure.py -v` -> **14 passed** in 34.66s.
+3. **M1 保护伞测试**: `py -3 -m pytest tests/test_delta_m1_guardrails.py -v` -> **5 passed** in 20.76s.
+4. **M2 针对性测试**: `py -3 -m pytest tests/test_g15_phase2_memo_and_timemachine.py -v` -> **8 passed** in 21.33s.
+5. **四套测试套件联合全回归**: `py -3 -m pytest tests/test_infra.py tests/test_adv_final_closure.py tests/test_delta_m1_guardrails.py tests/test_g15_phase2_memo_and_timemachine.py -q` -> **41 passed** in 47.53s.
+6. **对抗性压力脚本实测**:
+   - 非交易日/周末输入 (`target_date='2024-09-21'` 周六): 平滑从下周一 (2024-09-23) 起算，前推 514 个交易日，曲线完整无报错；
+   - 跨风险档位 C1~C5 验证: C1 稳健档 1Y 到手净收益 +7.78% (低波防守)，C5 进取档 1Y 到手净收益 -8.52% (完整呈现 2023 权益熊市压力)，证明算子完全基于真实资产净值推演，无特异性后门与常数伪造。
+
+---
+
+## 2. 逻辑推导链 (Logic Chain)
+
+- **[观察 1.1]** 4 大裁判文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）及 `DataLoader.simulate_execution` 签名与扣费逻辑 git diff 为空。
+  - **[推论 1]** 物理安全红线零触碰，裁判系统纯洁性与真实性 100% 保持。
+- **[观察 1.2.1]** `generate_chief_advisor_memo` 严格计算宏观 ERP、DR007 资金利差、外汇纳指联动、持仓深套标的与碎片尾仓，并生成 14:30 尾盘清晰行动指引；在空输入及异常状态下自动降级兜底。
+  - **[推论 2]** 备忘录算子完全破除了“唯算法论”与“参数黑盒”，兼备买方首席投顾的业务通俗性与算法严谨性，接口契约完备。
+- **[观察 1.2.2]** `render_chief_advisor_memo_card` 统一收口至 `safe_markdown_html`，且在首屏与 Tab 1 顶部完成双向同源挂载。
+  - **[推论 3]** 满足 CommonMark 防代码块泄露规范，界面展现一致，无视口或样式冲突。
+- **[观察 1.2.3 & 1.3.6]** `StrategyBridge.run_historical_time_machine_backtest` 严格按 `df_dates <= dt_target` 切片求解权重，彻底阻断未来信息；初始扣除 0.12% 申购费、日计销售费、持有自然日扣除阶梯赎回费。
+  - **[推论 4]** 时光机盲测验证器真实再现了中国公募基金交易现实摩擦，各档位测算收益分化真实合理，杜绝了后视镜幻觉。
+- **[观察 1.3]** 针对性测试 `tests/test_g15_phase2_memo_and_timemachine.py` (8 项) 与全套回归 (41 项) 均 100% 绿灯通过，无假断言与虚荣测试。
+  - **[推论 5]** 交付代码质量达标，完全满足 Milestone 2 所有设计要求。
+
+---
+
+## 3. 局限与注意事项 (Caveats)
+
+1. **宏观实时行情数据接口容灾**:
+   - 当调用 `DataLoader.fetch_realtime_macro_indicators` 或 `fetch_macro_cross_market_indicators` 遇外网网络抖动或超时时，算子会自动回退读取 snapshot 或离线预置基准参数，确保前端渲染 100% 稳定高可用；若需高精度实时数值，需保证外网连接通畅。
+2. **极早期时点回测范围**:
+   - 时光机回测要求历史数据不少于 60 天（`2018-01-02` 之前会抛出 `ValueError`），且目标日期不能超过已有数据集的最新日期。此边界在 UI 端均有 `st.error` 捕获保护。
+
+---
+
+## 4. 结论 (Conclusion)
+
+- **审查裁定**: **APPROVE (完全批准)**
+- **裁定依据**:
+  1. 物理安全红线 100% 守死，只读裁判文件与基线函数零修改；
+  2. 五维首席投顾备忘录算子及前端双向挂载功能完整、排版专业优雅、具备完备容错与 CommonMark 纯化防护；
+  3. 历史任意时点盲测时光机引擎严格 Point-in-Time 零未来数据泄露，公募全套交易摩擦精算严谨，Tab 3 顶部交互体验优良；
+  4. 41 项自动化测试 100% 绿灯，对抗性压力测试与边界用例全部通过，零作弊违规。
+
+---
+
+## 5. 独立复核方法 (Verification Method)
+
+### 5.1 自动化测试命令
 ```powershell
-cd d:\Google\Workspace\Wind\AGY2_FundAdvisory
-$env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"
-python -m pytest tests/test_m2_r4_r5_optimization.py tests/test_trading_clock_fee.py tests/test_portfolio_manager.py tests/test_infra.py -v
-```
-- **执行结果**: `56 passed, 105 warnings in 48.26s (Exit Code: 0)`。
-- 关键测试全绿通过：
-  - `tests/test_m2_r4_r5_optimization.py::test_r4_data_loader_ewma_volatility_and_correlation_empty_and_fallback PASSED`
-  - `tests/test_m2_r4_r5_optimization.py::test_r4_data_loader_ewma_volatility_and_correlation_real_matrix PASSED`
-  - `tests/test_m2_r4_r5_optimization.py::test_r4_strategy_bridge_inverse_volatility_weighting_and_bond_ballast PASSED`
-  - `tests/test_m2_r4_r5_optimization.py::test_r4_c1_c5_risk_monotonicity_across_all_regimes PASSED`
-  - `tests/test_m2_r4_r5_optimization.py::test_r5_same_company_switch_zero_in_transit_cost PASSED`
-  - `tests/test_m2_r4_r5_optimization.py::test_r5_cross_company_in_transit_opportunity_cost_and_interception PASSED`
-  - `tests/test_m2_r4_r5_optimization.py::test_r5_qdii_overseas_four_day_in_transit_discount PASSED`
-  - `tests/test_m2_r4_r5_optimization.py::test_r5_same_company_convenience_bonus_in_fund_scoring PASSED`
-  - `tests/test_m2_r4_r5_optimization.py::test_r5_interception_prevents_executable_orders PASSED`
-  - 15 项基础设施合规测试 (`test_infra.py`) 全部通过。
+# 1. 裁判基建核验 (14 passed)
+py -3 -m pytest tests/test_infra.py -v
 
-回归测试执行：
-```powershell
-python -m pytest tests/test_strategy_bridge.py tests/test_stress_quant_model_challenger.py -v
-```
-- **执行结果**: `15 passed, 19 warnings in 16.01s (Exit Code: 0)`。
+# 2. 回归基线核验 (14 passed)
+py -3 -m pytest tests/test_adv_final_closure.py -v
 
-### 1.3 对抗性极限压力测试结果
-独立编写极端边缘用例对 R4 与 R5 进行攻击：
-1. **平价序列与方差为零**: 传入 60 日等价常数序列，`DataLoader.compute_ewma_volatility_and_correlation` 触发 `ewma_var.clip(lower=1e-8)`，年化波动率为 `0.001587`，零除异常未发生，无 NaN 输出。
-2. **单日跳变脉冲 (1000% 暴涨)**: 科创50 单日跳变，年化波动率飙升至 `30.7387`（约 3073%），在 `compute_dynamic_tier_weights` 中缩放因子 `scaling = min(1.0, 0.18 / 30.7387) = 0.00585`，科创50 敞口收缩 99.4%，多余风险预算 100% 转移至纯债 `002351`。
-3. **极端全市场高波动 (年化 > 150%) 检验单调性**:
-   - `HighVol-BULL` 权益序列: `[0.18, 0.45, 0.6799, 0.8001, 0.88]` (严格满足 C1 < C2 < C3 < C4 < C5)
-   - `HighVol-OSCILLATING` 权益序列: `[0.18, 0.4501, 0.65, 0.77, 0.86]` (严格满足 C1 < C2 < C3 < C4 < C5)
-   - `HighVol-BEAR` 权益序列: `[0.08, 0.20, 0.30, 0.45, 0.60]` (严格满足 C1 < C2 < C3 < C4 < C5)
-   - 深度熊市破位态止损硬红线断言：`C4_eq = 0.4501 <= 0.55`，`C5_eq = 0.6001 <= 0.70`，完全达标。
-4. **调仓净效用边缘输入**:
-   - `amount = 0.0` 正常返回，`delta_u = 0.0`，`should_intercept = True`。
-   - `from_fund == to_fund` (自身换仓)，`delta_u = -32.5`，`should_intercept = True`。
-   - QDII 标的 (`050025` 博时标普500) 跨司在途时差识别为 $\Delta t = 4$ 天，在途折价成本 $> 400$ 元。
-   - 申购未满 7 天 (持有 3 天) 批次触发 1.50% 顶格惩罚性赎回费：1000 元核算为 15.00 元。
-   - 拦截徽章严格输出：`"🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动"`。
+# 3. M1 保护伞用例核验 (5 passed)
+py -3 -m pytest tests/test_delta_m1_guardrails.py -v
 
-### 1.4 代码完整性与防作弊检查
-- 检查是否存在测试名称特判 (`if 'test_' in ...`)：0 处。
-- 检查是否存在假桩或写死预期数值：0 处。
-- 所有计算均基于 EWMA 指数平滑、矩阵协方差分解、FIFO 批次持有天数、证监会阶梯费率法与连续平方根在途踏空成本公式推导，符合纯数学因果演绎（No Look-Ahead Bias）准则。
+# 4. M2 五维备忘录与时光机针对性测试 (8 passed)
+py -3 -m pytest tests/test_g15_phase2_memo_and_timemachine.py -v
 
----
-
-## 2. Logic Chain (推理与推导逻辑链)
-
-1. **R4 波动率倒数配权与纯债压舱石的因果演绎**:
-   - `DataLoader.compute_ewma_volatility_and_correlation` 使用标准 Pandas `ewm(span=60, adjust=True).var()` 计算日度方差，并通过 $\sqrt{\sigma^2 \times 252}$ 转换为年化波动率。由于只取输入数据的 `.tail(60)`，保证了无未来函数（No Look-Ahead Bias）。
-   - 在 `strategy_bridge.py` 中，通过 `FUND_TO_PROXY_INDEX` 将组合基金映射到底层代表性指数，以基准波动率 0.18 依据 `scaling = min(1.0, 0.18 / max(vol, 0.08))` 进行反比缩放。
-   - 释放出的 `trimmed_budget` 汇总后 100% 增加到低波纯债标的 `002351`（或 `000086`），严格守恒资产总权重为 1.0000。
-   - 通过在三种宏观状态（BULL、OSCILLATING、BEAR）下定义严格非重叠的开闭区间（例如牛市 C1 [18,22] < C2 [45,55] < C3 [68,76] < C4 [80,84] < C5 [88,94]），即使在各资产波动率剧烈分化的极限情况下，权益敞口也必经区间截断，数学上 100% 保证了 C1–C5 严格单调性，且熊市破位态 C4 权益不超 55%，C5 权益不超 70%。
-
-2. **R5 调仓净效用 $\Delta U$ 与摩擦拦截机制的因果演绎**:
-   - `calculate_rebalance_net_utility` 公式实现：
-     $$\Delta U = \text{ExpectedAlphaGain}_{20d} - \text{ExactRedemptionFee} - \text{SubscriptionFee} - \text{InTransitOpportunityCost}$$
-   - **同司判定**: 提取两只基金所属管理人，若一致则 `is_same_company = True`，由于支持 T+1 SWITCH，在途时差 $\Delta t = 0$，在途机会成本严格为 0。
-   - **跨司判定**: A 股公募资金交收清算存在 2 天在途时差（QDII 产品为 4 天），按大盘年化波动率折算在途踏空风险成本 $\text{Amount} \times \sigma_{\text{index}} \times \sqrt{\Delta t / 250}$。
-   - **拦截与流转**: 当 $\Delta U \le 0$ 时，输出警示徽章 `"🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动"`；在 `generate_rebalance_plan` 中将该路由剥离至 `intercepted_routes`；在 `submit_rebalance_orders` 中丢弃该路由，防止生成破坏客户净值的劣质调仓单。
-   - **同司极速转换便利性红利**: 在 `_do_compute_six_dimension_score` 中，动态扫描用户当前有效持仓所属基金公司，当候选标的同属已有持仓公司时，加分 +5.0，从源头提升同司优先撮合概率。
-
----
-
-## 3. Caveats (注意事项与边界考量)
-
-1. **基金-指数映射代理字典扩展**:
-   - 目前 `FUND_TO_PROXY_INDEX` 收录了 18 只核心标的至底层基准指数（`H11009`, `H30269`, `H00922`, `AU9999`, `SPX_CNY`, `STAR50_STITCH`, `H00905`, `H00852`, `H00300`）的映射。若在 Milestone 3 中引入更多冷门或全市场外部标的，未命中的权益基金会回退到 `H00300` 波动率作为先验。建议在 M3 赛道基金池扩展时保持该字典同步维护。
-2. **预期超额收益默认差值估算法**:
-   - 当调用方未显式传入 `expected_alpha_20d` 时，系统依据两只基金的六维量化评分差值动态估算超额年化收益率。若目标基金评分低于或等于调出基金，预期超额为 0 元，调仓必被拦截。此设定符合“劣质换仓绝对拦截”的直觉，但调用方若有外部专有 Alpha 预测模型，应显式传入 `expected_alpha_20d`。
-
----
-
-## 4. Conclusion (审核结论)
-
-- **审阅结论**: **APPROVE**。
-- **合规声明**:
-  - R4 (滚动 EWMA 波动率倒数与动态风险预算配权) 与 R5 (调仓净效用拦截器与在途摩擦折价) 100% 完整交付。
-  - 4 个系统只读裁判基建文件完整无损。
-  - 零硬编码、零假桩、零作弊痕迹，代码严谨具备极高容错性与数学因果严密性。
-  - 全套 56 项 M2 与核心测试、15 项挑战者回归测试、以及独立编写的多维度极限对抗测试全部 100% 通过。
-
----
-
-## 5. Verification Method (独立复验与可证伪方法)
-
-任何独立第三方或编排智能体可通过以下命令进行完整复验：
-
-```powershell
-cd d:\Google\Workspace\Wind\AGY2_FundAdvisory
-$env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"
-
-# 1. 验证 4 大裁判基础设施文件未被触碰 (git diff 为空)
-git diff judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py
-
-# 2. 执行 Milestone 2 核心及业务测试集 (56 项通过)
-python -m pytest tests/test_m2_r4_r5_optimization.py tests/test_trading_clock_fee.py tests/test_portfolio_manager.py tests/test_infra.py -v
-
-# 3. 执行挑战者与策略桥梁回归测试集 (15 项通过)
-python -m pytest tests/test_strategy_bridge.py tests/test_stress_quant_model_challenger.py -v
+# 5. 四套联合回归 (41 passed)
+py -3 -m pytest tests/test_infra.py tests/test_adv_final_closure.py tests/test_delta_m1_guardrails.py tests/test_g15_phase2_memo_and_timemachine.py -q
 ```
 
-- **失效条件 (Invalidation Conditions)**:
-  - 若 `judge_engine.py`、`holdout_vault.py`、`AGENT_SPEC.md` 或 `tests/test_infra.py` 中任意文件出现变更；
-  - 若在熊市破位态下 `C4` 权益权重超过 55% 或 `C5` 权益权重超过 70%；
-  - 若任意市场状态下出现 `Equity(C1) >= Equity(C2)` 等档位倒挂；
-  - 若同公司转换计提了在途踏空成本 ($\Delta t > 0$ 或 InTransitCost $> 0$)；
-  - 若 $\Delta U \le 0$ 时未拦截或未出现 `"🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动"` 徽章。
+### 5.2 物理安全红线复核
+```powershell
+# 核验 4 只读文件绝对未动
+git diff HEAD -- judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py
+
+# 核验 DataLoader.simulate_execution 绝对未动
+git diff HEAD -- AGY2_FundAdvisory/data_loader.py
+```
+
+### 5.3 生产代码核查文件
+- `AGY2_FundAdvisory/advisory_engine.py`: 行 4137-4351
+- `AGY2_FundAdvisory/app_gui.py`: 行 249-329, 行 3193-3204, 行 4055-4066, 行 6670-6759
+- `AGY2_FundAdvisory/strategy_bridge.py`: 行 7194-7352
+- `tests/test_g15_phase2_memo_and_timemachine.py`: 8 项测试用例
+
+### 5.4 失效条件 (Invalidation Conditions)
+1. 任何只读裁判文件发生修改；
+2. 历史时光机存在历史切片以外的未来数据泄露；
+3. 测试套件 41 项用例中有任何一项报错或断言失败。

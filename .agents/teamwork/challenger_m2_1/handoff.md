@@ -1,123 +1,145 @@
-# Challenger 1 (Milestone 2) 对抗性实证检验报告与裁决 (APPROVE)
+# G15 第二阶段实证质询报告 (Milestone 2 Challenger Handoff Report)
 
-## Challenge Summary
-
-**Overall risk assessment**: **LOW**  
-**Verdict**: **APPROVE** (通过 Milestone 2 验收)
-
-本挑战者依据 EMPIRICAL CHALLENGER 准则，不盲信 Worker 的声称与日志，自主编写独立对抗性压力测试套件 `tests/test_adversarial_m2_challenger.py`，并对 R4 (滚动 EWMA 波动率倒数与动态风险预算配权) 与 R5 (调仓净效用拦截器与在途摩擦折价) 实施了全域多维极限压力注入与数千点网格地毯式扫描。所有实证断言 100% 验证通过，4 大系统只读裁判基建文件完好无损。
-
----
-
-## 1. Observation (客观实证观测)
-
-1. **测试套件执行结果**:
-   - 自主编写对抗性挑战测试套件 `tests/test_adversarial_m2_challenger.py`（7 项高强度对抗测试）全部通过（26.65s）：
-     - `test_adv_asset_volatility_pulse_tech_shrink_and_bond_ballast`: **PASSED**
-     - `test_adv_c1_c5_monotonicity_massive_grid_scan`: **PASSED** (扫描全域 2,349+ 状态与均线价格网格组合，零倒挂)
-     - `test_adv_deep_bear_stop_loss_hard_bounds`: **PASSED** (深熊破位态 C4 <= 55% 且 C5 <= 70% 硬红线坚固)
-     - `test_adv_same_company_t_plus_1_switch_multi_firm`: **PASSED** (华夏、易方达、富国多司 T+1 SWITCH 零在途成本验证)
-     - `test_adv_cross_company_transfer_poor_alpha_interception`: **PASSED** (跨公司在途折价与 Delta U <= 0 拦截熔断)
-     - `test_adv_candidate_fund_scoring_same_company_bonus`: **PASSED** (持仓同司备选基金 +5.0 分便利度红利与 100 分封顶)
-     - `test_adv_boundary_and_robustness`: **PASSED** (负金额、0 金额、异常负波动率兜底)
-   - 综合回归测试集（70 项测试，耗时 56.13s）全部通过：
-     `pytest tests/test_m2_r4_r5_optimization.py tests/test_adversarial_m2_challenger.py tests/test_infra.py tests/test_trading_clock_fee.py tests/test_stress_quant_model_challenger.py tests/test_dynamic_risk_and_metrics.py` -> `70 passed in 56.13s`。
-   - 业务核心测试集 `tests/test_portfolio_manager.py` 与 `tests/test_strategy_bridge.py`（31 项测试，耗时 39.26s）全部通过：
-     `31 passed in 39.26s`。
-   - 累计独立执行 101 项测试，测试通过率 100%。
-
-2. **物理安全红线与裁判基建文件完整性**:
-   - `judge_engine.py`: 100% UNTOUCHED (MD5 与 git status 完全干净)
-   - `holdout_vault.py`: 100% UNTOUCHED
-   - `AGENT_SPEC.md`: 100% UNTOUCHED
-   - `tests/test_infra.py`: 100% UNTOUCHED (15 项基础设施合规回归测试全部通过)
-
-3. **代码实现核心观测点**:
-   - `AGY2_FundAdvisory/data_loader.py` (Line 120-175): `DataLoader.compute_ewma_volatility_and_correlation` 采用日收益率 `ewm(span=60, adjust=True).var()`，乘以 $\sqrt{252}$ 正确年化，空入参与短样本具备 `H11009=0.035`, `H00922=0.14` 等先验波动率平滑降级。
-   - `AGY2_FundAdvisory/strategy_bridge.py` (Line 3562-3648): `compute_dynamic_tier_weights` 采用 `scaling = min(1.0, 0.18 / max(vol, 0.08))`，收缩高波资产并将 `trimmed_budget` 100% 补入纯债压舱石 `002351` / `000086`；通过分市场状态非重叠区间保证 C1-C5 严格单调递增，且在 `BEAR` 状态下 C4 权益上限设为 53%（<=55%），C5 权益上限设为 68%（<=70%）。
-   - `AGY2_FundAdvisory/portfolio_manager.py` (Line 4648-4767): `calculate_rebalance_net_utility` 严格实现 $\Delta U = \text{Alpha}_{20d} - (\text{FIFO\_RedemptionFee} + \text{SubFee} + \text{InTransitCost})$，同司转换在途成本为 0.0，跨司计提 $\text{Amount} \times \sigma \times \sqrt{\Delta t / 250}$（QDII 4天，国内2天），$\Delta U \le 0$ 时输出 `"🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动"` 并在 `generate_rebalance_plan` 中隔离至 `intercepted_routes`，`submit_rebalance_orders` 拒绝下单。
-   - `AGY2_FundAdvisory/portfolio_manager.py` (Line 3770-3786): `_do_compute_six_dimension_score` 成功注入 `switch_convenience_bonus = 5.0`，且使用 `min(100.0, ...)` 防御溢出。
+- **质询代理**: `challenger_m2_1` (Critic / Specialist)
+- **质询对象**: G15 第二阶段（Phase 2）「破除唯算法论：实装五维投顾首席备忘录与历史任意时点盲测时光机」
+- **父会话 ID**: `9a123e21-7525-4c57-9715-710c2a94c199`
+- **交接类型**: Hard Handoff (审查完全交付)
+- **终审定性裁决**: **`APPROVE` (通过)**
 
 ---
 
-## 2. Logic Chain (推演与因果逻辑链)
+## 1. 观察记录 (Observation)
 
-1. **波动率脉冲与风险转移因果链**:
-   - 观测数据：当向科创50注入年化 60% 波动率脉冲时，`DataLoader` 输出 `STAR50_STITCH` 波动率从基准 0.18 上升至 0.48。
-   - 算法传导：`strategy_bridge.py` 计算 `scaling = 0.18 / 0.48 = 0.375`，C4 档位科创50权重由基准 32% 收缩至 16.8%~18.5%，释放的约 14% 风险预算全额转移至纯债 `002351`（由 8% 提升至 10%~22%）。
-   - 结论支撑：证明动态风险预算模型具备自主免疫特质波动率异常放大的能力，纯债压舱石有效发挥吸收盘作用。
+### 1.1 物理安全红线核验 (Zero Tolerance Redlines)
+1. **4 只读裁判文件**:
+   - `git status --porcelain judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py AGY2_FundAdvisory/data_loader.py` 命令输出为空，确认 100% 保持未修改。
+   - 执行 `py -3 -m pytest tests/test_infra.py -v`：
+     ```
+     tests/test_infra.py::test_data_loader_matrix_alignment PASSED            [  7%]
+     tests/test_infra.py::test_simulation_operator_friction PASSED            [ 14%]
+     tests/test_infra.py::test_causal_probe_detects_leakage PASSED            [ 21%]
+     tests/test_infra.py::test_four_islands_conformity PASSED                 [ 28%]
+     tests/test_infra.py::test_holdout_vault_quota_limit PASSED               [ 35%]
+     tests/test_infra.py::test_judge_engine_rejects_bond_arbitrage PASSED     [ 42%]
+     tests/test_infra.py::test_simulation_initial_position_penalty PASSED     [ 50%]
+     tests/test_infra.py::test_judge_engine_rf_deduction PASSED               [ 57%]
+     tests/test_infra.py::test_judge_engine_rejects_slice_bond_arbitrage PASSED [ 64%]
+     tests/test_infra.py::test_judge_engine_rejects_offshore_overweight PASSED [ 71%]
+     tests/test_infra.py::test_judge_engine_rejects_low_ashare_equity PASSED  [ 78%]
+     tests/test_infra.py::test_judge_engine_rejects_low_cagr PASSED           [ 85%]
+     tests/test_infra.py::test_judge_engine_rejects_bull_slice_lag PASSED     [ 92%]
+     tests/test_infra.py::test_islands_empty_df_robustness PASSED             [100%]
+     ============================= 14 passed in 6.24s ==============================
+     ```
+2. **`DataLoader.simulate_execution` 签名与扣费锁定**:
+   - 查看 `AGY2_FundAdvisory/data_loader.py` 第 1437 行，签名保持 `simulate_execution(weights_df, prices_df, is_otc=True, penalty_days=7, penalty_rate=0.015, etf_impact=0.001)`，默认参数及惩罚费逻辑无任何篡改。
 
-2. **C1-C5 单调性与状态机非重叠投影逻辑链**:
-   - 观测数据：在 2,349 组状态码与价格组合扫描中，无任何一组出现 `eq_map[C_i] >= eq_map[C_{i+1}]`。
-   - 算法传导：`strategy_bridge.py` 在牛市、震荡市、熊市分别定义了严格非重叠边界：
-     - BULL: (0.18~0.22) < (0.45~0.55) < (0.68~0.76) < (0.80~0.84) < (0.88~0.94)
-     - OSCILLATING: (0.18~0.22) < (0.45~0.53) < (0.65~0.75) < (0.77~0.82) < (0.86~0.92)
-     - BEAR: (0.08~0.12) < (0.20~0.28) < (0.30~0.38) < (0.45~0.53) < (0.60~0.68)
-   - 无论逆波动率缩放如何微调资产权重，最终均通过 `[min_eq, max_eq]` 严格等比截断投影，高档位的下界严格大于低档位的上界（如 BEAR 下 C4 下界 0.45 > C3 上界 0.38），因此数学上保证全域单调性永不倒挂。
+### 1.2 `generate_chief_advisor_memo` 源码与极端边界质询观察
+1. **代码审查定位**:
+   - `AGY2_FundAdvisory/advisory_engine.py` 第 4137 行至 4341 行实装 `generate_chief_advisor_memo`。
+   - 返回 5 个固定顶级维度（`macro_policy`, `international_fx`, `industry_valuation`, `portfolio_pathology`, `action_directive`），每个维度均提供 `title`, `badge`, `content`。
+2. **极端与异常边界输入实证**:
+   - None / 空输入：在 `snapshot=None, holdings=None, radar_top3=None, sentry_rep=None` 下正常生成完整降级字典，无任何 KeyError 或 TypeError。
+   - 负流动性利差：传入 `dr007_spread_bp = -150.0`，正确映射为 `🟢 货币宽松充裕`。
+   - 利率倒挂 / 极端低利率：传入 `treasury_10y = -0.15%`，格式化渲染正常不崩溃。
+   - ERP 极端分位：实测 0.0%、34.9%、35.0%、50.0%、74.9%、75.0%、100.0% 七档区间，在 0%~35% 正确归类为【高估谨慎区】，在 75%~100% 正确归类为【极高性价比黄金击球区】。
+   - 深套多标的排序：传入 -80%、-50%、-15% 浮亏标的，按绝对亏损金额精确识别最大拖累源为 -80% 标的，并在报告中呈现。
+   - 25 只长尾碎片基：传入 25 笔小于 ¥200 的碎片持仓，正确统计 `frag_count = 25` 并准确累加清扫金额，触发 `🧹 长尾碎片尾仓` 诊断。
+   - 单标超集中：传入第一大重仓 95% 占比，正确触发 `⚠️ 单标集中度过高：第一大重仓占比达 95.0%`。
+   - 异构持仓格式兼容：传入 `dict of dicts`、`list of objects` 以及 Tab 1 纯浮点权重字典 `{"005561": 0.40, ...}`，算子均自适应识别并平滑回退，0 报错。
+   - 前端卡片渲染：`render_chief_advisor_memo_card` 对 None、空字典及极端输入均能 0 异常返回并通过 `safe_markdown_html` 纯化渲染。
 
-3. **摩擦净效用拦截与资金保护逻辑链**:
-   - 观测数据：在跨司调仓（创金合信 005561 ➡️ 华夏 011612）且预期超额仅 5 元的场景下，赎回费 50 元 + 申购费 15 元 + 在途踏空折价 16.1 元 = 81.1 元，$\Delta U = -76.1 \le 0$。
-   - 算法传导：`calculate_rebalance_net_utility` 判定 `should_intercept = True`，赋予拦截徽章；`generate_rebalance_plan` 将该路由剥离进 `intercepted_routes`；`submit_rebalance_orders` 循环检测 `r.get("should_intercept")` 跳过下单，`created_orders` 长度为 0。
-   - 结论支撑：实现了从“效用精算”到“沙盒拦截”再到“报单熔断”的完整资金安全闭环。
+### 1.3 `StrategyBridge.run_historical_time_machine_backtest` 源码与摩擦扣费实证观察
+1. **代码审查定位**:
+   - `AGY2_FundAdvisory/strategy_bridge.py` 第 7194 行至 7351 行实装 `run_historical_time_machine_backtest`。
+2. **Point-in-Time 零未来数据泄漏（未来数据投毒测试）**:
+   - 测试方法：在真实全收益矩阵中选定 `target_date = 2022-04-26`，运行基准回测获取 `weights_clean`；随后拷贝数据矩阵，将 `target_date` 之后所有资产价格恶意篡改放大 100 倍（+999.0），再次运行回测获取 `weights_corrupted`。
+   - 实证结果：`weights_clean` 与 `weights_corrupted` 差异小于 `1e-12`，实证证明未来数据变化对截面 T 的权重决策影响绝对为 0。
+3. **交易摩擦与费用扣除实证**:
+   - 前端申购费：第 0 日（起点）策略净值严格初始化为 `1.0 * (1 - 0.0012) = 0.9988`（基准为 1.0）。
+   - 日度销售服务费与现金缓冲：将未来价格完全冷冻（日收益率 0.0%），实测每日策略净值缩减比例严格等于：
+     $$0.05 \times \frac{0.018}{250} - 0.5 \times \frac{0.0040}{250} = -0.0000044/\text{天}$$
+     实测 `day_ratio` 与理论预期值误差 $< 10^{-8}$。
+   - 5 档 FIFO 阶梯赎回费严格对齐：
+     * $< 7$ 天：1.50%
+     * $< 30$ 天：0.50%
+     * $< 180$ 天：0.35%
+     * $< 365$ 天：0.15%
+     * $\ge 365$ 天：0.00%
+     在 2021-02-18、2022-04-26、2024-09-18 历史拐点回放中，到手收益率 `net_return_pct` 均严格由 `gross_nav * (1.0 - red_fee)` 精确推导。
+4. **基准曲线真实跟踪**:
+   - 沪深300基准：`h300_nav` 末期累计值与 `fwd_slice['H00300']` 实际价格变动完全一致（误差 $< 10^{-4}$）。
+   - 50/50基准：同源跟踪 `BENCHMARK_50_50` 或 `0.5*H00300 + 0.5*H11009`。
+5. **边界异常校验**:
+   - 历史样本不足 60 天（如传入 2018-01-05）：抛出 `ValueError("所选历史时点 ... 前历史样本不足 60 天...")`。
+   - 前推样本不足 2 天（如传入 2028-12-31）：抛出 `ValueError("所选历史时点 ... 缺乏前推回测样本。")`。
+   - 日期类型兼容性：传入 `str`, `pd.Timestamp`, `datetime.date`, `datetime.datetime` 均返回完全相同的权重与净值。
+
+### 1.4 自动化实证测试套件运行结果
+编写专用对抗测试套件 `tests/test_challenger_m2_adversarial.py`（24 项独立用例）：
+```powershell
+py -3 -m pytest tests/test_challenger_m2_adversarial.py -v
+```
+**结果**: `24 passed in 21.95s` (100% PASS, 0 warning)。
+
+运行包含裁判、既有闭环与全阶段 M2 的联合测试：
+```powershell
+py -3 -m pytest tests/test_infra.py tests/test_delta_m1_guardrails.py tests/test_adv_final_closure.py tests/test_g15_phase2_memo_and_timemachine.py tests/test_challenger_m2_adversarial.py -q
+```
+**结果**: `65 passed, 34 warnings in 50.13s` (100% PASS)。
 
 ---
 
-## 3. Caveats (注意事项与边界声明)
+## 2. 逻辑推导链 (Logic Chain)
 
-1. **同公司跨分级份额识别依赖字典**:
-   - 同公司判定依赖于 `resolve_fund_meta` 中解析出的 `company` 字段。当前字典完整覆盖了组合涉及的华夏、富国、易方达、创金合信、华安等主流公募。对于极生僻外部录入基金，若元数据未载明基金公司，系统将安全兜底为跨公司处理（计提在途成本），属于保守型风控设计，不引发资金穿透风险。
-2. **波动率先验回退**:
-   - 当历史数据不足 30 日且未缓存时，系统自动回退至基准波动率先验（纯债 3.5%、权益 18%），此时各资产权重保持基准比例分配，不会触发除以零异常。
-
----
-
-## 4. Challenges & Stress Test Results (挑战与压力测试明细)
-
-### Challenge 1: 极端资产波动率脉冲吸收
-- 假设检验：当某核心资产发生断崖式波动率放大时，权重必须单向收缩，纯债必须吸收溢出预算。
-- 测试场景：科创50注入 60% 年化波动率冲击序列（日度 std 3.8%）。
-- 结果：C4 档位科创50由 32% 缩至 16.8%，纯债 002351 由 8% 提升至 10%+，总权重 1.0000。**[PASS]**
-
-### Challenge 2: C1-C5 单调性全域网格扫描
-- 假设检验：在任何行情下，Equity(C1) < Equity(C2) < Equity(C3) < Equity(C4) < Equity(C5) 严格成立。
-- 测试场景：2,349 组全状态码、全均线价格排列、全波动率阶梯地毯式网格扫描 + 200 组随机蒙特卡洛时间序列模拟。
-- 结果：Inversion count: 0，倒挂率为 0.0000%。**[PASS]**
-
-### Challenge 3: 深度熊市破位态算法硬止损
-- 假设检验：在各类深熊或跌破 60/120 日均线破位信号下，高风险档位不可超配。
-- 测试场景：输入 SEVERE_BEAR、BREAKDOWN 状态码及 $c300 < m60 < m120$ 技术形态。
-- 结果：Equity(C4) <= 53% (<= 55%), Equity(C5) <= 68% (<= 70%)，纯债与黄金防御仓位 C4 >= 47%, C5 >= 32%。**[PASS]**
-
-### Challenge 4: 净效用拦截器与同公司转换
-- 假设检验：同司 T+1 转换零在途成本；跨司劣质换仓拦截熔断；同司备选基金 +5.0 分加分。
-- 测试场景：分别测试华夏、易方达、富国内部转换与跨司微小 Alpha 换仓，以及选基 6 维打分加分与 100 分上限。
-- 结果：同司 `delta_t_arrive == 0, in_transit_opportunity_cost == 0.0`；跨司劣质换仓 $\Delta U \le 0$ 被拦截且拒绝报单；同司标的获得精确 +5.0 分并安全封顶。**[PASS]**
+```
+[Observation 1.1] 4 只读裁判文件与 DataLoader.simulate_execution 哈希与签名未变，test_infra 14项全过。
+       ↓ (推理: 物理安全红线零触碰，裁判基建完全受保护)
+[Observation 1.2] generate_chief_advisor_memo 经受住 None、负利差、负利率、ERP极限边界、深套多标的、25只长尾碎片、95%超高集中度及异构数据结构测试，0 异常且维度结构完整。
+       ↓ (推理: 首席备忘录算子具备工业级鲁棒性，首屏与 Tab 1 挂载安全可靠)
+[Observation 1.3] 历史时光机在未来数据投毒测试下 weights_at_t 绝对不变；且真实扣除 0.12% 申购费、日度服务费与 5 档 FIFO 阶梯赎回费。
+       ↓ (推理: 盲测时光机严格遵守 Point-in-Time 零未来函数铁律，彻底杜绝“后视镜唯算法论”，回测净值具备实盘可兑现性)
+[Observation 1.4] 增量 8 项测试 + 对抗 24 项测试 + 全量 65 项回归测试 100% 绿灯。
+       ↓ (推理: 无功能缺陷，无回归破坏，满足交付验收标准)
+[Conclusion] 裁定 APPROVE。
+```
 
 ---
 
-## 5. Conclusion (最终裁决)
+## 3. 局限与注意事项 (Caveats)
 
-**VERDICT: APPROVE**
-
-Agent-2 (Worker 2) 在 Milestone 2 中交付的 R4 动态风险预算引擎与 R5 净效用拦截器完全满足所有需求规范与数学因果演绎准则，零未来函数，零伪桩，在严苛的对抗性测试与数千点网格扫描下表现出极高的鲁棒性与确定性。
-同意 Milestone 2 验收通过，建议推进至 Milestone 3 (CUSUM 基金轮换与 UI 白盒工程)。
+1. **外部自定义数据集列名约定**:
+   - `run_historical_time_machine_backtest` 默认调用 `StrategyBridge.load_matrix()`。若外部测试传入自定义 `df`，该数据集应包含全收益矩阵的标准大盘基准列（如 `H00922`, `H00300`, `H11009`, `STAR50_STITCH` 等），因底层策略流派会基于该基准列提取宏观与动量特征。若缺失此类基准列会抛出 `KeyError`。实际生产环境中统一由 `DataLoader` 对齐矩阵输出，不存在缺失隐患。
+2. **离线与实时宏观指标切换**:
+   - 备忘录中汇率与外盘指标优先尝试调用 `DataLoader.fetch_realtime_macro_indicators`，离线环境下平滑使用 `snapshot` 兜底常数。
 
 ---
 
-## 6. Verification Method (独立复验命令)
+## 4. 结论与终审裁决 (Conclusion)
 
-任何后续复验者可在 `AGY2_FundAdvisory/` 目录下执行以下命令复现全部测试结论：
+- **终审定性裁决**: **`APPROVE` (通过)**
+- **裁决理由**:
+  1. **零红线触碰**: 4 个只读裁判文件与执行算子签名 100% 保持锁定，`tests/test_infra.py` 14 项全绿。
+  2. **备忘录鲁棒性满分**: `generate_chief_advisor_memo` 在全套极端宏观指标、极端亏损、碎片尾仓与异构数据输入下 0 报错，产出结构完备的五维全息买方建议。
+  3. **时光机纯正 PIT**: 通过未来数据投毒实证，证明截面权重对未来数据完全绝缘；公募全套交易摩擦（0.12% 申购、日服务费、FIFO 5 档阶梯赎回）精确计提。
+  4. **实证测试闭环**: 增量与对抗测试 32 项、全回归 65 项用例 100% 绿灯。
+
+---
+
+## 5. 独立复核验证方法 (Verification Method)
+
+在项目工作区根目录下执行以下命令即可复现全部质询与回归结果：
 
 ```powershell
-cd d:\Google\Workspace\Wind\AGY2_FundAdvisory
-$env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"
+# 1. 验证只读基建裁判测试 (14 passed)
+py -3 -m pytest tests/test_infra.py -v
 
-# 1. 运行对抗性挑战专属测试集 (7 项全部通过)
-pytest tests/test_adversarial_m2_challenger.py -v
+# 2. 运行 Milestone 2 核心针对性测试 (8 passed)
+py -3 -m pytest tests/test_g15_phase2_memo_and_timemachine.py -v
 
-# 2. 运行 M2 单元测试集 (9 项全部通过)
-pytest tests/test_m2_r4_r5_optimization.py -v
+# 3. 运行 Milestone 2 专职对抗质询测试套件 (24 passed)
+py -3 -m pytest tests/test_challenger_m2_adversarial.py -v
 
-# 3. 运行完整回归测试集 (70 项全部通过)
-pytest tests/test_m2_r4_r5_optimization.py tests/test_adversarial_m2_challenger.py tests/test_infra.py tests/test_trading_clock_fee.py tests/test_stress_quant_model_challenger.py tests/test_dynamic_risk_and_metrics.py
+# 4. 全量五大核心套件联合回归验证 (65 passed)
+py -3 -m pytest tests/test_infra.py tests/test_delta_m1_guardrails.py tests/test_adv_final_closure.py tests/test_g15_phase2_memo_and_timemachine.py tests/test_challenger_m2_adversarial.py -q
 ```

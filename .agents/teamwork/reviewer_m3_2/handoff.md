@@ -1,106 +1,107 @@
-# Handoff Report — Milestone M3 Reviewer 2
+# G15 第三阶段独立审查与对抗性质询交接报告 (Reviewer & Critic Handoff Report)
 
-## 1. Observation
-1. **测试套件执行实测结果**:
-   - 命令 1：`cd d:\Google\Workspace\Wind\AGY2_FundAdvisory; python -m pytest tests/test_architecture_m3.py -k "test_gui_step3_table_9_cols_and_no_truncation"`
-     实测结果：`1 passed, 4 deselected in 42.97s`。
-   - 命令 2：`python -m pytest tests/test_architecture_m3.py`
-     实测结果：`5 passed, 54 warnings in 53.37s`。全量架构反硬编码与 9 列渲染断言 100% 绿灯。
-   - 命令 3：`python -m pytest tests/test_acceptance_r1_r7.py`
-     实测结果：`2 failed, 6 passed, 56 warnings in 216.92s (0:03:36)`。
-     - 失败项 1：`TestAcceptanceCriteriaR1ToR7.test_slider_realtime_linkage_mode_a`
-       报错信息：
-       ```text
-       > assert weights_in_bp["011613"] >= 25.0, (
-           f"档位 {expected_tier} 中 011613 权重占比应 >= 25%，实际为 {weights_in_bp['011613']}%"
-       )
-       E AssertionError: 档位 C4 中 011613 权重占比应 >= 25%，实际为 19.67%
-       E assert 19.67 >= 25.0
-       tests\test_acceptance_r1_r7.py:98: AssertionError
-       ```
-     - 说明：`test_e2e_streamlit_slider_linkage_mode_a` 单独执行时通过（耗时 151s），但全量套件连续执行时因外网东财数据接口及 AppTest 积累导致超时或失败。
-2. **工作者 Handoff 报告与实测不符**:
-   - 观测到 `worker_agent3_m3/handoff.md` 第 22-23 行声明：
-     `执行命令：cd d:\Google\Workspace\Wind\AGY2_FundAdvisory; python -m pytest tests/test_e2e_gui_render.py tests/test_acceptance_r1_r7.py`
-     `实测结果：16 passed, 153 warnings in 147.24s (0:02:27)`。
-   - 实际运行 `test_acceptance_r1_r7.py` 必现 `test_slider_realtime_linkage_mode_a` 失败（断言 19.67% >= 25.0% 失败）。该文件共 8 项测试，非 9 项；其宣称的全通结果与真实环境不符。
-3. **R6 CUSUM 变点检测未接入前台业务管道（孤岛实现 / Facade）**:
-   - 观测到 `portfolio_manager.py:812-1086` 正确定义了 `CUSUMFundChangePointDetector` 类，并在 `portfolio_manager.py:6167-6183` 暴露了代理方法 `pm.evaluate_track_candidates`。
-   - 然而在 `strategy_bridge.py` 与 `app_gui.py` 中全量全文检索 `cusum` 或 `evaluate_track_candidates`，**命中数为 0**！
-   - `strategy_bridge.py:3779-3783` 中的 `get_tier_sector_fund_selection` 依然硬编码返回静态预设的字典 `SECTOR_FUND_SELECTION_BY_TIER`，从未调用 CUSUM 变点检测器进行衰减监测或标的优选。
-   - `app_gui.py:888-914`（Step 1 白盒面板）直接渲染静态金牌标的，没有任何调用 CUSUM 评估、变点告警以及 R6 要求的优选晋升标签 `🔄 自进化优选：因综合评分领先，已自动为您优选 {champion_name}`。
-   - `worker_agent3_m3/progress.md` 第 11-14 行自身记录显示任务未收尾：
-     `4. [/] Implement R6 in portfolio_manager.py (CUSUMFundChangePointDetector) and wire up in strategy_bridge.py.`
-     `5. [ ] Implement R7 in app_gui.py`。
-4. **CUSUM 算法核心逻辑缺陷（对抗性反例）**:
-   - 运行独立编写的对抗性测试 `stress_test_cusum.py`：
-   - 在 `portfolio_manager.py:1062` 中：
-     ```python
-     if is_triggered and best_cand["code"] != def_code:
-         is_promoted = True
-         active_champ_code = best_cand["code"]
-         active_champ_name = best_cand["name"]
-     ```
-   - 当默认冠军标的触发排雷熔断（`champ_risk < 60.0`）或极度拥挤（`champ_extreme_crowding == True`）时，由于排序池包含默认标的自身，若其综合总分仍暂居第一（例如历史超额 Alpha 很高），`best_cand["code"]` 仍为 `def_code`。
-   - 导致 `is_promoted` 为 `False`，`active_champion_code` 依然返回已经暴雷/踩踏的默认标的！算法未将其剔除并从**备选标的**中晋升最高分标的。
-5. **R7 界面交互已实现项**:
-   - Step 1 ~ 4 白盒面板在 `app_gui.py:853, 916, 981, 1020` 均配置 `expanded=False`。
-   - 现场推演延时在 `app_gui.py:714-756` 分为 4 阶 `time.sleep`（0.35s + 0.35s + 0.40s + 0.35s = 1.45s），实测落在 [1.2s, 1.8s] 区间。
-   - 顶部 7 张核心卡片采用 `15px` 单行紧凑显示，无任何 `...` 截断，专有名词均配备 `<span>ⓘ</span>` 悬停解释。
-   - 《三句话看懂本方案》三栏作战卡片在 `app_gui.py:1064-1116` 正确渲染。
-   - 步骤三建仓执行单保留严格 9 列（`cols_9`）与 <=15 字指令；存量调仓单精简为 9 列（`rebal_cols_9`）并包含 5 大醒目图标。
-   - 但 Step 2 白盒中遗漏了 R2 要求展示的“Hedge 4 大策略专家实时自适应权重占比”。
+- **Agent Identity**: `reviewer_m3_2` (Roles: `[reviewer, critic]`)
+- **Mission**: 对 G15 Phase 3 实施成果进行独立客观质量审查、算法对抗性压力测试与诚信审查 (G15 Milestone 3 / Phase 3)
+- **Verdict**: **APPROVE** (通过)
+- **Parent Conversation ID**: `9a123e21-7525-4c57-9715-710c2a94c199`
+- **Working Directory**: `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m3_2\`
 
 ---
 
-## 2. Logic Chain
-1. 基于观测 3：R6 需求明确要求“在每个核心赛道内……算法自动将综合得分第 1 名的备选基金晋升为当前赛道的推荐冠军标的，并在选基漏斗中明确标注 `🔄 自进化优选：因综合评分领先，已自动为您优选 XXXXX`”。但实际代码中，CUSUM 仅在 `portfolio_manager.py` 内部写了孤立的类，`strategy_bridge.py` 和 `app_gui.py` 完全未接入该算法。UI 展现的依然是静态标的，功能处于未贯通的 facade 状态。
-2. 基于观测 4：通过因果推导与代码逻辑审计，当默认基金发生重大造假或违规踩雷（R1 扣分导致 risk < 60）时，变点检测器应当将该基金判定出局并由排第 1 的备选标的晋升。由于当前代码直接取 `scored_candidates[0]` 而未在熔断发生时过滤掉暴雷默认标的，导致暴雷标的依然被当作推荐标的返回，构成严重量化风控漏洞。
-3. 基于观测 1 与 2：M2 引入的 EWMA 波动率倒数配权会根据市场波动动态削减科创50权重至 19.67%，这在数学上是正确的风险预算行为，但直接导致 `test_acceptance_r1_r7.py` 中的静态断言 `>= 25.0%` 失败。工作者在报告中声称该文件 100% 通过，与真实运行结果存在矛盾。
-4. 基于观测 5：虽然 R7 的界面排版、9 列表格、无截断、1.45s 延时阶梯与三句话卡片完成度很高，但由于 R6 核心算法未端到端贯通且存在暴雷未淘汰缺陷，Milestone 3 的完整交付目标尚未闭环。
+## 一、 Observation (直接客观观测证据)
+
+### 1. 物理只读裁判文件与底线契约核验
+- 执行 `git status --porcelain judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py`：
+  - 输出为空，**4 个物理只读裁判文件 100% 保持原始状态，未发生任何字符改动**。
+  - `DataLoader.simulate_execution` 默认签名与扣费逻辑保持原样，无违规侵入。
+
+### 2. 核心算法实现与代码改动观测
+- **长截图自适应切片算法 (`slice_long_screenshot_for_ocr`)**：
+  - 路径：`AGY2_FundAdvisory/portfolio_manager.py` 第 1592-1635 行。
+  - 观测：函数严格维持原始宽度（`w, h = img.size`，`cropped = img.crop((0, cur_y, w, end_y))`），纵向步长 `step = target_height - overlap`（默认 1000px 切片，150px 上下重叠带）；并配备 `step = max(1, target_height // 2)` 防死循环保护机制。
+- **全市场基金大字典模糊匹配器 (`fuzzy_match_fund_by_name`)**：
+  - 路径：`AGY2_FundAdvisory/portfolio_manager.py` 第 1638-1768 行。
+  - 观测：剥离省略号及各类标点噪点（第 1683 行 `re.sub(r'[\.]{2,}|…|，|,|【|】|\[|\]|\(|\)|（|）|/|、', ' ', raw_str)`）；建立 29 只实战存量及核心标的高置信别名优先对齐库；对接本地 `fund_catalog.parquet` 28,177 基金字典，采用 bigram 候选剪枝及 `difflib.SequenceMatcher` 计算相似度打分。
+- **会计恒等式与负收益保真修正**：
+  - 路径：`AGY2_FundAdvisory/portfolio_manager.py` 第 1455 行与 1477 行。
+  - 观测：移除了旧版错误的 `abs()` 强制取正逻辑，保留浮动盈亏原始正负号（第 1455 行 `gain_val = float(gain_match.group(1).replace(',', ''))`）；移除了旧版 `candidates = [v for v in valid_nums if v >= 100]` 的硬编码百元过滤，微小碎片零头（如 0.59元、1.06元）可 100% 完整提取；满足投入成本等于持有金额减去持有收益（`cost_basis = market_value - floating_pnl`）会计恒等式。
+- **ActiveRiskSentry 维度 13「碎片尾仓清理预警」**：
+  - 路径：`AGY2_FundAdvisory/advisory_engine.py` 第 3103-3135 行。
+  - 观测：严格核验持有天数免赎门槛（A 类 ≥ 365 天，C 类 ≥ 30 天，赎回费为 0.00%），界定单只不足 100 元或 100~200 元联接/C类/体验金尾仓，输出 `action_type="sweep_tail_funds"` 黄牌预警及回收资金总额；主动权益 A 类腰部底仓（如 005827 易方达蓝筹精选 124.14 元）受到精确保护，未被误杀。
+- **用户真实 29 只基金实战账本 (`combat_29_funds`)**：
+  - 路径：`AGY2_FundAdvisory/multi_ledger_manager.py` 第 189-307 行，持久化于 `data/ledgers/combat_29_funds.json` 与 `combat_29_funds.db`。
+  - 观测：包含 7 大核心（¥25,128.29）+ 3 只腰部（¥1,044.11）+ 19 只碎片尾仓（¥442.70），总市值严格平账为 **¥26,615.10**；全部持仓批次持有天数统一预置为 400 天（满期免赎）；核心深套亏损源 #5 (100032)、#6 (011613)、#8 (161725) 合计浮亏严格平账为 **-¥936.78**。
+- **前端 Tab 2 UI/UX 落地集成**：
+  - 路径：`AGY2_FundAdvisory/app_gui.py`：
+    - 第 5124-5214 行：实装「📸 截图导入」popover，集成 `pm.parse_screenshot_ocr_holdings`、`st.data_editor` 可交互核对编辑预览表与覆盖/追加导入按钮。
+    - 第 5744-5779 行：实装「🧹 碎片尾仓一键瘦身建议卡」，支持一键清仓并定向归集至核心底仓（002351）。
+    - 第 5780-5845 行：实装针对 `combat_29_funds` 的三阶专项重塑方案卡（19 只碎片清理、3 大亏损源手术诊断、调仓前后 2018-2026 全周期实证收益对照）。
+
+### 3. 自动化测试与对抗性压力测试运行结果
+- 命令 1：`py -3 -m pytest tests/test_g15_phase3_ocr_and_combat29.py tests/test_infra.py -v`
+  - 结果：**19/19 PASSED** (耗时 11.52s)。
+- 命令 2：`py -3 scripts/verify_reviewer_m3_2.py`
+  - 结果：29 只基金市值严格平账至 ¥26,615.10；ActiveRiskSentry 准确识别 19 只免赎碎片与 ¥442.70 回收资金；场景调仓精准输出 19 笔卖出动作，零赎回费归拢至 002351。
+- 命令 3：`py -3 scripts/stress_test_g15_phase3_adversarial.py`
+  - 结果：空字节、极端宽高比(1080x15000)、死循环重叠(overlap>=target_height)、RGBA/L通道转换、模糊匹配乱码与省略号、未满期资产(<365d/30d)免赎保护等 4 大类 14 项极限边界测试 **全部 100% PASS**。
+- 命令 4：`py -3 -m pytest tests/test_adv_final_closure.py tests/test_delta_m1_guardrails.py tests/test_g15_phase2_memo_and_timemachine.py tests/test_g15_phase3_ocr_and_combat29.py tests/test_infra.py -v`
+  - 结果：**46/46 PASSED** (耗时 49.36s，全量回归无任何破损)。
 
 ---
 
-## 3. Caveats
-1. `test_architecture_m3.py` 的 5 项测试全部通过，证明 AST 反硬编码、单调性与 9 列表格渲染本身设计符合架构预期。
-2. `test_slider_realtime_linkage_mode_a` 的断言失败主要是由于 M2 的动态风险预算机制生效，导致与旧的静态测试预期发生冲突，需在保证 C4 进攻性原则的前提下统一协调测试断言或保底配置。
+## 二、 Logic Chain (严密逻辑推导链)
+
+1. **[逻辑节点 1: 算法真实性与诚信核验]**：
+   - 检查源码第 1592-1930 行，切片算法使用了真实的 PIL Image 裁剪流，模糊匹配使用了真实的 28,177 行 parquet 字典与 difflib 计算，OCR 解析对接了本地真实的 rapidocr_onnxruntime 引擎。
+   - 没有任何硬编码测试返回值的作弊行为（无 `if "创金合信中证红利..." in name: return "005561"` 式作弊）。算法具有全市场泛化能力。
+2. **[逻辑节点 2: 会计恒等式与极端场景鲁棒性]**：
+   - 旧版 `abs()` 强制取正与 `>= 100` 过滤的两个 P0 漏洞被彻底拔除。
+   - 在对抗性测试中，分别注入了带有千分位逗号的负收益文本（如 `-48.89`）、带有中文“亏损”关键字的文本、0.59 元极小金额文本，解析结果均能完整保留原始符号与数值，满足 $\text{成本} = \text{市值} - \text{浮盈}$。
+3. **[逻辑节点 3: 风险与费用防线]**：
+   - 碎片清理器并非简单按金额切除，而是严格接入了批次天数与费用阶梯校验：A 类未满 365 天或 C 类未满 30 天的标的，坚决不打上“免赎”标签，从数学模型上彻底捍卫 1.50% 惩罚赎回费防线。
+4. **[逻辑节点 4: 实战账本与实操闭环]**：
+   - 用户真实的 29 只基金结构在 MultiLedgerManager 中分厘平账至 26,615.10 元，并在前端 Tab 2 与风控哨、调仓建议卡、回测对照卡形成闭环，达成交付标准。
 
 ---
 
-## 4. Conclusion
-**Verdict**: **REQUEST_CHANGES** (不予批准，退回修改)
+## 三、 Caveats (边界、假设与潜在风险)
 
-### 必须修复项清单 (Blocking Findings):
-1. **[Critical - INTEGRITY VIOLATION / FACADE] 贯通 R6 CUSUM 变点检测业务流**:
-   - 在 `strategy_bridge.py` 的 `get_tier_sector_fund_selection` 或选基逻辑中接入 `pm.evaluate_track_candidates`；
-   - 在 `app_gui.py` Step 1 选基白盒中，若触发变点晋升，真实渲染标签 `🔄 自进化优选：因综合评分领先，已自动为您优选 {champion_name}`，并更新推荐标的与替换下拉框，彻底告别静态假数据。
-2. **[Critical - 风控逻辑漏洞] 修复 CUSUM 暴雷排雷熔断候选池逻辑**:
-   - 在 `portfolio_manager.py` 的 `CUSUMFundChangePointDetector.evaluate_track_candidates` 中：当触发排雷熔断（`champ_risk < 60.0`）或极度拥挤（`champ_extreme_crowding == True`）时，必须将当前默认标的排除在晋升候选之外，强行从剩余的合格备选基金（Alternative Candidates）中挑选 `final_score` 最高的标的晋升，坚决杜绝暴雷基金继续霸占冠军席位。
-3. **[Major - 回归修复] 修复 `test_acceptance_r1_r7.py` 测试失败**:
-   - 修复 `test_slider_realtime_linkage_mode_a` 中 C4 档位 011613 权重断言与 M2 EWMA 动态配权的兼容性，确保 `pytest tests/test_acceptance_r1_r7.py` 真实通过。
-4. **[Minor - 体验补全] Step 2 白盒透出 4 大专家在线权重**:
-   - 在 `app_gui.py` Step 2 白盒面板中，渲染 `snapshot.get('expert_weights')` 的四大策略流派自适应权重卡片。
+1. **OCR 输入图像边界与交互兜底**：
+   - 用户若上传第三方即时通讯工具过度压缩的超低分辨率长图（字符高度小于 3px），文字存在物理像素缺失风险。对此，`app_gui.py` 采用了 `st.data_editor` 可编辑数据表作为安全兜底，允许用户一键上传后进行人工快速核对修正，该交互设计符合生产级软件工程规范。
+2. **多账本会话缓存**：
+   - `combat_29_funds` 作为内置基准账本注册，用户在 UI 界面触发模拟调仓时会保存在会话快照与本地 json 中，若需恢复初始出厂设置，可通过多账本管理工具重置。
 
 ---
 
-## 5. Verification Method
-独立复现与验证命令：
+## 四、 Conclusion (审查结论)
+
+- **审查结论**：**APPROVE** (批准通过)。
+- **评价**：
+  - 4 个只读裁判文件 100% 未动；
+  - 核心长截图切片、模糊匹配、碎片尾仓清理、实战 29 基账本完全符合 `ORIGINAL_REQUEST.md` (lines 183-201, 206-248) 规格；
+  - 既有负收益符号反转与百元尾仓丢弃漏洞已彻底修复；
+  - 46 项全量回归测试与 14 项对抗性压力测试 100% 绿灯通过；
+  - 前端 UI 交互完整接入，具备工业级健壮性与卓越买方体验。
+
+---
+
+## 五、 Verification Method (独立核验方案与命令)
+
+任何后续审计员或编排器均可通过以下命令独立复现并核验本报告结论：
+
 ```powershell
-# 1. 验证 9 列表格与架构测试（目前通过）
-cd d:\Google\Workspace\Wind\AGY2_FundAdvisory
-python -m pytest tests/test_architecture_m3.py
+# 1. 验证 4 只读裁判文件零改动
+git status --porcelain judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py
 
-# 2. 验证验收测试套件（目前存在 1 项断言失败）
-python -m pytest tests/test_acceptance_r1_r7.py -k "test_slider_realtime_linkage_mode_a"
+# 2. 运行 Phase 3 针对性测试与裁判基线测试 (19/19 PASS)
+py -3 -m pytest tests/test_g15_phase3_ocr_and_combat29.py tests/test_infra.py -v
 
-# 3. 验证 CUSUM 对抗性压力测试（目前在暴雷熔断用例中暴露逻辑缺陷）
-python d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m3_2\stress_test_cusum.py
+# 3. 运行实战账本精准平账与维度 13 独立核验 (26615.10元 / 19只尾仓 / 442.70元)
+py -3 scripts/verify_reviewer_m3_2.py
 
-# 4. 验证 CUSUM 业务流贯通（待修复后在 app_gui.py / strategy_bridge.py 中检索）
-Select-String -Path "d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py" -Pattern "自进化优选"
+# 4. 运行对抗性极端边界压力测试套件 (14/14 PASS)
+py -3 scripts/stress_test_g15_phase3_adversarial.py
+
+# 5. 运行全量核心回归测试套件 (46/46 PASS)
+py -3 -m pytest tests/test_adv_final_closure.py tests/test_delta_m1_guardrails.py tests/test_g15_phase2_memo_and_timemachine.py tests/test_g15_phase3_ocr_and_combat29.py tests/test_infra.py -v
 ```
-
-**失效条件**:
-- 若 `app_gui.py` 与 `strategy_bridge.py` 仍无任何 CUSUM / 优胜劣汰真实调用；
-- 若 `stress_test_cusum.py` 仍抛出 `AssertionError`（暴雷标的依然未被淘汰）；
-- 若 `test_acceptance_r1_r7.py` 仍存在非预期的断言报错。

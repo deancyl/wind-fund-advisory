@@ -2129,7 +2129,7 @@ def evaluate_option_volatility_hedge_warning(
 
 
 class ActiveRiskSentry:
-    """主动风险预警哨：十二维主动风险巡检与本地预警哨持久化"""
+    """主动风险预警哨：十三维主动风险巡检与本地预警哨持久化"""
 
     def __init__(self, watchdog_path: Optional[str] = None):
         self.watchdog_path = watchdog_path or "data/portfolio_watchdog.json"
@@ -3099,6 +3099,39 @@ class ActiveRiskSentry:
                         })
         except Exception:
             pass
+
+        # -------------------------------------------------------------
+        # 维度 13: 碎片尾仓与羊毛基免赎清理诊断 (持有金额 < 200元 或 占比 < 1.0%，且满免赎期)
+        # -------------------------------------------------------------
+        tail_funds = []
+        tail_total_mv = 0.0
+        for item in normalized_items:
+            m_val = float(item.get("market_value", 0.0))
+            m_days = int(item.get("min_days") or item.get("holding_days", 0) or 0)
+            s_cls = str(item.get("share_class", "A")).upper()
+            is_fee_free = (s_cls == "C" and m_days >= 30) or (s_cls == "A" and m_days >= 365)
+            # 碎片判定：不足100元，或100~200元且为C类/指数联接/体验金尾仓；对于主动权益A类腰部底仓予以保留
+            is_tail = (
+                m_val < 100.0
+                or (m_val < 200.0 and (s_cls == "C" or any(k in item.get("name", "") for k in ["联接", "ETF", "指数", "红包", "体验", "尾仓"])))
+            )
+            if is_tail and is_fee_free:
+                tail_funds.append(item)
+                tail_total_mv += m_val
+
+        if len(tail_funds) >= 1:
+            tail_codes = [t.get("code") for t in tail_funds if t.get("code")]
+            alerts.append({
+                "level": "yellow",
+                "dimension": "碎片尾仓清理",
+                "title": f"检测到 {len(tail_funds)} 只免赎碎片尾仓（合计 ¥{tail_total_mv:,.2f}）",
+                "desc": f"这 {len(tail_funds)} 只基金单只不足 200 元且均已满期免赎，合计仅占总资产 {tail_total_mv/max(total_portfolio_mv,1.0)*100:.1f}%，严重干扰看盘视线！",
+                "action": "建议一键全额清仓回收资金，集中增持核心底仓 (002351) 以净化账本。",
+                "action_type": "sweep_tail_funds",
+                "tail_count": len(tail_funds),
+                "recoverable_cash": round(tail_total_mv, 2),
+                "tail_codes": tail_codes,
+            })
 
         has_danger = any(a["level"] == "red" for a in alerts)
         has_warning = any(a["level"] == "yellow" for a in alerts)
@@ -4133,9 +4166,221 @@ class SmartExecutionDCAEngine:
 
 
 
+
+def generate_chief_advisor_memo(
+    snapshot: Optional[Dict[str, Any]] = None,
+    holdings: Optional[Union[Dict[str, Any], List[Any]]] = None,
+    radar_top3: Optional[List[Dict[str, Any]]] = None,
+    sentry_rep: Optional[Dict[str, Any]] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    【🧭 首席投顾五维全息决策备忘录算子】
+    从宏观政策、国际汇率、产业估值、存量病灶、今日行动五个维度，生成专业、通俗、可落地的人话参谋长报告。
+    """
+    snap = snapshot or {}
+    alerts = (sentry_rep.get("alerts", []) if sentry_rep else [])
+    
+    # ── 1. 宏观与政策面 ──────────────────────────────────────────
+    cgb_10y = float(snap.get("treasury_10y", 1.6258))
+    dr007 = float(snap.get("dr007", 1.389))
+    dr007_bp = float(snap.get("dr007_spread_bp", -11.1))
+    erp_pct = float(snap.get("erp_percentile", 81.9))
+    erp_val = float(snap.get("erp_val", 6.54))
+    
+    if dr007_bp <= 15.0:
+        liq_desc = "银行间流动性充沛，央行逆回购维稳意图明确，资金成本低位平稳"
+        liq_badge = "🟢 货币宽松充裕"
+    elif dr007_bp <= 35.0:
+        liq_desc = "资金面处于中性偏紧平衡区间，短端利率存在季节性波动"
+        liq_badge = "🟡 资金中性平衡"
+    else:
+        liq_desc = "银行间短端拆借利率收紧，流动性摩擦上升，需警惕估值承压"
+        liq_badge = "🔴 资金边际收紧"
+        
+    if erp_pct >= 75.0:
+        erp_stance = "极高性价比黄金击球区"
+        erp_advice = "权益资产处于历史低估磨底带，中长期潜在赔率显著优于债券，严禁在底部休克式割肉丢筹码"
+    elif erp_pct <= 35.0:
+        erp_stance = "高估谨慎区"
+        erp_advice = "股市风险溢价过低，追涨盈亏比收敛，建议锁定防守收益"
+    else:
+        erp_stance = "中性平衡区"
+        erp_advice = "股债比价均衡，维持攻防兼备的哑铃配置"
+        
+    macro_text = (
+        f"国内 10Y 国债收益率运行在 <b>{cgb_10y:.2f}%</b> 历史极低分位，表明全社会无风险收益率下行趋势未变；"
+        f"DR007 处于 <b>{dr007:.3f}%</b> ({dr007_bp:+.1f} bp 逆回购利差)，{liq_desc}。"
+        f"当前沪深300 ERP 股权风险溢价达 <b>{erp_val:.2f}%</b> (处于历史 <b>{erp_pct:.1f}%</b> 分位)，"
+        f"定性处于【<b>{erp_stance}</b>】。{erp_advice}。"
+    )
+    
+    # ── 2. 国际与汇率面 ──────────────────────────────────────────
+    DataLoader = None
+    try:
+        from data_loader import DataLoader
+    except ImportError:
+        try:
+            from AGY2_FundAdvisory.data_loader import DataLoader
+        except ImportError:
+            DataLoader = None
+
+    macro_multi = {}
+    if DataLoader is not None:
+        try:
+            if hasattr(DataLoader, "fetch_realtime_macro_indicators"):
+                macro_multi = DataLoader.fetch_realtime_macro_indicators(use_cache=True)
+            elif hasattr(DataLoader, "fetch_macro_cross_market_indicators"):
+                macro_multi = DataLoader.fetch_macro_cross_market_indicators(use_cache=True)
+        except Exception:
+            macro_multi = {}
+
+    usdcnh_rate = float(macro_multi.get("usdcnh_rate", snap.get("spot_usdcnh", 7.2450)))
+    usdcnh_chg = float(macro_multi.get("usdcnh_change_pct", -0.05))
+    gold_chg = float(macro_multi.get("gold_change_pct", 0.35))
+    gold_price = float(macro_multi.get("gold_price", 628.5))
+    nasdaq_chg = float(macro_multi.get("nasdaq_change_pct", -0.25))
+    
+    fx_badge = "🟢 汇率波幅可控" if abs(usdcnh_chg) < 0.3 else ("🟡 汇率短期波动" if usdcnh_chg < 0.6 else "🔴 贬值压力预警")
+    
+    intl_text = (
+        f"离岸人民币现汇运行在 <b>{usdcnh_rate:.4f}</b> (日变动 <b>{usdcnh_chg:+.2f}%</b>)，"
+        f"隔夜外盘纳指涨跌 <b>{nasdaq_chg:+.2f}%</b>，国内黄金现价 <b>¥{gold_price:.2f}/克</b> ({gold_chg:+.2f}%)。"
+        f"跨市场风险提示：海外科技与黄金等 QDII/商品资产近期维持高关注度，"
+        f"但需高度警惕场内高溢价（超过 1.0% 时严禁追买）以及汇率双向波动折价；"
+        f"场外申购请认准每日限额并预留 T+2 跨时区交割结算周期。"
+    )
+    
+    # ── 3. 产业与估值面 ──────────────────────────────────────────
+    top3_names = []
+    if radar_top3:
+        for s in radar_top3[:3]:
+            s_name = s.get("name", "")
+            s_fund = s.get("fund", {})
+            f_code = s_fund.get("code") or s.get("top_fund_code", "")
+            top3_names.append(f"【{s_name} ({f_code})】" if f_code else f"【{s_name}】")
+    top3_str = "、".join(top3_names) if top3_names else "【红利低波 (005561)】、【纯债固收 (002351)】、【科创50 (011613)】"
+    
+    industry_text = (
+        f"<b>🎯 底部黄金击球区（低估值·高安全边际）</b>：优先推荐 {top3_str}，"
+        f"凭借扎实的股息分红现金流与票息垫平抑短期波动。<br>"
+        f"<b>⚠️ 超买拥挤区（警惕追高折返跑）</b>：凡 20日乖离率 > +6.0%、拥挤度低于 60 分且出现量价脉冲的板块，"
+        f"严禁在早盘冲动满仓追涨，谨防主力拉高洗盘导致回撤。"
+    )
+    
+    # ── 4. 存量持仓病灶 ──────────────────────────────────────────
+    h_items = []
+    if isinstance(holdings, dict):
+        h_items = list(holdings.values())
+    elif isinstance(holdings, list):
+        h_items = holdings
+        
+    deep_loss_list = []
+    tail_fragments = []
+    tot_val = 0.0
+    for h in h_items:
+        mv = float(getattr(h, "market_value", 0.0) or (h.get("market_value", 0.0) if isinstance(h, dict) else 0.0))
+        tot_val += mv
+        cost_v = float(getattr(h, "cost_value", 0.0) or (h.get("cost_value", 0.0) if isinstance(h, dict) else 0.0))
+        pl_ratio = (mv / cost_v - 1.0) if cost_v > 0 else 0.0
+        fname = getattr(h, "fund_name", "") or (h.get("fund_name", "") if isinstance(h, dict) else "")
+        fcode = getattr(h, "fund_code", "") or (h.get("fund_code", "") if isinstance(h, dict) else "")
+        if pl_ratio < -0.10:
+            deep_loss_list.append((fname or fcode, pl_ratio, mv - cost_v))
+        if 0 < mv < 200.0:
+            tail_fragments.append((fname or fcode, mv))
+            
+    frag_count = len(tail_fragments)
+    frag_amt = sum(x[1] for x in tail_fragments)
+    
+    # 集中度研判
+    top1_mv = max([float(getattr(h, "market_value", 0.0) or (h.get("market_value", 0.0) if isinstance(h, dict) else 0.0)) for h in h_items], default=0.0)
+    top1_pct = (top1_mv / tot_val * 100.0) if tot_val > 0 else 0.0
+    
+    pathology_bullets = []
+    if deep_loss_list:
+        deep_loss_list.sort(key=lambda x: x[2])
+        w_f = deep_loss_list[0]
+        pathology_bullets.append(f"🔴 <b>核心亏损拖累源</b>：发现 {len(deep_loss_list)} 只标的浮亏超 10%，其中最大拖累为【{w_f[0]}】(浮亏 {w_f[1]*100:.1f}%)，建议排查是否为主动型行业偏离或基金经理能力退化，择机转入低费率同赛道指数联接；")
+    if frag_count > 0:
+        pathology_bullets.append(f"🧹 <b>长尾碎片尾仓</b>：检测到 {frag_count} 只持仓金额小于 ¥200 的碎片/羊毛基 (合计沉淀资金 ¥{frag_amt:.2f})，建议一键免赎回费清扫归集至核心底仓，净化界面并增厚收益；")
+    if top1_pct > 35.0:
+        pathology_bullets.append(f"⚠️ <b>单标集中度过高</b>：第一大重仓占比达 {top1_pct:.1f}% (建议单一标的 ≤ 30%)，防范非系统性黑天鹅；")
+    if not pathology_bullets:
+        pathology_bullets.append("🟢 <b>持仓结构优良</b>：各标的配比均衡，无深套拖累与碎片尾仓，资产健康度满分。")
+    pathology_text = "<br>".join(pathology_bullets)
+    
+    # ── 5. 今日明确行动准则 (14:30 尾盘) ─────────────────────────
+    c300_bias = float(snap.get("bias_20", 0.0))
+    action_verdict = "维持底仓吃息"
+    action_color = "var(--color-down)"
+    if c300_bias > 5.0:
+        action_verdict = "逢高适度止盈"
+        action_color = "var(--color-up)"
+        action_reason = "大盘短期超买正乖离偏高，尾盘严防脉冲追高，适合分批止盈高弹性波段仓位。"
+    elif erp_pct > 75.0 and c300_bias < 0.0:
+        action_verdict = "逆向定投吸筹"
+        action_color = "var(--accent-primary)"
+        action_reason = "大盘处于估值洼地与负乖离回踩共振带，建议在 14:30~14:50 执行原定投或逆向加仓。"
+    else:
+        action_verdict = "维持底仓吃息"
+        action_color = "var(--color-down)"
+        action_reason = "估值与均线处于平稳蓄势常态，全组合高股息纯债底仓稳健生息，无需频繁折腾。"
+        
+    action_text = (
+        f"<b>定调结论</b>：【<span style='color: {action_color}; font-size: 14px;'>{action_verdict}</span>】。<br>"
+        f"<b>14:30 尾盘决策依据</b>：{action_reason}<br>"
+        f"<b>纪律铁律</b>：持有未满 7 天份额严禁卖出（守死 1.5% 惩罚费红线）；C 类满 30 天择机转同标的 A 类节省长期服务费；红利类资产在磨底期务必设为【红利再投资】以份额滚雪球。"
+    )
+    
+    return {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "macro_policy": {
+            "title": "宏观与政策面",
+            "badge": liq_badge,
+            "cgb_10y": cgb_10y,
+            "dr007": dr007,
+            "erp_pct": erp_pct,
+            "content": macro_text
+        },
+        "international_fx": {
+            "title": "国际与汇率面",
+            "badge": fx_badge,
+            "usdcnh_rate": usdcnh_rate,
+            "usdcnh_chg": usdcnh_chg,
+            "content": intl_text
+        },
+        "industry_valuation": {
+            "title": "产业与估值面",
+            "badge": "🎯 机会与避坑",
+            "top3": top3_names,
+            "content": industry_text
+        },
+        "portfolio_pathology": {
+            "title": "存量持仓病灶",
+            "badge": "🩺 诊断排雷",
+            "deep_loss_count": len(deep_loss_list),
+            "frag_count": frag_count,
+            "frag_amt": frag_amt,
+            "content": pathology_text
+        },
+        "action_directive": {
+            "title": "今日明确行动准则",
+            "badge": f"⏱️ 14:30 决策: {action_verdict}",
+            "verdict": action_verdict,
+            "color": action_color,
+            "content": action_text
+        }
+    }
+
+
 # 下沉工具方法便捷导出 (保持向后兼容)
 calculate_dynamic_correlation_matrix = OpportunityRadarEngine.calculate_dynamic_correlation_matrix
 calculate_otc_fund_liquidity_haircut = SmartExecutionDCAEngine.calculate_otc_fund_liquidity_haircut
+
+# 首席投顾备忘录便捷别名导出
+get_chief_advisor_memo = generate_chief_advisor_memo
+OpportunityRadarEngine.generate_chief_advisor_memo = staticmethod(generate_chief_advisor_memo)
 
 try:
     from AGY2_FundAdvisory.strategy_bridge import find_same_company_conversions, evaluate_macro_dividend_policy
@@ -4145,4 +4390,5 @@ except ImportError:
     except ImportError:
         find_same_company_conversions = None
         evaluate_macro_dividend_policy = None
+
 

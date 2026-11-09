@@ -1,48 +1,30 @@
-# Task Assignment: Reviewer M1-2 (Screener & GUI Integration Reviewer)
+## 2026-11-09T17:13:18Z
+You are reviewer_m1_2, an independent code review and QA agent.
+Your working directory is: d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_2\
 
-## Authoritative Request File
-`d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md` (MUST read completely before proceeding)
-`d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md` (Master Architecture & Milestone Contracts)
-`d:\Google\Workspace\Wind\GEMINI.md` (Workspace Rules)
-`d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m1\handoff.md` (Worker M1 Handoff Report)
+MANDATORY FIRST STEP:
+Read the full user specification at:
+d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
 
-## Scope & Review Objective
-Perform an independent review of Screener bug fix and GUI integration for Milestone 1:
-1. Feature 5 & Screener verification in `AGY2_FundAdvisory/market_screener.py` and `cache_manager.py`:
-   - Verify `inception_date` fix and multi-tiered fallback pipeline.
-   - Verify candidate pool size >= 7,000 and 0-row cache pollution protection.
-2. GUI verification in `AGY2_FundAdvisory/app_gui.py`:
-   - Card 3 real turnover & advancing ratio display.
-   - 6-index ticker strip real valuation badges and CSS variable bindings.
-3. Test suite regression:
-   - `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_deep_remodel_final.py -v"`
-   - `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_m1_open_data_and_cache.py -v"`
-4. Verify referee files SHA-256 hashes are untouched.
-5. Give a clear verdict: `APPROVE` or `REQUEST_CHANGES`.
+Read the project scope and architecture at:
+d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_18\PROJECT.md
 
-## Working Directory
-`d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_2/`
+Read the worker's handoff report at:
+d:\Google\Workspace\Wind\.agents\teamwork\worker_m1_rep\handoff.md
 
-## Output Requirements
-Write your full review report to:
-`d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_2\handoff.md`
-Then call `send_message` to parent.
+YOUR MISSION (Review Milestone 1):
+Independently examine the implementation of Milestone 1 across app_gui.py, portfolio_manager.py, strategy_bridge.py:
+1. 3D surface chart removal: verify render_monte_carlo_stress_table is used and render_monte_carlo_3d_chart is kept as an alias. Verify RuleTree code box is replaced with a clean 2D parameter mechanism table.
+2. Right-wing alert sentry: verify condition checks al_lvl in ("red", "critical", "CRITICAL") for red badge 🔴, al_lvl in ("yellow", "warning", "WARNING") for yellow badge 🟡. Verify desc/action extraction and severity sorting.
+3. Tab 2 DataFrame column headers: verify mapped to 执行阶段, 窗口类型, 分配比例, 建议挂单金额(元), 微观执行策略 with percentage and currency formatting. Verify duplicate blue button at bottom is removed.
+4. Tab 4 secondary navigation: verify single-row compact st.segmented_control (or horizontal radio fallback). Verify 017436 name is unified to "华安纳斯达克100ETF联接A". Verify 存量标的_XXXXXX is eliminated and new buy targets don't trigger 7-day lock-ins.
+5. "📱 手机极简盯盘视图 / 🖥️ 桌面专业模式" toggle: verify sidebar toggle and 3-card stream rendering.
+6. Run build & test commands:
+   py -3 -m pytest tests/test_infra.py
+   py -3 -m pytest tests/test_adv_final_closure.py
+   py -3 -m pytest tests/test_delta_m1_guardrails.py
+7. Physical safety redlines: verify judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py, DataLoader.simulate_execution are 100% untouched.
 
-
-## 2026-11-04T10:24:05Z
-You are Reviewer M1-2 for Milestone 1.
-Working directory: d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_2/
-Read your task dispatch file: d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_2\DISPATCH.md
-Read the authoritative request file: d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
-Read master architecture: d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
-Read Worker Prod M1 Handoff: d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m1\handoff.md
-Read workspace rules: d:\Google\Workspace\Wind\GEMINI.md
-
-Examine correctness and robustness of Feature 5 (market_screener.py inception bug fix, candidate pool size >= 7,000, 0-row cache pollution protection) and GUI integration in app_gui.py (Card 3 real turnover, ticker strip valuation badges).
-Run test commands:
-- cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_deep_remodel_final.py -v"
-- cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_m1_open_data_and_cache.py -v"
-Verify referee file SHA-256 hashes.
-Write your review report and clear verdict (APPROVE or REQUEST_CHANGES) to:
+Write your review report and definitive verdict (APPROVE or REQUEST_CHANGES) to:
 d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_2\handoff.md
-Notify parent when done via send_message. You are read-only; DO NOT modify any source code files.
+Send a completion message back to the orchestrator.

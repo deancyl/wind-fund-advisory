@@ -1,104 +1,114 @@
-# Handoff Report — Milestone M3 对抗性实证审查 (Challenger 2)
+# Handoff Report — challenger_m3_2
 
-## 1. Observation
-1. **四阶 time.sleep(0.35) 延时节奏与门控机制实测**:
-   - 源码位置：`d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py` 第 714, 724, 735, 756 行。
-   - 4 阶延时分别为：Step 1 (0.35s)、Step 2 (0.35s)、Step 3 (0.40s)、Step 4 (0.35s)，四阶累计总耗时严格等于 `1.45 秒`，稳定在 `[1.2, 1.8] 秒` 的舒适心理预期区间内。
-   - 第 708 行与第 767 行配置了严格状态机门控：
-     ```python
-     with sim_container:
-         if st.session_state.sim_has_run:
-             ...
-             st.session_state.sim_has_run = False
-     ```
-   - 冷启动时由于 `last_sim_tier not in st.session_state`，`sim_has_run` 保持为 False，直接调用 `calculate_human_readable_metrics` 兜底计算，非首次渲染或档位未变动时不触发 `time.sleep`，杜绝重复卡顿。
-2. **4 个白盒展开面板默认 expanded=False 实测**:
-   - `app_gui.py:853`: `with st.expander(exp_funnel_title, expanded=False):`（Step 1 全市场海选与 CUSUM 优选）
-   - `app_gui.py:916`: `with st.expander("🧭 【Step 2 白盒：宏观与衍生品四维状态机实时定调】...", expanded=False):`
-   - `app_gui.py:981`: `with st.expander("📊 【Step 3 白盒：2018-2026 跨牛熊 2,000+ 交易日实境回测与压力测试】...", expanded=False):`
-   - `app_gui.py:1020`: `with st.expander("⚙️ 【Step 4 白盒：交易摩擦精算、限购拆单与实盘执行清单】...", expanded=False):`
-   - AST 静态语法树遍历断言全部 4 个白盒展开面板的 `expanded` 关键字实参均为 `False`。
-3. **顶部 7 张核心卡片 15px 单行紧凑与零截断实测**:
-   - `app_gui.py:316-438`: 7 列布局（`status_col1` ~ `status_col6` 及 `status_col_liq`），包含 7 大核心卡片：
-     1. 申赎时钟 (`clock_color`, `font-size:15px;`)
-     2. AI 策略大脑 (`state_color`, `font-size:15px;`)
-     3. 沪深300 (实时) (`c300_color`, `font-size:15px;`)
-     4. 股债性价比 (`#16a34a`, `font-size:15px;`)
-     5. 宏观流动性 (`dr007_color`, `font-size:15px;`)
-     6. 今日预估浮盈亏 (`pnl_color`, `font-size:15px;`)
-     7. 全组合总资产 (`#0f172a`, `font-size:15px;`)
-   - 7 张卡片均严格注入了 `<span title="..." style="cursor:help; color:#94a3b8; font-size:12px;">ⓘ</span>` 悬停提示。
-   - 卡片核心展示数值均通过正则扫描，文本内容 100% 杜绝了 `'...'`、`'…'` 与 `'&hellip;'` 截断符号。
-4. **《三句话看懂本方案》三栏作战卡片实测**:
-   - `app_gui.py:1063-1116`: 通过 `col_card1, col_card2, col_card3 = st.columns(3)` 渲染三栏作战卡片：
-     - `💰 怎么赚钱？(收益引擎拆解)`：核心红利高股息打底 + 动态动量弹性进攻 + 智能拆单捕捉超额 Alpha；
-     - `🛡️ 为什么能赢？(反脆弱对冲机制)`：跨大类极低相关对冲 + 牛熊实境考验胜率 + 东边不亮西边亮；
-     - `🚨 风险与铁律 (底线与执行铁律)`：历史最极端浮亏 + 最长水下等待 + 铁律①买入未满 7 天绝不赎回 (1.50%惩罚) + 铁律②估值底部便宜区绝不割肉 (ERP >75%)。
-   - 各卡片均配置 `ⓘ` 原理悬停提示。
-5. **建仓执行单严格 9 列与存量调仓单 9 列 5 类操作图标实测**:
-   - 建仓执行单（`app_gui.py:1203-1208`）：`cols_9` 包含 `["基金代码", "基金名称", "份额", "目标占比(%)", "精确买入金额(元)", "最新净值", "实时估值涨跌(%)", "排雷与拥挤度", "实操分红与限购指引"]`，严格为 9 列。
-   - 存量调仓单（`app_gui.py:1458-1463`）：`rebal_cols_9` 包含 `["基金代码", "基金名称", "份额", "当前市值(元)", "目标占比(%)", "实时估值涨跌(%)", "建议调仓金额(元)", "建议操作", "实操要点"]`，严格为 9 列。
-   - 调仓操作涵盖 5 大醒目图标：
-     1. `🔒 未满7天锁仓保护`（要点：`未满7天·免收1.5%惩罚`，13字）
-     2. `⏳ 临近30天免赎期缓卖`（要点：`缓卖·满30天免赎回费`，10字）
-     3. `➕ 建议加仓`（要点：`增配¥X,XXX·现金分红`，<=15字）
-     4. `➖ 建议减仓`（要点：`减配¥X,XXX·阶梯退出`，<=15字）
-     5. `✅ 维持持有`（要点：`仓位均衡·在容差内`，9字）
-   - 所有操作要点字符数均严格 `<= 15` 字。
-6. **双向变盘触发点位在不同现价下绝对满足 breakdown < current < surge 实测**:
-   - `strategy_bridge.py:1314-1347` (`SchmidtHysteresisBuffer.get_hysteresis_trigger_lines`) 与 `strategy_bridge.py:2067-2078` (`StrategyBridge.get_rebalance_grid_status`) 引入了刚性包络数学屏障：
-     ```python
-     surge_line = round(max(m20_up, c300_price * 1.012), 1)
-     breakdown_line = round(min(m20_down, c300_price * 0.985), 1)
-     ```
-   - 针对 1,800 到 8,000 点全截面 14 组极限价格扫频测试，以及历史特定倒挂案例（`c300 = 4053.0, m20 = 4180.5`），防守线与进攻线均 100% 严格满足 `breakdown < current < surge`，彻底消除原有倒挂。
-7. **自动化对抗测试套件执行实测**:
-   - 编写并执行了专用对抗测试套件：`AGY2_FundAdvisory/tests/test_adversarial_m3_challenger2.py`。
-   - 执行命令：`C:\Users\deanc\AppData\Local\Programs\Python\Python311\python.exe -m pytest AGY2_FundAdvisory\tests\test_adversarial_m3_challenger2.py`
-   - 实测结果：`24 passed, 176 warnings in 91.49s (0:01:31)`。
-   - 执行裁判只读基建测试：`python -m pytest tests/test_infra.py`
-   - 实测结果：`15 passed in 6.64s`，4 个系统裁判只读文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）未受任何修改。
+- **Agent Identity**: `challenger_m3_2` (Roles: `[critic, specialist]`)
+- **Mission**: G15 第三阶段交付物实证对抗核验 (combat_29_funds 存量账本会计平账、ActiveRiskSentry 维度13碎片尾仓清理器、三大深套亏损源数值精度与调仓路径推演)
+- **Parent Conversation ID**: `9a123e21-7525-4c57-9715-710c2a94c199`
+- **Working Directory**: `d:\Google\Workspace\Wind\.agents\teamwork\challenger_m3_2\`
+- **Verdict**: **APPROVE**
 
-## 2. Logic Chain
-1. 基于观测 1：四阶延时严格控制在 0.35s + 0.35s + 0.40s + 0.35s = 1.45s，且依托 `st.session_state.sim_has_run` 门控与复位机制，仅在用户显式点击或切换档位时执行一次舒适演算，非触发重渲染时完全跳过，既满足了人机工程学仪式感，又保证了界面的流畅响应。
-2. 基于观测 2：4 个白盒推演面板在源码与 AST 层面均硬性指定 `expanded=False`，避免了首次加载时多个大尺寸折叠面板同时撑开造成的视觉压迫与横向/纵向过度展开。
-3. 基于观测 3：顶部 7 张核心卡片采用 `font-size:15px;` 单行紧凑设计，消除所有截断省略号并收纳专业原理至 ⓘ 悬停提示，满足了 1080p 分辨率下的零折行与高信息密度诉求。
-4. 基于观测 4：《三句话看懂本方案》三栏作战卡片紧密围绕“收益从哪来、凭什么能赢、风险底线与铁律”展开，精准融合了买入未满 7 天 1.5% 惩罚防范与估值底部 ERP > 75% 绝不割肉的投顾铁律，实现了从量化黑盒到用户白话心理认知的坚固闭环。
-5. 基于观测 5：建仓执行单与存量调仓单通过严格的 9 列声明收缩表格宽度，并在存量单中全面注入 5 类直观业务图标与不超过 15 字的极简指令，1080p 屏幕下彻底消除了横向滚动条。
-6. 基于观测 6：施密特迟滞触发线采用 `max(..., c300*1.012)` 与 `min(..., c300*0.985)` 刚性约束，在数学上彻底斩断了当均线高于现价时可能诱发防守线倒挂的隐患，全截面 1,800~8,000 点与历史 4053/4180 极限测试全部 100% 成立。
-7. 基于观测 7：全量 24 项对抗测试与 15 项裁判基建测试全部绿灯通过，验证了工作成果不仅在静态结构上符合规范，在极端动态压测与 AppTest 渲染场景下亦具备高度鲁棒性。
+---
 
-## 3. Caveats
-1. **AppTest 网络与超时配置建议**:
-   - 在真实无 Mock 环境下，`app_gui.py` 首次渲染需要从天天基金/新浪网关同步拉取 20+ 只基金与指数的实时估值数据，网络耗时约 35~40 秒。在编写或运行涉及完整全量网络请求的 AppTest 测试时，建议将 `default_timeout` 设置为 90 秒以上，或在单元测试中使用极速 Mock，以杜绝因公网瞬态网络抖动引发假性超时。
-2. **测试工作目录约定**:
-   - 执行 pytest 时必须在 `d:\Google\Workspace\Wind\AGY2_FundAdvisory` 目录下运行，以确保 `strategy_bridge`、`portfolio_manager`、`data_loader` 能够正确从当前目录完成模块导入。
+## 1. Observation (直接客观观测证据)
 
-## 4. Conclusion
-**明确结论：APPROVE（完全通过）**
+### (1) combat_29_funds 实战账本会计平账与批次持有天数
+- **底层账本文件**: `data/ledgers/combat_29_funds.json`
+  - 持仓基金总数：严格为 **29** 只。
+  - 总资产精确加总：
+    - 7 大核心持仓：005561 (¥5,681.55), 110020 (¥5,279.05), 017436 (¥4,536.85), 002351 (¥4,101.71), 100032 (¥2,432.90), 011613 (¥2,072.52), 000216 (¥1,023.71)，合计 **¥25,128.29**。
+    - 3 只腰部持仓：161725 (¥524.24), 000217 (¥395.73), 005827 (¥124.14)，合计 **¥1,044.11**。
+    - 19 只碎片尾仓：016634 (¥89.60), 001053 (¥76.00), 050025 (¥52.07), 002352 (¥50.00), 016441 (¥44.56), 013841 (¥42.07), 012832 (¥34.50), 012769 (¥28.67), 008682 (¥8.98), 011612 (¥3.95), 002611 (¥2.10), 019260 (¥1.85), 000086 (¥1.50), 018757 (¥1.35), 001071 (¥1.25), 006113 (¥1.15), 004854 (¥1.45), 001595 (¥1.06), 001551 (¥0.59)，合计 **¥442.70**。
+    - **全组合总市值**: $25,128.29 + 1,044.11 + 442.70 = \mathbf{26,615.10}$ 元（误差绝对为 **0.00** 元）！
+  - 批次持有天数：
+    - JSON 底层预置：全部 29 只基金的批次 `holding_days` 均显式设定为 `400` 天（`> 365` 天），批次备注为 `"实战存量批次(满400天免赎)"`。
+    - PM 运行态动态重算：`_recalculate_totals()` 按买入日期 `buy_date="2024-01-05"` 动态计算自然日天数，在当前时点为 `1040` 天（`>= 400 >= 365` 天），所有批次 `safety_lock` 为 `False`，可免惩罚赎回份额占比达 100.0%。
 
-Worker Agent-3 在 Milestone 3 交付的 Streamlit 白盒交互 UI (`AGY2_FundAdvisory/app_gui.py`) 经受住了 Challenger 2 的全面对抗性挑战与实证测试检验：
-- 四阶延时节奏稳定在 1.45s 且非首次演算不重复卡顿；
-- 4 个白盒面板默认全部 `expanded=False`；
-- 顶部 7 张核心卡片 15px 单行紧凑零截断且全配 ⓘ 提示；
-- 《三句话看懂本方案》三栏作战卡片正确渲染；
-- 建仓与调仓执行单严格 9 列无横向滚动条，包含 5 类规范操作图标；
-- 双向变盘触发线 100% 满足 `breakdown < current < surge` 且根除历史倒挂；
-- 24 项对抗测试用例全部 100% 通过，只读裁判文件零侵入。
+### (2) ActiveRiskSentry 维度 13 碎片尾仓清理预警器
+- **源码位置**: `AGY2_FundAdvisory/advisory_engine.py` 第 3104-3135 行
+- **直接实测结果**:
+  - 对 `combat_29_funds` 持仓执行 `inspect_portfolio`，触发 1 项预警：
+    - `dimension`: `"碎片尾仓清理"`
+    - `action_type`: `"sweep_tail_funds"`
+    - `tail_count`: **19** 只
+    - `recoverable_cash`: **¥442.70** 元
+  - **边界隔离防御保护**:
+    - 7 大核心持仓（含 002351 等）100% 排除在外；
+    - 3 只腰部持仓（161725 ¥524.24, 000217 ¥395.73, 005827 易方达蓝筹精选 ¥124.14）全部排除在尾仓之外，严格守住主动权益腰部底仓防线。
 
-## 5. Verification Method
-可直接运行以下命令复现本审查员的全部对抗实证测试：
+### (3) 三大深套亏损源数值精度核验
+- **JSON 账本数据明细**:
+  - `#5` 100032 (富国中证红利指数增强A): 市值 ¥2,432.90, 成本 ¥2,765.44, 浮亏 **-¥332.54**
+  - `#6` 011613 (华夏上证科创板50ETF联接C): 市值 ¥2,072.52, 成本 ¥2,501.00, 浮亏 **-¥428.48**
+  - `#8` 161725 (招商中证白酒指数A): 市值 ¥524.24, 成本 ¥700.00, 浮亏 **-¥175.76**
+  - **三大深套亏损源总和**: $(-332.54) + (-428.48) + (-175.76) = \mathbf{-936.78}$ 元（误差严格为 0.00 元）！
+- **PM 运行态微观舍入对比**:
+  - PM 动态基于 `round(shares * round(cost_nav, 4), 2)` 反算成本基准，100032 成本为 2765.48（浮亏 -332.58，偏差 4 分钱），011613 成本 2500.91（浮亏 -428.39，偏差 9 分钱），161725 成本 700.02（浮亏 -175.78，偏差 2 分钱），总和为 -936.75 元，与基准账本 -936.78 元仅有 3 分钱的正常浮点舍入差异（误差率仅 0.003%）。
+- **前端对应展示**: `AGY2_FundAdvisory/app_gui.py` 第 5803-5819 行完整呈现「② 🩺 三大核心深套亏损源精准手术（#5、#6、#8 合计浮亏 -¥936.78）」专项卡片，实装 011613 华夏内部免赎转 A 类 (011612)、161725 网格与平换红利、100032 协同 005561 底部吃息方案。
+
+### (4) 场景调仓 `sweep_tail_and_c_class` 实证推演
+- **调用命令**: `pm.generate_scenario_rebalance_plan({}, scenario_mode="sweep_tail_and_c_class", core_anchor_code="002351")`
+- **执行结果**:
+  - `sell_actions`: 严格为 **19** 笔（对应 19 只碎片尾仓）；
+  - `total_sell_amount`: 严格为 **¥442.70** 元；
+  - `total_redemption_fee`: 严格为 **¥0.00** 元（全部满 400 天零费率）；
+  - `buy_actions`: 严格为 **1** 笔底仓申购（标的代码 `002351` 易方达裕祥回报），申购金额为 **¥442.70** 元；
+  - 资金守恒：`total_sell_amount == total_buy_amount == 442.70`，资金 100% 守恒无泄漏；
+  - 核心资产与腰部资产在调仓单中卖出笔数严格为 **0**。
+
+### (5) 自动化对抗与回归测试执行结果
+- **自建实证对抗套件**: `tests/test_adversarial_m3_combat29_challenger.py`（9 项实证测试，**9/9 PASS**，耗时 5.56s）
+- **Phase 3 集成套件**: `tests/test_g15_phase3_ocr_and_combat29.py`（5 项集成测试，**5/5 PASS**，耗时 5.09s）
+- **核心基准回归套件**: `tests/test_infra.py`、`tests/test_adv_final_closure.py`、`tests/test_delta_m1_guardrails.py`、`tests/test_g15_phase2_memo_and_timemachine.py`（41 项回归测试，**41/41 PASS**，耗时 48.01s）
+
+---
+
+## 2. Logic Chain (严密逻辑推导链)
+
+1. **[观察 -> 真实性]**：根据直接读取 `data/ledgers/combat_29_funds.json`，7 大核心（¥25,128.29）、3 只腰部（¥1,044.11）与 19 只尾部（¥442.70）基金逐笔校验，累加市值严格为 26,615.10 元，单项与总计分厘不差。
+2. **[观察 -> 免赎与安全锁隔离]**：底层批次持有天数显式设定为 400 天，PM 动态加载时以 `buy_date="2024-01-05"` 算得 1040 天，均远超 365 天与 30 天门槛。因此调仓推演中全部 19 笔尾仓赎回费率均为 0.00%，实操中绝不触发 1.50% 惩罚费或 0.50% 阶梯赎回费。
+3. **[观察 -> 诊断精准性与保护]**：在 `ActiveRiskSentry` 维度 13 算法中，尾仓判定条件为不足 100 元，或 100~200 元且为 C 类/指数联接/体验金尾仓。005827 易方达蓝筹精选为主动权益 A 类且持有 124.14 元，161725 与 000217 金额均大于 200 元，算法通过类型与阈值双重过滤将其有效保护在腰部持仓，成功杜绝误杀主力与优质底仓。
+4. **[观察 -> 深套亏损源真实归因]**：第 5、6、8 号标的原始浮亏分别为 -332.54、-428.48、-175.76，总计 -936.78 元。针对性提出 011613 华夏内部转 A 类免除 0.40% 销售服务费、161725 均线反抽与平换双轨、100032 协同低波吃息，逻辑闭环，直击买方痛点。
+5. **[对抗假设推导 -> 健壮性证明]**：在测试用例中注入持有天数仅 20 天与仅 3 天的对抗数据，系统分别正确将其移出免赎清理列表并触发维度 1 惩罚锁仓红牌，证明风控预警哨在异常输入下具备完备的自愈与拦截能力。
+
+---
+
+## 3. Caveats (边界、假设与潜在限制)
+
+1. **PM 成本基准反算微观舍入浮动**：
+   - 当 `PortfolioManager` 从 JSON 载入持仓时，`_recalculate_totals` 会通过 `cost_price`（保留4位小数）重新反算 `cost_basis = shares * cost_price`，在千元级资产上可能会产生 2~4 分钱的舍入差异（例如 -936.78 变为 -936.75）。这属于标准浮点运算舍入行为，对宏观调仓、百分比配比与实盘决策毫无实质影响。底层持久化 JSON 数据与前端图表卡片均 100% 锚定精确的 -936.78 元。
+2. **只读基准账本保护**：
+   - `combat_29_funds` 作为预置实战专属档案，在用户进行会话内调仓模拟时只更新会话内存状态；若需要还原，重启服务或重新从 JSON 载入即可完整复原。
+
+---
+
+## 4. Conclusion (裁决结论)
+
+### 裁决：**APPROVE** (完全核验通过)
+
+- **核心指标达标度**:
+  - `combat_29_funds` 实战账本：**29 只基金**、**¥26,615.10 总市值**（误差 0.00 元）、**400 天持有期**（100% 免赎）；
+  - ActiveRiskSentry 维度 13 碎片尾仓清理器：精确识别 **19 只尾仓**、**¥442.70 回收资金**，核心与腰部资产（005827 124.14元等）零误杀；
+  - 三大深套亏损源 (#5, #6, #8)：浮亏合计精确为 **-¥936.78** 元，针对性手术方案逻辑严密；
+  - 场景调仓推演：19 笔卖出全额回收 ¥442.70，0.00 赎回费，100% 资金守恒买入 002351。
+- **全量测试通过率**: 100% 绿灯（对抗套件 9/9 PASS，Phase 3 集成套件 5/5 PASS，历史核心回归套件 41/41 PASS）。
+- **代码规范遵循**: 未触碰任何物理只读裁判文件，完全符合 G15 需求合同。
+
+---
+
+## 5. Verification Method (独立核验方案与命令)
+
+任何后续审查员或父编排器均可通过以下命令在本地终端中进行 100% 独立复现验证：
+
 ```powershell
-# 1. 进入工作目录
-cd d:\Google\Workspace\Wind\AGY2_FundAdvisory
+# 1. 运行 Challenger 专用对抗实证测试套件 (9/9 PASS)
+py -3 -m pytest tests/test_adversarial_m3_combat29_challenger.py -v
 
-# 2. 运行 Milestone 3 对抗挑战与压力测试套件 (24 项测试)
-C:\Users\deanc\AppData\Local\Programs\Python\Python311\python.exe -m pytest tests/test_adversarial_m3_challenger2.py
+# 2. 运行 Phase 3 截图切片识别与29基实战账本测试 (5/5 PASS)
+py -3 -m pytest tests/test_g15_phase3_ocr_and_combat29.py -v
 
-# 3. 运行系统基建只读裁判测试 (15 项测试)
-C:\Users\deanc\AppData\Local\Programs\Python\Python311\python.exe -m pytest tests/test_infra.py
+# 3. 运行历史核心回归防线 (41/41 PASS)
+py -3 -m pytest tests/test_infra.py tests/test_adv_final_closure.py tests/test_delta_m1_guardrails.py tests/test_g15_phase2_memo_and_timemachine.py -v
+
+# 4. 独立运行实战平账与深套数据校验脚本
+py -3 scripts/verify_reviewer_m3_2.py
+py -3 scripts/verify_deep_loss.py
 ```
-**失效条件**:
-- 若 24 项对抗测试中有任何一项抛出 `AssertionError`、`TimeoutError` 或运行时异常；
-- 若 `app_gui.py` 出现新的省略号截断符或白盒面板默认展开；
-- 若 4 个系统裁判基建文件发生任何修改或被破坏。

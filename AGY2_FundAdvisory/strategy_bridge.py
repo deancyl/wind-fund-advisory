@@ -17,7 +17,7 @@ import math
 import time
 import copy
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Callable
+from typing import Dict, List, Optional, Tuple, Any, Callable, Union
 from datetime import datetime
 
 import numpy as np
@@ -488,12 +488,12 @@ SECTOR_FUND_SELECTION_BY_TIER: Dict[str, Dict[str, Dict[str, Any]]] = {
             "alternatives": [
                 {"code": "050025", "name": "博时标普500ETF联接A (冠军)", "share_class": "A", "tag": "美股大盘蓝筹基准 (单日限额500)"},
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外高科技成长跨市场"},
+                {"code": "017436", "name": "华安纳斯达克100ETF联接A", "share_class": "A", "tag": "海外高科技成长跨市场"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基对冲"}
             ],
             "top_alternatives": [
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外高科技成长跨市场"},
+                {"code": "017436", "name": "华安纳斯达克100ETF联接A", "share_class": "A", "tag": "海外高科技成长跨市场"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基对冲"}
             ]
         }
@@ -585,12 +585,12 @@ SECTOR_FUND_SELECTION_BY_TIER: Dict[str, Dict[str, Dict[str, Any]]] = {
             "alternatives": [
                 {"code": "050025", "name": "博时标普500ETF联接A (冠军)", "share_class": "A", "tag": "美股大盘蓝筹基准 (单日限额500)"},
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外高科技成长跨市场"},
+                {"code": "017436", "name": "华安纳斯达克100ETF联接A", "share_class": "A", "tag": "海外高科技成长跨市场"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基对冲"}
             ],
             "top_alternatives": [
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外高科技成长跨市场"},
+                {"code": "017436", "name": "华安纳斯达克100ETF联接A", "share_class": "A", "tag": "海外高科技成长跨市场"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基对冲"}
             ]
         }
@@ -701,12 +701,12 @@ SECTOR_FUND_SELECTION_BY_TIER: Dict[str, Dict[str, Dict[str, Any]]] = {
             "alternatives": [
                 {"code": "050025", "name": "博时标普500ETF联接A (冠军)", "share_class": "A", "tag": "美股大盘蓝筹基准 (单日限额500)"},
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外全球科技成长"},
+                {"code": "017436", "name": "华安纳斯达克100ETF联接A", "share_class": "A", "tag": "海外全球科技成长"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基"}
             ],
             "top_alternatives": [
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外全球科技成长"},
+                {"code": "017436", "name": "华安纳斯达克100ETF联接A", "share_class": "A", "tag": "海外全球科技成长"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基"}
             ]
         }
@@ -817,12 +817,12 @@ SECTOR_FUND_SELECTION_BY_TIER: Dict[str, Dict[str, Dict[str, Any]]] = {
             "alternatives": [
                 {"code": "050025", "name": "博时标普500ETF联接A (冠军)", "share_class": "A", "tag": "美股大盘蓝筹基准 (单日限额500)"},
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外全球科技成长"},
+                {"code": "017436", "name": "华安纳斯达克100ETF联接A", "share_class": "A", "tag": "海外全球科技成长"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基"}
             ],
             "top_alternatives": [
                 {"code": "001071", "name": "摩根标普500指数A (备选)", "share_class": "A", "tag": "大额不限购标普替代方案"},
-                {"code": "017436", "name": "华安纳斯达克100A", "share_class": "A", "tag": "海外全球科技成长"},
+                {"code": "017436", "name": "华安纳斯达克100ETF联接A", "share_class": "A", "tag": "海外全球科技成长"},
                 {"code": "006075", "name": "广发纳斯达克100ETF联接A", "share_class": "A", "tag": "美股硬核科技宽基"}
             ]
         }
@@ -3765,14 +3765,31 @@ class StrategyBridge:
                     break
 
             if not fund_name:
-                fund_name = f"存量标的_{code}"
+                try:
+                    from portfolio_manager import CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG, PortfolioManager
+                    meta_c = CORE_STRATEGY_POOL.get(code) or EXTENDED_FUND_CATALOG.get(code)
+                    if meta_c:
+                        fund_name = meta_c.get("fund_name") or meta_c.get("name")
+                        if not share_class:
+                            share_class = meta_c.get("share_class", "A")
+                    if not fund_name:
+                        meta_pm = PortfolioManager.resolve_fund_meta(code)
+                        if meta_pm:
+                            fund_name = meta_pm.get("fund_name", "")
+                            if not share_class:
+                                share_class = meta_pm.get("share_class", "A")
+                except Exception:
+                    pass
+
+            if not fund_name:
+                fund_name = f"优选标的_{code}"
             if not share_class:
                 share_class = "C" if code.endswith("3") or code.endswith("7") else "A"
 
             # 7天安全锁检查与安全可卖份额计算
             safety_warning = ""
             safe_shares = 0.0
-            h_holding_days = 0
+            h_holding_days = -1
             if h and hasattr(h, 'batches') and h.batches:
                 h_holding_days = min((getattr(b, 'holding_days', 0) for b in h.batches), default=0)
                 for b in h.batches:
@@ -3781,7 +3798,7 @@ class StrategyBridge:
                     else:
                         break
             elif h and hasattr(h, 'holding_days'):
-                h_holding_days = getattr(h, 'holding_days', 0)
+                h_holding_days = getattr(h, 'holding_days', 30)
 
             # 判定动作与路由（区分四大场景模式）
             if scenario_mode == "new_cash_only":
@@ -7173,6 +7190,166 @@ class StrategyBridge:
             "rows": rows
         }
 
+    @classmethod
+    def run_historical_time_machine_backtest(
+        cls,
+        target_date: Union[str, datetime, Any],
+        tier: str = "C3",
+        capital: float = 100000.0,
+        df: Optional[pd.DataFrame] = None
+    ) -> Dict[str, Any]:
+        """
+        【🕰️ 历史任意时点时光机盲测验证引擎】
+        严格切断所选日期之后的所有未来数据，以当时数据生成真实配置方案，
+        前推真实持有并全额扣除中国公募基金申购费、阶梯赎回费与销售服务费。
+        """
+        if df is None:
+            df = cls.load_matrix()
+
+        dt_target = pd.to_datetime(target_date)
+        target_date_str = dt_target.strftime("%Y-%m-%d")
+
+        # 1. 严格无未来数据切片 (Point-in-Time)
+        df_dates = pd.to_datetime(df['date'])
+        hist_slice = df[df_dates <= dt_target].copy()
+        if len(hist_slice) < 60:
+            raise ValueError(f"所选历史时点 {target_date_str} 前历史样本不足 60 天，无法完成量化状态推演。")
+
+        fwd_slice = df[df_dates >= dt_target].copy().reset_index(drop=True)
+        if len(fwd_slice) < 2:
+            raise ValueError(f"所选历史时点 {target_date_str} 距离今日过近，缺乏前推回测样本。")
+
+        # 2. 仅用历史切片回放当时的投顾配置权重 W_T
+        weights_t = strategy_fn_for_tier(hist_slice, tier=tier)
+
+        # 3. 前推回测与全套真实扣费模型
+        n_fwd = len(fwd_slice)
+        fwd_dates = [pd.to_datetime(d).strftime("%Y-%m-%d") for d in fwd_slice['date']]
+
+        # 前端申购费：A类按 0.12% 扣除，C类 0.00%
+        sub_fee_rate = 0.0012  # 保守按 12 bps 估算
+        init_nav = 1.0 * (1.0 - sub_fee_rate)
+
+        daily_navs = [init_nav]
+        h300_navs = [1.0]
+        bm50_navs = [1.0]
+
+        # 资产列映射与归一化
+        asset_cols = [c for c in weights_t.keys() if c in fwd_slice.columns]
+        norm_w = {c: float(weights_t[c]) for c in asset_cols}
+        w_sum = sum(norm_w.values())
+        if w_sum > 0:
+            norm_w = {k: v / w_sum for k, v in norm_w.items()}
+
+        c_sales_fee_daily = 0.0040 / 250.0  # C类年化0.40%日度计提
+        cash_ret_daily = 0.018 / 250.0      # 现金管理年化1.8%收益
+
+        for t in range(1, n_fwd):
+            # 资产加权日度回报
+            day_ret = 0.0
+            for a, w in norm_w.items():
+                p_prev = float(fwd_slice[a].iloc[t - 1])
+                p_curr = float(fwd_slice[a].iloc[t])
+                r_a = (p_curr / p_prev - 1.0) if p_prev > 0 else 0.0
+                day_ret += w * r_a
+
+            # 扣除日度管理摩擦与持有服务费 (保留5%现金缓冲)
+            eff_day_ret = 0.95 * day_ret + 0.05 * cash_ret_daily - (0.5 * c_sales_fee_daily)
+            next_nav = daily_navs[-1] * (1.0 + eff_day_ret)
+            daily_navs.append(next_nav)
+
+            # 基准净值
+            h300_prev = float(fwd_slice['H00300'].iloc[t - 1])
+            h300_curr = float(fwd_slice['H00300'].iloc[t])
+            h300_r = (h300_curr / h300_prev - 1.0) if h300_prev > 0 else 0.0
+            h300_navs.append(h300_navs[-1] * (1.0 + h300_r))
+
+            if 'BENCHMARK_50_50' in fwd_slice.columns:
+                b50_prev = float(fwd_slice['BENCHMARK_50_50'].iloc[t - 1])
+                b50_curr = float(fwd_slice['BENCHMARK_50_50'].iloc[t])
+                b50_r = (b50_curr / b50_prev - 1.0) if b50_prev > 0 else 0.0
+            else:
+                h11_prev = float(fwd_slice['H11009'].iloc[t - 1]) if 'H11009' in fwd_slice.columns else 1.0
+                h11_curr = float(fwd_slice['H11009'].iloc[t]) if 'H11009' in fwd_slice.columns else 1.0
+                h11_r = (h11_curr / h11_prev - 1.0) if h11_prev > 0 else 0.0
+                b50_r = 0.5 * h300_r + 0.5 * h11_r
+            bm50_navs.append(bm50_navs[-1] * (1.0 + b50_r))
+
+        curve_df = pd.DataFrame({
+            "date": fwd_dates,
+            "strategy_net_nav": daily_navs,
+            "h300_nav": h300_navs,
+            "benchmark_nav": bm50_navs
+        })
+
+        # 计算 3M(63d), 6M(126d), 1Y(252d), 持有至今(全量) 真实到手收益率与最大回撤
+        def _calc_horizon_kpi(idx_end: int) -> Dict[str, Any]:
+            sub_df = curve_df.iloc[:idx_end + 1]
+            cal_days = (pd.to_datetime(sub_df['date'].iloc[-1]) - dt_target).days
+
+            # 阶梯赎回费计算 (FIFO阶梯)
+            if cal_days < 7:
+                red_fee = 0.0150
+            elif cal_days < 30:
+                red_fee = 0.0050
+            elif cal_days < 180:
+                red_fee = 0.0035
+            elif cal_days < 365:
+                red_fee = 0.0015
+            else:
+                red_fee = 0.0000
+
+            gross_nav = float(sub_df['strategy_net_nav'].iloc[-1])
+            to_pocket_nav = gross_nav * (1.0 - red_fee)
+            to_pocket_ret = (to_pocket_nav - 1.0) * 100.0
+
+            # 最大回撤
+            cummax = sub_df['strategy_net_nav'].cummax()
+            mdd = float(((sub_df['strategy_net_nav'] - cummax) / cummax).min() * 100.0)
+
+            # 沪深300同期
+            h_end = float(sub_df['h300_nav'].iloc[-1])
+            h_ret = (h_end - 1.0) * 100.0
+            h_cummax = sub_df['h300_nav'].cummax()
+            h_mdd = float(((sub_df['h300_nav'] - h_cummax) / h_cummax).min() * 100.0)
+
+            # 50/50 基准同期
+            bm_end = float(sub_df['benchmark_nav'].iloc[-1])
+            bm_ret = (bm_end - 1.0) * 100.0
+
+            alpha_vs_h300 = to_pocket_ret - h_ret
+            verdict = "✅ 大幅战胜基准" if alpha_vs_h300 > 3.0 else ("🛡️ 回撤显著收敛少亏" if mdd > h_mdd + 3.0 else ("跑平基准" if abs(alpha_vs_h300) <= 3.0 else "跑输基准"))
+
+            return {
+                "days": cal_days,
+                "trade_days": len(sub_df),
+                "net_return_pct": round(to_pocket_ret, 2),
+                "mdd_pct": round(mdd, 2),
+                "h300_return_pct": round(h_ret, 2),
+                "h300_mdd_pct": round(h_mdd, 2),
+                "bm_return_pct": round(bm_ret, 2),
+                "alpha_vs_h300": round(alpha_vs_h300, 2),
+                "red_fee_pct": round(red_fee * 100.0, 2),
+                "verdict": verdict
+            }
+
+        kpi_3m = _calc_horizon_kpi(min(63, n_fwd - 1)) if n_fwd >= 20 else None
+        kpi_6m = _calc_horizon_kpi(min(126, n_fwd - 1)) if n_fwd >= 60 else None
+        kpi_1y = _calc_horizon_kpi(min(252, n_fwd - 1)) if n_fwd >= 120 else None
+        kpi_all = _calc_horizon_kpi(n_fwd - 1)
+
+        return {
+            "target_date": target_date_str,
+            "tier": tier,
+            "capital": capital,
+            "weights_at_t": norm_w,
+            "curve_df": curve_df,
+            "kpi_3m": kpi_3m,
+            "kpi_6m": kpi_6m,
+            "kpi_1y": kpi_1y,
+            "kpi_all": kpi_all
+        }
+
 
 # =====================================================================
 # 顶层模块函数快捷导出 (Module-Level Exports)
@@ -7202,6 +7379,8 @@ calculate_asset_historical_beta = StrategyBridge.calculate_asset_historical_beta
 calculate_portfolio_cushion_and_stress_model = StrategyBridge.calculate_portfolio_cushion_and_stress_model
 find_same_company_conversions = StrategyBridge.find_same_company_conversions
 evaluate_macro_dividend_policy = StrategyBridge.evaluate_macro_dividend_policy
+run_historical_time_machine_backtest = StrategyBridge.run_historical_time_machine_backtest
+
 
 
 

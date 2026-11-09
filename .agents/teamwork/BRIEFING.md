@@ -1,7 +1,7 @@
-# BRIEFING — 2026-11-09T11:21:50Z
+# BRIEFING — 2026-11-09T15:02:00Z
 
 ## Mission
-Orchestrate G14 Generation: Fix 4 subtle code bugs (radar cache write-read loop, full 12-dim active risk sentry inspection restoration with 1ms cache, get_60d_rolling_nav_and_trajectory real dynamic factor weight selection and 20 bps turnover cost, remove latest_plan pseudo-trading banner), institutional bespoke royal blue aesthetic unification (eliminate tomato red primary buttons, fix Tab 1 5-col control bar vertical alignment, Tab 1 out-of-the-box instant rendering, top 4 cards visual consistency), /browser visual verification, 100% full test suite pass, Git tag v4.4-G14, and semicolon-locked G15 bootstrap prompt.
+Orchestrate G15 Generation: Long screenshot HD slicing OCR import, real 29-fund combat ledger diagnosis, 5-dim chief advisor memo, historical time machine blind backtest, eliminate 3D surface charts and code boxes, UI/UX bug fixes, /browser visual walkthrough, full test suite pass 100%, Git tag v4.5-G15, and semicolon-locked G16 bootstrap prompt.
 
 ## 🔒 My Identity
 - Archetype: sentinel
@@ -18,6 +18,9 @@ Orchestrate G14 Generation: Fix 4 subtle code bugs (radar cache write-read loop,
 - Interviewer (G14): 76240279-3079-44ad-9597-b78c04bb5b0e (killed on skip-interview)
 - Orchestrator (G14): 675b287a-9df2-4040-9227-01d56b1552b2 (orchestrator_17)
 - Victory Auditor (G14): to be spawned on victory claim
+- Interviewer (G15): 068e29be-51d6-4001-afd3-860577356814 (killed on skip-interview)
+- Orchestrator (G15): 9a123e21-7525-4c57-9715-710c2a94c199 (orchestrator_18, active)
+- Victory Auditor (G15): to be spawned on victory claim
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -77,11 +80,24 @@ Orchestrate G14 Generation: Fix 4 subtle code bugs (radar cache write-read loop,
 - [G14] 全量测试套件 100% 绿灯，新增缓存落盘/真实选股扣费/12维风控完整性单测；保护 4 个只读裁判文件与 DataLoader.simulate_execution 签名与费率
 - [G14] Git commit & tag v4.4-G14，push origin HEAD & tags；严禁创建 GitHub Release
 - [G14] 终审门禁严格防转义分号命令标签：[/goal](slashCommand;goal), [/boost](slashCommand;boost), [/teamwork](slashCommand;teamwork), [/browser](slashCommand;browser) 严禁包含冒号
+- [G15] Eliminate 3D charts: remove render_monte_carlo_3d_chart from Tab 1 and Tab 2, remove RuleTree code box in factor evolution popover, convert to plain conclusions & 2D comparative tables
+- [G15] Implement five-dimensional chief advisor memo (generate_chief_advisor_memo) in首屏 advisory section and Tab 1 plan top
+- [G15] Four read-only judge files strictly protected: judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py; DataLoader.simulate_execution default signature and fee logic strictly protected
+- [G15] Fix right sentry alert display: al_lvl in ("red", "CRITICAL") for red icon & border, al_lvl in ("yellow", "WARNING") for yellow; extract desc/detail/message and action/suggested_action
+- [G15] Localize Tab 2 micro-execution DataFrame headers to Chinese (执行阶段, 窗口类型, 分配比例, 建议挂单金额(元), 微观执行策略); deduplicate bottom buttons
+- [G15] Tab 4 compact single-line segmented sub-navigation; unify fund names (e.g. 017436) across site
+- [G15] Add mobile compact view toggle (📱 手机极简模式 / 🖥️ 桌面专业模式)
+- [G15] Tab 3 historical arbitrary inflection point backtest time machine with strict zero lookahead bias
+- [G15] Tab 2 long screenshot lossless slicing OCR engine (slice_long_screenshot_for_ocr: 1000px height, 150px overlap) + fuzzy fund name matcher
+- [G15] Tab 2 small balance dust fund diagnosis and penalty-free cleanup advisor (< ¥200 or < 1.0%)
+- [G15] Preset 29-fund real combat portfolio (¥26,615.10) in MultiLedgerManager with combat diagnosis
+- [G15] Full test suite 100% green; git commit & tag v4.5-G15, push to origin (NO GitHub Release)
+- [G15] Semicolon-locked G16 prompt strictly without colons: /goal, /boost, /teamwork, /browser
 
 ## User Context
-- **Last user request**: Approved G14 task prompt (routed on request as received per caller directive)
+- **Last user request**: G15 Generation Task (skip-interview directive confirmed)
 - **Pending clarifications**: none
-- **Delivered results**: G14 routing in progress
+- **Delivered results**: G15 task recorded and ready for dispatch
 
 ## Project Status
 - **Phase**: in progress
@@ -94,4 +110,5 @@ Orchestrate G14 Generation: Fix 4 subtle code bugs (radar cache write-read loop,
 ## Artifact Index
 - .agents/teamwork/ORIGINAL_REQUEST.md — Authoritative user request record
 - .agents/teamwork/BRIEFING.md — Persistent sentinel memory
-- .agents/teamwork/orchestrator_17/ — Working directory for active G14 Project Orchestrator
+- .agents/teamwork/orchestrator_18/ — Working directory for G15 Project Orchestrator
+

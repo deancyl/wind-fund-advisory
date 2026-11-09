@@ -1,20 +1,22 @@
 # Progress — Challenger M3_2
 
-Last visited: 2026-10-30T03:18:00Z
-Status: Completed
+Last visited: 2026-11-10T03:31:00Z
+Status: In Progress (Completed Test Verification)
 
 ## Tasks
-- [x] 初始化环境、DISPATCH.md 与 BRIEFING.md
-- [x] 阅读相关文件（ORIGINAL_REQUEST.md, PROJECT.md, worker handoff, app_gui.py）
-- [x] 探查 AppTest 渲染耗时瓶颈与网络依赖
-- [x] 编写专门的对抗测试套件 `tests/test_adversarial_m3_challenger2.py`
-- [x] 针对 6 大核心验证点进行深度实证测试：
-  - [x] 1. 四阶 time.sleep(0.35) 延时节奏累计 1.45s 稳定在 [1.2, 1.8]s 区间内，且非首次演算不重复卡顿；
-  - [x] 2. 4 个白盒展开面板默认 expanded=False；
-  - [x] 3. 顶部 7 张核心卡片 15px 单行紧凑，绝对不含 '...', '…', '&hellip;' 等截断符；
-  - [x] 4. 《三句话看懂本方案》三栏作战卡片正确渲染；
-  - [x] 5. 建仓执行单严格 9 列，存量调仓单控制在 9 列以内且含 5 类操作图标；
-  - [x] 6. 双向变盘触发点位在不同现价下绝对满足 breakdown < current < surge，杜绝原有 4180.5/4053.0 倒挂。
-- [x] 运行极端布局与不同分辨率/档位下的对抗渲染测试，确保零崩溃与零异常（24 passed）
-- [x] 验证系统只读基建裁判文件完整性（15 passed）
-- [x] 输出 handoff.md 并向父编排器汇报
+- [x] 读取 DISPATCH.md 与 ORIGINAL_REQUEST.md，明确 G15 Phase 3 对抗核验红线；
+- [x] 读取 worker_m3/handoff.md 交付物与声称依据；
+- [x] 审查 `combat_29_funds` 底层 JSON 文件与 `MultiLedgerManager` 运行态实现；
+- [x] 编写并执行针对性对抗实证测试套件 `tests/test_adversarial_m3_combat29_challenger.py`：
+  - [x] 1. combat_29_funds 元数据与 29 只基金数量核验；
+  - [x] 2. 总市值 ¥26,615.10 精确分厘平账（核心 25,128.29 + 腰部 1,044.11 + 尾部 442.70 = 26,615.10，误差 0.00 元）；
+  - [x] 3. 批次持有天数与 FIFO 惩罚锁防线核验（JSON 显式预置 400 天，PM 动态建仓算得 1040 天，均 >= 365 天免赎）；
+  - [x] 4. 三大核心深套源 (#5 100032 -332.54, #6 011613 -428.48, #8 161725 -175.76) 合计浮亏严格等于 -936.78 元；
+  - [x] 5. ActiveRiskSentry 维度 13 碎片尾仓清理预警器精准命中 19 只尾仓与 ¥442.70 回收资金；
+  - [x] 6. 腰部资产 (161725, 000217, 005827 124.14元) 与 7 大核心底仓受绝对保护，绝不误杀；
+  - [x] 7. 对抗性未满期与未满 7 天惩罚锁仓拦截机制有效性验证；
+  - [x] 8. 场景调仓 `sweep_tail_and_c_class` 实证推演：19 笔卖出全额回收 ¥442.70，0.00 元赎回费，全额申购 002351，资金 100% 守恒；
+  - [x] 9. 全组合 29 只基金会计恒等式 (cost_basis + floating_pnl == market_value) 严密核验。
+- [x] 运行全套相关回归测试套件确保无破坏；
+- [ ] 更新 BRIEFING.md 与编写 handoff.md 交付交接报告；
+- [ ] 向父编排器 (ID: 9a123e21-7525-4c57-9715-710c2a94c199) 发送裁决汇报消息。

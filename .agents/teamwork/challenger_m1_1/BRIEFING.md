@@ -1,55 +1,61 @@
-# BRIEFING — 2026-11-04T10:30:00Z
+# BRIEFING — 2026-11-09T17:27:00Z
 
 ## Mission
-Adversarially stress-test and benchmark Milestone 1: Data Freshness, Latency & Fallback Stress (Cold start < 50ms/< 5ms, offline network resilience, 3210/1780 & INDEX_PE_METAS absence)
+Adversarial challenge and empirical verification of Milestone 1 implementations (Monte Carlo stress rendering, micro-execution slices df formatting, right-wing alert sentry case/priority normalization, and 017436 resolution across portfolio_manager and strategy_bridge).
 
 ## 🔒 My Identity
 - Archetype: empirical challenger
 - Roles: critic, specialist
-- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\
-- Original parent: 7eb668ae-6843-4834-9b3d-3455ac86af88
-- Milestone: Milestone 1
+- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1
+- Original parent: 9a123e21-7525-4c57-9715-710c2a94c199
+- Milestone: milestone_1
 - Instance: 1 of 1
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code (report findings/bugs, do not fix them yourself)
-- Verification must be empirical: write and execute tests
-- No source/test files in .agents/teamwork/
+- Review-only — do NOT modify implementation code
+- Empirical verification required: must write and execute tests, run generators and oracles
+- No unverified claims: if a bug cannot be reproduced empirically, it does not count
+- Defend against vanity tests and surface-level passes
 
 ## Current Parent
-- Conversation ID: c98181d5-8d61-4839-8d62-5dbcef7c85af
-- Updated: 2026-11-04T10:24:16Z
+- Conversation ID: 9a123e21-7525-4c57-9715-710c2a94c199
+- Updated: 2026-11-09T17:27:00Z
 
 ## Review Scope
-- **Files to review**: `AGY2_FundAdvisory/data_loader.py`, `AGY2_FundAdvisory/cache_manager.py`, `AGY2_FundAdvisory/market_screener.py`, `AGY2_FundAdvisory/portfolio_manager.py`, `AGY2_FundAdvisory/portfolio_optimizer.py`, `AGY2_FundAdvisory/app_gui.py`
-- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md, GEMINI.md
-- **Review criteria**:
-  1. Cold start & latency benchmark: `FundPurchaseCacheManager.get_fund_quota` cold start < 50ms, `FundMetadataManager.get_fund_metadata` cached retrieval < 5ms.
-  2. Network offline simulation: EastMoney push2 endpoint failure fallback, AkShare failure fallback for `fetch_or_calc_index_valuations`.
-  3. Code scan: Absence of fake constants `3210`, `1780`, and `INDEX_PE_METAS`.
+- **Files to review**:
+  - `src/ui/tab1_overview.py` / `AGY2_FundAdvisory/app_gui.py` (render_monte_carlo_stress_table)
+  - `src/ui/tab1_micro_execution.py` / `AGY2_FundAdvisory/app_gui.py` (format_micro_execution_slices_df)
+  - `src/ui/right_wing_sentry.py` / `AGY2_FundAdvisory/app_gui.py` (alert normalization & sorting)
+  - `src/services/portfolio_manager.py` / `AGY2_FundAdvisory/portfolio_manager.py` (017436 mapping)
+  - `src/services/strategy_bridge.py` / `AGY2_FundAdvisory/strategy_bridge.py` (017436 handling)
+  - `tests/test_delta_m1_guardrails.py`
+  - `tests/test_infra.py`
+  - `tests/test_adv_final_closure.py`
+  - `tests/test_challenger_m1_adversarial.py`
+- **Interface contracts**: `d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_18\PROJECT.md`, `d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md`
+- **Review criteria**: Correctness, edge-case robustness, anti-crash, regression immunity, mathematical integrity
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - H1: `FundPurchaseCacheManager.get_fund_quota` cold read from disk is strictly < 50ms -> REJECTED. Measured 113.49ms avg / 146.98ms max due to 27,964-row `itertuples` loop in `_update_memory_cache`.
-  - H2: `FundMetadataManager.get_fund_metadata` cached retrieval is strictly < 5ms -> CONFIRMED. Measured 0.19ms avg / 0.33ms max across 50 runs.
-  - H3: Total network disconnection on EastMoney push2 does not crash `fetch_market_turnover_and_sentiment` and falls back gracefully -> CONFIRMED. Handled URLError, TimeoutError, ConnectionRefusedError, HTTP 500, corrupt JSON, empty responses with 0 crashes.
-  - H4: Total network disconnection / akshare failure does not crash `fetch_or_calc_index_valuations` and falls back gracefully -> CONFIRMED. Handled AkShare failure and simultaneous DuckDB failure with 0 crashes.
-  - H5: Codebase is 100% free of fake constants `3210`, `1780` and `INDEX_PE_METAS` -> CONFIRMED. 0 instances of `INDEX_PE_METAS` in Python files; 0 instances of `3210/1780` in market breadth/valuation code.
-- **Vulnerabilities found**:
-  - `FundPurchaseCacheManager.get_fund_quota` cold start bottleneck: `cache_manager.py:477` loops over 27,964 rows with `itertuples(index=False)` in pure Python, causing cold start time (113~147ms) to exceed the < 50ms limit.
-- **Untested angles**:
-  - None within Milestone 1 scope.
+  - `render_monte_carlo_stress_table`: tested empty/None inputs, extreme drawdowns (99.9%), negative excess, non-dict liquidation days, verified 0 Plotly 3D objects produced. PASSED.
+  - `format_micro_execution_slices_df`: tested empty inputs, partial columns, non-numeric strings ("N/A", "待定"), NaN, verified 5 Chinese column headers and number formatting. PASSED.
+  - Right-wing alert sentry: tested case variations ("RED", "red", "critical", "CRITICAL", "yellow", "WARNING", "info", "green_notice"), verified red always sorted to top rank (0, 0), fallback field extraction. PASSED.
+  - 017436 resolution: verified canonical name "华安纳斯达克100ETF联接A", verified non-held target has holding_days=-1 (no false 7-day lock), verified held target < 7 days correctly triggers 7-day penalty lock. PASSED.
+  - Regression testing: ran test_infra.py (14/14), test_adv_final_closure.py (14/14), test_delta_m1_guardrails.py (5/5), test_challenger_m1_adversarial.py (18/18). 51/51 PASSED.
+- **Vulnerabilities found**: None. All edge cases handled robustly.
+- **Untested angles**: None within Milestone 1 scope.
 
 ## Loaded Skills
-- None requested in dispatch
+- None requested by orchestrator.
 
 ## Key Decisions Made
-- Created dedicated empirical adversarial test suite `AGY2_FundAdvisory/tests/test_challenger_m1_adversarial.py` (18 test cases).
-- Discovered empirical latency violation on `FundPurchaseCacheManager.get_fund_quota` cold start.
-- Formulated final verdict: REQUEST_CHANGES.
+- Executed 18 new adversarial test cases in `tests/test_challenger_m1_adversarial.py`.
+- Verified 51/51 tests passing in comprehensive test run.
+- Final verdict: APPROVE.
 
 ## Artifact Index
-- d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\BRIEFING.md — Situational awareness
-- d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\progress.md — Liveness and progress tracking
-- d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\handoff.md — Final challenge report with verdict REQUEST_CHANGES
-- d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_challenger_m1_adversarial.py — Empirical adversarial stress test suite
+- `DISPATCH.md` — Dispatch record
+- `BRIEFING.md` — Situational awareness
+- `progress.md` — Liveness & progress tracking
+- `handoff.md` — Final verdict report
+- `tests/test_challenger_m1_adversarial.py` — Adversarial test suite
