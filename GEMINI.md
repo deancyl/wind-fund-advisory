@@ -291,3 +291,17 @@
 - **组合返回体协议完备性**：所有自定义继承自 `list` 的量化建议返回对象（如 `ArbitrageAdvisoryResult`）必须显式实装 `__contains__` 运算符协议，避免外部在通过 `"has_arbitrage_opportunity" in result` 校验时意外返回 `False`；
 - **真实参考净值 (IOPV) 行情源防合成**：场内 ETF IOPV 必须优先通过交易所/新浪 `fu_<code_6>` 等官方参考净值源采集真实点位，严禁在无数据时使用涨跌幅线性推断伪造净值，守死反金融伪常数防线。
 
+## 56. 50ETF与300ETF认沽期权隐含波动率防暴跌对冲哨 (Put Option IV Crash Sentry & Pure Bond Defense)
+- **近月平值认沽期权隐波偏离度精准监测**：在 `data_loader.py` 中常态化采集 50ETF (510050) 与 300ETF (510300) 近月平值认沽期权隐含波动率 (IV) 及对应标的 20 日历史波动率 (HV)，基于偏离度公式 $\text{spread} = \frac{\text{IV} - \text{HV}}{\text{HV}} \times 100\%$ 实时跟踪衍生品做空对冲情绪；
+- **防暴跌双因子确定性告警与防御增配**：当认沽期权 IV 相对 HV 突升超 30%（$\text{spread} \ge 30\%$，机构避险抢沽激增）且标的均线跌破 20 日均线（$\text{price} < \text{ma}_{20}$）时，系统确定性触发红色级别 `CRASH_HEDGE_WARNING` 防暴跌警报，并在投顾风控哨与调仓建议中明确指导立即增加纯债防护仓位（如易方达裕祥回报债券A 002351）；
+- **全链路风控巡检嵌入**：`ActiveRiskSentry` 第 11 维风控哨与 Tab 2 左翼展开器全面联动，盘中实时推送期权做空对冲警报，彻底杜绝单向多头盲区。
+
+## 57. 跨境 QDII 溢价与外汇期货锁汇成本套利精算铁律 (Cross-Market QDII FX Hedged Arbitrage & Swap Points Calculus)
+- **远期掉期点锁汇成本精确精算**：针对标普500 (050025)、海外科技半导体及全球配置标的，结合离岸人民币 (USD/CNH) 远期掉期点（Forward Swap Points，按标准基准点位 $F = S + \text{swap\_points}/10000$）精确测算外汇锁汇避险成本，年化锁汇成本公式为 $\text{Cost}_{\text{annual}} = \frac{S - F}{S} \times \frac{365}{\text{tenor}} \times 100\%$；
+- **真实到手净收益增厚判定**：真实到手净收益增厚 = 跨境溢价率 - 锁汇成本 - 交易摩擦（$\text{Net Yield Enhancement} = \text{Premium} - \text{Hedging Cost} - \text{Friction}$）。当净收益增厚 $\ge +50$ bps 且溢价 $>0$ 时，输出 `VIABLE_FX_HEDGED_ARBITRAGE` 确定性锁汇套利信号；
+- **Tab 2 左翼透明呈现与套利决策支持**：在 Tab 2 工具坞展示标的溢价率、锁汇成本与到手增厚 bps 账单，指导投资者利用衍生品对冲锁定汇率风险、稳健收割跨境溢价。
+
+## 58. 大额定投跨 3 至 5 交易日波动率自适应平抑建仓调度铁律 (Large DCA Multi-Day Volatility-Adaptive Batch Scheduling Invariant)
+- **大额订单物理阈值识别**：单期单基定投金额超过 10,000 元（$\ge 10,000$ 元）的订单强制判定为大额定投订单（`is_large_order = True`），禁止单日直接市价一次性击穿盘口；
+- **单基历史波幅动态自适应分拆**：结合标的过去 20 日真实日均波幅 $\sigma_{\text{day}}$ 动态适配执行天数：高波标的（$\sigma_{\text{day}} \ge 1.5\%$）平抑分拆为 5 个交易日（各 20%），中波标的（$0.8\% \le \sigma_{\text{day}} < 1.5\%$）分拆为 4 个交易日（各 25%），低波/纯债标的（$<0.8\%$）分拆为 3 个交易日（首日 40% + 后两日各 30%）；
+- **分厘平账与白盒下单小抄全覆盖**：5 阶段/多日分拆金额之和与订单总金额严格误差 $<0.01$ 元，尾笔自动吸收残差；Tab 1 智能定投区卡片与白盒抽屉同步渲染分日调度明细表与实盘下单小抄，为买方客户提供从宏观定投到微观挂单的全流程执行护航。

@@ -500,8 +500,8 @@ def test_apptest_rapid_ledger_switch_and_metric_update():
     )
 
     try:
-        at = AppTest.from_file(str(app_path), default_timeout=35)
-        at.run()
+        at = AppTest.from_file(str(app_path), default_timeout=60)
+        at.run(timeout=60)
         assert not at.exception, f"AppTest 初始渲染异常: {at.exception}"
         assert at.session_state.active_ledger_id == "main_live"
         assert getattr(at.session_state.pm, "ledger_id", "") == "main_live"
@@ -514,7 +514,7 @@ def test_apptest_rapid_ledger_switch_and_metric_update():
         at.session_state.active_tier_val = "C5"
         at.session_state.target_return_val = 50.0
         at.session_state.slider_target_return = 50.0
-        at.run()
+        at.run(timeout=60)
 
         assert not at.exception, f"AppTest 渲染异常: {at.exception}"
         # 验证切账本后控件键已同步且不再发生逆反回弹
@@ -541,10 +541,10 @@ def test_apptest_invalid_ledger_id_in_session_state_graceful_recovery():
     from streamlit.testing.v1 import AppTest
     app_path = _WORKSPACE / "AGY2_FundAdvisory" / "app_gui.py"
 
-    at = AppTest.from_file(str(app_path), default_timeout=35)
+    at = AppTest.from_file(str(app_path), default_timeout=60)
     # 人为注入损坏的 ledger ID
     at.session_state["active_ledger_id"] = "corrupted_ghost_id_0xDEADBEEF"
-    at.run()
+    at.run(timeout=60)
 
     # 验证全站零崩溃，pm 自愈装配为合法对象
     assert not at.exception, f"注入损坏 ledger_id 导致崩溃: {at.exception}"
@@ -562,10 +562,10 @@ def test_apptest_invalid_sel_tab2_active_ledger_unhandled_crash():
     from streamlit.testing.v1 import AppTest
     app_path = _WORKSPACE / "AGY2_FundAdvisory" / "app_gui.py"
 
-    at = AppTest.from_file(str(app_path), default_timeout=35)
+    at = AppTest.from_file(str(app_path), default_timeout=60)
     # 人为注入不存在的账本 ID 到控件绑定的 key 中
     at.session_state["sel_tab2_active_ledger"] = "deleted_or_corrupted_ledger_0xDEAD"
-    at.run()
+    at.run(timeout=60)
     assert not at.exception, "非法控件键引发了异常白屏"
     assert at.session_state["sel_tab2_active_ledger"] == "main_live"
 

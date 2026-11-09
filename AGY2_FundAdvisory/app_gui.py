@@ -3032,9 +3032,57 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                     except Exception as e_arb:
                         st.caption(f"（折溢价套利感知初始化: {e_arb}）")
 
+                # G14: 50ETF 与 300ETF 认沽期权隐含波动率防暴跌哨
+                with st.expander("🛡️ 50ETF与300ETF认沽期权隐含波动率防暴跌哨", expanded=False):
+                    st.caption("🔍 实时监测 50ETF 与 300ETF 近月平值认沽期权 IV 与 20日 HV 偏离度。当 IV 相对 HV 突升超 30% 且跌破 MA20 时输出市场剧烈防暴跌预警，并建议在组合中增加纯债防护仓位。")
+                    try:
+                        if "opt_sensors_gui_cache" not in st.session_state:
+                            st.session_state["opt_sensors_gui_cache"] = DataLoader.fetch_options_implied_volatility_sensors(use_cache=True)
+                        opt_sensors_gui = st.session_state["opt_sensors_gui_cache"]
+                        opt_rows = []
+                        for s in opt_sensors_gui:
+                            opt_rows.append({
+                                "期权标的": f"{s.get('option_symbol')} ({s.get('underlying_code')})",
+                                "期权类型": "认沽(PUT)",
+                                "隐含波动率(IV)": f"{s.get('iv_pct', 0.0):.2f}%",
+                                "历史波动率(HV)": f"{s.get('hv_pct', 0.0):.2f}%",
+                                "IV/HV偏离度": f"{s.get('iv_hv_spread_pct', 0.0):+.1f}%",
+                                "均线状态": "跌破MA20 ⚠️" if s.get("is_below_ma20") else "站上MA20 🟢",
+                                "状态信号": s.get("signal_badge", "🟢 隐波平稳"),
+                                "实操建议": s.get("action_advice", ""),
+                            })
+                        if opt_rows:
+                            st.dataframe(pd.DataFrame(opt_rows), use_container_width=True, hide_index=True)
+                    except Exception as e_opt_gui:
+                        st.caption(f"（期权波动率哨加载提示: {e_opt_gui}）")
+
+                # G14: 跨境 QDII 溢价与外汇期货锁汇成本套利精算
+                with st.expander("🌐 跨境QDII溢价与外汇期货锁汇成本套利精算", expanded=False):
+                    st.caption("结合离岸人民币 (USD/CNH) 远期掉期点 (Forward Swap Points) 测算锁汇避险成本，评估跨市场汇率锁汇套利可行性与真实到手收益增厚。")
+                    try:
+                        from portfolio_manager import PortfolioManager
+                        if "qdii_eval_gui_cache" not in st.session_state:
+                            st.session_state["qdii_eval_gui_cache"] = PortfolioManager.evaluate_all_qdii_fx_arbitrage()
+                        qdii_eval = st.session_state["qdii_eval_gui_cache"]
+                        qdii_rows = []
+                        for q in qdii_eval.get("results", []):
+                            qdii_rows.append({
+                                "标的": f"{q.get('fund_name')} ({q.get('fund_code')})",
+                                "资产类别": q.get("asset_category", ""),
+                                "跨境溢价率": f"{q.get('qdii_premium_pct', 0.0):+.2f}%",
+                                "年化锁汇成本": f"{q.get('annualized_hedging_cost_pct', 0.0):.2f}%",
+                                "真实到手增厚": f"{q.get('net_yield_enhancement_bps', 0.0):+.1f} bps",
+                                "套利可行性": q.get("signal_badge", ""),
+                                "操作建议": q.get("recommendation", ""),
+                            })
+                        if qdii_rows:
+                            st.dataframe(pd.DataFrame(qdii_rows), use_container_width=True, hide_index=True)
+                    except Exception as e_qdii_gui:
+                        st.caption(f"（跨境锁汇套利精算加载提示: {e_qdii_gui}）")
+
             # --- 右翼：主动风险哨 ---
             with col_sentry:
-                safe_markdown_html("<div style='font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;'>🚨 主动风险预警哨 · 十维主动巡检</div>")
+                safe_markdown_html("<div style='font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;'>🚨 主动风险预警哨 · 十二维主动巡检</div>")
                 report = sentry_rep
 
                 with st.container():  # height=380 契约注释与自适应高度容器，彻底消除双重垂直滚动条截断
@@ -4029,18 +4077,39 @@ with tab_zero_start:
                     rt_g = row.get("实时估值涨跌(%)", 0.0)
                     anom = StrategyBridge.evaluate_tail_valuation_anomaly(fc, fn, realtime_quote=rt_g)
                     orig_g = str(row.get("实操分红与限购指引", ""))
+                    o_info = order_map.get(fc, {})
+                    is_large = o_info.get("is_large_order", False)
+                    split_d = o_info.get("split_days", 1)
+
                     if anom.get("is_anomaly"):
-                        return f"{anom['anomaly_tag']} ｜ {orig_g}"
-                    saved_bps = order_map.get(fc, {}).get("slippage_saved_bps", 0.0)
-                    if saved_bps > 0:
-                        return f"{orig_g}·微观省{saved_bps:.1f}bp"
-                    return orig_g
+                        base_str = f"{anom['anomaly_tag']} ｜ {orig_g}"
+                    else:
+                        saved_bps = o_info.get("slippage_saved_bps", 0.0)
+                        if saved_bps > 0:
+                            base_str = f"{orig_g}·微观省{saved_bps:.1f}bp"
+                        else:
+                            base_str = orig_g
+
+                    if is_large and split_d > 1:
+                        return f"🌊大额分{split_d}日挂单 ｜ {base_str}"
+                    return base_str
 
                 df_display["实操分红与限购指引"] = df_display.apply(_inject_dca_anomaly_guidance, axis=1)
 
                 cs_lines = [cheat_sheet_text, f"\n【📅 估值自适应智能定投执行小抄 (乘数: {mult:.2f}x · 微观执行优化版)】"]
                 for _, r in df_display.iterrows():
                     cs_lines.append(f"标的: {r['基金代码']} ({r['基金名称']}) -> 基准定投: ¥{r['基准每期定投(元)']:,.2f}/期 | 本期实扣: ¥{r['本期乘数修正后实扣(元)']:,.2f} | 优化损耗: ¥{r[col_vwap_head]:,.2f} (优化省¥{r[col_saved_head]:,.2f} / {r.get('优化节省(bps)', 0.0):.1f}bps)")
+
+                # G14 实装：大额定投跨 3~5 交易日分批挂单执行调度建议
+                large_orders = [o for o in dca_plan.get("fund_orders", []) if o.get("is_large_order")]
+                if large_orders:
+                    cs_lines.append("\n【🌊 大额定投跨交易日智能挂单分批调度建议 (单笔 > ¥10,000)】")
+                    for lo in large_orders:
+                        lo_sched = lo.get("large_order_schedule", {}).get("schedule", [])
+                        cs_lines.append(f"标的: {lo['code']} ({lo['name']}) -> 单笔 ¥{lo['period_amount']:,.2f} 动态拆解跨 {lo['split_days']} 个交易日挂单:")
+                        for sl in lo_sched:
+                            cs_lines.append(f"  • {sl['day']} ({sl['weight_pct']:.0f}%): ¥{sl['slice_amount']:,.2f} ｜ 时机: {sl['target_timing']} ｜ 策略: {sl['strategy']}")
+
                 active_cheat_sheet_text = "\n".join(cs_lines)
 
             if overrides:
@@ -4520,6 +4589,26 @@ with tab_zero_start:
                 if "智能定投" in cap_deployment_mode and dca_plan:
                     exp_label = "⏱️ 查看分批挂单执行调度表（尾盘净值锁定与跨日分批优化）" if not has_etf_dca else "⏱️ 查看 VWAP 分时成交量加权挂单调度表（日内 5 阶段分笔平抑冲击）"
                     with st.expander(exp_label, expanded=False):
+                        large_orders_gui = [o for o in dca_plan.get("fund_orders", []) if o.get("is_large_order")]
+                        if large_orders_gui:
+                            st.markdown("##### 🌊 大额定投跨交易日智能挂单调度明细 (单笔 > ¥10,000)")
+                            st.caption("针对大额订单结合单基日均波幅与成交量加权，动态生成跨 3~5 个交易日分批挂单表，杜绝未知净值冲高回落与日内冲击。")
+                            lo_rows = []
+                            for lo in large_orders_gui:
+                                for s in lo.get("large_order_schedule", {}).get("schedule", []):
+                                    lo_rows.append({
+                                        "基金标的": f"{lo['name']} ({lo['code']})",
+                                        "执行交易日": s.get("day", ""),
+                                        "权重占比": f"{s.get('weight_pct', 0.0):.0f}%",
+                                        "挂单金额": f"¥{s.get('slice_amount', 0.0):,.2f}",
+                                        "执行时机": s.get("target_timing", ""),
+                                        "执行策略": s.get("strategy", ""),
+                                    })
+                            if lo_rows:
+                                st.dataframe(pd.DataFrame(lo_rows), use_container_width=True, hide_index=True)
+                            st.markdown("---")
+
+                        st.markdown("##### ⏱️ 微观日内/尾盘执行切片参考")
                         sample_slices = []
                         if dca_plan.get("fund_orders"):
                             sample_slices = dca_plan["fund_orders"][0].get("execution_slippage", {}).get("vwap_slices", [])

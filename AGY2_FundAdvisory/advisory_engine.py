@@ -1700,6 +1700,128 @@ def generate_etf_feeder_arbitrage_advisory(
     return ArbitrageAdvisoryResult(advisories)
 
 
+def calculate_qdii_fx_hedged_arbitrage(
+    fund_code: str,
+    fund_name: str = "",
+    spot_usdcnh: Optional[float] = None,
+    forward_swap_points: Optional[float] = None,
+    tenor_days: int = 365,
+    qdii_premium_pct: Optional[float] = None,
+    transaction_friction_pct: float = 0.15,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    跨境 QDII 溢价与外汇期货锁汇成本套利精算。
+    针对标普500、纳指与海外半导体基金，结合离岸人民币远期掉期点 (Forward Swap Points) 测算锁汇避险成本，
+    评估跨市场汇率锁汇套利可行性与真实到手收益增厚。
+    """
+    from portfolio_manager import PortfolioManager
+    return PortfolioManager.calculate_qdii_fx_hedged_arbitrage(
+        fund_code=fund_code,
+        fund_name=fund_name,
+        spot_usdcnh=spot_usdcnh,
+        forward_swap_points=forward_swap_points,
+        tenor_days=tenor_days,
+        qdii_premium_pct=qdii_premium_pct,
+        transaction_friction_pct=transaction_friction_pct,
+        **kwargs
+    )
+
+
+def evaluate_qdii_fx_arbitrage_opportunities(
+    candidate_codes: Optional[List[str]] = None,
+    spot_usdcnh: Optional[float] = None,
+    forward_swap_points: Optional[float] = None,
+    tenor_days: int = 365,
+    qdii_premiums: Optional[Dict[str, float]] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """批量评估核心标的跨境 QDII 锁汇套利可行性与增厚收益"""
+    from portfolio_manager import PortfolioManager
+    return PortfolioManager.evaluate_all_qdii_fx_arbitrage(
+        candidate_codes=candidate_codes,
+        spot_usdcnh=spot_usdcnh,
+        forward_swap_points=forward_swap_points,
+        tenor_days=tenor_days,
+        qdii_premiums=qdii_premiums,
+        **kwargs
+    )
+
+
+def evaluate_option_volatility_hedge_warning(
+    sensors: Optional[List[Dict[str, Any]]] = None,
+    market_snapshot: Optional[Dict[str, Any]] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    G14 世代实装：50ETF 与 300ETF 认沽期权隐含波动率防暴跌对冲哨。
+    当近月平值认沽期权 IV 相对 HV 突升超 30% 且大盘均线跌破 MA20 时输出市场剧烈防暴跌预警，并建议在组合中增加纯债防护仓位。
+    """
+    if sensors is None:
+        if "option_sensors" in kwargs:
+            sensors = kwargs["option_sensors"]
+        elif "options_sensors" in kwargs:
+            sensors = kwargs["options_sensors"]
+        elif market_snapshot and "options_sensors" in market_snapshot:
+            sensors = market_snapshot["options_sensors"]
+        else:
+            try:
+                from data_loader import DataLoader
+                sensors = DataLoader.fetch_options_implied_volatility_sensors(use_cache=True)
+            except Exception:
+                sensors = []
+
+    c300_point = (market_snapshot or {}).get("c300_point")
+    c300_ma20 = (market_snapshot or {}).get("c300_ma20")
+    bias_20 = (market_snapshot or {}).get("bias_20")
+
+    warnings = []
+    has_warning = False
+
+    for s in (sensors or []):
+        iv = float(s.get("iv_pct", 0.0))
+        hv = float(s.get("hv_pct", s.get("hv_20d_pct", 0.0)))
+        spread = float(s.get("iv_hv_spread_pct", ((iv - hv) / max(hv, 1e-4) * 100.0) if hv > 0 else 0.0))
+        is_surge = bool(s.get("is_iv_surge", spread >= 30.0))
+
+        # 判断是否跌破 MA20
+        is_below = s.get("is_below_ma20", False)
+        if not is_below:
+            mp = float(s.get("market_price", 0.0))
+            m20 = float(s.get("ma20", 0.0))
+            if mp > 0 and m20 > 0:
+                is_below = (mp < m20)
+            elif bias_20 is not None and bias_20 < 0:
+                is_below = True
+            elif c300_point is not None and c300_ma20 is not None and c300_point < c300_ma20:
+                is_below = True
+
+        if is_surge and is_below:
+            has_warning = True
+            opt_name = s.get("option_symbol", s.get("underlying_name", "期权"))
+            warnings.append({
+                "underlying_code": s.get("underlying_code"),
+                "underlying_name": s.get("underlying_name"),
+                "option_symbol": opt_name,
+                "iv_pct": iv,
+                "hv_pct": hv,
+                "iv_hv_spread_pct": spread,
+                "is_below_ma20": True,
+                "alert_level": "red",
+                "alert_title": f"🚨【期权IV异动防暴跌】{opt_name} 认沽期权隐含波动率突升达 +{spread:.1f}% 且跌破 MA20",
+                "alert_message": f"{opt_name} 近月平值认沽期权隐含波动率 (IV {iv:.1f}%) 相对历史波动率 (HV {hv:.1f}%) 突升达 +{spread:.1f}% (>+30% 对冲阈值)，且大盘跌破 MA20 均线支撑，机构避险买沽做空需求激增，市场剧烈防暴跌预警！",
+                "action": "启动期权波动率防暴跌对冲预案：建议立即在组合中增加纯债防护仓位 (如 002351 易方达裕祥回报债券)，压降高波权益敞口抵御系统性下行风险。",
+                "action_type": "hedge_crash_risk",
+                "target_shield_code": "002351",
+            })
+
+    return {
+        "has_crash_warning": has_warning,
+        "warnings": warnings,
+        "sensors": sensors or [],
+    }
+
+
 class ActiveRiskSentry:
     """主动风险预警哨：十维主动风险巡检与本地预警哨持久化"""
 
@@ -2602,6 +2724,64 @@ class ActiveRiskSentry:
             except Exception:
                 pass
 
+        # -------------------------------------------------------------
+        # 维度 11: 50ETF 与 300ETF 认沽期权隐含波动率防暴跌对冲哨 (G14 实装)
+        # -------------------------------------------------------------
+        try:
+            opt_sensors = kwargs.get("options_sensors") or kwargs.get("option_sensors") or snapshot.get("options_sensors")
+            opt_eval = evaluate_option_volatility_hedge_warning(
+                sensors=opt_sensors,
+                market_snapshot=snapshot,
+                **kwargs
+            )
+            if opt_eval.get("has_crash_warning"):
+                for w in opt_eval.get("warnings", []):
+                    alerts.append({
+                        "level": "red",
+                        "dimension": "期权波动率对冲哨",
+                        "title": w["alert_title"],
+                        "desc": w["alert_message"],
+                        "action": w["action"],
+                        "action_type": w["action_type"],
+                        "target_shield_code": w.get("target_shield_code", "002351"),
+                        "iv_pct": w.get("iv_pct"),
+                        "hv_pct": w.get("hv_pct"),
+                        "iv_hv_spread_pct": w.get("iv_hv_spread_pct"),
+                        "is_below_ma20": w.get("is_below_ma20", True),
+                        "option_symbol": w.get("option_symbol"),
+                        "underlying_code": w.get("underlying_code"),
+                    })
+        except Exception:
+            pass
+
+        # -------------------------------------------------------------
+        # 维度 12: 跨境 QDII 溢价与外汇期货锁汇成本套利机会巡检 (G14 实装)
+        # -------------------------------------------------------------
+        try:
+            holding_codes_set = {it.get("code") for it in normalized_items if it.get("code")}
+            qdii_targets = [c for c in holding_codes_set if c in ("050025", "513500", "000834", "017436", "017437", "513100", "008888", "014543", "512760")]
+            if qdii_targets:
+                from portfolio_manager import PortfolioManager
+                qdii_arb_rep = PortfolioManager.evaluate_all_qdii_fx_arbitrage(
+                    candidate_codes=qdii_targets,
+                    spot_usdcnh=snapshot.get("spot_usdcnh")
+                )
+                for q_item in qdii_arb_rep.get("results", []):
+                    if q_item.get("is_arbitrage_viable"):
+                        alerts.append({
+                            "level": "green_notice",
+                            "dimension": "跨市场汇率锁汇套利",
+                            "title": f"【跨市场锁汇增厚】{q_item['fund_name']} 真实到手收益增厚 +{q_item['net_yield_enhancement_bps']:.1f} bps",
+                            "desc": f"标的跨境溢价 +{q_item['qdii_premium_pct']:.2f}%，远期锁汇成本 {q_item['period_hedging_cost_pct']:.2f}%，真实到手收益增厚 +{q_item['net_yield_enhancement_bps']:.1f} bps，锁汇套利具有高可行性！",
+                            "action": q_item["recommendation"],
+                            "action_type": "fx_hedged_arbitrage",
+                            "fund_code": q_item["fund_code"],
+                            "fund_name": q_item["fund_name"],
+                            "net_yield_enhancement_bps": q_item["net_yield_enhancement_bps"],
+                            "is_arbitrage_viable": True,
+                        })
+        except Exception:
+            pass
 
         has_danger = any(a["level"] == "red" for a in alerts)
         has_warning = any(a["level"] == "yellow" for a in alerts)
@@ -3281,6 +3461,18 @@ class SmartExecutionDCAEngine:
                 bias_20=f_bias
             )
 
+            # G14 实装：大额定投跨交易日智能挂单分批调度算法
+            from portfolio_manager import PortfolioManager
+            large_order_sched = PortfolioManager.schedule_large_dca_batches(
+                order_amount=amt,
+                fund_code=f_code,
+                fund_name=f_name,
+                daily_volatility=f_vol / (250.0 ** 0.5),
+                adv_yuan=sl_info.get("adv_est_yuan")
+            )
+            is_large = bool(large_order_sched.get("requires_multi_day_split", False))
+            split_days = int(large_order_sched.get("split_days", 1))
+
             fund_orders.append({
                 "code": f_code,
                 "name": f_name,
@@ -3296,6 +3488,9 @@ class SmartExecutionDCAEngine:
                 "slippage_saved_bps": sl_info["slippage_saved_bps"],
                 "slippage_saved_yuan": sl_info["slippage_saved_yuan"],
                 "execution_slippage": sl_info,
+                "is_large_order": is_large,
+                "split_days": split_days,
+                "large_order_schedule": large_order_sched,
             })
 
         tot_naive = round(sum(o["naive_impact_yuan"] for o in fund_orders), 2)
@@ -3304,7 +3499,10 @@ class SmartExecutionDCAEngine:
         avg_saved_bps = round(tot_saved / max(1.0, actual_deduction) * 10000.0, 1)
 
         has_etf_order = any(o.get("is_etf", False) for o in fund_orders)
-        if has_etf_order:
+        has_large_order = any(o.get("is_large_order", False) for o in fund_orders)
+        if has_large_order:
+            guidance = f"检测到单笔定投超过 ¥10,000，已启动大额跨 3~5 日智能平抑挂单调度；预计微观优化单期可节省损耗 ¥{tot_saved:,.2f} ({avg_saved_bps} bps)！"
+        elif has_etf_order:
             guidance = f"实装基于分时成交量加权 (VWAP) 的微观执行模型，通过日内 5 阶段分笔平抑挂单，预计单期可杜绝冲击成本损耗 ¥{tot_saved:,.2f} ({avg_saved_bps} bps)！"
         else:
             guidance = f"实装 14:30 尾盘净值锚定与跨日分批执行模型，规避早盘盲买冲高回落未知净值偏差风险，预计单期可节省损耗 ¥{tot_saved:,.2f} ({avg_saved_bps} bps)！"
@@ -3316,6 +3514,7 @@ class SmartExecutionDCAEngine:
             "avg_slippage_saved_bps": avg_saved_bps,
             "strategy_guidance": guidance,
             "has_etf": has_etf_order,
+            "has_large_order": has_large_order,
         }
 
         return {

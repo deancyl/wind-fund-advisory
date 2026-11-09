@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-09 12:22:12",
+  "timestamp": "2026-11-09 14:16:03",
   "all_passed": false,
   "has_danger": true,
   "has_warning": true,
@@ -66,9 +66,21 @@
       "fund_name": "华安黄金ETF联接A",
       "target_shield_code": "002351",
       "take_profit_ratio": 0.5
+    },
+    {
+      "level": "green_notice",
+      "dimension": "跨市场汇率锁汇套利",
+      "title": "【跨市场锁汇增厚】华安纳斯达克100ETF联接A 真实到手收益增厚 +88.0 bps",
+      "desc": "标的跨境溢价 +3.20%，远期锁汇成本 2.17%，真实到手收益增厚 +88.0 bps，锁汇套利具有高可行性！",
+      "action": "标的 华安纳斯达克100ETF联接A(017436) 跨境溢价 +3.20%，扣除 365 天远期锁汇避险成本 (2.17%, 年化 2.17%) 及摩擦 (0.15%) 后，真实到手净收益增厚达 +88.0 bps！建议卖出美元外汇期货/远期锁汇锁定汇率风险，确定性捕获跨境溢价。",
+      "action_type": "fx_hedged_arbitrage",
+      "fund_code": "017436",
+      "fund_name": "华安纳斯达克100ETF联接A",
+      "net_yield_enhancement_bps": 88.0,
+      "is_arbitrage_viable": true
     }
   ],
-  "summary": "发现 6 项风险与提示项",
+  "summary": "发现 7 项风险与提示项",
   "correlation_mutation": {
     "is_triggered": false,
     "is_liquidity_shift_triggered": false,

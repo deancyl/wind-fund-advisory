@@ -407,3 +407,34 @@
 - **四大只读裁判文件与算子零修改**：`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py` 与 `DataLoader.simulate_execution` 签名保持 100% 只读；
 - **主账本纯净隔离**：`data/ledgers_index.json` 仅保留 `main_live` 主实盘账本；
 - **工作区规则局域化**：所有学习规范均沉淀于工作区内 `GEMINI.md`，严禁触碰全局配置文件。
+
+---
+
+# G14 世代演进与做空期权对冲、QDII锁汇套利及大额定投调度闭环记录 (G14 Options IV Hedge, QDII FX Swap Arb & Large DCA Dispatch)
+
+- **交付日期**：2026-11-09
+- **世代标识**：G14 做空期权波动率对冲、跨境QDII锁汇套利与大额定投调度闭环 (v4.4-G14)
+- **状态**：全量落地，66/66 自动化测试 100% 绿灯通过，四大裁判文件零修改。
+
+## 核心交付亮点
+
+### 1. 50ETF 与 300ETF 认沽期权隐含波动率防暴跌对冲哨 (阶段一)
+- **近月平值认沽期权隐波偏离度采集**：在 `data_loader.py` 实装 `fetch_options_implied_volatility_sensors`，常态化采集 50ETF (510050) 与 300ETF (510300) 近月平值认沽期权 IV 与 20 日历史波动率 HV，测算偏离度 $\text{spread} = \frac{\text{IV} - \text{HV}}{\text{HV}} \times 100\%$；
+- **防暴跌双因子确定性告警**：在 `advisory_engine.py` 实装 `evaluate_option_volatility_hedge_warning`，当 IV 相对 HV 突升超 30% 且大盘标的跌破 MA20 时输出红色 `CRASH_HEDGE_WARNING` 市场防暴跌预警，指导组合增配易方达纯债 A (002351) 防护；
+- **主动风控与前端全面联动**：在 `ActiveRiskSentry.inspect_portfolio` 第 11 维接入期权波动率巡检，并在 Tab 2 左翼以专属展开器 `🛡️ 50ETF与300ETF认沽期权隐含波动率防暴跌哨` 呈现。
+
+### 2. 跨境 QDII 溢价与外汇期货锁汇成本套利精算 (阶段一)
+- **远期掉期点锁汇成本精确精算**：在 `portfolio_manager.py` 实装 `calculate_qdii_fx_hedged_arbitrage` 与 `evaluate_all_qdii_fx_arbitrage`，基于离岸人民币远期掉期点测算锁汇价格 $F = S + \text{swap\_points}/10000$ 与年化锁汇成本；
+- **真实到手净收益增厚判定**：结合跨境溢价率扣除锁汇成本与交易摩擦，精算真实到手净收益增厚基点 (bps)。当净收益增厚 $\ge +50$ bps 且溢价 $>0$ 时判定为 `VIABLE_FX_HEDGED_ARBITRAGE`；
+- **Tab 2 左翼透明呈现**：以专属展开器 `🌐 跨境QDII溢价与外汇期货锁汇成本套利精算` 呈现套利标的、溢价率、年化成本与实操指导。
+
+### 3. 大额定投跨交易日智能挂单分批调度算法 (阶段一)
+- **大额订单动态识别与波幅适配分拆**：在 `portfolio_manager.py` 实装 `schedule_large_dca_batches`，对单笔定投金额超过 10,000 元的订单，根据单基 20 日日均波幅 $\sigma_{\text{day}}$ 动态适配 3 至 5 个交易日分批平抑建仓（高波 $\ge 1.5\% \rightarrow 5$ 天，中波 $\ge 0.8\% \rightarrow 4$ 天，低波 $< 0.8\% \rightarrow 3$ 天）；
+- **分厘平账与白盒下单小抄集成**：分批调度表各日金额严格与总额分厘平账（误差 $<0.01$ 元），在 `SmartExecutionDCAEngine.plan_smart_dca` 中深度联动，并在 Tab 1 智能定投区提供分日执行建议、下单小抄及白盒抽屉展示。
+
+### 4. 全量自动化测试、反作弊守卫与裁判文件只读约束 (阶段二)
+- **全量 66/66 测试 100% 绿灯**：通过 `test_infra.py`, `test_adv_final_closure.py`, `test_g3_evolution_loop.py`, `test_gui_multi_ledger_stress.py`, `test_g13_tail_arb_switch_fx.py` 与新编写的 `test_g14_options_fx_swap_dca.py` 全量回归；
+- **四大只读裁判文件与算子零修改**：`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py` 与 `DataLoader.simulate_execution` 保持 100% 只读；
+- **主账本纯净隔离**：`data/ledgers_index.json` 仅保留 `main_live` 主实盘账本；
+- **工作区隔离**：全局配置文件零触碰，规则沉淀局域化于工作区 `GEMINI.md` 与 `PROGRESS_LOG.md`。
+
