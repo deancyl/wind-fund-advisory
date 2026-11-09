@@ -1,0 +1,67 @@
+{
+  "pain_point_1": {
+    "dom_loaded_ms": 149.1,
+    "first_render_ms": 7203.1,
+    "metric_cards_count": 8,
+    "metric_card_titles": [
+      "交易时钟与窗口",
+      "市场定调与攻防",
+      "估值与资金量能",
+      "总资产与今日预估"
+    ],
+    "status": "PASS"
+  },
+  "pain_point_2_3": {
+    "red_action_button_count": 0,
+    "batch_lock_button_count": 0,
+    "add_to_pool_button_count": 0,
+    "deep_tools_evicted": true,
+    "expanded_height_px": 311.8,
+    "status": "PASS"
+  },
+  "pain_point_4": {
+    "title": "<b><b>2018-2026 全周期累计净值对比 (起始归一化 1.000)</b></b>",
+    "legend": {
+      "orientation": "h",
+      "yanchor": "bottom",
+      "y": 1.06,
+      "xanchor": "left",
+      "x": 0,
+      "bgcolor": "rgba(0,0,0,0)",
+      "font": {
+        "color": "#0f172a"
+      },
+      "bordercolor": "#e2e8f0"
+    },
+    "margin": {
+      "t": 75,
+      "b": 10,
+      "l": 10,
+      "r": 10
+    },
+    "trace_names": [
+      "【主实盘账本】(6 只标的) (理论 +11.34%)",
+      "【主实盘账本】(6 只标的) 场外实盘校准 (+10.87%)",
+      "沪深300 (+2.41%)",
+      "红利低波 (+2.35%)",
+      "纯债指数 (+4.85%)"
+    ],
+    "has_hindsight_disclaimer": true,
+    "has_c3_toggle": true,
+    "status": "PASS"
+  },
+  "pain_point_5": {
+    "tab_count": 4,
+    "tab_height_px": 46,
+    "tab_width_px": 452.8,
+    "tab_labels": [
+      "🌱 新资建仓",
+      "💼 持仓调仓",
+      "📈 组合回测",
+      "🔍 穿透工具"
+    ],
+    "duplicate_headers_removed": true,
+    "status": "PASS"
+  },
+  "summary": "ALL_5_PAIN_POINTS_VERIFIED_AND_PASSED"
+}

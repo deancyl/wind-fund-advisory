@@ -1,27 +1,27 @@
-# BRIEFING — 2026-11-05T16:12:00Z
+# BRIEFING — 2026-11-09T06:54:30Z
 
 ## Mission
-Orchestrate professional buyer advisory terminal upgrade: fix financial facts & clearing rules, implement st.fragment partial re-rendering, promote first-screen visual priority, table auto-commit on edit, and closed-loop live NAV accounting.
+Supervise and monitor Project Orchestrator (ff97c74e-8951-4fdf-b683-3caf0969e6bd) executing the G13 generation refactoring.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: d:\Google\Workspace\Wind\.agents\teamwork\sentinel\
-- Orchestrator: f7b8d799-910f-4e70-94f5-3538a52207de
-- Victory Auditor: [to be spawned on victory claim]
+- Orchestrator: ff97c74e-8951-4fdf-b683-3caf0969e6bd
+- Victory Auditor: to be spawned on victory claim
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
 - Victory Audit is MANDATORY before reporting completion
-- Route to teamwork_orchestrator (General path)
-- Strict compliance with GEMINI.md and user rules
+- Route: General (teamwork_orchestrator)
+- Invariants: Do not modify judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py; keep DataLoader.simulate_execution signature intact; strict command label formatting for G14 prompt.
 
 ## User Context
-- **Last user request**: [skip-interview] Professional buyer advisory terminal upgrade
-- **Pending clarifications**: [none]
-- **Delivered results**: [none]
+- **Last user request**: [skip-interview] Proceed directly with G13 generation refactoring prompt.
+- **Pending clarifications**: none
+- **Delivered results**: none
 
 ## Project Status
-- **Phase**: in progress
+- **Phase**: in progress (orchestrator ff97c74e-8951-4fdf-b683-3caf0969e6bd running)
 
 ## Victory Audit Status
 - **Triggered**: no
@@ -29,4 +29,6 @@ Orchestrate professional buyer advisory terminal upgrade: fix financial facts & 
 - **Retry count**: 0
 
 ## Artifact Index
-- .agents/teamwork/ORIGINAL_REQUEST.md — Original user request record
+- .agents/teamwork/sentinel/BRIEFING.md — Sentinel persistent working memory
+- .agents/teamwork/ORIGINAL_REQUEST.md — Authoritative record of user requests
+- .agents/teamwork/orchestrator_1/ — Orchestrator workspace

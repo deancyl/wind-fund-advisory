@@ -546,9 +546,14 @@ def test_apptest_tab1_module3_and_wing_switch_e2e():
 
     assert not at.exception, f"AppTest Run Failed with Exception: {at.exception}"
 
-    # Verify wing dashboard button exists
-    wing_btn = at.button(key="btn_master_action_switch")
-    assert wing_btn is not None, "必须存在 btn_master_action_switch 按钮"
+    # Verify wing dashboard button is completely eliminated in G13
+    wing_btn = next((b for b in at.button if b.key == "btn_master_action_switch"), None)
+    assert wing_btn is None, "首屏伪交易大红按钮 btn_master_action_switch 必须彻底消除"
+
+    # Verify top advisory expander displays clear human-readable advice without errors
+    advisory_expanders = [e for e in at.expander if "今日投顾参谋" in getattr(e, "label", "")]
+    assert len(advisory_expanders) > 0, "首屏必须包含清晰人话投顾参谋折叠栏"
+    assert "点击展开" in advisory_expanders[0].label
 
     # Verify Module 3 action buttons exist
     chk_overwrite = at.checkbox(key="chk_confirm_t1_overwrite")
@@ -606,13 +611,11 @@ def test_apptest_tab1_interactive_button_clicks():
     assert target_sel is not None
     assert any("Tab 1 最新建仓方案" in opt for opt in target_sel.options)
 
-    # 2. Test clicking Wing Dashboard Jump Button
-    wing_btn = at.button(key="btn_master_action_switch")
-    assert wing_btn is not None
-    at = wing_btn.click().run(timeout=120)
-    assert not at.exception, f"btn_master_action_switch click failed: {at.exception}"
-    last_act = at.session_state.get("last_cross_tab_action")
-    assert last_act is not None
-    assert last_act.get("action_name") == "今日行动总开关"
-    assert "tab_index" in last_act
+    # 2. Test Wing Dashboard Jump Button eliminated & Top Advisory Expander verified
+    wing_btn = next((b for b in at.button if b.key == "btn_master_action_switch"), None)
+    assert wing_btn is None, "首屏伪交易大红按钮 btn_master_action_switch 必须彻底消除"
+    advisory_expanders = [e for e in at.expander if "今日投顾参谋" in getattr(e, "label", "")]
+    assert len(advisory_expanders) > 0, "首屏必须包含清晰人话投顾参谋折叠栏"
+    assert "点击展开" in advisory_expanders[0].label
+    assert not at.exception
 

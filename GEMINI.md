@@ -305,3 +305,30 @@
 - **大额订单物理阈值识别**：单期单基定投金额超过 10,000 元（$\ge 10,000$ 元）的订单强制判定为大额定投订单（`is_large_order = True`），禁止单日直接市价一次性击穿盘口；
 - **单基历史波幅动态自适应分拆**：结合标的过去 20 日真实日均波幅 $\sigma_{\text{day}}$ 动态适配执行天数：高波标的（$\sigma_{\text{day}} \ge 1.5\%$）平抑分拆为 5 个交易日（各 20%），中波标的（$0.8\% \le \sigma_{\text{day}} < 1.5\%$）分拆为 4 个交易日（各 25%），低波/纯债标的（$<0.8\%$）分拆为 3 个交易日（首日 40% + 后两日各 30%）；
 - **分厘平账与白盒下单小抄全覆盖**：5 阶段/多日分拆金额之和与订单总金额严格误差 $<0.01$ 元，尾笔自动吸收残差；Tab 1 智能定投区卡片与白盒抽屉同步渲染分日调度明细表与实盘下单小抄，为买方客户提供从宏观定投到微观挂单的全流程执行护航。
+
+## 59. 首屏零阻塞秒开与启发式因子磁盘持久化缓存准则 (Zero-Block Instant First Screen & 12h Disk Cache Invariant)
+- **首屏主线程零繁重计算**：在首屏折叠框默认关闭的情况下，严禁在主线程默认同步实例化或调用 `OpportunityRadarEngine`、在线遗传进化算法、`get_60d_rolling_nav_and_trajectory` 及网络爬虫接口；
+- **顶层参谋毫秒级内存直判**：首屏顶部的投顾参谋提示条强制仅基于内存已有的 `snapshot` 与 `pm.holdings` 做纯内存极速判断（耗时 $<15$ms，零网络请求、零遗传算法、零大 Parquet 扫描），彻底消灭白屏卡死；
+- **12 小时磁盘持久化缓存防线**：`OnlineHeuristicFactorEvolver` 的 60 日演化轨迹强制缓存至本地磁盘 `data/cache/factor_evolution_cache.json`（TTL=12h），仅当用户主动展开并显式点击刷新时才触发增量走步计算。
+
+## 60. UI 伪交易按钮彻底消除与买方投顾参谋定位铁律 (Elimination of Fake Transaction Controls & Buyer Advisory Positioning Rule)
+- **买方投顾非柜台交易定位**：本系统作为独立买方投顾参谋分析与账本管理工具，严禁放置任何伪造券商/基金柜台交易控制的大红按钮（如「👉 查看锁仓保护」、「一键批量锁定下界」、「择机置换」等伪控制指令）；
+- **全宽 100% 投顾提示容器**：彻底废除由于右侧伪跳转按钮切割出 18% 垂直空白死区的多列布局，将投顾结论升格为 100% 全宽容器，以温情、严谨的人话参谋文案直白传达核心结论；
+- **右翼预警与深度工具解耦**：右翼风险哨纯文本列表化（仅保留 1~3 条核心风险与应对建议，零按钮干扰）；5 大深度工具（拐点对照尺、14赛道总表、14:45折溢价、期权IV、QDII锁汇）彻底迁出首屏双翼折叠栏，首屏展开高度锁定 $\le 220$px。
+
+## 61. 全宽四等分 46px 大胶囊主导航高对比度与二级子模块样式隔离规范 (Full-Width 46px Segmented Navigation & Sub-Tab CSS Isolation Standard)
+- **四等分全宽 Segmented Pill 导航**：主工作区一级四大功能入口（🌱 新资建仓、💼 持仓调仓、📈 组合回测、🔍 穿透工具）强制通过 CSS Grid 构建为 100% 全宽四等分网格（`repeat(4, 1fr)`），按钮高度统一锁死 46px，字号 16px 粗体；
+- **现代高对比度视觉层次**：选中态统一采用深海蓝/品牌主色实心填充，文字与内部 span/p 强制纯白穿透（`#ffffff !important`），搭配投影发光，彻底终结灰色小字萎缩与视觉权重倒挂；
+- **现代 Streamlit DOM 兼容与二级子 Tab 隔离**：选择器全面覆盖 `div[role="tab"]`、`div[data-testid="stTab"]` 与 `div[role="tablist"]`；同时利用 `:not([data-testid="stTabContent"] ...)` 严格隔离保护 Tab 4 等二级子模块，维持 36px 紧凑轻量下划线风格；
+- **消灭重复巨型二级标题**：主 Tab 内部开头严禁重复打印与导航同名的 `st.subheader` 与废话 caption，将核心内容与图表直达首屏。
+
+## 62. 回测净值曲线 Plotly 零遮挡与真实全收益日度基准对齐铁律 (Backtest Curve Zero Occlusion, H11009 Real Total Return & Hindsight De-biasing Invariant)
+- **图例绝对上浮与零遮挡图层**：全周期净值曲线 Plotly 图例强制上浮至绘图区外部上方（`legend=dict(orientation="h", yanchor="bottom", y=1.06, xanchor="left", x=0, bgcolor="rgba(0,0,0,0)")`），顶部外边距固定为 `margin(t=75)`，牛熊切片标注文字缩小至 9px 且淡化置顶，彻底杜绝任何文字或图例框遮挡 2024~2026 年曲线；
+- **真实全收益日度基准对齐**：纯债指数基准强制绑定中证综合债全收益指数 `H11009` 真实日度收盘序列，严禁使用首尾两点线性插值伪造无波动直线；红利低波锁定 `H30269` 真实全收益，确保收益与回撤 100% 历史吻合；
+- **后视镜幸存者效应警示与 C3 动态策略同屏对照**：针对当前实盘静态持仓回溯，强制在图表上方醒目披露后视镜幸存者效应警示卡，并实装一键同屏对比开关（`tgl_compare_oos_dynamic`），支持叠加全天候滚动样本外动态策略 (C3) 标杆基准线，实事求是引导客户。
+
+## 63. 自动化测试环境沙盒物理隔离与主实盘账本防污染规范 (Test Sandbox Physical Isolation & Live Ledger Anti-Pollution Rule)
+- **账本物理隔离铁律**：任何非实盘测试用例在测试 `PortfolioManager`、`ActiveRiskSentry` 或调仓逻辑时，严禁使用默认全局账本路径；必须显式注入 `db_path=":memory:"` 与 `tmp_path / "sandbox_ledger.json"` 物理沙箱；
+- **环境纯净与零脏写门禁**：测试执行前后必须保证 `data/ledgers/` 目录为空，`data/ledgers_index.json` 保持唯一的受保护主实盘账本 `main_live`；
+- **防虚荣断言与真实契约对齐**：测试断言必须真实跟随生产业务演进（如断言已清除伪按钮，而非继续期望旧按钮存在），杜绝测试脱离生产代码或掩耳盗铃。
+

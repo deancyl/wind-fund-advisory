@@ -23,7 +23,30 @@ for pid in pids_to_kill:
     except Exception as e:
         print(f"Error terminating PID {pid}: {e}")
 
-time.sleep(1.5)
+def wait_for_port_free(port=8501, timeout=10.0):
+    start = time.time()
+    while time.time() - start < timeout:
+        res = subprocess.run(["netstat", "-ano"], capture_output=True, text=True)
+        listening = False
+        for line in res.stdout.splitlines():
+            if f":{port}" in line and "LISTENING" in line:
+                listening = True
+                break
+        if not listening:
+            return True
+        time.sleep(0.5)
+    return False
+
+if pids_to_kill:
+    print("Waiting for port 8501 to be completely released...")
+    if not wait_for_port_free(8501, timeout=8.0):
+        print("Warning: Port 8501 did not release in time, continuing anyway.")
+    else:
+        print("Port 8501 is now confirmed free.")
+else:
+    print("No existing process was listening on 8501.")
+
+time.sleep(0.5)
 
 print("=== 2. Launching Streamlit background daemon ===")
 # 使用 Windows 原生 CREATE_NO_WINDOW 后台拉起
@@ -31,6 +54,8 @@ CREATE_NO_WINDOW = 0x08000000
 DETACHED_PROCESS = 0x00000008
 python_exe = sys.executable
 app_path = os.path.abspath("AGY2_FundAdvisory/app_gui.py")
+os.makedirs("data", exist_ok=True)
+log_file = open("data/streamlit_server.log", "w", encoding="utf-8")
 
 cmd = [
     python_exe, "-m", "streamlit", "run", app_path,
@@ -43,8 +68,8 @@ cmd = [
 proc = subprocess.Popen(
     cmd,
     creationflags=CREATE_NO_WINDOW | DETACHED_PROCESS,
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL,
+    stdout=log_file,
+    stderr=log_file,
     close_fds=True,
     cwd=os.path.abspath(".")
 )
@@ -54,7 +79,7 @@ print(f"Launched Streamlit daemon with PID {proc.pid}")
 print("=== 3. Health Probe (Waiting for HTTP 200) ===")
 health_url = "http://127.0.0.1:8501/_stcore/health"
 ok = False
-for attempt in range(15):
+for attempt in range(20):
     time.sleep(1.0)
     try:
         req = urllib.request.Request(health_url)
@@ -69,4 +94,5 @@ for attempt in range(15):
 if ok:
     print("SUCCESS: Streamlit daemon is healthy and running on port 8501!")
 else:
-    print("WARNING: Streamlit health check did not return 200 in 15 seconds.")
+    print("WARNING: Streamlit health check did not return 200 in 20 seconds.")
+

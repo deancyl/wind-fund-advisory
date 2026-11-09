@@ -1,17 +1,15 @@
 ## Current Status
-Last visited: 2026-11-05T16:36:30Z
+Last visited: 2026-11-09T09:42:55Z
 - [x] Phase 0: Survey codebase with 3 parallel Explorers (completed)
-  - [x] Explorer 1 (a4ca295b): 修正 4 项金融事实错误与监管合规瑕疵 [completed]
-  - [x] Explorer 2 (ea4cbb9d): 架构级性能飞跃：引入 @st.fragment 局部刷新与数据新鲜度透明化 [completed]
-  - [x] Explorer 3 (e37d9fbb): UI/UX 体验治理与实盘净值记账投后闭环、测试基线规划 [completed]
-- [x] Phase 1: Synthesize survey findings into PROJECT.md & TEST_INFRA.md (completed)
-- [/] Phase 2: Dual Track Execution (in-progress)
-  - [/] E2E Testing Track: 专项验收测试套件 tests/test_adv_upgrade_suite.py (1426b4a4) [in-progress: drafting test cases]
-  - [/] Milestone 1: 修正金融事实与合规瑕疵 (H30269代码、QDII交割规则与估值标签、去除保本率、动量价格口径) (eac64e2c) [in-progress: modifying advisory_engine/trading_clock_fee/portfolio_manager]
-  - [ ] Milestone 2: 性能与架构飞跃 (@st.fragment局部刷新与数据源时效透明徽章)
-  - [ ] Milestone 3: UI/UX 体验治理与投后闭环 (首屏提权双翼折叠、表格未保存自动同步、实盘净值曲线与跟单打卡)
-  - [ ] Milestone 4: 全量测试验证、防作弊审计与 8501 生产交付
-- [ ] Phase 3: Final Verification, Victory Audit, & Reporting to Sentinel
+  - [x] Explorer 1 (326cad36): 首屏零阻塞秒开 (<150ms) 与回测曲线打假代码实现 [completed]
+  - [x] Explorer 2 (e460095d): 伪交易按钮清理、投顾栏全宽重构与导航CSS改造 [completed]
+  - [x] Explorer 3 (eb47c5be): 测试套件影响面、只读文件守卫与验收基线 [completed]
+- [x] Phase 1: Synthesize survey findings into PROJECT.md (completed)
+- [x] Phase 2: Implementation & Iteration Loop (completed)
+  - [x] M1: 首屏零阻塞秒开与因子进化磁盘缓存机制、回测假 Alpha 剔除与真实 H11009 曲线 [completed: GATE PASSED]
+  - [x] M2: 清除所有伪交易按钮、全宽投顾参谋提示栏与臃肿模块迁移至 Tab 4、全宽四宫格大胶囊主导航 CSS 视觉提权与去除 Tab 内重复巨型标题 [completed: GATE PASSED]
+  - [x] M3: 非只读测试断言适配、4 大裁判文件防篡改审计与全量回归 100% 绿灯 [completed: GATE PASSED (71/71 tests passed, hashes intact, sandbox cleaned)]
+- [/] Phase 3 & 4: M4 服务平滑重启、Browser 5 图实机核验、工作区规范沉淀、Git 标签归档与 G14 世代指令生成 [in-progress: 5 pain-point screenshots verification via Playwright, live DOM validated, capturing Tab 3 chart & finalizing rules]
 
 ## Iteration Status
-Current iteration: 2 / 32
+Current iteration: 1 / 32

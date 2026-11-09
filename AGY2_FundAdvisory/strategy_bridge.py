@@ -161,15 +161,15 @@ BENCHMARK_INDICES_MAP: Dict[str, Dict[str, str]] = {
     "科创50": {"col": "STAR50_STITCH", "color": "#ec4899", "dash": "dashdot"},
     "红利低波": {"col": "H30269", "color": "#d97706", "dash": "dash"},
     "中证红利": {"col": "H00922", "color": "#ea580c", "dash": "dot"},
-    "纯债指数": {"col": "930609", "color": "#059669", "dash": "solid"},
+    "纯债指数": {"col": "H11009", "color": "#059669", "dash": "solid"},
     "国内黄金": {"col": "AU9999", "color": "#eab308", "dash": "dashdot"},
     "股债50/50": {"col": "BENCHMARK_50_50", "color": "#3b82f6", "dash": "dash"},
 }
 
 # ─── 全市场 7 大类型桶 18 只高流动性金牌底池 (供 3~15 只动态调节与离线秒级兜底) ───
 UNIVERSE_18_CHAMPION_POOL: List[Dict[str, Any]] = [
-    {"code": "002351", "name": "易方达裕祥回报债券A", "bucket": "纯债固收", "index_col": "930609", "alpha": 0.015, "share_class": "A", "risk_level": 1, "tag": "百亿固收旗舰"},
-    {"code": "000086", "name": "工银信用纯债债券A", "bucket": "纯债固收", "index_col": "930609", "alpha": 0.011, "share_class": "A", "risk_level": 1, "tag": "高高等级信用债"},
+    {"code": "002351", "name": "易方达裕祥回报债券A", "bucket": "纯债固收", "index_col": "H11009", "alpha": 0.015, "share_class": "A", "risk_level": 1, "tag": "百亿固收旗舰"},
+    {"code": "000086", "name": "工银信用纯债债券A", "bucket": "纯债固收", "index_col": "H11009", "alpha": 0.011, "share_class": "A", "risk_level": 1, "tag": "高高等级信用债"},
     {"code": "018757", "name": "睿远稳益增强30天持有C", "bucket": "固收增强", "index_col": "H11009", "alpha": 0.018, "share_class": "C", "risk_level": 1, "tag": "稳健固收+标杆"},
     {"code": "001015", "name": "华夏国证自由现金流ETF联接A", "bucket": "红利价值", "index_col": "H30269", "alpha": 0.022, "share_class": "A", "risk_level": 2, "tag": "现金流奶牛"},
     {"code": "005561", "name": "创金合信中证红利低波A", "bucket": "红利价值", "index_col": "H30269", "alpha": 0.024, "share_class": "A", "risk_level": 2, "tag": "低波防御中枢"},
@@ -4884,6 +4884,9 @@ class StrategyBridge:
         secondary_weights: Optional[Dict[str, float]] = None,
         tier: str = "C3",
         target_return_pct: float = 12.0,
+        is_real_ledger: bool = False,
+        target_name: Optional[str] = None,
+        **kwargs,
     ) -> pd.DataFrame:
         """
         针对任意真实基金组合（新建仓选出的 N 只基金组合 / 当前实盘持仓 / 调仓后组合）
@@ -4897,12 +4900,17 @@ class StrategyBridge:
         code_to_col_alpha: Dict[str, Tuple[str, float]] = {
             it["code"]: (it["index_col"], float(it["alpha"])) for it in UNIVERSE_18_CHAMPION_POOL
         }
-        # 补充常见基金映射
+        # 补充常见基金映射（纯债基金一律映射至 H11009 真实全收益）
         code_to_col_alpha.update({
-            "002352": ("930609", 0.012),
-            "017436": ("SPX_CNY", 0.010),
-            "510300": ("H00300", 0.005),
-            "588000": ("STAR50_STITCH", 0.015),
+            "002351": ("H11009", 0.0),
+            "002352": ("H11009", 0.0),
+            "000086": ("H11009", 0.0),
+            "018756": ("H11009", 0.0),
+            "018757": ("H11009", 0.0),
+            "511010": ("H11009", 0.0),
+            "017436": ("SPX_CNY", 0.0),
+            "510300": ("H00300", 0.0),
+            "588000": ("STAR50_STITCH", 0.0),
         })
 
         def _synth_nav_from_weights(w_dict: Dict[str, float]) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -4920,13 +4928,12 @@ class StrategyBridge:
             port_ret = np.zeros(n_days)
             w_eq, w_bd, w_gd = 0.0, 0.0, 0.0
             for fcode, fw in norm_w.items():
-                col_name, alpha_ann = code_to_col_alpha.get(fcode, ("H00300", 0.015))
+                col_name, _ = code_to_col_alpha.get(fcode, ("H00300", 0.0))
                 if col_name not in df_mat.columns:
                     col_name = "H00300"
                 s_arr = df_mat[col_name].astype(float).values
                 r_arr = np.zeros(n_days)
                 r_arr[1:] = s_arr[1:] / np.maximum(s_arr[:-1], 1e-8) - 1.0
-                r_arr[1:] += (alpha_ann / 250.0)
                 port_ret += fw * r_arr
 
                 if col_name in ["930609", "H11009"]:
@@ -4983,7 +4990,7 @@ class StrategyBridge:
             out_data["secondary_nav"] = sec_nav
             out_data["secondary_drawdown"] = sec_dd
 
-        # 写入全部 9 大可选对标基准指数的归一化净值与水下回撤
+        # 写入全部 9 大可选对标基准指数的归一化净值与水下回撤 (全收益真实历史日度收盘序列)
         for bm_name, bm_cfg in BENCHMARK_INDICES_MAP.items():
             c_col = bm_cfg["col"]
             if c_col in df_mat.columns:
@@ -4994,7 +5001,29 @@ class StrategyBridge:
                 out_data[f"bm_nav_{bm_name}"] = norm_s
                 out_data[f"bm_dd_{bm_name}"] = dd_s
 
-        return pd.DataFrame(out_data)
+        # 提供【全天候滚动样本外动态策略曲线 (C3)】对比数据供 UI 一键切换
+        try:
+            base_c3 = cls.get_backtest_nav_for_tier(tier="C3")
+            out_data["c3_dynamic_nav"] = base_c3["strategy_nav"].values
+            out_data["c3_dynamic_drawdown"] = base_c3["strategy_drawdown"].values
+        except Exception:
+            pass
+
+        # 静态持仓回测后视镜幸存者效应警示与元数据
+        is_real = bool(
+            is_real_ledger
+            or (target_name and ("实盘" in str(target_name) or "账本" in str(target_name)))
+            or kwargs.get("is_real_ledger", False)
+            or (kwargs.get("target_name") and ("实盘" in str(kwargs["target_name"]) or "账本" in str(kwargs["target_name"])))
+        )
+        disclaimer_text = "当前持仓静态权重历史回溯（含历史后视镜权重效应，非滚动样本外实盘记录）" if is_real else ""
+
+        df_res = pd.DataFrame(out_data)
+        df_res.attrs["disclaimer"] = disclaimer_text
+        df_res.attrs["is_real_ledger"] = is_real
+        df_res.attrs["c3_comparison_available"] = "c3_dynamic_nav" in df_res.columns
+        setattr(df_res, "disclaimer", disclaimer_text)
+        return df_res
 
     @classmethod
     def get_fund_selection_funnel_stats(cls, tier: str = "C3") -> Dict[str, Any]:

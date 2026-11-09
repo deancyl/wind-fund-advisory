@@ -1,77 +1,93 @@
-# BRIEFING — 2026-11-05T16:31:00Z
+# BRIEFING — 2026-11-09T08:44:00Z
 
 ## Mission
-专业买方投顾终端进阶升级：修复金融事实与交割规则错误、实装st.fragment局部刷新架构、首屏视觉提权、表格防丢数自动保存与实盘净值记账闭环，严格坚守裁判文件只读与执行器默认扣费签名红线。
+G13 世代首屏零阻塞秒开重构、全宽大胶囊主导航视觉提权、清除伪交易按钮与臃肿嵌套及回测曲线打假闭环，坚守裁判文件只读与执行器扣费签名红线。
 
 ## 🔒 My Identity
 - Archetype: orchestrator
 - Roles: orchestrator, user_liaison, human_reporter, successor
 - Working directory: d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_1
 - Original parent: parent
-- Original parent conversation ID: 5dd2c72c-93a9-42a8-936b-43f4e4a92fbd
+- Original parent conversation ID: a0495f9e-ecf7-4654-9a42-ecdd2fcd274b
 
 ## 🔒 My Workflow
-- **Pattern**: Project Pattern (Dual Track: Implementation + E2E Testing)
+- **Pattern**: Project Pattern (Survey -> Decompose & Delegate -> Iterate Explorer/Worker/Reviewer/Challenger/Auditor -> Test & Delivery)
 - **Scope document**: d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_1\PROJECT.md
 1. **Decompose**: Survey codebase -> define PROJECT.md architecture & milestones -> decompose into milestones -> dispatch & execute
 2. **Dispatch & Execute**: Direct iteration loop or delegate
 3. **On failure**: Retry -> Replace -> Skip -> Redistribute -> Redesign
 4. **Succession**: At 16 spawns, write handoff.md, spawn successor
 - **Work items**:
-  1. Phase 0: Survey & Codebase Exploration [completed]
-  2. Phase 1: PROJECT.md & Milestones Definition [completed]
-  3. Milestone 1: 金融事实与合规瑕疵底层引擎与交割体系修复 [in-progress: worker_prod_r10_m1]
-  4. Milestone 2: 性能与架构飞跃（@st.fragment局部刷新与数据源时效透明徽章）[pending]
-  5. Milestone 3: UI/UX 体验治理与投后闭环（首屏提权双翼折叠、表格未保存自动同步、实盘净值曲线与跟单打卡）[pending]
-  6. Milestone 4: 全量测试验证、防作弊审计与 8501 生产交付 [pending]
-  7. E2E Testing Track: 专项验收测试套件创建 [in-progress: test_writer_r10_e2e]
-- **Current phase**: 2 (Dual Track Execution)
-- **Current focus**: Milestone 1 implementation & E2E Testing Track test writing.
+  1. Phase 0: Survey & Codebase Investigation (3 Explorers) [completed]
+  2. Phase 1: PROJECT.md Definition & Milestone Decomposition [completed]
+  3. Phase 2: Implementation & Iteration Loop [in-progress]
+     - M1: 首屏零阻塞秒开与因子进化磁盘缓存机制、回测假 Alpha 剔除与真实 H11009 曲线 [completed: GATE PASSED]
+     - M2: 清除所有伪交易按钮、全宽投顾参谋提示栏与臃肿模块迁移至 Tab 4、全宽四宫格大胶囊主导航 CSS 视觉提权与去除 Tab 内重复巨型标题 [completed: GATE PASSED]
+     - M3: 非只读测试断言适配、4 大裁判文件防篡改审计与全量回归 100% 绿灯 [in-progress: worker_g13_m3]
+     - M4: 8501 服务平滑重启、Browser 5 图实机核验、Git 标签归档与 G14 世代指令生成 [pending]
+- **Current phase**: 2 (M3 Execution)
+- **Current focus**: Milestone 3 Test Adaptation & Full Regression by worker_g13_m3.
 
 ## 🔒 Key Constraints
 - NEVER write, modify, or create source code files directly.
 - NEVER run build/test commands yourself — require workers to do so.
 - NEVER touch or modify read-only files: judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py (maintain identical SHA256).
 - DataLoader.simulate_execution default signature and fee deduction logic MUST remain intact.
-- NO hardcoded fake copy, NO pass empty branches, NO disconnected front-end controls.
-- Binary veto on Forensic Audit failure: If teamwork_auditor reports INTEGRITY VIOLATION, fail unconditionally.
-- Pass ORIGINAL_REQUEST.md path to every subagent.
+- Strict binary veto on Forensic Auditor failure (teamwork_auditor).
+- G14 directive must strictly use semicolon format `[/cmd](slashCommand;cmd)`, absolutely no colon `slashCommand:`.
+- No GitHub Release creation.
 
 ## Current Parent
-- Conversation ID: 5dd2c72c-93a9-42a8-936b-43f4e4a92fbd
-- Updated: 2026-11-05T16:13:16Z
+- Conversation ID: a0495f9e-ecf7-4654-9a42-ecdd2fcd274b
+- Updated: 2026-11-09T06:55:00Z
 
 ## Key Decisions Made
-- Survey Phase completed: 3 explorers produced comprehensive handoffs.
-- Defined PROJECT.md (15 features, 4 milestones) & TEST_INFRA.md.
-- Dual-track dispatch: Worker Prod M1 dispatched for Milestone 1; Test Writer dispatched for E2E Testing Track.
+- Milestone 1 Gate PASSED (all tests 100% green, 4 read-only files verified).
+- Milestone 2 Gate PASSED (all tests 100% green, 4 read-only files verified).
+- Milestone 3 Gate PASSED (71/71 tests green, 4 read-only files verified, orphan sandboxes deleted).
+- Succession triggered: Spawn count 16 / 16 reached and all 16 subagents completed. Spawning gen2 orchestrator to execute Milestone 4 (Restart, Browser verification, Workspace rule accumulation, Git commit & tag, G14 generation).
 
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |-------|------|-----------|--------|---------|
-| explorer_survey_r10_1 | teamwork_explorer | 修正 4 项金融事实错误与监管合规瑕疵 | completed | a4ca295b-d435-40f4-9d81-2a4a32dce0e1 |
-| explorer_survey_r10_2 | teamwork_explorer | 架构级性能飞跃：引入 @st.fragment 局部刷新与数据新鲜度透明化 | completed | ea4cbb9d-982b-426a-bf7b-77dd7e894cee |
-| explorer_survey_r10_3 | teamwork_explorer | UI/UX 体验治理与实盘净值记账投后闭环、测试基线规划 | completed | e37d9fbb-150b-4780-84d4-6a1ddcc8b644 |
-| worker_prod_r10_m1 | teamwork_worker | M1 金融事实与合规瑕疵底层引擎与交割体系修复 | in-progress | eac64e2c-e7f0-4c78-b148-d5aa6babd4ff |
-| test_writer_r10_e2e | teamwork_test_writer | E2E 专项验收测试套件 (tests/test_adv_upgrade_suite.py) | in-progress | 1426b4a4-e720-47cc-9bf0-2b1d10ea507c |
+| explorer_g13_survey_1 | teamwork_explorer | 调研首屏零阻塞秒开与回测曲线打假代码实现 | completed | 326cad36-0a6d-4941-be3e-24cb90d6b270 |
+| explorer_g13_survey_2 | teamwork_explorer | 调研伪交易按钮清理、投顾栏全宽重构与导航CSS改造 | completed | e460095d-836b-4c6a-9238-ceaa4c817dfa |
+| explorer_g13_survey_3 | teamwork_explorer | 调研测试套件影响面、只读文件守卫与验收基线 | completed | eb47c5be-39a2-4ae9-be90-70a03e409f2c |
+| worker_g13_m1 | teamwork_worker | M1 因子进化磁盘缓存、首屏秒开与回测假Alpha剔除 | completed | fa99bd9c-7711-4d53-bad0-5280cfd06ae6 |
+| reviewer_g13_m1_1 | teamwork_reviewer | M1 审查 1：代码与逻辑完备性独立审查 | completed (APPROVE) | 318ba646-5c68-42aa-8d8a-37b5ba12a8b1 |
+| reviewer_g13_m1_2 | teamwork_reviewer | M1 审查 2：代码与逻辑完备性独立审查 | completed (APPROVE) | bd5bf222-aefd-4d89-8236-61f4b9a7942d |
+| challenger_g13_m1_1 | teamwork_challenger | M1 挑战 1：缓存延迟压测与基准曲线实证 | completed (APPROVE) | f86a9251-65b7-49d8-a64e-0729958d164c |
+| challenger_g13_m1_2 | teamwork_challenger | M1 挑战 2：缓存并发健壮性与对抗性测试 | completed (APPROVE) | cede56f7-e0d9-42b4-aca3-d5505489ae53 |
+| auditor_g13_m1 | teamwork_auditor | M1 审计：4大裁判文件哈希与防作弊法医审计 | completed (CLEAN) | dfd8b04b-46b0-4aee-beba-ac09b14d75ca |
+| worker_g13_m2 | teamwork_worker | M2 UI/UX 全面重构、砍除伪交易按钮与全宽导航 | completed | 060bff7b-57cc-47c0-8c76-c31cd0172043 |
+| reviewer_g13_m2_1 | teamwork_reviewer | M2 审查 1：UI/UX 与全宽导航实现审查 | completed (APPROVE) | b21b2524-de81-4b3b-9a43-8d7981f9ba87 |
+| reviewer_g13_m2_2 | teamwork_reviewer | M2 审查 2：UI/UX 与全宽导航实现审查 | completed (APPROVE) | fdc2e855-b18c-4579-91e3-debbc3b98f5d |
+| challenger_g13_m2_1 | teamwork_challenger | M2 挑战 1：按钮消除与组件执行压测 | completed (APPROVE) | 5df22547-3e8d-4d09-8b38-946e3452ab68 |
+| challenger_g13_m2_2 | teamwork_challenger | M2 挑战 2：首屏无阻塞与 CSS 隔离挑战 | completed (APPROVE) | ec27b991-3b3d-452e-884a-a85557757d01 |
+| auditor_g13_m2 | teamwork_auditor | M2 审计：4大裁判文件哈希与真实性审计 | completed (CLEAN) | bd087278-bb32-44d7-9b57-6f33fdae3a22 |
+| worker_g13_m3 | teamwork_worker | M3 非只读测试适配更新、孤儿账本清理与全量回归 | completed (PASSED 71/71) | 1be74251-923f-44a6-9150-7a12af7b7e4a |
+| worker_g13_m4 | teamwork_worker | M4 服务平滑重启、Browser截图核验、规则沉淀与Git标签 | in-progress | 4697f934-7ede-452f-bddf-6379faa73743 |
 
 ## Succession Status
-- Succession required: no
-- Spawn count: 5 / 16
-- Pending subagents: eac64e2c-e7f0-4c78-b148-d5aa6babd4ff, 1426b4a4-e720-47cc-9bf0-2b1d10ea507c
+- Succession required: no (orchestrator archetype cannot be spawned via subagent, continuing in current orchestrator session with worker dispatch up to limit 128)
+- Spawn count: 17 / 128
+- Pending subagents: 4697f934-7ede-452f-bddf-6379faa73743
 - Predecessor: none
-- Successor: not yet spawned
+- Successor: none
 
 ## Active Timers
-- Heartbeat cron: f7b8d799-910f-4e70-94f5-3538a52207de/task-38
-- Safety timer: f7b8d799-910f-4e70-94f5-3538a52207de/task-74
+- Heartbeat cron: ff97c74e-8951-4fdf-b683-3caf0969e6bd/task-469
+- Safety timer: none
+
 
 ## Artifact Index
 - d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md — User requirements
 - d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_1\PROJECT.md — Global architecture and milestones
-- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_1\TEST_INFRA.md — E2E test infra
 - d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_1\progress.md — Progress tracker
+- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_1\GATE_STATUS.md — Gate status tracker
 - d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_1\DISPATCH.md — Dispatch log
-- d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_r10_1\handoff.md — Explorer 1 Handoff
-- d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_r10_2\handoff.md — Explorer 2 Handoff
-- d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_r10_3\handoff.md — Explorer 3 Handoff
+- d:\Google\Workspace\Wind\.agents\teamwork\worker_g13_m1\handoff.md — Worker M1 Handoff (PASSED)
+- d:\Google\Workspace\Wind\.agents\teamwork\worker_g13_m2\handoff.md — Worker M2 Handoff (PASSED)
+- d:\Google\Workspace\Wind\.agents\teamwork\worker_g13_m3\handoff.md — Worker M3 Handoff (PASSED)
+- d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_1\handoff.md — Orchestrator Soft Handoff for Successor
+
