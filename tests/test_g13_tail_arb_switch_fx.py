@@ -298,3 +298,82 @@ def test_anti_cheat_contract_and_readonly_files_integrity():
         assert len(ledgers) == 1, f"ledgers_index.json 必须仅保留 1 个主实盘账本，当前: {len(ledgers)}"
         lid = ledgers[0].get("id") or ledgers[0].get("ledger_id")
         assert lid == "main_live", f"主账本 ID 必须为 main_live: {ledgers[0]}"
+
+
+def test_resolve_fund_meta_dual_invocation_and_company_normalization():
+    """
+    核验 PortfolioManager.resolve_fund_meta 双模式调用与同公司后缀归一化：
+    1. 支持类方法调用 PortfolioManager.resolve_fund_meta(code)；
+    2. 支持实例方法调用 pm.resolve_fund_meta(code)；
+    3. PortfolioManager.is_same_company 正确归一化公司名称后缀。
+    """
+    pm = PortfolioManager()
+    meta_class = PortfolioManager.resolve_fund_meta("011612")
+    meta_inst = pm.resolve_fund_meta("011612")
+
+    assert meta_class["code"] == "011612"
+    assert "华夏" in meta_class["company"]
+    assert meta_inst["code"] == "011612"
+    assert meta_inst["company"] == meta_class["company"]
+
+    # 归一化测试
+    assert PortfolioManager.is_same_company("华夏", "华夏基金") is True
+    assert PortfolioManager.is_same_company("易方达基金管理有限公司", "易方达") is True
+    assert PortfolioManager.is_same_company("广发基金", "广发") is True
+    assert PortfolioManager.is_same_company("华夏", "易方达") is False
+    assert PortfolioManager.is_same_company("", "华夏") is False
+
+
+def test_arbitrage_advisory_result_dict_protocol_and_in_operator():
+    """
+    核验 ArbitrageAdvisoryResult 支持字典协议与 'in' 成员运算符：
+    1. 'has_arbitrage_opportunity' in res 为 True；
+    2. 'proposals' in res 为 True；
+    3. 不存在的 key 返回 False；
+    4. 兼具列表与字典双向访问能力。
+    """
+    mock_sensor = [{
+        "name": "黄金",
+        "etf_code": "518880",
+        "etf_name": "华安黄金ETF",
+        "feeder_code": "000216",
+        "feeder_name": "华安黄金ETF联接A",
+        "etf_price": 5.50,
+        "etf_iopv": 5.40,
+        "discount_premium_pct": 1.85,
+        "signal": "PREMIUM_BUY_FEEDER",
+        "action_advice": "场内高溢价 +1.85%，建议在场外申购华安黄金ETF联接A (000216)。"
+    }]
+    res = generate_etf_feeder_arbitrage_advisory(
+        current_holdings={"518880": {"market_value": 20000.0, "fund_name": "华安黄金ETF"}},
+        arbitrage_sensors=mock_sensor
+    )
+    # 测试 'in' 运算符
+    assert "has_arbitrage_opportunity" in res, "必须支持 'in' 检查 has_arbitrage_opportunity"
+    assert "proposals" in res, "必须支持 'in' 检查 proposals"
+    assert "invalid_key_xyz" not in res, "未定义键必须返回 False"
+    assert res["has_arbitrage_opportunity"] is True
+    assert len(res) == 1
+    assert res[0]["etf_code"] == "518880"
+
+
+def test_active_risk_sentry_company_resolution_without_keyword_in_name():
+    """
+    核验即使基金名称不包含基金公司字眼，ActiveRiskSentry 也能通过 resolve_fund_meta 
+    准确识别基金所属公司，并触发集中度预警与填充完整的 fund_code 和 transfer 建议：
+    """
+    sentry = ActiveRiskSentry()
+    holdings_no_keyword_names = [
+        {"fund_code": "011612", "fund_name": "科创50ETF联接A", "market_value": 45000.0, "holding_days": 60, "share_class": "A"},
+        {"fund_code": "008888", "fund_name": "半导体芯片ETF联接A", "market_value": 45000.0, "holding_days": 60, "share_class": "A"},
+        {"fund_code": "002351", "fund_name": "裕祥回报债券A", "market_value": 10000.0, "holding_days": 90, "share_class": "A"},
+    ]
+    rep = sentry.inspect_portfolio(holdings_no_keyword_names)
+    mgr_alerts = [a for a in rep.get("alerts", []) if a.get("action_type") == "rebalance_manager_concentration"]
+    assert len(mgr_alerts) >= 1, "011612与008888均属于华夏，合计90%，必须穿透代码成功报警"
+    alert = mgr_alerts[0]
+    assert alert["fund_code"] in ("011612", "008888"), f"预警中的 fund_code 必须填充具体代码，不能为 '': {alert}"
+    assert alert["target_shield_code"] == "002351"
+    assert alert["excess_amount"] > 0
+    assert alert["take_profit_ratio"] > 0
+

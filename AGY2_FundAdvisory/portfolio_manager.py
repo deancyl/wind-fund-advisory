@@ -2668,6 +2668,21 @@ class PortfolioManager:
         return False
 
     @staticmethod
+    def is_same_company(c1: str, c2: str) -> bool:
+        """归一化匹配基金管理人公司名称，消除'华夏' vs '华夏基金'等后缀异构"""
+        if not c1 or not c2:
+            return False
+        if c1 == c2:
+            return True
+        s1 = str(c1).strip()
+        s2 = str(c2).strip()
+        for sfx in ["基金管理有限公司", "资产管理有限公司", "基金股份有限公司", "基金有限责任公司", "基金公司", "基金", "管理", "资产"]:
+            s1 = s1.replace(sfx, "")
+            s2 = s2.replace(sfx, "")
+        s1, s2 = s1.strip(), s2.strip()
+        return bool(s1 and s2 and (s1 == s2 or s1 in s2 or s2 in s1))
+
+    @staticmethod
     def get_fund_valuation_reliability_tag(fund_code: str, fund_name: str = "") -> str:
         """根据基金类型动态附加盘中估值可信度标识"""
         c = str(fund_code or "").strip().zfill(6)
@@ -3731,9 +3746,17 @@ class PortfolioManager:
     # 需求 1：双模存量组合接管引擎 (Takeover Modes)
     # =====================================================================
 
-    def resolve_fund_meta(self, fund_code: str) -> Dict[str, Any]:
-        """智能解析基金名称、公司、份额类型与限购属性"""
-        code = str(fund_code).strip().zfill(6)
+    @classmethod
+    def resolve_fund_meta(cls, self_or_code: Any, fund_code: Optional[str] = None) -> Dict[str, Any]:
+        """智能解析基金名称、公司、份额类型与限购属性 (同时支持 pm.resolve_fund_meta 与 PortfolioManager.resolve_fund_meta)"""
+        instance = None
+        if fund_code is None:
+            code = str(self_or_code).strip().zfill(6)
+        else:
+            if isinstance(self_or_code, cls):
+                instance = self_or_code
+            code = str(fund_code).strip().zfill(6)
+
         if code in CORE_STRATEGY_POOL:
             m = CORE_STRATEGY_POOL[code].copy()
             m["is_core_strategy"] = True
@@ -3766,6 +3789,9 @@ class PortfolioManager:
                 "arrive_cycle": "T+2"
             }
 
+        m["code"] = code
+        m["fund_code"] = code
+
         # 动态查询并注入实时限购属性 (fetch_realtime_fund_quota)
         try:
             quota_info = fetch_realtime_fund_quota(code)
@@ -3777,8 +3803,8 @@ class PortfolioManager:
             pass
 
         # 补充持仓或基金名称中的基金公司智能识别 (G13 同公司转换闭环)
-        if hasattr(self, "holdings") and code in self.holdings:
-            h = self.holdings[code]
+        if instance is not None and hasattr(instance, "holdings") and code in instance.holdings:
+            h = instance.holdings[code]
             if getattr(h, "company", None):
                 m["company"] = h.company
             if getattr(h, "fund_name", None) and (not m.get("fund_name") or "公募基金_" in m.get("fund_name", "")):
@@ -6345,7 +6371,7 @@ class PortfolioManager:
         # 1. 同公司检测
         from_company = from_meta.get("company", "")
         to_company = to_meta.get("company", "")
-        is_same_company = bool(from_company and to_company and from_company == to_company)
+        is_same_company = bool(from_company and to_company and self.is_same_company(from_company, to_company))
 
         # 2. 真实 FIFO 阶梯赎回费精算
         exact_redemption_fee = 0.0
@@ -6600,7 +6626,7 @@ class PortfolioManager:
                 if self.is_qdii_fund(b_code, b.get("fund_name", "")):
                     continue
 
-                if s_comp and b_comp and s_comp == b_comp:
+                if s_comp and b_comp and self.is_same_company(s_comp, b_comp):
                     # 同公司匹配成功！
                     switch_amount = min(s["amount"], b["amount"])
                     switch_shares = round(switch_amount / s["current_nav"], 2)

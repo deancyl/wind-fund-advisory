@@ -2680,44 +2680,52 @@ def fetch_etf_feeder_arbitrage_sensors(
             return _ETF_FEEDER_ARB_MEM_CACHE["data"]
 
     fallback_map = {
-        "518880": {"price": 8.398, "iopv": 8.245, "change_pct": 1.76},
-        "510300": {"price": 4.139, "iopv": 4.120, "change_pct": 0.36},
-        "588000": {"price": 1.334, "iopv": 1.325, "change_pct": 0.60},
+        "518880": {"price": 8.398, "iopv": 8.324, "change_pct": 1.76},
+        "510300": {"price": 4.139, "iopv": 4.142, "change_pct": 0.36},
+        "588000": {"price": 1.334, "iopv": 1.335, "change_pct": 0.60},
         "512760": {"price": 0.834, "iopv": 0.830, "change_pct": 0.60},
-        "513500": {"price": 2.593, "iopv": 2.560, "change_pct": 0.19},
-        "513180": {"price": 0.510, "iopv": 0.512, "change_pct": 0.00},
+        "513500": {"price": 2.593, "iopv": 2.339, "change_pct": 0.19},
+        "513180": {"price": 0.510, "iopv": 0.514, "change_pct": 0.00},
     }
 
     fetched_quotes = {}
     try:
-        secids = ",".join([
-            f"1.{p['etf_code']}" if str(p['etf_code']).startswith(("5", "6")) else f"0.{p['etf_code']}"
-            for p in CORE_ETF_FEEDER_PAIRS
-        ])
-        url = f"https://push2.eastmoney.com/api/qt/ulist.np/get?secids={secids}&fields=f2,f3,f4,f12,f14,f43,f44"
-        req = urllib.request.Request(url, headers={
+        sh_syms = [f"sh{p['etf_code']}" if str(p['etf_code']).startswith(("5", "6")) else f"sz{p['etf_code']}" for p in CORE_ETF_FEEDER_PAIRS]
+        fu_syms = [f"fu_{p['etf_code']}" for p in CORE_ETF_FEEDER_PAIRS]
+        all_syms = ",".join(sh_syms + fu_syms)
+        sina_url = f"https://hq.sinajs.cn/list={all_syms}"
+        req = urllib.request.Request(sina_url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            "Referer": "https://quote.eastmoney.com/"
+            "Referer": "https://finance.sina.com.cn"
         })
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        diff_list = data.get("data", {}).get("diff", [])
-        for it in diff_list:
-            c = str(it.get("f12", "")).strip()
-            if not c:
-                continue
-            f2_raw = it.get("f2")
-            f3_raw = it.get("f3")
-            f43_raw = it.get("f43")
-            p_val = f2_raw / 1000.0 if (isinstance(f2_raw, (int, float)) and f2_raw > 100) else float(f2_raw or 0.0)
-            iopv_val = f43_raw / 1000.0 if (isinstance(f43_raw, (int, float)) and f43_raw > 100) else float(f43_raw or 0.0)
-            chg_val = round(f3_raw / 100.0, 2) if isinstance(f3_raw, (int, float)) else 0.0
-            if p_val > 0:
-                fetched_quotes[c] = {
-                    "price": p_val,
-                    "iopv": iopv_val if iopv_val > 0 else 0.0,
-                    "change_pct": chg_val
-                }
+            content = resp.read().decode("gbk", errors="ignore")
+
+        for p in CORE_ETF_FEEDER_PAIRS:
+            c = str(p["etf_code"]).strip()
+            prefix = "sh" if str(c).startswith(("5", "6")) else "sz"
+            m_p = re.search(r'hq_str_' + prefix + c + r'="([^"]+)"', content)
+            if m_p:
+                parts = m_p.group(1).split(",")
+                if len(parts) >= 4:
+                    p_cur = float(parts[3]) if parts[3] else 0.0
+                    p_pre = float(parts[2]) if parts[2] else 0.0
+                    if p_cur > 0:
+                        chg_pct = round((p_cur - p_pre) / p_pre * 100.0, 2) if p_pre > 0 else 0.0
+                        if c not in fetched_quotes:
+                            fetched_quotes[c] = {}
+                        fetched_quotes[c]["price"] = p_cur
+                        fetched_quotes[c]["change_pct"] = chg_pct
+
+            m_iopv = re.search(r'hq_str_fu_' + c + r'="([^"]+)"', content)
+            if m_iopv:
+                parts = m_iopv.group(1).split(",")
+                if len(parts) >= 3:
+                    iopv_val = float(parts[2]) if parts[2] else 0.0
+                    if iopv_val > 0:
+                        if c not in fetched_quotes:
+                            fetched_quotes[c] = {}
+                        fetched_quotes[c]["iopv"] = iopv_val
     except Exception:
         pass
 
@@ -2725,12 +2733,11 @@ def fetch_etf_feeder_arbitrage_sensors(
     for pair in CORE_ETF_FEEDER_PAIRS:
         etf_c = pair["etf_code"]
         q = fetched_quotes.get(etf_c) or fallback_map.get(etf_c, {"price": 1.0, "iopv": 1.0, "change_pct": 0.0})
-        price = float(q.get("price", 1.0))
+        price = round(float(q.get("price", 1.0)), 4)
         iopv = float(q.get("iopv", 0.0))
         if iopv <= 1e-4:
-            base_iopv = float(pair.get("base_iopv", price))
-            chg_ratio = float(q.get("change_pct", 0.0)) / 100.0
-            iopv = round(base_iopv * (1.0 + chg_ratio), 3)
+            iopv = float(fallback_map.get(etf_c, {}).get("iopv", price))
+        iopv = round(iopv, 4)
 
         chg = float(q.get("change_pct", 0.0))
         disc_prem = round((price - iopv) / iopv * 100.0, 2) if iopv > 1e-4 else 0.0
@@ -2760,10 +2767,10 @@ def fetch_etf_feeder_arbitrage_sensors(
             "feeder_name": pair["feeder_name"],
             "company": pair["company"],
             "is_qdii": pair["is_qdii"],
-            "price": round(price, 3),
-            "etf_price": round(price, 3),
-            "iopv": round(iopv, 3),
-            "etf_iopv": round(iopv, 3),
+            "price": price,
+            "etf_price": price,
+            "iopv": iopv,
+            "etf_iopv": iopv,
             "change_pct": chg,
             "discount_premium_pct": disc_prem,
             "arbitrage_signal": sig,

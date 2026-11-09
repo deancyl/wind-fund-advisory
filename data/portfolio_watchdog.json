@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-09 11:51:37",
+  "timestamp": "2026-11-09 12:22:12",
   "all_passed": false,
   "has_danger": true,
   "has_warning": true,
@@ -61,7 +61,11 @@
       "company": "华安基金",
       "company_mv": 49888.0,
       "ratio": 0.5292763402187636,
-      "excess_amount": 16898.05
+      "excess_amount": 16898.05,
+      "fund_code": "000216",
+      "fund_name": "华安黄金ETF联接A",
+      "target_shield_code": "002351",
+      "take_profit_ratio": 0.5
     }
   ],
   "summary": "发现 6 项风险与提示项",

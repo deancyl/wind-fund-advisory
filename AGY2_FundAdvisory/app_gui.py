@@ -3163,6 +3163,14 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                                             "fund_code": fcode,
                                             "ratio": float(alert.get("take_profit_ratio", 0.30)),
                                         }
+                                        if act_type in ["rebalance_manager_concentration", "rebalance_sector_exposure"]:
+                                            st.session_state.tab2_pending_transfer = {
+                                                "from_code": fcode,
+                                                "from_name": fname,
+                                                "to_code": alert.get("target_shield_code", "002351"),
+                                                "amount": float(alert.get("excess_amount", 0.0)),
+                                                "reason": alert.get("dimension", ""),
+                                            }
                                         if act_type == "etf_arbitrage_switch":
                                             st.session_state.tab2_arb_switch = alert.get("arbitrage_info", {})
                                     elif act_type in ["switch_a_class", "replace_fund"]:
@@ -4657,11 +4665,13 @@ with tab_holdings_and_rebalance:
         if "tab2_rebal_cache" not in st.session_state:
             st.session_state.tab2_rebal_cache = None
 
-        # 顶部主动风控指令横幅（若存在锁仓保护或阶梯止盈指令）
+        # 顶部主动风控指令横幅（若存在锁仓保护、阶梯止盈、折溢价套利或集中度平移指令）
         has_locked = bool(st.session_state.get("tab2_locked_funds"))
         has_take_profit = bool(st.session_state.get("tab2_pending_take_profit"))
         has_c_replace = bool(st.session_state.get("tab2_c_replace"))
-        if has_locked or has_take_profit or has_c_replace:
+        has_arb_switch = bool(st.session_state.get("tab2_arb_switch"))
+        has_transfer = bool(st.session_state.get("tab2_pending_transfer"))
+        if has_locked or has_take_profit or has_c_replace or has_arb_switch or has_transfer:
             desc_parts = []
             if has_locked:
                 desc_parts.append(f"锁仓保护标的: <b>{', '.join(st.session_state.tab2_locked_funds)}</b>（强制锁定持仓下界禁卖）")
@@ -4670,13 +4680,19 @@ with tab_holdings_and_rebalance:
                 desc_parts.append(f"阶梯止盈标的: <b>{tp_info.get('fund_code')}</b>（下调目标权重 {int(tp_info.get('ratio', 0.4)*100)}%，增配纯债/红利低波）")
             if has_c_replace:
                 desc_parts.append(f"C类份额置换: <b>{st.session_state.tab2_c_replace}</b>（择机置换为A类份额）")
+            if has_arb_switch:
+                arb = st.session_state.tab2_arb_switch
+                desc_parts.append(f"⚡ 场内外折溢价套利: <b>{arb.get('etf_name', '')} ({arb.get('etf_code', '')})</b> {arb.get('suggested_action', '')} (折溢价率 {arb.get('prem_disc_ratio', 0.0)*100:+.2f}%)")
+            if has_transfer:
+                tf = st.session_state.tab2_pending_transfer
+                desc_parts.append(f"🔄 集中度/行业超标平移: <b>{tf.get('from_code')} ➡️ {tf.get('to_code')}</b> (计划平移 ¥{tf.get('amount', 0.0):,.0f})")
             
             c_bnr1, c_bnr2 = st.columns([8.5, 1.5])
             with c_bnr1:
                 safe_markdown_html(f"""
                 <div style="background: rgba(234, 179, 8, 0.12); border: 1.5px solid #eab308; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px;">
                     <div style="font-size: 14px; font-weight: 700; color: #ca8a04; margin-bottom: 4px;">
-                        ⚡ 已激活主动风控指令：包含锁仓保护 / 阶梯止盈减仓方案
+                        ⚡ 已激活主动风控指令：包含锁仓保护 / 阶梯止盈 / 集中度平移 / 尾盘套利方案
                     </div>
                     <div style="font-size: 12px; color: var(--text-primary); line-height: 1.5;">
                         {' ｜ '.join(desc_parts)}
@@ -4684,10 +4700,12 @@ with tab_holdings_and_rebalance:
                 </div>
                 """)
             with c_bnr2:
-                if st.button("✖️ 清除指令", use_container_width=True, key="btn_clear_tab2_risk_orders", help="清除全部主动锁仓、止盈与C类置换风控指令"):
+                if st.button("✖️ 清除指令", use_container_width=True, key="btn_clear_tab2_risk_orders", help="清除全部主动锁仓、止盈、集中度平移与套利风控指令"):
                     st.session_state.tab2_locked_funds = []
                     st.session_state.tab2_pending_take_profit = None
                     st.session_state.tab2_c_replace = None
+                    st.session_state.tab2_arb_switch = None
+                    st.session_state.tab2_pending_transfer = None
                     st.session_state.tab2_rebal_cache = None
                     st.rerun()
 
@@ -5612,6 +5630,14 @@ with tab_holdings_and_rebalance:
                     try:
                         same_co_plan = pm.optimize_same_company_conversions(rebalance_plan=ai_orders_res.get("pm_plan"))
                         if same_co_plan.get("has_conversions"):
+                            routes_html = "".join([
+                                f"""<div style="font-size: 11.5px; color: var(--text-primary); margin-top: 4px; padding: 4px 8px; background: rgba(59, 130, 246, 0.06); border-radius: 4px;">
+                                    🔁 <b>{c.get('company')}</b>: {c.get('from_name')}({c.get('from_code')}) ➡️ {c.get('to_name')}({c.get('to_code')}) 
+                                    ｜ 转换金额 ¥{c.get('switch_amount', 0):,.2f} 
+                                    ｜ 省摩擦 <b>¥{c.get('friction_saved_yuan', 0):,.2f}</b> ({c.get('saved_bps', 0):.1f} bps, 免除 {c.get('transit_days_saved', 3.5):.1f} 天在途)
+                                </div>"""
+                                for c in same_co_plan.get("conversions", [])[:3]
+                            ])
                             safe_markdown_html(f"""
                             <div class="decision-card" style="border-left: 3px solid var(--accent-primary); padding: 10px 14px; margin-bottom: 12px; background: var(--bg-surface);">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -5625,7 +5651,8 @@ with tab_holdings_and_rebalance:
                                 <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 6px;">
                                     {same_co_plan['summary']}
                                 </div>
-                                <div style="font-size: 11px; color: var(--text-primary); background: var(--bg-card); padding: 6px 10px; border-radius: 4px;">
+                                {routes_html}
+                                <div style="font-size: 11px; color: var(--text-primary); background: var(--bg-card); padding: 6px 10px; border-radius: 4px; margin-top: 6px;">
                                     ⏱️ 转换免除传统【赎回➔现金到账(3~5天)➔重新申购】在途资金占用风险与再申购费，精算年化 2.0% 资金成本节省。
                                 </div>
                             </div>

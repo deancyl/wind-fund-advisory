@@ -1511,6 +1511,12 @@ def calculate_fx_adjusted_intraday_valuation(
     """
     clean_code = str(fund_code).strip().zfill(6)
     fn = str(fund_name or "")
+    if not fn or fn.startswith("公募基金_"):
+        try:
+            from portfolio_manager import PortfolioManager
+            fn = PortfolioManager.resolve_fund_meta(clean_code).get("fund_name", fn)
+        except Exception:
+            pass
 
     # 判断是否为跨币种/海外 QDII/黄金/半导体资产
     is_us_qdii = any(k in fn for k in ["标普", "纳指", "纳斯达克", "美股", "海外", "QDII", "全球"]) or clean_code in ("050025", "017436", "017437", "001071", "513500", "159941")
@@ -1592,6 +1598,11 @@ class ArbitrageAdvisoryResult(list):
                 return self.has_arbitrage_opportunity
             raise KeyError(key)
         return super().__getitem__(key)
+
+    def __contains__(self, key: Any) -> bool:
+        if isinstance(key, str) and key in ("proposals", "advisories", "has_arbitrage_opportunity", "items"):
+            return True
+        return super().__contains__(key)
 
     def get(self, key: str, default: Any = None) -> Any:
         if key in ("proposals", "advisories"):
@@ -2494,6 +2505,12 @@ class ActiveRiskSentry:
                 comp_ratio = comp_mv / total_portfolio_mv
                 if comp_ratio > 0.35:
                     excess_comp_mv = (comp_ratio - 0.35) * total_portfolio_mv
+                    comp_funds = [it for it in normalized_items if it.get("company") == comp_name or (it.get("company") and (it.get("company") in comp_name or comp_name in it.get("company")))]
+                    top_comp_fund = max(comp_funds, key=lambda x: x.get("market_value", 0.0)) if comp_funds else None
+                    top_fcode = top_comp_fund["code"] if top_comp_fund else ""
+                    top_fname = top_comp_fund["name"] if top_comp_fund else comp_name
+                    tp_ratio = round(min(0.50, excess_comp_mv / max(1.0, top_comp_fund["market_value"])), 2) if top_comp_fund else 0.30
+
                     alerts.append({
                         "level": "yellow",
                         "dimension": "同类集中度与单基上限",
@@ -2506,11 +2523,16 @@ class ActiveRiskSentry:
                         "company_mv": comp_mv,
                         "ratio": comp_ratio,
                         "excess_amount": excess_comp_mv,
+                        "fund_code": top_fcode,
+                        "fund_name": top_fname,
+                        "target_shield_code": "002351",
+                        "take_profit_ratio": tp_ratio,
                     })
 
             # 2. 高波科技类行业暴露上限监控 (上限 35.0%)
             high_vol_tech_mv = 0.0
             high_vol_tech_funds = []
+            high_vol_tech_items = []
             for it in normalized_items:
                 c_code = it.get("code", "")
                 c_name = it.get("name", "")
@@ -2524,11 +2546,17 @@ class ActiveRiskSentry:
                 if is_tech:
                     high_vol_tech_mv += c_mv
                     high_vol_tech_funds.append(f"{c_name}({c_code})")
+                    high_vol_tech_items.append(it)
 
             if high_vol_tech_mv > 0.0:
                 tech_ratio = high_vol_tech_mv / total_portfolio_mv
                 if tech_ratio > 0.35:
                     excess_tech_mv = (tech_ratio - 0.35) * total_portfolio_mv
+                    top_tech_item = max(high_vol_tech_items, key=lambda x: x.get("market_value", 0.0)) if high_vol_tech_items else None
+                    top_tech_code = top_tech_item["code"] if top_tech_item else ""
+                    top_tech_name = top_tech_item["name"] if top_tech_item else "高波科技标的"
+                    tp_tech_ratio = round(min(0.50, excess_tech_mv / max(1.0, top_tech_item["market_value"])), 2) if top_tech_item else 0.30
+
                     alerts.append({
                         "level": "yellow",
                         "dimension": "同类集中度与单基上限",
@@ -2541,6 +2569,10 @@ class ActiveRiskSentry:
                         "sector_mv": high_vol_tech_mv,
                         "ratio": tech_ratio,
                         "excess_amount": excess_tech_mv,
+                        "fund_code": top_tech_code,
+                        "fund_name": top_tech_name,
+                        "target_shield_code": "005561",
+                        "take_profit_ratio": tp_tech_ratio,
                     })
 
             # 3. 尾盘 14:45 折溢价套利机会巡检
@@ -2560,9 +2592,12 @@ class ActiveRiskSentry:
                             "desc": f"标的 {arb['etf_name']}({etf_c}) 与场外联接 ({feeder_c}) 出现显著价差 ({d_prem:+.2f}%)，触发 1.0% 套利阈值！",
                             "action": arb["suggestion"],
                             "action_type": "etf_arbitrage_switch",
+                            "fund_code": feeder_c if d_prem > 1.0 else etf_c,
+                            "fund_name": arb.get("feeder_name") if d_prem > 1.0 else arb.get("etf_name"),
                             "etf_code": etf_c,
                             "feeder_code": feeder_c,
                             "discount_premium_pct": d_prem,
+                            "arbitrage_info": arb,
                         })
             except Exception:
                 pass

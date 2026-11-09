@@ -284,3 +284,10 @@
 - **单一管理人 35% 集中度防线**：在 `ActiveRiskSentry` 维度 10 中穿透核验组合在单一基金公司的合计市值敞口，当单一管理人持仓占比超过 35.0% 时，立即触发黄色预警 (`rebalance_manager_concentration`)，防范机构投研风格飘移与单点配置依赖；
 - **高波科技成长行业 35% 暴露上限**：对半导体芯片、科创50等高 Beta 科技成长资产设置 35.0% 合并敞口硬上限，超标时触发黄色预警 (`rebalance_sector_exposure`)；
 - **平衡平移处置方案闭环**：预警配套输出一键处置意图，引导投资者将超配资金定向平移至非同系头部公募或防御性固收/黄金标的，形成完整的买方投顾风控闭环。
+
+## 55. 基金代码元数据类方法双兼容与类字典协议防护铁律 (Dual-Mode Meta Resolution & Dict-List Protocol Armor)
+- **元数据解析类/实例双重调用兼容**：`PortfolioManager.resolve_fund_meta` 必须以 `@classmethod` 实现，无缝兼容 `PortfolioManager.resolve_fund_meta(code)` 静态调用与 `pm.resolve_fund_meta(code)` 实例调用，并统一挂载 `fund_code` 与 `code` 两个主键，防止底层模块因调用形式差异抛出 `TypeError` 导致基金公司识别失败降级；
+- **基金公司名称后缀智能归一化**：判定同公司时严禁依赖原始字符串绝对相等，统一通过 `PortfolioManager.is_same_company` 剥除“基金”、“管理有限公司”等非核心后缀进行归一化模糊比对；
+- **组合返回体协议完备性**：所有自定义继承自 `list` 的量化建议返回对象（如 `ArbitrageAdvisoryResult`）必须显式实装 `__contains__` 运算符协议，避免外部在通过 `"has_arbitrage_opportunity" in result` 校验时意外返回 `False`；
+- **真实参考净值 (IOPV) 行情源防合成**：场内 ETF IOPV 必须优先通过交易所/新浪 `fu_<code_6>` 等官方参考净值源采集真实点位，严禁在无数据时使用涨跌幅线性推断伪造净值，守死反金融伪常数防线。
+
