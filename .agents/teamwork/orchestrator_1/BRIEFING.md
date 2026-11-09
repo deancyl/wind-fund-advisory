@@ -20,13 +20,13 @@ G13 世代首屏零阻塞秒开重构、全宽大胶囊主导航视觉提权、�
 - **Work items**:
   1. Phase 0: Survey & Codebase Investigation (3 Explorers) [completed]
   2. Phase 1: PROJECT.md Definition & Milestone Decomposition [completed]
-  3. Phase 2: Implementation & Iteration Loop [in-progress]
-     - M1: 首屏零阻塞秒开与因子进化磁盘缓存机制、回测假 Alpha 剔除与真实 H11009 曲线 [completed: GATE PASSED]
-     - M2: 清除所有伪交易按钮、全宽投顾参谋提示栏与臃肿模块迁移至 Tab 4、全宽四宫格大胶囊主导航 CSS 视觉提权与去除 Tab 内重复巨型标题 [completed: GATE PASSED]
-     - M3: 非只读测试断言适配、4 大裁判文件防篡改审计与全量回归 100% 绿灯 [in-progress: worker_g13_m3]
-     - M4: 8501 服务平滑重启、Browser 5 图实机核验、Git 标签归档与 G14 世代指令生成 [pending]
-- **Current phase**: 2 (M3 Execution)
-- **Current focus**: Milestone 3 Test Adaptation & Full Regression by worker_g13_m3.
+   3. Phase 2: Implementation & Iteration Loop [completed]
+      - M1: 首屏零阻塞秒开与因子进化磁盘缓存机制、回测假 Alpha 剔除与真实 H11009 曲线 [completed: GATE PASSED]
+      - M2: 清除所有伪交易按钮、全宽投顾参谋提示栏与臃肿模块迁移至 Tab 4、全宽四宫格大胶囊主导航 CSS 视觉提权与去除 Tab 内重复巨型标题 [completed: GATE PASSED]
+      - M3: 非只读测试断言适配、4 大裁判文件防篡改审计与全量回归 100% 绿灯 [completed: GATE PASSED (71/71)]
+      - M4: 8501 服务平滑重启、Browser 5 图实机核验、Git 标签归档与 G14 世代指令生成 [completed: GATE PASSED]
+- **Current phase**: Completed
+- **Current focus**: G13 Delivery, human report & parent handoff.
 
 ## 🔒 Key Constraints
 - NEVER write, modify, or create source code files directly.
@@ -45,7 +45,8 @@ G13 世代首屏零阻塞秒开重构、全宽大胶囊主导航视觉提权、�
 - Milestone 1 Gate PASSED (all tests 100% green, 4 read-only files verified).
 - Milestone 2 Gate PASSED (all tests 100% green, 4 read-only files verified).
 - Milestone 3 Gate PASSED (71/71 tests green, 4 read-only files verified, orphan sandboxes deleted).
-- Succession triggered: Spawn count 16 / 16 reached and all 16 subagents completed. Spawning gen2 orchestrator to execute Milestone 4 (Restart, Browser verification, Workspace rule accumulation, Git commit & tag, G14 generation).
+- Milestone 4 Gate PASSED (8501 service up, 5/5 Browser points verified via Playwright, rules 59~63 stored, Git tag v4.3-G13 pushed, G14 directives ready).
+- Entire G13 generation successfully completed.
 
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
@@ -66,17 +67,17 @@ G13 世代首屏零阻塞秒开重构、全宽大胶囊主导航视觉提权、�
 | challenger_g13_m2_2 | teamwork_challenger | M2 挑战 2：首屏无阻塞与 CSS 隔离挑战 | completed (APPROVE) | ec27b991-3b3d-452e-884a-a85557757d01 |
 | auditor_g13_m2 | teamwork_auditor | M2 审计：4大裁判文件哈希与真实性审计 | completed (CLEAN) | bd087278-bb32-44d7-9b57-6f33fdae3a22 |
 | worker_g13_m3 | teamwork_worker | M3 非只读测试适配更新、孤儿账本清理与全量回归 | completed (PASSED 71/71) | 1be74251-923f-44a6-9150-7a12af7b7e4a |
-| worker_g13_m4 | teamwork_worker | M4 服务平滑重启、Browser截图核验、规则沉淀与Git标签 | in-progress | 4697f934-7ede-452f-bddf-6379faa73743 |
+| worker_g13_m4 | teamwork_worker | M4 服务平滑重启、Browser截图核验、规则沉淀与Git标签 | completed (PASSED) | 4697f934-7ede-452f-bddf-6379faa73743 |
 
 ## Succession Status
-- Succession required: no (orchestrator archetype cannot be spawned via subagent, continuing in current orchestrator session with worker dispatch up to limit 128)
+- Succession required: no (all milestones completed, project delivery phase)
 - Spawn count: 17 / 128
-- Pending subagents: 4697f934-7ede-452f-bddf-6379faa73743
+- Pending subagents: none
 - Predecessor: none
 - Successor: none
 
 ## Active Timers
-- Heartbeat cron: ff97c74e-8951-4fdf-b683-3caf0969e6bd/task-469
+- Heartbeat cron: none (cancelled)
 - Safety timer: none
 
 

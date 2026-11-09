@@ -65,7 +65,7 @@
 | M1 | 首屏极速秒开、因子进化持久化缓存与回测曲线打假 | Features 1-5: 消除首屏阻塞与外网请求, 12h 磁盘缓存, 剔除假 Alpha, H11009 真实日度全收益, 后视镜警示与 C3 对比 | none | DONE |
 | M2 | 全宽投顾栏、清除伪交易按钮、臃肿模块迁移、全宽四宫格大胶囊导航与回测图例上浮 | Features 6-11: 满宽投顾栏消灭白区, 删除所有伪操作按钮, 5 模块拆解迁入 Tab 4, 全宽大胶囊 CSS 提权, 删除重复大标题, 图例上浮零遮挡 | M1 | DONE |
 | M3 | 非只读测试适配更新、4 大裁判文件防篡改审计与全量回归 100% 绿灯 | Features 12-13: 适配旧按钮断言, 清理 sandbox 孤儿账本, 4 大裁判文件 SHA256 校验, pytest 全量绿灯 | M1, M2 | DONE |
-| M4 | 8501 服务平滑重启、Browser 5 图实机核验、Git 标签归档与 G14 世代指令生成 | Features 14-16: 8501 重启, Browser 实机对照 5 图核验, 工作区规则沉淀, Git commit & tag v4.3-G13 (无 Release), 严守分号 G14 指令输出 | M1, M2, M3 | READY_FOR_EXECUTION |
+| M4 | 8501 服务平滑重启、Browser 5 图实机核验、Git 标签归档与 G14 世代指令生成 | Features 14-16: 8501 重启, Browser 实机对照 5 图核验, 工作区规则沉淀, Git commit & tag v4.3-G13 (无 Release), 严守分号 G14 指令输出 | M1, M2, M3 | DONE |
 
 ## Code Layout
 - `AGY2_FundAdvisory/advisory_engine.py`: 因子进化缓存、雷达轻量化初始化
