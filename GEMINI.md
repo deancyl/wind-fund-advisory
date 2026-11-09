@@ -332,3 +332,24 @@
 - **环境纯净与零脏写门禁**：测试执行前后必须保证 `data/ledgers/` 目录为空，`data/ledgers_index.json` 保持唯一的受保护主实盘账本 `main_live`；
 - **防虚荣断言与真实契约对齐**：测试断言必须真实跟随生产业务演进（如断言已清除伪按钮，而非继续期望旧按钮存在），杜绝测试脱离生产代码或掩耳盗铃。
 
+## 64. OpportunityRadarEngine 磁盘缓存读写闭环与毫秒级直读契约 (OpportunityRadarEngine 4h Disk Cache Loop & Instant-Read Contract)
+- **4 小时磁盘持久化缓存闭环**：`OpportunityRadarEngine.scan_all_sectors` 计算完毕后必须强制将 14 赛道量化研判结果落盘至 `data/cache/radar_sectors_cache.json`，标记 `cache_time`，确保全站读写闭环；
+- **毫秒级极速类方法直读**：实装 `OpportunityRadarEngine.get_cached_sectors_fast(max_age_seconds=14400)`，在缓存未过期（4小时）时跳过任何大 Parquet 扫描与复杂计算，1ms 内瞬时返回；
+- **读端双重结构弹性兼容**：前端各渲染入口（如折叠框工具、轮播看板）必须同时兼容 `dict`（含 `data` 键）与 `list` 两种缓存结构，杜绝解析崩溃。
+
+## 65. ActiveRiskSentry 十二维风控持仓指纹缓存直读与防失明标准 (Twelve-Dimension Sentry Fingerprint Cache & Anti-Blindness Standard)
+- **拒绝阉割与伪通过**：严禁在首屏用简陋的“7天锁仓与30天C类”两项检查粗暴替代完整的 `sentry.inspect_portfolio`，杜绝导致移动止盈、右侧破位、超买拥挤、赛道集中度、适当性越界等 10 个核心维度在 UI 上失明并误报「主动风控巡检全通」；
+- **持仓指纹与风险档位双重缓存**：根据当前持仓指纹（`holdings_hash`，基于基金代码、份额与更新时间生成的 MD5）与当前风险承受能力在 `session_state` 与本地 `data/portfolio_watchdog.json` 中双层缓存，首屏 1ms 直读无卡顿；
+- **真实分级预警卡渲染**：真实渲染全部红黄牌预警列表，只有当 12 个维度全为绿灯时才显示全通绿卡；左翼展示 `news_source_badge` 验真徽章并提供「🔄 刷新」按钮支持按需增量巡检。
+
+## 66. 样本外轨迹动态多因子权重打分与换手摩擦因果律铁律 (OOS Trajectory Dynamic Factor-Weight Scoring & Turnover Friction Invariant)
+- **拒绝写死前 3 列作弊**：严禁在 `get_60d_rolling_nav_and_trajectory` 中将动态选股写死为 `np.mean(r_day[:3])`；
+- **因果律单步前瞻特征切片**：在每个样本外交易日 $d$ 开盘前，只能使用截至 $d-1$ 日的历史价格矩阵切片计算因果律因子特征（`horizon=1` 提取 `F_prev[-1, :, :]`）；
+- **动态演化与静态基准点乘打分**：分别使用演化出的动态多因子权重 $w_{\text{opt}}$ 和静态基准权重打分挑选 Top 3 赛道，并严格扣除双边 20 bps 换手摩擦成本（$0.0020 \times \text{turnover}$），确保样本外走步推演真实纯正。
+
+## 67. 高定机构蓝主按钮与 5 列控件等高基线标准 (Institutional Blue Primary Button & 5-Column Baseline Alignment Standard)
+- **统一高定机构蓝主视觉**：全局 Primary 按钮样式强制通过 CSS 绑定 `var(--accent-primary)`（`#1d4ed8` / `#1e40af`），彻底根除 Streamlit 默认原生番茄红 `#ff4b4b` 廉价感；
+- **Tab 1 顶部 5 列控件绝对等高**：Tab 1 顶部 5 列控制栏（Col 4 高级参数展开、Col 5 生成方案按钮）严禁使用带有额外内边距的 `st.caption` 占位，必须统一采用 21px 等高的 HTML 标签，保证 5 列控件底边与顶边像素级对齐；
+- **开箱即用与零空白首屏**：Tab 1 初始化 `tab1_step_reached = 3`，首次进入静默生成默认配置方案（10万元、C3平衡型），耗时 $<100$ms，无需用户手动点击即可直接呈现完整建仓大表与指标条，消除首屏大片空白。
+
+

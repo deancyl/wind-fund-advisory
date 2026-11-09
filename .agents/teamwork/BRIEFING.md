@@ -1,20 +1,23 @@
-# BRIEFING — 2026-11-08T15:01:00Z
+# BRIEFING — 2026-11-09T11:21:50Z
 
 ## Mission
-Orchestrate G12 Generation: Fix 4 circuit-breaker bugs, trailing stop-profit and right-side breakdown profit taking, multi-source realtime leading indicators & daily parquet gap auto-healing, black swan 7-dim online GP rule tree evolution, visual inspection via /browser, full test suite pass, Git tag v4.2-G12, and locked semicolon syntax G13 bootstrap prompt.
+Orchestrate G14 Generation: Fix 4 subtle code bugs (radar cache write-read loop, full 12-dim active risk sentry inspection restoration with 1ms cache, get_60d_rolling_nav_and_trajectory real dynamic factor weight selection and 20 bps turnover cost, remove latest_plan pseudo-trading banner), institutional bespoke royal blue aesthetic unification (eliminate tomato red primary buttons, fix Tab 1 5-col control bar vertical alignment, Tab 1 out-of-the-box instant rendering, top 4 cards visual consistency), /browser visual verification, 100% full test suite pass, Git tag v4.4-G14, and semicolon-locked G15 bootstrap prompt.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: d:\Google\Workspace\Wind\.agents\teamwork\
 - Orchestrator: e2e9b1b9-848d-4b67-b5e8-3f65177957b7 (orchestrator_12)
-- Orchestrator (active): e873dbb9-9906-41d0-83a7-8e9eb7aaf59a (orchestrator_16)
-- Victory Auditor (active): 5ed5361d-53b1-4629-a081-f111690bc4ef (victory_auditor_12)
+- Orchestrator (active): 675b287a-9df2-4040-9227-01d56b1552b2 (orchestrator_17)
+- Victory Auditor (active): to be spawned on victory claim
 - Orchestrator (G10): 496bfcfb-72ea-446e-b3dc-c85871c12398 (orchestrator_14)
 - Victory Auditor (G10): to be spawned on victory claim
 - Interviewer (G11): 08832e46-fd88-4c3b-95f0-e61f77f6fb10 (killed)
 - Orchestrator (G11): c6b4ebd0-c5f1-4175-8ba5-3bd0979b970d (orchestrator_15)
 - Orchestrator (G12): e873dbb9-9906-41d0-83a7-8e9eb7aaf59a (orchestrator_16)
 - Victory Auditor (G12): to be spawned on victory claim
+- Interviewer (G14): 76240279-3079-44ad-9597-b78c04bb5b0e (killed on skip-interview)
+- Orchestrator (G14): 675b287a-9df2-4040-9227-01d56b1552b2 (orchestrator_17)
+- Victory Auditor (G14): to be spawned on victory claim
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -61,21 +64,34 @@ Orchestrate G12 Generation: Fix 4 circuit-breaker bugs, trailing stop-profit and
 - [G12] Full test suite pass 100%, 4 read-only judge files strictly protected, data/ledgers_index.json clean
 - [G12] Git tag v4.2-G12, push origin HEAD & tags; NO GitHub Release
 - [G12] Report ends with strictly formatted G13 bootstrap prompt: [/goal](slashCommand;goal), [/boost](slashCommand;boost), [/teamwork](slashCommand;teamwork), [/browser](slashCommand;browser) using semicolon syntax (NO colon)
+- [G14] 修复假缓存漏洞：OpportunityRadarEngine.scan_all_sectors 完成后序列化写入 data/cache/radar_sectors_cache.json（附带 timestamp，4小时有效期），入口处若未过期直接返回缓存
+- [G14] 恢复十二维主动风控巡检：严禁简陋替代，根据 holdings_hash 缓存 sentry.inspect_portfolio 完整12维报告于 session_state 与 data/portfolio_watchdog.json，展开真实渲染全部红黄牌预警
+- [G14] 恢复左翼面板单行市场脉搏与 news_source_badge 验真徽章，提供紧凑「刷新雷达与风控」小按钮
+- [G14] 修复 get_60d_rolling_nav_and_trajectory：废除 np.mean(r_day[:3])，使用截至 d-1 日历史序列与 w_opt 和 static_weights 点乘选动态与静态真实 Top 3 赛道，严格扣除双边 20 bps 换手摩擦
+- [G14] 清除首屏残留 latest_plan 伪交易 UI 代码块
+- [G14] 根治主按钮番茄红撞色，全局 CSS 显式绑定 var(--accent-primary) 高定机构蓝及 hover 上浮微亮过渡
+- [G14] 修复 Tab 1 顶部 5 列控制栏垂直对齐错位（第4/5列顶部使用等高 21px 标签）
+- [G14] Tab 1 开箱即用：首次进入且无缓存直接静默生成默认 10 万/C3平衡型建仓方案与 3 格指标条（耗时 <100ms）
+- [G14] 统一顶部 4 张全局指标卡视觉纯粹度：去掉第 2 张卡片大标题文字前 Emoji，18px 粗体统一
+- [G14] /browser 实测核验首屏秒开、按钮配色与对齐、双翼看板风控与缓存落盘、全站 90 分质感
+- [G14] 全量测试套件 100% 绿灯，新增缓存落盘/真实选股扣费/12维风控完整性单测；保护 4 个只读裁判文件与 DataLoader.simulate_execution 签名与费率
+- [G14] Git commit & tag v4.4-G14，push origin HEAD & tags；严禁创建 GitHub Release
+- [G14] 终审门禁严格防转义分号命令标签：[/goal](slashCommand;goal), [/boost](slashCommand;boost), [/teamwork](slashCommand;teamwork), [/browser](slashCommand;browser) 严禁包含冒号
 
 ## User Context
-- **Last user request**: Approved G12 task prompt routed to orchestrator_16 (e873dbb9-9906-41d0-83a7-8e9eb7aaf59a)
+- **Last user request**: Approved G14 task prompt (routed on request as received per caller directive)
 - **Pending clarifications**: none
-- **Delivered results**: G12 orchestrator_16 dispatched
+- **Delivered results**: G14 routing in progress
 
 ## Project Status
-- **Phase**: complete (VICTORY CONFIRMED)
+- **Phase**: in progress
 
 ## Victory Audit Status
-- **Triggered**: yes
-- **Verdict**: VICTORY CONFIRMED
+- **Triggered**: no
+- **Verdict**: pending
 - **Retry count**: 0
 
 ## Artifact Index
 - .agents/teamwork/ORIGINAL_REQUEST.md — Authoritative user request record
 - .agents/teamwork/BRIEFING.md — Persistent sentinel memory
-- .agents/teamwork/orchestrator_16/ — Working directory for active G12 Project Orchestrator
+- .agents/teamwork/orchestrator_17/ — Working directory for active G14 Project Orchestrator

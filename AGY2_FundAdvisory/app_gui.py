@@ -1283,13 +1283,37 @@ safe_markdown_html(f"""
         color: var(--text-primary) !important;
     }}
 
-    /* 🛡️ Primary 主按钮文字绝对防护：任何主题下强制纯白文字 */
+    /* 🏛️ 高定机构蓝 Primary 主按钮体系：彻底消灭番茄红 (#ff4b4b) */
     button[kind="primary"],
+    [data-testid="stBaseButton-primary"] {{
+        background: var(--accent-primary) !important;
+        background-color: var(--accent-primary) !important;
+        border: 1px solid var(--accent-primary) !important;
+        color: #ffffff !important;
+        border-radius: 8px !important;
+        height: 40px !important;
+        font-weight: 600 !important;
+        box-shadow: 0 2px 6px rgba(29, 78, 216, 0.2) !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }}
+    button[kind="primary"]:hover,
+    [data-testid="stBaseButton-primary"]:hover {{
+        background: #1e40af !important;
+        background-color: #1e40af !important;
+        border-color: #1e40af !important;
+        color: #ffffff !important;
+        box-shadow: 0 4px 12px rgba(29, 78, 216, 0.35) !important;
+        transform: translateY(-1px) !important;
+    }}
+    button[kind="primary"]:active,
+    [data-testid="stBaseButton-primary"]:active {{
+        transform: translateY(0) !important;
+        box-shadow: 0 1px 3px rgba(29, 78, 216, 0.2) !important;
+    }}
     button[kind="primary"] *,
     button[kind="primary"] p,
     button[kind="primary"] span,
     button[kind="primary"] div,
-    [data-testid="stBaseButton-primary"],
     [data-testid="stBaseButton-primary"] *,
     [data-testid="stBaseButton-primary"] p,
     [data-testid="stBaseButton-primary"] span {{
@@ -2389,13 +2413,13 @@ exhaustion_text = snapshot.get("momentum_exhaustion_text") or "「⚡ 动量衰�
 
 raw_mkt_state = str(snapshot.get('market_state', '震荡收息期'))
 if any(k in raw_mkt_state for k in ["震荡", "收息", "慢牛"]):
-    vernacular_state = "🟢 震荡收息期"
+    vernacular_state = "震荡收息期"
 elif any(k in raw_mkt_state for k in ["科技", "主升", "进攻"]):
-    vernacular_state = "🔥 科技主升浪"
+    vernacular_state = "科技主升浪"
 elif any(k in raw_mkt_state for k in ["熊", "防守", "破位"]):
-    vernacular_state = "🛡️ 熊市防守期"
+    vernacular_state = "熊市防守期"
 else:
-    vernacular_state = f"🟢 {raw_mkt_state[:6]}"
+    vernacular_state = f"{raw_mkt_state[:6]}"
 st_color = snapshot.get('state_color', active_co['color_down'])
 
 mb_data = fetch_market_turnover_and_sentiment()
@@ -2738,7 +2762,7 @@ with top_c3:
             <span>估值与资金量能</span>
             <span title="{c3_tip}" style="cursor:help; color:var(--text-muted); font-size:12px;">ⓘ</span>
         </div>
-        <div class="metric-value-huge" style="color: var(--color-down); font-size: 16px;">
+        <div class="metric-value-huge" style="color: var(--color-down); font-size: 18px;">
             {val_status}
         </div>
         <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
@@ -2764,30 +2788,7 @@ with top_c4:
     </div>
     """)
 
-# 盘后预案提醒
-latest_plan = pm.get_latest_next_day_plan()
-if latest_plan:
-    with st.expander(f"📌 **您有已锁定的 {latest_plan.get('target_date')} 盯盘待办预案** (创建于 {latest_plan.get('created_at')})", expanded=True):
-        st.write("系统已为您锁定昨日盘后生成的调仓预案。请核对今日 14:30 盘中实时估值后一键执行：")
-        col_exec_p, col_discard_p = st.columns([3, 7])
-        with col_exec_p:
-            if st.button("✅ 采纳并执行此待办预案", key="btn_apply_next_plan", type="primary", use_container_width=True):
-                _cur_buf = float(st.session_state.get("rebalance_buffer_pct", 3.0))
-                plan_obj = pm.generate_rebalance_plan(snapshot["target_weights_funds"], min_buffer_pct=_cur_buf)
-                routes = plan_obj.get("routes", [])
-                if routes:
-                    oids = pm.submit_rebalance_orders(routes)
-                    pm.clear_next_day_plans()
-                    st.balloons()
-                    st.success(f"已成功执行待办预案，生成在途单：{', '.join(oids)}。")
-                    st.rerun()
-                else:
-                    st.info(f"持仓偏离度在 {_cur_buf:.1f}% 缓冲阈值内，无需额外调仓。")
-        with col_discard_p:
-            if st.button("🗑️ 放弃并清理此待办预案", key="btn_discard_next_plan"):
-                pm.clear_next_day_plans()
-                st.info("已清理待办预案。")
-                st.rerun()
+# 盘后预案已归入 Tab 2 账本主线，首屏保持干净零杂质
 
 st.markdown(" ")
 
@@ -2832,49 +2833,85 @@ def _cached_stocks_df(holdings_items: tuple):
 def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
     """
     渲染双翼智能投顾核心看板：
-    - 左翼：【🔭 全市场机会雷达】（14 赛道扫描，Top 3 黄金击球区与右侧共振赛道，优选公募基金，一键加入备选池）
-    - 右翼：【🚨 主动风险预警哨】（FIFO 锁仓、超买拥挤、迷你基清盘、攻防线四维巡检，全通徽章与本地持久化）
+    - 左翼：【🔭 全市场机会雷达】（14 赛道磁盘缓存直读，Top 3 优选公募基金）
+    - 右翼：【🚨 主动风险预警哨】（完整十二维风控巡检，持仓哈希缓存直读）
     """
     try:
-        # ── 今日投顾行动总开关 (纯内存毫秒级快速风控与参谋判断，耗时 < 5ms) ──
-        lock_funds = []
-        c_free_funds = []
-        for c, h in pm_instance.holdings.items():
-            h_days = getattr(h, "holding_days", 30)
-            batches = getattr(h, "batches", []) or []
-            if batches:
+        # ── 1. 基于持仓与档位哈希，毫秒级读取十二维主动风控巡检报告 ──
+        cur_tier_val = str(st.session_state.get("active_tier_val", "C3")).upper()
+        h_items_str = ";".join(
+            f"{c}:{getattr(h, 'shares', 0.0)}:{getattr(h, 'latest_nav', getattr(h, 'current_nav', 1.0))}:"
+            f"{min((getattr(b, 'holding_days', 30) for b in getattr(h, 'batches', [])), default=getattr(h, 'holding_days', 30))}"
+            for c, h in sorted(pm_instance.holdings.items())
+        )
+        holdings_hash = hashlib.md5(f"{cur_tier_val}|{h_items_str}".encode("utf-8")).hexdigest()
+
+        sentry_rep = None
+        cached_h_hash = st.session_state.get("_sentry_cached_holdings_hash")
+        if cached_h_hash == holdings_hash and st.session_state.get("_sentry_cached_rep"):
+            sentry_rep = st.session_state.get("_sentry_cached_rep")
+        else:
+            watchdog_p = Path(WORKSPACE_ROOT) / "data" / "portfolio_watchdog.json"
+            if watchdog_p.exists():
                 try:
-                    h_days = min((b.holding_days for b in batches), default=h_days)
+                    with open(watchdog_p, "r", encoding="utf-8") as wf:
+                        w_data = json.load(wf)
+                    if w_data.get("holdings_hash") == holdings_hash and "sentry_report" in w_data:
+                        sentry_rep = w_data["sentry_report"]
+                        st.session_state["_sentry_cached_rep"] = sentry_rep
+                        st.session_state["_sentry_cached_holdings_hash"] = holdings_hash
                 except Exception:
                     pass
-            if h_days < 7:
-                lock_funds.append({"fund_code": c, "fund_name": getattr(h, "fund_name", c), "holding_days": h_days})
-            elif str(getattr(h, "share_class", "A")).upper() == "C" and h_days >= 30:
-                c_free_funds.append({"fund_code": c, "fund_name": getattr(h, "fund_name", c), "holding_days": h_days})
 
+        if sentry_rep is None:
+            from AGY2_FundAdvisory.advisory_engine import ActiveRiskSentry
+            sentry_obj = ActiveRiskSentry()
+            fund_quotes_map = {}
+            for c, h in pm_instance.holdings.items():
+                fund_quotes_map[c] = {
+                    "latest_nav": getattr(h, "latest_nav", getattr(h, "current_nav", 1.0)),
+                    "bias_20": getattr(h, "bias_20", 0.0),
+                    "gszzl": 0.0
+                }
+            sentry_rep = sentry_obj.inspect_portfolio(
+                holdings=pm_instance.holdings,
+                investor_risk_tier=cur_tier_val,
+                fund_quotes=fund_quotes_map,
+                market_snapshot=snapshot_dict
+            )
+            st.session_state["_sentry_cached_rep"] = sentry_rep
+            st.session_state["_sentry_cached_holdings_hash"] = holdings_hash
+            try:
+                watchdog_p = Path(WORKSPACE_ROOT) / "data" / "portfolio_watchdog.json"
+                watchdog_p.parent.mkdir(parents=True, exist_ok=True)
+                with open(watchdog_p, "w", encoding="utf-8") as wf:
+                    json.dump({
+                        "holdings_hash": holdings_hash,
+                        "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "sentry_report": sentry_rep
+                    }, wf, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
+        # ── 2. 根据十二维真实巡检报告生成今日投顾参谋结论 ──
+        alerts_list = sentry_rep.get("alerts", [])
+        all_passed = bool(sentry_rep.get("all_passed", False))
         erp_pct = float(snapshot_dict.get("erp_percentile", 82.0))
-        bias_val = float(snapshot_dict.get("c300_bias_20", snapshot_dict.get("bias_20", -2.07)))
 
-        if lock_funds:
-            act_status_icon = "🔴"
-            expander_title = (
-                f"今日投顾参谋：持仓含 {len(lock_funds)} 只未满 7 天标的，"
-                f"赎回需扣 1.5% 惩罚费，调仓算法已自动为您避开卖出 ｜ 点击展开市场机会与持仓体检"
-            )
-        elif c_free_funds:
-            act_status_icon = "🟡"
-            expander_title = (
-                f"今日投顾参谋：检测到 {len(c_free_funds)} 只 C 类份额持有已满 30 天免赎回费，"
-                f"建议择机置换为 A 类节省销售服务费 ｜ 点击展开市场机会与持仓体检"
-            )
-        elif len(pm_instance.holdings) == 0:
+        if len(pm_instance.holdings) == 0:
             act_status_icon = "🚀"
             expander_title = f"今日投顾参谋：宏观 ERP 处于黄金击球区 ({erp_pct:.1f}%)，建议一键启动新资建仓 ｜ 点击展开市场机会与精选赛道"
+        elif not all_passed and alerts_list:
+            top_alert = alerts_list[0]
+            lvl = top_alert.get("level", "WARNING")
+            act_status_icon = "🔴" if lvl == "CRITICAL" else "🟡"
+            t_msg = top_alert.get("title", top_alert.get("message", "存在待关注风险"))
+            expander_title = f"今日投顾参谋：{t_msg} ｜ 点击展开机会雷达与十二维主动风控"
         else:
             act_status_icon = "🟢"
-            expander_title = "今日投顾参谋：持仓资产结构健康，安全垫充沛，今日安心吃息无需调仓 ｜ 点击展开市场机会与持仓体检"
+            expander_title = "今日投顾参谋：持仓十二维体检全绿，安全垫充沛，今日安心持仓吃息 ｜ 点击展开机会雷达与体检详情"
 
-        # 100% 全宽折叠面板 (彻底删除右上角红色大按钮与右侧空白死区)
+        # 100% 全宽折叠面板
         wing_expander = st.expander(f"{act_status_icon} {expander_title}", expanded=False)
 
         with wing_expander:
@@ -2896,13 +2933,17 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                 evo_res = evo_disk_data.get("evolved_result", {})
                 traj_data = evo_disk_data.get("nav_trajectory", {})
 
-                # 加载赛道扫描缓存
+                # 加载 14 赛道扫描缓存 (支持 dict 与 list 混合结构，毫秒级读取)
                 radar_cache_f = Path(WORKSPACE_ROOT) / "data" / "cache" / "radar_sectors_cache.json"
                 all_scanned_sectors = []
                 if radar_cache_f.exists():
                     try:
                         with open(radar_cache_f, "r", encoding="utf-8") as _rf:
-                            all_scanned_sectors = json.load(_rf)
+                            _raw_c = json.load(_rf)
+                            if isinstance(_raw_c, dict):
+                                all_scanned_sectors = _raw_c.get("sectors", [])
+                            elif isinstance(_raw_c, list):
+                                all_scanned_sectors = _raw_c
                     except Exception:
                         pass
                 if not all_scanned_sectors:
@@ -2964,8 +3005,20 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         f'border: 1px solid rgba(245, 158, 11, 0.25);">🟠 离线本地缓存快照 ⏱️ 数据感知时间: {data_sense_time} ⚡ 实时快讯</span>'
                     )
 
-                # G8/G11/G13 预警哨处置动作映射字典规范 (只读建议与历史契约映射):
-                # countdown_hold, replace_fund, deep_loss_rebalance, rebalance_sector, defense_mode, offense_mode
+                # 真实渲染市场脉搏信源验真徽章与刷新按钮
+                col_nb1, col_nb2 = st.columns([8.2, 1.8])
+                with col_nb1:
+                    safe_markdown_html(f"<div style='margin-bottom: 6px;'>{news_source_badge}</div>")
+                with col_nb2:
+                    if st.button("🔄 刷新", key="btn_refresh_radar_sentry", help="强制重算14赛道雷达与十二维主动风控"):
+                        st.session_state["_sentry_cached_rep"] = None
+                        st.session_state["_sentry_cached_holdings_hash"] = None
+                        try:
+                            OpportunityRadarEngine().scan_all_sectors(force_refresh=True)
+                        except Exception:
+                            pass
+                        st.rerun()
+
                 # 3 张赛道卡（直接显示优选基金名称与 6 位代码，删除 '+ 入备选池' 伪按钮）
                 cols_top3 = st.columns(3)
                 for i, sec in enumerate(top3_sectors):
@@ -3007,9 +3060,9 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         </div>
                         """)
 
-            # --- 右翼：主动风险提示与健康度 (干净紧凑无按钮列表) ---
+            # --- 右翼：主动风险提示与健康度 (完整十二维主动风控巡检真实呈现) ---
             with col_sentry:
-                safe_markdown_html("<div style='font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;'>🚨 主动风险预警哨 · 四维巡检</div>")
+                safe_markdown_html("<div style='font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;'>🚨 主动风险预警哨 · 十二维全维巡检</div>")
 
                 # G10: 动态相关性突变指示卡（仅在突变警报或结构异动时渲染，正常区间保持干净）
                 try:
@@ -3019,53 +3072,45 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                 except Exception:
                     pass
 
-                if not lock_funds and not c_free_funds and len(pm_instance.holdings) > 0:
+                if len(pm_instance.holdings) == 0:
+                    safe_markdown_html("""
+                    <div class="decision-card" style="border-left: 3px solid var(--accent-primary); padding: 8px 10px; margin-bottom: 4px;">
+                        <div style="font-size: 12px; font-weight: 700; color: var(--accent-primary); margin-bottom: 2px;">
+                            🚀【空仓状态指引】
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-secondary);">
+                            当前账本尚无持仓。宏观 ERP 处于黄金击球区，可在【🌱 新资建仓】快速获取 AI 智能配置全案。
+                        </div>
+                    </div>
+                    """)
+                elif all_passed or not alerts_list:
                     safe_markdown_html("""
                     <div class="decision-card" style="border-left: 3px solid var(--color-down); padding: 8px 12px; margin-bottom: 4px;">
-                        <div style="font-weight: 700; color: var(--color-down); font-size: 12px; margin-bottom: 2px;">🟢 主动风控巡检全通</div>
-                        <div style="font-size: 11px; color: var(--text-secondary);">持仓批次无惩罚锁仓 ｜ 赛道无超买拥挤 ｜ 零迷你基清盘风险</div>
+                        <div style="font-weight: 700; color: var(--color-down); font-size: 12px; margin-bottom: 2px;">🟢 主动风控十二维巡检全通</div>
+                        <div style="font-size: 11px; color: var(--text-secondary);">
+                            零惩罚锁仓 ｜ 零超买拥挤 ｜ 零右侧破位 ｜ 赛道与管理人集中度合规 ｜ 零迷你基清盘风险
+                        </div>
                     </div>
                     """)
                 else:
-                    if lock_funds:
-                        lock_names = [f"{a['fund_code']} ({a['fund_name'][:5]})" for a in lock_funds]
+                    # 真实渲染所有触发的风控警报项 (无任何伪操作按钮)
+                    for alert in alerts_list[:4]:
+                        al_lvl = alert.get("level", "WARNING")
+                        border_col = "var(--color-up)" if al_lvl == "CRITICAL" else ("var(--accent-primary)" if al_lvl == "INFO" else "var(--color-neutral)")
+                        icon = "🔴" if al_lvl == "CRITICAL" else ("ℹ️" if al_lvl == "INFO" else "🟡")
+                        title_str = alert.get("title", alert.get("message", "风控提示"))
+                        detail_str = alert.get("detail", alert.get("message", ""))
+                        action_str = alert.get("suggested_action", alert.get("action", ""))
+
                         safe_markdown_html(f"""
-                        <div class="decision-card" style="border-left: 3px solid var(--color-up); padding: 8px 10px; margin-bottom: 6px;">
-                            <div style="font-size: 12px; font-weight: 700; color: var(--color-up); margin-bottom: 2px;">
-                                🔴【未满7天锁定期】包含标的: {', '.join(lock_names)}
+                        <div class="decision-card" style="border-left: 3px solid {border_col}; padding: 8px 10px; margin-bottom: 5px;">
+                            <div style="font-size: 12px; font-weight: 700; color: {border_col}; margin-bottom: 2px;">
+                                {icon} {title_str}
                             </div>
                             <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 2px;">
-                                未满 7 天赎回将直接触发证监会规定的 1.50% 巨额惩罚扣款！调仓算法已在底层自动为您锁定下界。
+                                {detail_str}
                             </div>
-                            <div style="font-size: 11px; color: var(--text-primary); font-weight: 600;">
-                                💡 应对建议: 保持持有吃息，待持有满 7 天后再行操作。
-                            </div>
-                        </div>
-                        """)
-                    if c_free_funds:
-                        c_names = [f"{a['fund_code']} ({a['fund_name'][:5]})" for a in c_free_funds]
-                        safe_markdown_html(f"""
-                        <div class="decision-card" style="border-left: 3px solid var(--accent-primary); padding: 8px 10px; margin-bottom: 4px;">
-                            <div style="font-size: 12px; font-weight: 700; color: var(--accent-primary); margin-bottom: 2px;">
-                                🟡【C类份额满期】包含标的: {', '.join(c_names)}
-                            </div>
-                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 2px;">
-                                持有已满 30 天免赎回费。C 类年化计提销售服务费，长期持有成本较高。
-                            </div>
-                            <div style="font-size: 11px; color: var(--accent-primary); font-weight: 600;">
-                                💡 应对建议: 待技术面反弹至均线压力位时，可择机置换为 A 类份额节省费用。
-                            </div>
-                        </div>
-                        """)
-                    if len(pm_instance.holdings) == 0:
-                        safe_markdown_html("""
-                        <div class="decision-card" style="border-left: 3px solid var(--accent-primary); padding: 8px 10px; margin-bottom: 4px;">
-                            <div style="font-size: 12px; font-weight: 700; color: var(--accent-primary); margin-bottom: 2px;">
-                                🚀【空仓状态指引】
-                            </div>
-                            <div style="font-size: 11px; color: var(--text-secondary);">
-                                当前账本尚无持仓。宏观 ERP 处于黄金击球区，可在【🌱 新资建仓】快速获取 AI 智能配置全案。
-                            </div>
+                            {f'<div style="font-size: 11px; color: var(--text-primary); font-weight: 600;">💡 应对建议: {action_str}</div>' if action_str else ''}
                         </div>
                         """)
     except Exception as e:
@@ -3264,7 +3309,7 @@ with tab_zero_start:
             st.session_state.tab1_num_funds = auto_num_funds
 
         with col_l1_adv:
-            st.caption("微调参数")
+            safe_markdown_html('<div style="font-size: 14px; font-weight: 500; color: var(--text-primary); margin-bottom: 4px; height: 21px; line-height: 21px;">高级参数</div>')
             with st.popover("⚙️ 高级微调", use_container_width=True):
                 st.markdown("##### ⚙️ 机构级模型与高级参数微调")
                 tier_mode = st.radio(
@@ -3527,7 +3572,7 @@ with tab_zero_start:
             st.warning("⚠️ 检测到您已调整目标参数，请点击【⚡ 生成实盘建仓方案】刷新方案。")
 
         with col_l1_btn:
-            st.caption("开始执行")
+            safe_markdown_html('<div style="font-size: 14px; font-weight: 500; color: var(--text-primary); margin-bottom: 4px; height: 21px; line-height: 21px;">生成方案</div>')
             if st.button("⚡ 生成实盘建仓方案", type="primary", use_container_width=True, key="btn_run_simulation_now"):
                 st.session_state.tab1_step_reached = 3
                 st.session_state.tab1_step3_cache = None
@@ -3543,14 +3588,19 @@ with tab_zero_start:
             m_title = QUANT_MODELS_CATALOG.get(sel_model_type, {}).get("name", "鲁棒双核HRP")
 
             if st.session_state.get("tab1_trigger_sim", False) or st.session_state.get("tab1_sim_cache") is None:
-                acc = ActiveComputationConsole(f"AI 投顾真全市场 2.8 万只漏斗推演 ({num_funds_input}只)", total_steps=4, step_labels=[
-                    f"步骤 1: 全市场 28,177 只漏斗初筛与赛道初选",
-                    f"步骤 2: 宏观同温层定调与【{m_title}】求解 {num_funds_input} 只基金配比",
-                    f"步骤 3: 2018-2026 跨牛熊日度净值合成与多周期胜率",
-                    f"步骤 4: 最好/最坏情况、95% CVaR 与水下回本精算"
-                ])
-                def _sim_cb(cur, tot, msg):
-                    acc.update_step(cur, msg, progress_pct=int((cur / max(tot, 1)) * 95))
+                is_manual_trig = bool(st.session_state.get("tab1_trigger_sim", False))
+                _sim_cb = None
+                acc = None
+                if is_manual_trig:
+                    acc = ActiveComputationConsole(f"AI 投顾真全市场 2.8 万只漏斗推演 ({num_funds_input}只)", total_steps=4, step_labels=[
+                        f"步骤 1: 全市场 28,177 只漏斗初筛与赛道初选",
+                        f"步骤 2: 宏观同温层定调与【{m_title}】求解 {num_funds_input} 只基金配比",
+                        f"步骤 3: 2018-2026 跨牛熊日度净值合成与多周期胜率",
+                        f"步骤 4: 最好/最坏情况、95% CVaR 与水下回本精算"
+                    ])
+                    def _cb(cur, tot, msg):
+                        acc.update_step(cur, msg, progress_pct=int((cur / max(tot, 1)) * 95))
+                    _sim_cb = _cb
 
                 res_portfolio = StrategyBridge.compute_n_funds_model_portfolio(
                     tier=active_tier,
@@ -3564,7 +3614,8 @@ with tab_zero_start:
                     radar_selected_funds=st.session_state.get("radar_selected_funds", []),
                     progress_cb=_sim_cb
                 )
-                acc.complete("真全市场选基与推演完成")
+                if acc:
+                    acc.complete("真全市场选基与推演完成")
                 st.session_state.tab1_sim_cache = res_portfolio
                 st.session_state.tab1_trigger_sim = False
 
@@ -3592,14 +3643,17 @@ with tab_zero_start:
 
                 items = blueprint["items"]
                 n_funds = len(items)
-                acc_s3 = ActiveComputationConsole(
-                    f"生成【{active_tier} 档位】实盘建仓单与限购拆单 ({n_funds}只)",
-                    total_steps=n_funds + 1,
-                    step_labels=["步骤 1: 生成建仓交割单与限额拆单规则"] + [
-                        f"步骤 {i+2}: 拉取 {it['fund_code']} 实时估值与排雷" for i, it in enumerate(items)
-                    ]
-                )
-                acc_s3.update_step(0, "正在生成基础建仓单与智能限额拆单规则...", progress_pct=10)
+                is_manual_s3 = bool(st.session_state.get("tab1_trigger_s3", False))
+                acc_s3 = None
+                if is_manual_s3:
+                    acc_s3 = ActiveComputationConsole(
+                        f"生成【{active_tier} 档位】实盘建仓单与限购拆单 ({n_funds}只)",
+                        total_steps=n_funds + 1,
+                        step_labels=["步骤 1: 生成建仓交割单与限额拆单规则"] + [
+                            f"步骤 {i+2}: 拉取 {it['fund_code']} 实时估值与排雷" for i, it in enumerate(items)
+                        ]
+                    )
+                    if acc_s3: acc_s3.update_step(0, "正在生成基础建仓单与智能限额拆单规则...", progress_pct=10)
 
                 pcr_eval = calculate_portfolio_risk_contributions(cur_opt_w)
                 pcr_map = pcr_eval.get("pcr", {})
@@ -3614,7 +3668,7 @@ with tab_zero_start:
 
                 for idx, it in enumerate(items, 1):
                     fcode = it["fund_code"]
-                    acc_s3.update_step(idx, f"正在拉取 [{idx}/{n_funds}] 基金 ({fcode}) 实时估值与排雷...", progress_pct=int(10 + (idx / n_funds) * 85))
+                    if acc_s3: acc_s3.update_step(idx, f"正在拉取 [{idx}/{n_funds}] 基金 ({fcode}) 实时估值与排雷...", progress_pct=int(10 + (idx / n_funds) * 85))
                     q_it = fetch_realtime_fund_quote(fcode)
                     scr_it = pm.screen_fund_look_through_risk(fcode)
                     crd_it = pm.get_fund_smart_money_crowding(fcode)
@@ -7432,7 +7486,10 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
                 try:
                     with open(radar_cache_file, "r", encoding="utf-8") as f:
                         c_json = json.load(f)
-                        sectors_data = c_json.get("sectors", [])
+                        if isinstance(c_json, dict):
+                            sectors_data = c_json.get("sectors", [])
+                        elif isinstance(c_json, list):
+                            sectors_data = c_json
                 except Exception:
                     pass
             if not sectors_data:

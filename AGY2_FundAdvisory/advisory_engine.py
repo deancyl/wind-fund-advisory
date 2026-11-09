@@ -914,6 +914,8 @@ class OnlineHeuristicFactorEvolver:
         oos_dynamic_returns = []
         oos_static_returns = []
         trajectory = []
+        last_p_dyn = np.zeros(price_matrix.shape[1], dtype=float)
+        last_p_stat = np.zeros(price_matrix.shape[1], dtype=float)
 
         for s in range(num_slices):
             train_end = len(dates) - T_oos + s * step
@@ -922,16 +924,44 @@ class OnlineHeuristicFactorEvolver:
             sub_res = sub_evolver.evolve_factor_weights(lookback_days=min(60, train_end - 25), force_refresh=True)
             w_opt = sub_res["weights"]
 
-            # 计算后续 5 日样本外净值走势与每日轨迹 (train_end .. train_end + step - 1)
+            # 动态策略 (Top 3 演化权重选股) 与静态策略 (静态四维权重选股)
+            w_opt_vec = np.array(w_opt[:4], dtype=float)
+            w_stat_vec = np.array(self.static_weights, dtype=float)
+
             for d in range(step):
                 day_idx = train_end + d
+                # 因果律严格对齐：在 day_idx 当日开盘前，仅知晓截至 day_idx - 1 的历史切片
+                sub_price = price_matrix[:day_idx, :]
+                F_prev, _, _ = self._build_factor_tensor_and_returns(sub_price, horizon=1, sector_ids=sector_ids)
+                feat_prev = F_prev[-1, :, :]  # (S, 4)
+
+                # 动态 Top 3 赛道
+                scores_dyn = np.dot(feat_prev, w_opt_vec)
+                top3_dyn = np.argsort(-scores_dyn)[:3]
+                p_dyn = np.zeros(price_matrix.shape[1], dtype=float)
+                p_dyn[top3_dyn] = 1.0 / 3.0
+
+                # 静态 Top 3 赛道
+                scores_stat = np.dot(feat_prev, w_stat_vec)
+                top3_stat = np.argsort(-scores_stat)[:3]
+                p_stat = np.zeros(price_matrix.shape[1], dtype=float)
+                p_stat[top3_stat] = 1.0 / 3.0
+
                 p_prev = price_matrix[day_idx - 1, :]
                 p_curr = price_matrix[day_idx, :]
                 r_day = (p_curr - p_prev) / np.maximum(1e-8, p_prev)
 
-                # 动态策略（Top 3加权）与静态策略（全市场等权）
-                oos_dynamic_returns.append(float(np.mean(r_day[:3])))
-                oos_static_returns.append(float(np.mean(r_day)))
+                # 严格扣减双边 20 bps 换手摩擦成本 (0.0020 * turnover)
+                to_dyn = 0.5 * np.sum(np.abs(p_dyn - last_p_dyn)) if (s > 0 or d > 0) else 0.0
+                to_stat = 0.5 * np.sum(np.abs(p_stat - last_p_stat)) if (s > 0 or d > 0) else 0.0
+                last_p_dyn = p_dyn.copy()
+                last_p_stat = p_stat.copy()
+
+                r_dyn_net = float(np.sum(p_dyn * r_day) - 0.0020 * to_dyn)
+                r_stat_net = float(np.sum(p_stat * r_day) - 0.0020 * to_stat)
+
+                oos_dynamic_returns.append(r_dyn_net)
+                oos_static_returns.append(r_stat_net)
 
                 curr_date = dates[day_idx]
                 trajectory.append({
@@ -940,7 +970,7 @@ class OnlineHeuristicFactorEvolver:
                     "momentum": float(w_opt[1]),
                     "snr": float(w_opt[2]),
                     "anti_crowding": float(w_opt[3]),
-                    "weights": w_opt,
+                    "weights": [float(x) for x in w_opt],
                     "regime_mode": sub_res.get("regime_mode", "平稳蓄势态"),
                     "operator_rule_expression": sub_res.get("operator_rule_expression", ""),
                 })
@@ -1635,13 +1665,77 @@ class OpportunityRadarEngine:
             }
         }
 
-    def scan_all_sectors(self, realtime_quotes: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        """全量扫描 14 大核心赛道并降序排序"""
+    @classmethod
+    def get_cached_sectors_fast(cls, cache_dir: Optional[str] = None, max_age_seconds: float = 14400.0) -> Optional[List[Dict[str, Any]]]:
+        """无需实例化对象，直接纯内存毫秒级读取磁盘缓存中的 14 赛道扫描结果。"""
+        c_dir = Path(cache_dir or cls._resolve_cache_dir())
+        c_path = c_dir / "radar_sectors_cache.json"
+        if c_path.exists():
+            try:
+                with open(c_path, "r", encoding="utf-8") as f:
+                    c_data = json.load(f)
+                cached_ts = 0.0
+                sectors = []
+                if isinstance(c_data, dict):
+                    cached_ts = float(c_data.get("timestamp", 0.0))
+                    sectors = c_data.get("sectors", [])
+                elif isinstance(c_data, list):
+                    cached_ts = c_path.stat().st_mtime
+                    sectors = c_data
+                if sectors and len(sectors) == len(RADAR_SECTOR_CATALOG) and (time.time() - cached_ts < max_age_seconds):
+                    return sectors
+            except Exception:
+                pass
+        return None
+
+    def scan_all_sectors(
+        self,
+        realtime_quotes: Optional[Dict[str, Any]] = None,
+        force_refresh: bool = False,
+        **kwargs
+    ) -> List[Dict[str, Any]]:
+        """全量扫描 14 大核心赛道并降序排序，支持 4 小时磁盘缓存 (radar_sectors_cache.json) 毫秒级直读。"""
+        is_force = force_refresh or kwargs.get("force", False) or kwargs.get("force_refresh", False)
+        cache_path = Path(self.cache_dir) / "radar_sectors_cache.json"
+
+        # 1. 检查磁盘缓存是否有效 (默认有效期 4 小时 = 14400 秒)
+        if not is_force and cache_path.exists():
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    c_data = json.load(f)
+                cached_ts = 0.0
+                sectors = []
+                if isinstance(c_data, dict):
+                    cached_ts = float(c_data.get("timestamp", 0.0))
+                    sectors = c_data.get("sectors", [])
+                elif isinstance(c_data, list):
+                    cached_ts = cache_path.stat().st_mtime
+                    sectors = c_data
+
+                if sectors and len(sectors) == len(RADAR_SECTOR_CATALOG) and (time.time() - cached_ts < 14400.0):
+                    return sectors
+            except Exception:
+                pass
+
         results = []
         for sec_id, meta in RADAR_SECTOR_CATALOG.items():
             ev = self.evaluate_sector(sec_id, meta, realtime_quotes=realtime_quotes)
             results.append(ev)
         results.sort(key=lambda x: x["total_score"], reverse=True)
+
+        # 2. 写入磁盘持久化缓存
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_obj = {
+                "timestamp": time.time(),
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "sectors": results
+            }
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(cache_obj, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
         return results
 
     def get_top_opportunities(self, n: int = 3, realtime_quotes: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
