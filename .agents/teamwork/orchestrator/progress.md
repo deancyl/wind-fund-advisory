@@ -1,18 +1,21 @@
 ## Current Status
-Last visited: 2026-11-07T16:18:55Z (Safety timer check #4: Worker G8-1 created tests/test_g8_ux_and_realtime_fusion.py and running pytest, lastStepTime: 16:17:53Z)
+Last visited: 2026-11-11T15:06:58Z (Safety timer check #3: Lead Worker G17-1 testing dual-factor yesterday return in portfolio_manager.py, lastStepTime 15:06:39Z)
 
-- [x] Received G8 generation dispatch message and recorded in DISPATCH.md & ORIGINAL_REQUEST.md
-- [x] Step 0: Survey codebase with 3 parallel Explorers (Defects 1-7 + UX audit blueprints) [COMPLETED]
-  - [x] Explorer G8-1 (Tab 2 Dual View Decoupling, Table Protection, Slider Cleanup, Chinese Numeral) [DONE]
-  - [x] Explorer G8-2 (Overwrite Popover/Undo & Cross-Tab DOM Navigation) [DONE]
-  - [x] Explorer G8-3 (Real-time Radar Quotes, News Crawl & 4D Evidence, Test Design) [DONE]
+- [x] Received G17 generation dispatch message and recorded in DISPATCH.md & ORIGINAL_REQUEST.md
+- [x] Initialized G17 BRIEFING.md and updated orchestrator state
+- [x] Step 0: Survey codebase with 3 parallel Explorers (G17 Requirements 1-6) [COMPLETED]
+  - [x] Explorer G17-1 (Data & Quant: Fake constants removal, real parquet data, 10D voting & causal chain) [DONE]
+  - [x] Explorer G17-2 (UI & Mobile: 2x2 grid CSS, chief advisor desk consolidation <=110px, ledger auto-route) [DONE]
+  - [x] Explorer G17-3 (Friction Bill, Screenshot Dual-Factor & Safety Redlines) [DONE]
 - [x] Step 1: Synthesize survey results and update PROJECT.md Feature Inventory & Milestones [COMPLETED]
-- [/] Step 2: Milestone Iteration Loops
-  - [/] Implementation: Features 1-7 (P0-P2 UI/UX) & tests/test_g8_ux_and_realtime_fusion.py [IN_PROGRESS: Worker G8-1 executing tests, Conv: f1c3a702-fb58-40ce-8cb0-fae478e997b5]
-  - [ ] Gate Verification: Reviewers (2), Challengers (2), Forensic Auditor (1) [PENDING]
-  - [ ] Service Restart & /browser Visual Walkthrough [PENDING]
-  - [ ] Full Regression Suite & Git Archive Tag v3.8-G8 [PENDING]
-- [ ] Step 3: Synthesis, Victory Audit & Final Report to Sentinel
+- [/] Step 2: Milestone Implementation Loop (Worker G17-1) [IN_PROGRESS: Conv 3d6e2c10-32bf-4d79-b1cf-c1d529839265]
+  - [x] Milestone 1: Data & Quant Engine (Fake constants removal, real parquet data, 10D voting & causal chain) [DONE by Worker G17-1]
+  - [/] Milestone 2: UI & Mobile Layout (2x2 grid CSS, chief advisor desk consolidation <=110px, ledger auto-route, table column reorder, @st.cache_resource) [IN_PROGRESS]
+  - [/] Milestone 3: Deepened Algorithms & Friction Breakdown (Fuzzy screenshot matching dual-factor, Tab 3 full friction bill) [IN_PROGRESS]
+  - [ ] Milestone 4: Delta Tests creation & passing execution [PENDING]
+- [ ] Step 3: Multi-Agent Gate (Reviewers x2, Challengers x2, Forensic Auditor x1)
+- [ ] Step 4: Service Restart & /browser Visual Walkthrough (Desktop 1920x1080 & Mobile 390x844)
+- [ ] Step 5: Full Regression Suite, Git Archive Tag v4.7-G17 & G18 Directive Generation
 
 ## Iteration Status
 Current iteration: 1 / 32

@@ -37,7 +37,7 @@
           "shares": 10000.0,
           "cost_nav": 1.5,
           "fee": 0.0,
-          "holding_days": 1,
+          "holding_days": 3,
           "safety_lock": true,
           "notes": "代码智能联动与市值反算入库"
         }
@@ -68,7 +68,7 @@
           "shares": 20000.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 64,
+          "holding_days": 65,
           "safety_lock": false,
           "notes": "代码智能联动与市值反算入库"
         }
@@ -99,7 +99,7 @@
           "shares": 5000.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 2,
+          "holding_days": 3,
           "safety_lock": true,
           "notes": "代码智能联动与市值反算入库"
         }
@@ -130,7 +130,7 @@
           "shares": 10000.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 64,
+          "holding_days": 65,
           "safety_lock": false,
           "notes": "代码智能联动与市值反算入库"
         }
@@ -161,7 +161,7 @@
           "shares": 10000.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 49,
+          "holding_days": 50,
           "safety_lock": false,
           "notes": "代码智能联动与市值反算入库"
         }
@@ -192,7 +192,7 @@
           "shares": 5000.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 39,
+          "holding_days": 40,
           "safety_lock": false,
           "notes": "代码智能联动与市值反算入库"
         }
@@ -230,6 +230,12 @@
       "total_equity": 109555.5,
       "account_nav": 1.0956,
       "benchmark_nav": 1.0
+    },
+    {
+      "date": "2026-11-11",
+      "total_equity": 109555.5,
+      "account_nav": 1.0956,
+      "benchmark_nav": 1.0
     }
   ],
   "initial_baseline_snapshot": {
@@ -253,5 +259,5 @@
     "baseline_equity": 171729.5,
     "date": "2026-11-06"
   },
-  "updated_at": "2026-11-10 01:32:08"
+  "updated_at": "2026-11-11 23:30:18"
 }

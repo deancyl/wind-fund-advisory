@@ -1589,6 +1589,21 @@ def _load_fund_catalog_data() -> List[Tuple[str, str, str]]:
     return _GLOBAL_CATALOG_DATA
 
 
+def search_funds_in_catalog(kw: str, limit: int = 5) -> List[Tuple[str, str, str]]:
+    """在 28,177 基金字典中按关键词或代码快速检索"""
+    if not kw:
+        return []
+    kw_s = str(kw).strip().upper()
+    cat = _load_fund_catalog_data()
+    res = []
+    for sym, name, pinyin in cat:
+        if kw_s in sym or kw_s in name.upper() or (pinyin and kw_s in pinyin.upper()):
+            res.append((sym, name, pinyin))
+            if len(res) >= limit:
+                break
+    return res
+
+
 def slice_long_screenshot_for_ocr(
     image_bytes: bytes,
     target_height: int = 1000,
@@ -1637,15 +1652,18 @@ def slice_long_screenshot_for_ocr(
 
 def fuzzy_match_fund_by_name(
     raw_name: str,
-    preferred_share_class: Optional[str] = None
+    preferred_share_class: Optional[str] = None,
+    yesterday_return: Optional[float] = None,
+    **kwargs
 ) -> Dict[str, Any]:
     """
     全市场基金名称模糊匹配器：
     1. 去除省略号（..., … 等）与符号噪点；
     2. 提取并保留 A/C 份额特征；
     3. 优先匹配 6 位代码与经典核心/扩展字典；
-    4. 本地 28,177 基金字典多级加权相似度匹配。
-    返回: {"fund_code": "005561", "fund_name": "...", "share_class": "A", "score": 1.0}
+    4. 本地 28,177 基金字典多级加权相似度匹配；
+    5. 支持「名称关键字 + 昨日收益率（容差 ≤ 0.3%）」双因子交叉锁定。
+    返回: {"fund_code": "005561", "fund_name": "...", "share_class": "A", "score": 1.0, "cross_check_verified": True}
     """
     if not raw_name or not str(raw_name).strip():
         return {}
@@ -1732,7 +1750,17 @@ def fuzzy_match_fund_by_name(
             if not fn:
                 fn = f"{k}{share_class or ''}"
             s_cls = share_class or ("C" if "C" in fn or code.endswith("3") or code.endswith("7") else "A")
-            return {"fund_code": code, "fund_name": fn, "share_class": s_cls, "score": 0.95, "raw_keyword": k}
+            ret_dict = {"fund_code": code, "fund_name": fn, "share_class": s_cls, "score": 0.95, "raw_keyword": k}
+            if yesterday_return is not None:
+                try:
+                    q = fetch_realtime_fund_quote(code)
+                    cand_ret = (float(q.gszzl) / 100.0) if (q and hasattr(q, "gszzl") and q.gszzl is not None) else None
+                    if cand_ret is not None and abs(cand_ret - yesterday_return) <= 0.003:
+                        ret_dict["cross_check_verified"] = True
+                        ret_dict["yesterday_return_diff"] = round(abs(cand_ret - yesterday_return), 4)
+                except Exception:
+                    pass
+            return ret_dict
 
     # 5. 全量 28,177 基金字典模糊匹配
     import difflib
@@ -1749,6 +1777,35 @@ def fuzzy_match_fund_by_name(
                 candidates.append((sym, name, pinyin))
     if not candidates:
         candidates = cat_list
+
+    # 双因子交叉验真：若传入了昨日收益率 (yesterday_return)，针对候选标的交叉核对
+    if yesterday_return is not None and candidates:
+        top_candidates = []
+        for sym, name, pinyin in candidates:
+            name_class = "C" if name.endswith("C") or sym.endswith("3") or sym.endswith("7") else "A"
+            class_bonus = 0.05 if (share_class and name_class == share_class) else 0.0
+            score = difflib.SequenceMatcher(None, clean_name, name).ratio() + class_bonus
+            if score >= 0.28:
+                top_candidates.append((score, sym, name, name_class))
+        top_candidates.sort(key=lambda x: x[0], reverse=True)
+
+        for base_sc, sym, name, s_cls in top_candidates[:15]:
+            try:
+                q = fetch_realtime_fund_quote(sym)
+                cand_ret = (float(q.gszzl) / 100.0) if (q and hasattr(q, "gszzl") and q.gszzl is not None) else None
+            except Exception:
+                cand_ret = None
+            if cand_ret is not None:
+                diff = abs(cand_ret - yesterday_return)
+                if diff <= 0.003:  # 0.3% 容差交叉锁定
+                    return {
+                        "fund_code": sym,
+                        "fund_name": name,
+                        "share_class": share_class or s_cls,
+                        "score": round(min(1.0, base_sc + 0.35), 2),
+                        "cross_check_verified": True,
+                        "yesterday_return_diff": round(diff, 4)
+                    }
 
     best_match = None
     best_score = 0.0
@@ -1767,7 +1824,9 @@ def fuzzy_match_fund_by_name(
             "fund_code": sym,
             "fund_name": name,
             "share_class": share_class or s_cls,
-            "score": round(best_score, 2)
+            "score": round(best_score, 2),
+            "cross_check_verified": False,
+            "is_questionable": (best_score < 0.70)
         }
 
     return {}
@@ -1858,20 +1917,12 @@ def parse_screenshot_ocr_holdings(image_bytes: bytes) -> List[Dict[str, Any]]:
         if not blk:
             continue
         blk_text = " ".join([b[2] for b in blk])
-        f_info = {}
-        for b in blk:
-            if b[4] and b[4].get("fund_code"):
-                f_info = b[4]
-                break
-        if not f_info:
-            f_info = fuzzy_match_fund_by_name(blk_text)
 
-        fc = f_info.get("fund_code")
-        if not fc or fc in seen_codes:
-            continue
-
-        fn = f_info.get("fund_name", f"基金_{fc}")
-        s_cls = f_info.get("share_class", "A")
+        # 提取昨日收益与持有金额，用于推导昨日收益率
+        yesterday_pnl_val = 0.0
+        y_pnl_m = re.search(r'(?:昨日收益|昨日盈亏|日收益)[:：\s]*([+-]?[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)', blk_text)
+        if y_pnl_m:
+            yesterday_pnl_val = float(y_pnl_m.group(1).replace(',', ''))
 
         pnl_val = 0.0
         mv_val = 0.0
@@ -1893,12 +1944,31 @@ def parse_screenshot_ocr_holdings(image_bytes: bytes) -> List[Dict[str, Any]]:
             for n_s in nums:
                 try:
                     val_f = float(n_s.replace(',', ''))
-                    if val_f > 0 and val_f != float(fc):
+                    if val_f > 0:
                         valid_floats.append(val_f)
                 except Exception:
                     pass
             if valid_floats:
                 mv_val = valid_floats[0]
+
+        yesterday_ret = None
+        if yesterday_pnl_val != 0.0 and (mv_val - yesterday_pnl_val) > 0.01:
+            yesterday_ret = yesterday_pnl_val / (mv_val - yesterday_pnl_val)
+
+        f_info = {}
+        for b in blk:
+            if b[4] and b[4].get("fund_code"):
+                f_info = b[4]
+                break
+        if not f_info:
+            f_info = fuzzy_match_fund_by_name(blk_text, yesterday_return=yesterday_ret)
+
+        fc = f_info.get("fund_code")
+        if not fc or fc in seen_codes:
+            continue
+
+        fn = f_info.get("fund_name", f"基金_{fc}")
+        s_cls = f_info.get("share_class", "A")
 
         if mv_val <= 0:
             continue
@@ -1927,6 +1997,10 @@ def parse_screenshot_ocr_holdings(image_bytes: bytes) -> List[Dict[str, Any]]:
             "cost_basis": cost_basis,
             "floating_pnl": round(pnl_val, 2),
             "floating_pnl_pct": pnl_pct,
+            "yesterday_pnl": round(yesterday_pnl_val, 2),
+            "yesterday_return": round(yesterday_ret, 4) if yesterday_ret is not None else None,
+            "cross_check_verified": bool(f_info.get("cross_check_verified", False)),
+            "is_questionable": bool(f_info.get("is_questionable", False)),
             "holding_days": 400,
             "holding_tag": ">=30d",
             "dividend_method": "cash" if s_cls == "A" else "reinvest",
@@ -3242,7 +3316,8 @@ class PortfolioManager:
         ledger_json_path: Union[str, Path] = "portfolio_ledger.json",
         storage_file: Optional[Union[str, Path]] = None,
         ledger_file: Optional[Union[str, Path]] = None,
-        ledger_id: Optional[str] = None
+        ledger_id: Optional[str] = None,
+        **kwargs
     ):
         if ledger_file is not None:
             ledger_json_path = ledger_file
@@ -3327,9 +3402,25 @@ class PortfolioManager:
         loaded = self.load_state()
         if not loaded or not self.snapshot_stack:
             # 记录初始启动快照
+            if "total_equity" in kwargs:
+                try:
+                    self.cash = float(kwargs["total_equity"])
+                except Exception:
+                    pass
+            elif "initial_cash" in kwargs:
+                try:
+                    self.cash = float(kwargs["initial_cash"])
+                except Exception:
+                    pass
             self._recalculate_totals()
             init_state = self._export_state_dict()
             self.snapshot_stack.append(init_state)
+        elif "total_equity" in kwargs:
+            try:
+                self.cash = float(kwargs["total_equity"])
+                self._recalculate_totals()
+            except Exception:
+                pass
 
     @property
     def toolkit(self) -> Optional[Any]:
@@ -7602,9 +7693,9 @@ class PortfolioManager:
             try:
                 from data_loader import DataLoader
                 fx_data = DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
-                spot_usdcnh = float(fx_data.get("rate", 7.2450))
+                spot_usdcnh = float(fx_data.get("rate", 6.6676))
             except Exception:
-                spot_usdcnh = 7.2450
+                spot_usdcnh = 6.6676
 
         results = []
         for c in codes:
@@ -9387,7 +9478,22 @@ class PortfolioManager:
         return parse_screenshot_ocr_holdings(image_bytes)
 
     @staticmethod
-    def slice_long_screenshot_for_ocr(image_bytes: bytes, target_height: int = 1000, overlap: int = 150) -> List[Tuple[Any, int]]:
+    def search_funds_in_catalog(kw: str, limit: int = 5) -> List[Tuple[str, str, str]]:
+        """在 28,177 基金字典中按关键词或代码快速检索"""
+        if not kw:
+            return []
+        kw_s = str(kw).strip().upper()
+        cat = _load_fund_catalog_data()
+        res = []
+        for sym, name, pinyin in cat:
+            if kw_s in sym or kw_s in name.upper() or (pinyin and kw_s in pinyin.upper()):
+                res.append((sym, name, pinyin))
+                if len(res) >= limit:
+                    break
+        return res
+
+
+    def slice_long_screenshot_for_ocr(self, image_bytes: bytes, target_height: int = 1000, overlap: int = 150) -> List[Tuple[Any, int]]:
         """长截图无损自适应切片"""
         return slice_long_screenshot_for_ocr(image_bytes, target_height=target_height, overlap=overlap)
 
@@ -10170,6 +10276,9 @@ class PortfolioManager:
         return float(getattr(self, "total_equity", getattr(self, "total_market_value", 100000.0)) or 100000.0)
 
 
+
+PortfolioManager.search_funds_in_catalog = staticmethod(search_funds_in_catalog)
+search_funds_in_catalog = search_funds_in_catalog
 
 # 模块级便捷访问别名
 generate_zero_start_blueprint = PortfolioManager.generate_zero_start_blueprint

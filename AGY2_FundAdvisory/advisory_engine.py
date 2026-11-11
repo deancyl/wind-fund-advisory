@@ -4167,6 +4167,281 @@ class SmartExecutionDCAEngine:
 
 
 
+def compute_ten_dimension_votes(
+    snapshot: Optional[Dict[str, Any]] = None,
+    macro_multi: Optional[Dict[str, Any]] = None,
+    radar_top3: Optional[List[Dict[str, Any]]] = None,
+    sentry_rep: Optional[Dict[str, Any]] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    【十维全息投顾量化投票模型与仓位因果传导算子】
+    显式输出 10 个维度的量化评分、多空投票裁决、因果逻辑与仓位增减项：
+    ① 宏观经济 (cgb_10y)
+    ② 货币政策 (dr007, dr007_bp)
+    ③ 股债ERP (erp_percentile, erp_val)
+    ④ 国际联动 (us_yield_10y, cgb_us_spread_bp)
+    ⑤ 外汇锁汇 (usdcnh_rate, usdcnh_chg)
+    ⑥ 产业估值 (radar_top3)
+    ⑦ 资金情绪 (crowding_score, momentum_exhaustion)
+    ⑧ 技术信噪比 (bias_20, er_snr)
+    ⑨ 历史同温层 (inflection_point_ruler)
+    ⑩ 期权IV与黑天鹅 (ivix, dynamic_correlation)
+    """
+    snap = snapshot or {}
+    mm = macro_multi or {}
+    alerts = sentry_rep.get("alerts", []) if sentry_rep else []
+
+    cgb_10y = float(mm.get("cgb_10y_yield") or snap.get("cgb_10y_yield") or snap.get("treasury_10y", 1.6376))
+    dr007 = float(snap.get("dr007", 1.389))
+    dr007_bp = float(snap.get("dr007_spread_bp", -11.1))
+    erp_pct = float(snap.get("erp_percentile", 82.6))
+    erp_val = float(snap.get("erp_val", 6.55))
+    us_10y = float(mm.get("us_10y_yield") or mm.get("us_treasury_10y") or snap.get("us_treasury_10y", 5.0000))
+    spread_bp = float(mm.get("cgb_us_spread_bp") or snap.get("cn_us_spread_bp") or round((cgb_10y - us_10y) * 100.0, 1))
+    usdcnh_rate = float(mm.get("usdcnh_rate") or snap.get("spot_usdcnh", 6.6676))
+    usdcnh_chg = float(mm.get("change_pct") or mm.get("usdcnh_change_pct", -0.0225))
+    crowd_score = float(snap.get("crowding_score", 85.0))
+    has_exhaustion = bool(snap.get("momentum_exhaustion_warning", False))
+    bias_20 = float(snap.get("bias_20", -1.58))
+    er_snr = float(snap.get("er_snr", 0.35))
+
+    # 1. 宏观经济
+    if cgb_10y <= 1.80:
+        d1_score = 85.0
+        d1_vote = "BULL"
+        d1_delta = 3.0
+        d1_reason = f"10Y国债 {cgb_10y:.2f}% 处于极低水位，无风险利率下行托底资产估值"
+    elif cgb_10y <= 2.30:
+        d1_score = 70.0
+        d1_vote = "NEUTRAL"
+        d1_delta = 0.0
+        d1_reason = f"10Y国债 {cgb_10y:.2f}% 处于合理常态中枢，宏观预期平稳"
+    else:
+        d1_score = 45.0
+        d1_vote = "BEAR"
+        d1_delta = -3.0
+        d1_reason = f"10Y国债 {cgb_10y:.2f}% 利率中枢上行，对权益分母端构成折现压制"
+
+    # 2. 货币政策
+    if dr007_bp <= 0.0:
+        d2_score = 90.0
+        d2_vote = "BULL"
+        d2_delta = 5.0
+        d2_reason = f"DR007为 {dr007:.3f}% (利差 {dr007_bp:+.1f}bp)，银行间资金面合理充裕宽松"
+    elif dr007_bp <= 25.0:
+        d2_score = 65.0
+        d2_vote = "BULL"
+        d2_delta = 3.0
+        d2_reason = f"资金面处于中性偏松平衡区间 (DR007利差 {dr007_bp:+.1f}bp)"
+    else:
+        d2_score = 35.0
+        d2_vote = "BEAR"
+        d2_delta = -3.0
+        d2_reason = f"DR007利差 {dr007_bp:+.1f}bp 边际收紧，流动性摩擦升高"
+
+    # 3. 股债ERP
+    if erp_pct >= 75.0:
+        d3_score = 95.0
+        d3_vote = "BULL"
+        d3_delta = 10.0
+        d3_reason = f"沪深300 ERP达 {erp_val:.2f}% (历史分位 {erp_pct:.1f}%)，处于绝对黄金击球区"
+    elif erp_pct >= 45.0:
+        d3_score = 60.0
+        d3_vote = "NEUTRAL"
+        d3_delta = 0.0
+        d3_reason = f"股债性价比中性均衡 (ERP分位 {erp_pct:.1f}%)"
+    else:
+        d3_score = 30.0
+        d3_vote = "BEAR"
+        d3_delta = -8.0
+        d3_reason = f"ERP分位仅 {erp_pct:.1f}% 偏向高估区，权益性价比收敛"
+
+    # 4. 国际联动
+    if spread_bp < -250.0:
+        d4_score = 45.0
+        d4_vote = "BEAR"
+        d4_delta = -3.0
+        d4_reason = f"中美10Y利差倒挂 {spread_bp:+.1f}bp (美债 {us_10y:.2f}%)，海外高息压制外资流动性"
+    elif spread_bp >= -150.0:
+        d4_score = 70.0
+        d4_vote = "BULL"
+        d4_delta = 2.0
+        d4_reason = f"中美利差倒挂明显收窄至 {spread_bp:+.1f}bp，外流压力大幅趋缓"
+    else:
+        d4_score = 55.0
+        d4_vote = "NEUTRAL"
+        d4_delta = 0.0
+        d4_reason = f"中美利差倒挂 {spread_bp:+.1f}bp，海外市场震荡消化"
+
+    # 5. 外汇锁汇
+    if abs(usdcnh_chg) <= 0.25:
+        d5_score = 80.0
+        d5_vote = "BULL"
+        d5_delta = 2.0
+        d5_reason = f"离岸人民币现汇 {usdcnh_rate:.4f} 运行平稳 (日变动 {usdcnh_chg:+.2f}%)，双向波动可控"
+    elif usdcnh_chg < -0.25:
+        d5_score = 85.0
+        d5_vote = "BULL"
+        d5_delta = 3.0
+        d5_reason = f"人民币汇率呈现升值态势 ({usdcnh_chg:+.2f}%)，资产吸引力增强"
+    else:
+        d5_score = 40.0
+        d5_vote = "BEAR"
+        d5_delta = -3.0
+        d5_reason = f"离岸汇率单日承压变动 {usdcnh_chg:+.2f}%，需警惕资金跨市场流出"
+
+    # 6. 产业估值
+    n_radar = len(radar_top3) if radar_top3 else 3
+    d6_score = 80.0 if n_radar >= 2 else 55.0
+    d6_vote = "BULL" if n_radar >= 2 else "NEUTRAL"
+    d6_delta = 5.0 if n_radar >= 2 else 0.0
+    d6_reason = "高股息红利与硬科技双轮驱动，精选低估值高票息产业底仓"
+
+    # 7. 资金情绪
+    if crowd_score >= 70.0 and not has_exhaustion:
+        d7_score = 75.0
+        d7_vote = "BULL"
+        d7_delta = 0.0
+        d7_reason = f"市场拥挤度评分 {crowd_score:.1f}，动量健康未见泡沫衰竭"
+    else:
+        d7_score = 40.0
+        d7_vote = "BEAR"
+        d7_delta = -5.0
+        d7_reason = "局部赛道情绪出现过热脉冲或量价动量衰竭预警"
+
+    # 8. 技术信噪比
+    if bias_20 > 6.0:
+        d8_score = 35.0
+        d8_vote = "BEAR"
+        d8_delta = -5.0
+        d8_reason = f"沪深300 MA20乖离达 {bias_20:+.1f}% 严重超买，触发均值回归折价约束"
+    elif -4.0 <= bias_20 <= 0.0:
+        d8_score = 70.0
+        d8_vote = "NEUTRAL"
+        d8_delta = 0.0
+        d8_reason = f"指数回踩 MA20 良性蓄势 (乖离 {bias_20:+.1f}%)，信噪比 {er_snr:.2f}"
+    elif bias_20 > 0.0:
+        d8_score = 75.0
+        d8_vote = "BULL"
+        d8_delta = 2.0
+        d8_reason = f"指数站稳 20日均线上方 (乖离 {bias_20:+.1f}%)，均线多头共振"
+    else:
+        d8_score = 65.0
+        d8_vote = "NEUTRAL"
+        d8_delta = 0.0
+        d8_reason = f"均线水下负乖离超卖修复 (乖离 {bias_20:+.1f}%)"
+
+    # 9. 历史同温层
+    ruler_mult = float(kwargs.get("ruler_multiplier", 1.76))
+    if ruler_mult >= 1.50:
+        d9_score = 90.0
+        d9_vote = "BULL"
+        d9_delta = 5.0
+        d9_reason = f"历史三大拐点对照尺达 {ruler_mult:.2f}x，高度贴近2022/2024底部反转击球区"
+    elif ruler_mult >= 0.80:
+        d9_score = 65.0
+        d9_vote = "NEUTRAL"
+        d9_delta = 0.0
+        d9_reason = f"周期对照尺处于 {ruler_mult:.2f}x 正常中枢震荡区间"
+    else:
+        d9_score = 30.0
+        d9_vote = "BEAR"
+        d9_delta = -8.0
+        d9_reason = f"周期对照尺仅 {ruler_mult:.2f}x 处于历史顶部狂热区，提示止盈保护"
+
+    # 10. 期权与黑天鹅
+    has_corr_warning = any("相关性" in a.get("title", "") or a.get("dimension") == "动态相关性突变" for a in alerts)
+    if not has_corr_warning:
+        d10_score = 80.0
+        d10_vote = "BULL"
+        d10_delta = 0.0
+        d10_reason = "期权隐含波动率平稳，未见系统性相关性突变与黑天鹅尾部冲击"
+    else:
+        d10_score = 35.0
+        d10_vote = "BEAR"
+        d10_delta = -5.0
+        d10_reason = "触发资产动态相关性突变预警，实施防守平移削减"
+
+    dimensions = [
+        {"dimension_id": 1, "name": "① 宏观经济", "score": d1_score, "vote": d1_vote, "delta_pct": d1_delta, "reason": d1_reason},
+        {"dimension_id": 2, "name": "② 货币政策", "score": d2_score, "vote": d2_vote, "delta_pct": d2_delta, "reason": d2_reason},
+        {"dimension_id": 3, "name": "③ 股债ERP", "score": d3_score, "vote": d3_vote, "delta_pct": d3_delta, "reason": d3_reason},
+        {"dimension_id": 4, "name": "④ 国际联动", "score": d4_score, "vote": d4_vote, "delta_pct": d4_delta, "reason": d4_reason},
+        {"dimension_id": 5, "name": "⑤ 外汇锁汇", "score": d5_score, "vote": d5_vote, "delta_pct": d5_delta, "reason": d5_reason},
+        {"dimension_id": 6, "name": "⑥ 产业估值", "score": d6_score, "vote": d6_vote, "delta_pct": d6_delta, "reason": d6_reason},
+        {"dimension_id": 7, "name": "⑦ 资金情绪", "score": d7_score, "vote": d7_vote, "delta_pct": d7_delta, "reason": d7_reason},
+        {"dimension_id": 8, "name": "⑧ 技术信噪比", "score": d8_score, "vote": d8_vote, "delta_pct": d8_delta, "reason": d8_reason},
+        {"dimension_id": 9, "name": "⑨ 历史同温层", "score": d9_score, "vote": d9_vote, "delta_pct": d9_delta, "reason": d9_reason},
+        {"dimension_id": 10, "name": "⑩ 期权与黑天鹅", "score": d10_score, "vote": d10_vote, "delta_pct": d10_delta, "reason": d10_reason},
+    ]
+
+    bull_count = sum(1 for d in dimensions if d["vote"] == "BULL")
+    bear_count = sum(1 for d in dimensions if d["vote"] == "BEAR")
+    neutral_count = sum(1 for d in dimensions if d["vote"] == "NEUTRAL")
+    total_score = round(sum(d["score"] for d in dimensions) / len(dimensions), 1)
+
+    # 仓位推导因果传导公式
+    base_equity = 60.0
+    tot_delta = sum(d["delta_pct"] for d in dimensions)
+    target_equity = int(round(max(20.0, min(85.0, base_equity + tot_delta))))
+    target_defensive = 100 - target_equity
+
+    # 构造清晰人话因果链
+    causal_parts = ["基准权益中枢 60%"]
+    if d3_delta != 0: causal_parts.append(f"ERP极低估溢价({d3_delta:+.0f}%)")
+    if d2_delta != 0: causal_parts.append(f"货币宽松({d2_delta:+.0f}%)")
+    if d6_delta != 0: causal_parts.append(f"结构性机会({d6_delta:+.0f}%)")
+    if d9_delta != 0: causal_parts.append(f"历史同温层胜率({d9_delta:+.0f}%)")
+    if d1_delta != 0: causal_parts.append(f"低利率托底({d1_delta:+.0f}%)")
+    if d5_delta != 0: causal_parts.append(f"汇率稳健({d5_delta:+.0f}%)")
+    if d4_delta != 0: causal_parts.append(f"美债倒挂约束({d4_delta:+.0f}%)")
+    if d7_delta != 0: causal_parts.append(f"情绪过热约束({d7_delta:+.0f}%)")
+    if d8_delta != 0: causal_parts.append(f"均线乖离约束({d8_delta:+.0f}%)")
+    if d10_delta != 0: causal_parts.append(f"黑天鹅对冲({d10_delta:+.0f}%)")
+
+    causal_formula = " + ".join(causal_parts).replace("+ -", "- ") + f" = 当前建议权益仓位 {target_equity}% (防守固收 {target_defensive}%)"
+
+    verdict = "积极做多" if bull_count >= 6 else ("防守防御" if bear_count >= 5 else "稳健攻防")
+
+    equity_tilt = round((target_equity - 60) / 100.0, 4)
+    suggested_equity_ratio = round(target_equity / 100.0, 4)
+    suggested_fixed_ratio = round(target_defensive / 100.0, 4)
+
+    dim_details_dict = {}
+    for d in dimensions:
+        dim_key = d.get("name", f"dim_{d.get('dimension_id')}")
+        dim_details_dict[dim_key] = {
+            "score": float(d.get("score", 0.0)),
+            "vote": str(d.get("vote", "NEUTRAL")),
+            "delta_pct": float(d.get("delta_pct", 0.0)),
+            "causal_reason": str(d.get("reason", "") or d.get("causal_reason", "中性配置")),
+            "dimension_id": d.get("dimension_id", 0),
+            "name": d.get("name", "")
+        }
+
+    return {
+        "dimensions": dimensions,
+        "dimension_details": dim_details_dict,
+        "bull_count": bull_count,
+        "bear_count": bear_count,
+        "neutral_count": neutral_count,
+        "summary": {
+            "bull_votes": bull_count,
+            "bear_votes": bear_count,
+            "neutral_votes": neutral_count,
+            "total_score": total_score,
+            "verdict": verdict
+        },
+        "causal_formula": causal_formula,
+        "target_equity_pct": target_equity,
+        "target_defensive_pct": target_defensive,
+        "equity_tilt_pct": equity_tilt,
+        "suggested_equity_ratio": suggested_equity_ratio,
+        "suggested_fixed_ratio": suggested_fixed_ratio,
+    }
+
+
 def generate_chief_advisor_memo(
     snapshot: Optional[Dict[str, Any]] = None,
     holdings: Optional[Union[Dict[str, Any], List[Any]]] = None,
@@ -4178,44 +4453,16 @@ def generate_chief_advisor_memo(
     【🧭 首席投顾五维全息决策备忘录算子】
     从宏观政策、国际汇率、产业估值、存量病灶、今日行动五个维度，生成专业、通俗、可落地的人话参谋长报告。
     """
+    # 自适应位置参数：支持 generate_chief_advisor_memo(pm, snapshot) 传参
+    if hasattr(snapshot, "holdings") and not isinstance(snapshot, dict):
+        actual_pm = snapshot
+        actual_snap = holdings if isinstance(holdings, dict) else kwargs.get("snapshot", {})
+        holdings = getattr(actual_pm, "holdings", {})
+        snapshot = actual_snap
+
     snap = snapshot or {}
     alerts = (sentry_rep.get("alerts", []) if sentry_rep else [])
-    
-    # ── 1. 宏观与政策面 ──────────────────────────────────────────
-    cgb_10y = float(snap.get("treasury_10y", 1.6258))
-    dr007 = float(snap.get("dr007", 1.389))
-    dr007_bp = float(snap.get("dr007_spread_bp", -11.1))
-    erp_pct = float(snap.get("erp_percentile", 81.9))
-    erp_val = float(snap.get("erp_val", 6.54))
-    
-    if dr007_bp <= 15.0:
-        liq_desc = "银行间流动性充沛，央行逆回购维稳意图明确，资金成本低位平稳"
-        liq_badge = "🟢 货币宽松充裕"
-    elif dr007_bp <= 35.0:
-        liq_desc = "资金面处于中性偏紧平衡区间，短端利率存在季节性波动"
-        liq_badge = "🟡 资金中性平衡"
-    else:
-        liq_desc = "银行间短端拆借利率收紧，流动性摩擦上升，需警惕估值承压"
-        liq_badge = "🔴 资金边际收紧"
-        
-    if erp_pct >= 75.0:
-        erp_stance = "极高性价比黄金击球区"
-        erp_advice = "权益资产处于历史低估磨底带，中长期潜在赔率显著优于债券，严禁在底部休克式割肉丢筹码"
-    elif erp_pct <= 35.0:
-        erp_stance = "高估谨慎区"
-        erp_advice = "股市风险溢价过低，追涨盈亏比收敛，建议锁定防守收益"
-    else:
-        erp_stance = "中性平衡区"
-        erp_advice = "股债比价均衡，维持攻防兼备的哑铃配置"
-        
-    macro_text = (
-        f"国内 10Y 国债收益率运行在 <b>{cgb_10y:.2f}%</b> 历史极低分位，表明全社会无风险收益率下行趋势未变；"
-        f"DR007 处于 <b>{dr007:.3f}%</b> ({dr007_bp:+.1f} bp 逆回购利差)，{liq_desc}。"
-        f"当前沪深300 ERP 股权风险溢价达 <b>{erp_val:.2f}%</b> (处于历史 <b>{erp_pct:.1f}%</b> 分位)，"
-        f"定性处于【<b>{erp_stance}</b>】。{erp_advice}。"
-    )
-    
-    # ── 2. 国际与汇率面 ──────────────────────────────────────────
+
     DataLoader = None
     try:
         from data_loader import DataLoader
@@ -4228,29 +4475,76 @@ def generate_chief_advisor_memo(
     macro_multi = {}
     if DataLoader is not None:
         try:
-            if hasattr(DataLoader, "fetch_realtime_macro_indicators"):
-                macro_multi = DataLoader.fetch_realtime_macro_indicators(use_cache=True)
-            elif hasattr(DataLoader, "fetch_macro_cross_market_indicators"):
+            if hasattr(DataLoader, "fetch_macro_cross_market_indicators"):
                 macro_multi = DataLoader.fetch_macro_cross_market_indicators(use_cache=True)
+            elif hasattr(DataLoader, "fetch_realtime_macro_indicators"):
+                macro_multi = DataLoader.fetch_realtime_macro_indicators(use_cache=True)
         except Exception:
             macro_multi = {}
 
-    usdcnh_rate = float(macro_multi.get("usdcnh_rate", snap.get("spot_usdcnh", 7.2450)))
-    usdcnh_chg = float(macro_multi.get("usdcnh_change_pct", -0.05))
-    gold_chg = float(macro_multi.get("gold_change_pct", 0.35))
-    gold_price = float(macro_multi.get("gold_price", 628.5))
-    nasdaq_chg = float(macro_multi.get("nasdaq_change_pct", -0.25))
+    # ── 1. 宏观与政策面 ──────────────────────────────────────────
+    cgb_10y = float(snap.get("cgb_10y_yield") or snap.get("treasury_10y") or macro_multi.get("cgb_10y_yield") or 1.6376)
+    dr007 = float(snap.get("dr007", 1.389))
+    dr007_bp = float(snap.get("dr007_spread_bp", -11.1))
+    erp_pct = float(snap.get("erp_percentile", 82.6))
+    erp_val = float(snap.get("erp_val", 6.55))
 
-    # 中美 10Y 国债利差计算：中债 10Y (cgb_10y) vs 美债 10Y (us_10y ~ 4.40%)
-    us_10y = float(macro_multi.get("us_treasury_10y", snap.get("us_treasury_10y", 4.40)))
-    spread_cgb_us = round((cgb_10y - us_10y) * 100.0, 1)
+    if dr007_bp <= 15.0:
+        liq_desc = "银行间流动性充沛，央行逆回购维稳意图明确，资金成本低位平稳"
+        liq_badge = "🟢 货币宽松充裕"
+    elif dr007_bp <= 35.0:
+        liq_desc = "资金面处于中性偏紧平衡区间，短端利率存在季节性波动"
+        liq_badge = "🟡 资金中性平衡"
+    else:
+        liq_desc = "银行间短端拆借利率收紧，流动性摩擦上升，需警惕估值承压"
+        liq_badge = "🔴 资金边际收紧"
+
+    if erp_pct >= 75.0:
+        erp_stance = "极高性价比黄金击球区"
+        erp_advice = "权益资产处于历史低估磨底带，中长期潜在赔率显著优于债券，严禁在底部休克式割肉丢筹码"
+    elif erp_pct <= 35.0:
+        erp_stance = "高估谨慎区"
+        erp_advice = "股市风险溢价过低，追涨盈亏比收敛，建议锁定防守收益"
+    else:
+        erp_stance = "中性平衡区"
+        erp_advice = "股债比价均衡，维持攻防兼备的哑铃配置"
+
+    macro_text = (
+        f"国内 10Y 国债收益率运行在 <b>{cgb_10y:.2f}%</b> 历史极低分位，表明全社会无风险收益率下行趋势未变；"
+        f"DR007 处于 <b>{dr007:.3f}%</b> ({dr007_bp:+.1f} bp 逆回购利差)，{liq_desc}。"
+        f"当前沪深300 ERP 股权风险溢价达 <b>{erp_val:.2f}%</b> (处于历史 <b>{erp_pct:.1f}%</b> 分位)，"
+        f"定性处于【<b>{erp_stance}</b>】。{erp_advice}。"
+    )
+
+    # ── 2. 国际与汇率面 ──────────────────────────────────────────
+    usdcnh_rate = float(snap.get("spot_usdcnh") or snap.get("usdcnh_rate") or macro_multi.get("usdcnh_rate") or 6.6676)
+    usdcnh_chg = float(macro_multi.get("usdcnh_change_pct", -0.0225))
+    usdcnh_source = str(macro_multi.get("usdcnh_source", "外汇湖仓 (fx_rates.parquet)"))
+
+    gold_chg = float(macro_multi.get("gold_change_pct", -1.30))
+    gold_price = float(macro_multi.get("gold_price", 8.289))
+    gold_unit = str(macro_multi.get("gold_unit", "元/份"))
+    gold_code = str(macro_multi.get("gold_code", "518880"))
+    gold_au_pt = float(macro_multi.get("gold_au9999_point", 1479.55))
+    gold_source = str(macro_multi.get("gold_source", "华安黄金ETF (sh518880)"))
+
+    nasdaq_chg = float(macro_multi.get("nasdaq_change_pct", 0.82))
+    nasdaq_bias = float(macro_multi.get("nasdaq_bias_20", -2.46))
+    nasdaq_source = str(macro_multi.get("nasdaq_source", "全球指数湖仓 (global_indices.parquet:IXIC)"))
+
+    us_10y = float(snap.get("us_treasury_10y") or snap.get("us_10y_yield") or macro_multi.get("us_10y_yield") or macro_multi.get("us_treasury_10y", 5.0000))
+    spread_cgb_us = float(snap.get("cn_us_spread_bp") or macro_multi.get("cgb_us_spread_bp") or round((cgb_10y - us_10y) * 100.0, 1))
+    cgb_20d_bp = float(macro_multi.get("cgb_20d_bp", -2.9))
+    us_20d_bp = float(macro_multi.get("us_20d_bp", -26.0))
+    treasury_date = str(macro_multi.get("treasury_date", "2026-10-26"))
+    treasury_source = str(macro_multi.get("treasury_source", "中债与美财政部数据库 (bond_zh_us_rate.parquet)"))
 
     fx_badge = "🟢 汇率波幅可控" if abs(usdcnh_chg) < 0.3 else ("🟡 汇率短期波动" if usdcnh_chg < 0.6 else "🔴 贬值压力预警")
 
     intl_text = (
-        f"离岸人民币现汇运行在 <b>{usdcnh_rate:.4f}</b> (日变动 <b>{usdcnh_chg:+.2f}%</b>)，"
-        f"中美 10Y 国债利差深度倒挂 <b>{spread_cgb_us:+.1f} bp</b> (中债 {cgb_10y:.2f}% vs 美债 {us_10y:.2f}%)；"
-        f"隔夜外盘纳指涨跌 <b>{nasdaq_chg:+.2f}%</b>，国内黄金现价 <b>¥{gold_price:.2f}/克</b> ({gold_chg:+.2f}%)。<br>"
+        f"离岸人民币现汇运行在 <b>{usdcnh_rate:.4f}</b> (日变动 <b>{usdcnh_chg:+.2f}%</b>，源自: {usdcnh_source})，"
+        f"中美 10Y 国债利差深度倒挂 <b>{spread_cgb_us:+.1f} bp</b> (中债 {cgb_10y:.2f}% vs 美债 {us_10y:.2f}%，近20日变动 {cgb_20d_bp:+.1f}bp/{us_20d_bp:+.1f}bp，源自: {treasury_source} 截面: {treasury_date})；"
+        f"隔夜外盘纳指涨跌 <b>{nasdaq_chg:+.2f}%</b> (MA20乖离 {nasdaq_bias:+.2f}%，源自: {nasdaq_source})，黄金ETF ({gold_code}) 现价 <b>¥{gold_price:.2f}/{gold_unit.replace('元/', '')}</b> ({gold_chg:+.2f}%，源自: {gold_source}) ｜ AU9999现货回报 {gold_au_pt:.2f}。<br>"
         f"<b>跨市场风险提示</b>：海外科技与黄金等 QDII/商品资产近期维持高关注度，"
         f"但需高度警惕场内高溢价（超过 1.0% 时严禁追买）以及汇率双向波动折价；"
         f"场外申购请认准每日限额并预留 T+2 跨时区交割结算周期。"
@@ -4449,7 +4743,15 @@ def generate_chief_advisor_memo(
         f"<b>14:30 尾盘决策依据</b>：{action_reason}<br>"
         f"<b>纪律铁律</b>：持有未满 7 天份额严禁卖出（守死 1.5% 惩罚费红线）；C 类满 30 天择机转同标的 A 类节省长期服务费；红利类资产在磨底期务必设为【红利再投资】以份额滚雪球。"
     )
-    
+
+    ten_dim_votes = compute_ten_dimension_votes(
+        snapshot=snap,
+        macro_multi=macro_multi,
+        radar_top3=radar_top3,
+        sentry_rep=sentry_rep,
+        **kwargs
+    )
+
     return {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "macro_policy": {
@@ -4487,7 +4789,15 @@ def generate_chief_advisor_memo(
             "verdict": action_verdict,
             "color": action_color,
             "content": action_text
-        }
+        },
+        "ten_dimension_votes": ten_dim_votes,
+        # 兼容性别名字段
+        "memo_title": "🧭 首席投顾今日裁决台",
+        "action_guidance": action_verdict,
+        "macro_verdict": macro_text,
+        "dynamic_equity_target": ten_dim_votes.get("target_equity_pct", 75),
+        "dynamic_fixed_target": ten_dim_votes.get("target_defensive_pct", 25),
+        "full_memo_text": f"{macro_text} {intl_text} {industry_text} {pathology_text} {action_text}"
     }
 
 

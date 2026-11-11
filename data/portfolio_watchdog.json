@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-11 21:58:55",
+  "timestamp": "2026-11-11 23:32:24",
   "all_passed": false,
   "has_danger": false,
   "has_warning": true,
@@ -36,19 +36,19 @@
       "fund_code": "011613",
       "fund_name": "华夏上证科创板50成份ETF联接C",
       "pnl_pct": -17.13,
-      "val_percentile": 69.8
+      "val_percentile": 5.1
     },
     {
       "level": "yellow",
       "dimension": "深套诊断",
       "title": "【招商中证白酒指数(LOF)A (161725)】深套诊断预警 (浮亏 -25.1%)",
-      "desc": "【Beta vs Alpha 病根诊断】该标的当前浮亏达 -25.1%。对应赛道处于历史低估磨底区 (估值分位 5.4%)，赛道顺周期磨底，严禁底部割肉，建议逢低定投摊薄。",
+      "desc": "【Beta vs Alpha 病根诊断】该标的当前浮亏达 -25.1%。对应赛道处于历史低估磨底区 (估值分位 37.6%)，赛道顺周期磨底，严禁底部割肉，建议逢低定投摊薄。",
       "action": "赛道顺周期磨底，严禁底部割肉，建议逢低定投摊薄。",
       "action_type": "deep_loss_rebalance",
       "fund_code": "161725",
       "fund_name": "招商中证白酒指数(LOF)A",
       "pnl_pct": -25.11,
-      "val_percentile": 5.4
+      "val_percentile": 37.6
     },
     {
       "level": "yellow",
@@ -96,13 +96,13 @@
       "level": "yellow",
       "dimension": "深套诊断",
       "title": "【华夏中证500ETF联接C (001053)】深套诊断预警 (浮亏 -24.0%)",
-      "desc": "【Beta vs Alpha 病根诊断】该标的当前浮亏达 -24.0%。基金超额衰减且赛道未处历史极端低估 (估值分位 64.2%)，建议趁反弹阶梯置换为低费率标杆指数基金。",
+      "desc": "【Beta vs Alpha 病根诊断】该标的当前浮亏达 -24.0%。基金超额衰减且赛道未处历史极端低估 (估值分位 65.0%)，建议趁反弹阶梯置换为低费率标杆指数基金。",
       "action": "存在同质化重叠或超额衰减，建议趁反弹阶梯置换为低费率标杆指数基金。",
       "action_type": "deep_loss_rebalance",
       "fund_code": "001053",
       "fund_name": "华夏中证500ETF联接C",
       "pnl_pct": -24.0,
-      "val_percentile": 64.2
+      "val_percentile": 65.0
     },
     {
       "level": "yellow",
@@ -156,7 +156,7 @@
       "fund_code": "013841",
       "fund_name": "银华集成电路混合C",
       "pnl_pct": -36.56,
-      "val_percentile": 88.5
+      "val_percentile": 10.1
     },
     {
       "level": "yellow",
@@ -222,7 +222,7 @@
       "fund_code": "011612",
       "fund_name": "华夏上证科创板50成份ETF联接A",
       "pnl_pct": -21.0,
-      "val_percentile": 69.8
+      "val_percentile": 5.1
     },
     {
       "level": "yellow",
@@ -317,13 +317,13 @@
       "level": "yellow",
       "dimension": "深套诊断",
       "title": "【广发中证500ETF联接C (004854)】深套诊断预警 (浮亏 -27.5%)",
-      "desc": "【Beta vs Alpha 病根诊断】该标的当前浮亏达 -27.5%。基金超额衰减且赛道未处历史极端低估 (估值分位 64.2%)，建议趁反弹阶梯置换为低费率标杆指数基金。",
+      "desc": "【Beta vs Alpha 病根诊断】该标的当前浮亏达 -27.5%。基金超额衰减且赛道未处历史极端低估 (估值分位 65.0%)，建议趁反弹阶梯置换为低费率标杆指数基金。",
       "action": "存在同质化重叠或超额衰减，建议趁反弹阶梯置换为低费率标杆指数基金。",
       "action_type": "deep_loss_rebalance",
       "fund_code": "004854",
       "fund_name": "广发中证500ETF联接C",
       "pnl_pct": -27.5,
-      "val_percentile": 64.2
+      "val_percentile": 65.0
     },
     {
       "level": "yellow",
@@ -351,13 +351,13 @@
       "level": "yellow",
       "dimension": "深套诊断",
       "title": "【天弘中证500ETF联接C (001551)】深套诊断预警 (浮亏 -41.0%)",
-      "desc": "【Beta vs Alpha 病根诊断】该标的当前浮亏达 -41.0%。基金超额衰减且赛道未处历史极端低估 (估值分位 64.2%)，建议趁反弹阶梯置换为低费率标杆指数基金。",
+      "desc": "【Beta vs Alpha 病根诊断】该标的当前浮亏达 -41.0%。基金超额衰减且赛道未处历史极端低估 (估值分位 65.0%)，建议趁反弹阶梯置换为低费率标杆指数基金。",
       "action": "存在同质化重叠或超额衰减，建议趁反弹阶梯置换为低费率标杆指数基金。",
       "action_type": "deep_loss_rebalance",
       "fund_code": "001551",
       "fund_name": "天弘中证500ETF联接C",
       "pnl_pct": -41.0,
-      "val_percentile": 64.2
+      "val_percentile": 65.0
     },
     {
       "level": "yellow",
@@ -417,21 +417,21 @@
         "action_type": "BUY_ETF",
         "suggestion": "场内折价达 -1.60% (< -1.0%)！建议优先在二级市场低吸场内 ETF (518880 华安黄金ETF)，享折价向净值收敛的额外安全垫。",
         "action_advice": "场内折价达 -1.60% (< -1.0%)！建议优先在二级市场低吸场内 ETF (518880 华安黄金ETF)，享折价向净值收敛的额外安全垫。",
-        "timestamp": "21:58:30"
+        "timestamp": "23:32:22"
       }
     },
     {
       "level": "yellow",
       "dimension": "尾盘折溢价套利",
-      "title": "【尾盘套利机会】标普500/美股 场内折溢价率达 +11.06%",
-      "desc": "标的 博时标普500ETF(513500) 与场外联接 (050025) 出现显著价差 (+11.06%)，触发 1.0% 套利阈值！",
-      "action": "场内溢价达 +11.06% (> +1.0%)！建议暂停场内买入，改在场外以 15:00 净值申购联接基金 (050025 博时标普500ETF联接A)，锁定平价建仓或溢价套利。",
+      "title": "【尾盘套利机会】标普500/美股 场内折溢价率达 +9.89%",
+      "desc": "标的 博时标普500ETF(513500) 与场外联接 (050025) 出现显著价差 (+9.89%)，触发 1.0% 套利阈值！",
+      "action": "场内溢价达 +9.89% (> +1.0%)！建议暂停场内买入，改在场外以 15:00 净值申购联接基金 (050025 博时标普500ETF联接A)，锁定平价建仓或溢价套利。",
       "action_type": "etf_arbitrage_switch",
       "fund_code": "050025",
       "fund_name": "博时标普500ETF联接A",
       "etf_code": "513500",
       "feeder_code": "050025",
-      "discount_premium_pct": 11.06,
+      "discount_premium_pct": 9.89,
       "arbitrage_info": {
         "sector_id": "us_sp500_nasdaq",
         "name": "标普500/美股",
@@ -443,17 +443,17 @@
         "is_qdii": true,
         "price": 2.662,
         "etf_price": 2.662,
-        "iopv": 2.3968,
-        "etf_iopv": 2.3968,
+        "iopv": 2.4224,
+        "etf_iopv": 2.4224,
         "change_pct": 0.38,
-        "discount_premium_pct": 11.06,
+        "discount_premium_pct": 9.89,
         "arbitrage_signal": "PREMIUM_BUY_FEEDER",
         "signal": "PREMIUM_BUY_FEEDER",
         "signal_badge": "🚨 场内高溢价 (买场外联接)",
         "action_type": "BUY_FEEDER",
-        "suggestion": "场内溢价达 +11.06% (> +1.0%)！建议暂停场内买入，改在场外以 15:00 净值申购联接基金 (050025 博时标普500ETF联接A)，锁定平价建仓或溢价套利。",
-        "action_advice": "场内溢价达 +11.06% (> +1.0%)！建议暂停场内买入，改在场外以 15:00 净值申购联接基金 (050025 博时标普500ETF联接A)，锁定平价建仓或溢价套利。",
-        "timestamp": "21:58:30"
+        "suggestion": "场内溢价达 +9.89% (> +1.0%)！建议暂停场内买入，改在场外以 15:00 净值申购联接基金 (050025 博时标普500ETF联接A)，锁定平价建仓或溢价套利。",
+        "action_advice": "场内溢价达 +9.89% (> +1.0%)！建议暂停场内买入，改在场外以 15:00 净值申购联接基金 (050025 博时标普500ETF联接A)，锁定平价建仓或溢价套利。",
+        "timestamp": "23:32:22"
       }
     },
     {

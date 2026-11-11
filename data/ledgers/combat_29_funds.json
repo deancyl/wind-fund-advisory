@@ -25,8 +25,8 @@
       "cost_price": 0.9801,
       "current_nav": 1.0,
       "market_value": 5681.55,
-      "cost_basis": 5568.67,
-      "floating_pnl": 112.88,
+      "cost_basis": 5568.49,
+      "floating_pnl": 113.06,
       "floating_pnl_pct": 2.03,
       "first_buy_date": "2024-01-05",
       "dividend_method": "cash",
@@ -37,7 +37,7 @@
           "shares": 5681.55,
           "cost_nav": 0.9801,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -56,9 +56,9 @@
       "cost_price": 0.9739,
       "current_nav": 1.0,
       "market_value": 5279.05,
-      "cost_basis": 5141.53,
-      "floating_pnl": 137.52,
-      "floating_pnl_pct": 2.67,
+      "cost_basis": 5141.27,
+      "floating_pnl": 137.78,
+      "floating_pnl_pct": 2.68,
       "first_buy_date": "2024-01-05",
       "dividend_method": "cash",
       "batches": [
@@ -68,7 +68,7 @@
           "shares": 5279.05,
           "cost_nav": 0.9739,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -87,9 +87,9 @@
       "cost_price": 0.9879,
       "current_nav": 1.0,
       "market_value": 4536.85,
-      "cost_basis": 4481.94,
-      "floating_pnl": 54.91,
-      "floating_pnl_pct": 1.23,
+      "cost_basis": 4481.95,
+      "floating_pnl": 54.9,
+      "floating_pnl_pct": 1.22,
       "first_buy_date": "2024-01-05",
       "dividend_method": "cash",
       "batches": [
@@ -99,7 +99,7 @@
           "shares": 4536.85,
           "cost_nav": 0.9879,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -118,8 +118,8 @@
       "cost_price": 1.0119,
       "current_nav": 1.0,
       "market_value": 4101.71,
-      "cost_basis": 4150.6,
-      "floating_pnl": -48.89,
+      "cost_basis": 4150.52,
+      "floating_pnl": -48.81,
       "floating_pnl_pct": -1.18,
       "first_buy_date": "2024-01-05",
       "dividend_method": "cash",
@@ -130,7 +130,7 @@
           "shares": 4101.71,
           "cost_nav": 1.0119,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -149,9 +149,9 @@
       "cost_price": 1.1367,
       "current_nav": 1.0,
       "market_value": 2432.9,
-      "cost_basis": 2765.44,
-      "floating_pnl": -332.54,
-      "floating_pnl_pct": -12.02,
+      "cost_basis": 2765.48,
+      "floating_pnl": -332.58,
+      "floating_pnl_pct": -12.03,
       "first_buy_date": "2024-01-05",
       "dividend_method": "cash",
       "batches": [
@@ -161,7 +161,7 @@
           "shares": 2432.9,
           "cost_nav": 1.1367,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -180,8 +180,8 @@
       "cost_price": 1.2067,
       "current_nav": 1.0,
       "market_value": 2072.52,
-      "cost_basis": 2501.0,
-      "floating_pnl": -428.48,
+      "cost_basis": 2500.91,
+      "floating_pnl": -428.39,
       "floating_pnl_pct": -17.13,
       "first_buy_date": "2024-01-05",
       "dividend_method": "reinvest",
@@ -192,7 +192,7 @@
           "shares": 2072.52,
           "cost_nav": 1.2067,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -223,7 +223,7 @@
           "shares": 1023.71,
           "cost_nav": 0.966,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -242,8 +242,8 @@
       "cost_price": 1.3353,
       "current_nav": 1.0,
       "market_value": 524.24,
-      "cost_basis": 700.0,
-      "floating_pnl": -175.76,
+      "cost_basis": 700.02,
+      "floating_pnl": -175.78,
       "floating_pnl_pct": -25.11,
       "first_buy_date": "2024-01-05",
       "dividend_method": "cash",
@@ -254,7 +254,7 @@
           "shares": 524.24,
           "cost_nav": 1.3353,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -273,8 +273,8 @@
       "cost_price": 0.9572,
       "current_nav": 1.0,
       "market_value": 395.73,
-      "cost_basis": 378.8,
-      "floating_pnl": 16.93,
+      "cost_basis": 378.79,
+      "floating_pnl": 16.94,
       "floating_pnl_pct": 4.47,
       "first_buy_date": "2024-01-05",
       "dividend_method": "reinvest",
@@ -285,7 +285,7 @@
           "shares": 395.73,
           "cost_nav": 0.9572,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -316,7 +316,7 @@
           "shares": 124.14,
           "cost_nav": 1.1922,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -347,7 +347,7 @@
           "shares": 89.6,
           "cost_nav": 1.1161,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -378,7 +378,7 @@
           "shares": 76.0,
           "cost_nav": 1.3158,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -409,7 +409,7 @@
           "shares": 52.07,
           "cost_nav": 0.9602,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -440,7 +440,7 @@
           "shares": 50.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -471,7 +471,7 @@
           "shares": 44.56,
           "cost_nav": 1.1221,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -502,7 +502,7 @@
           "shares": 42.07,
           "cost_nav": 1.5764,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -533,7 +533,7 @@
           "shares": 34.5,
           "cost_nav": 1.4493,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -564,7 +564,7 @@
           "shares": 28.67,
           "cost_nav": 1.744,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -595,7 +595,7 @@
           "shares": 8.98,
           "cost_nav": 1.1136,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -626,7 +626,7 @@
           "shares": 3.95,
           "cost_nav": 1.2658,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -657,7 +657,7 @@
           "shares": 2.1,
           "cost_nav": 0.9524,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -688,7 +688,7 @@
           "shares": 1.85,
           "cost_nav": 1.0811,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -719,7 +719,7 @@
           "shares": 1.5,
           "cost_nav": 1.3333,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -750,7 +750,7 @@
           "shares": 1.35,
           "cost_nav": 1.4815,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -781,7 +781,7 @@
           "shares": 1.25,
           "cost_nav": 0.8,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -812,7 +812,7 @@
           "shares": 1.15,
           "cost_nav": 1.7391,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -843,7 +843,7 @@
           "shares": 1.45,
           "cost_nav": 1.3793,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -874,7 +874,7 @@
           "shares": 1.06,
           "cost_nav": 1.8868,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -905,7 +905,7 @@
           "shares": 0.59,
           "cost_nav": 1.6949,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1041,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -918,5 +918,15 @@
     }
   ],
   "pending_orders": [],
-  "staged_batch_plans": []
+  "staged_batch_plans": [],
+  "nav_history": [
+    {
+      "date": "2026-11-11",
+      "total_equity": 27615.1,
+      "account_nav": 1.0,
+      "benchmark_nav": 1.0
+    }
+  ],
+  "initial_baseline_snapshot": {},
+  "updated_at": "2026-11-11 23:29:46"
 }
