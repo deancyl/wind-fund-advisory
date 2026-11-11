@@ -1,240 +1,434 @@
-# Handoff Report: Explorer 1 Investigation of Strategy Bridge & Regime Modules
+# G16 世代第一阶段代码实地走查与深度探查报告 (Handoff Report)
 
-## 1. Observation
+## 1. Observation (客观实地走查与证据链)
 
-### 1.1 Project Structure & Read-Only Invariants
-通过对 `d:\Google\Workspace\Wind\AGY2_FundAdvisory` 进行目录与代码扫描，观察到以下架构事实：
-1. **系统只读裁判基建文件（4个绝对红线文件）**：
-   - `judge_engine.py` (42,175 字节)：实现 AST 语法树无年份硬编码扫描 (`compute_ast_hash`)、因果探针 (`probe_look_ahead_bias`)、6 大风格切片回归与参数高原存活检验。只读且严禁修改。
-   - `holdout_vault.py` (5,685 字节)：管理 2025-07-01 至今的盲测隔离切片，硬性熔断锁最多调用 3 次 (`HoldoutVaultExhaustedError`)。只读且严禁修改。
-   - `AGENT_SPEC.md` (8,237 字节)：规定 No Look-Ahead Bias、50/50 股债基准、6 风格切片定义、四大正交进化流派与硬红线。只读且严禁修改。
-   - `tests/test_infra.py` (10,524 字节)：裁判基建专用回归测试集。只读且严禁修改。
-   - 在 `tests/test_acceptance_r1_r7.py` (第 424-450 行) 中存在针对上述 4 个文件的严格完整性断言：`test_readonly_invariants_strictly_unmodified`。
+本智能体在只读模式下，对 `d:\Google\Workspace\Wind\AGY2_FundAdvisory\` 与测试套件进行了全量静态走查与动态 Python 探针实证，直接观测到以下事实：
 
-### 1.2 既有模型与正交流派现状
-1. **正交子岛分布 (`islands/`)**：
-   - `islands/island_erp.py` (4,985 字节)：宏观股债性价比。基于历史 350 日 $H00300 / H11009$ 比价分位数计算 ERP 代理值；极低估值区超配高弹性科创50，高估值区超配纯债与黄金。
-   - `islands/island_momentum.py` (5,151 字节)：A 股风格截面动量。基于 50 日风格动量比拼科创50与中证红利，在顺势期重配科创50与成长宽基。
-   - `islands/island_breadth.py` (4,880 字节)：市场宽度与均线偏离度。利用 $Bias = (c300 - MA60)/MA60$ 探测极端超买超卖，深度超卖（$Bias < -5.0\%$）逆向吸筹，极端超买（$Bias > 8.0\%$）止盈至纯债与红利。
-   - `islands/island_ensemble.py` (7,307 字节)：Trial 29 正交集成策略。由 4 大硬编码布尔条件切换 4 组离散静态权重（成长主升浪、结构牛市、极端大熊市、常态稳健高股息）。
-2. **流动性与衍生品数据现状 (`strategy_bridge.py`)**：
-   - `_refresh_liquidity_thermometer` (行 1648-1741)：收集 DR007 (1.389%)、7D 逆回购政策利率 (1.50%)、DR007 息差 bp、公开市场净投放等。
-   - `_refresh_derivatives_data` (行 1744-1887)：收集股指期货 IC/IM/IF/IH 年化贴水率与期权 IV（50ETF IV、科创50 IV、IVIX 指数）。
-   - **现有缺陷**：目前流动性与衍生品数据仅作为辅助展示字段注入快照字典，尚未抽象为独立输出组合权重的第 4 个量化专家流派，缺少在线权重动态自更新机制。
-
-### 1.3 状态机判定、MA20 计算与锯齿打脸现象
-1. **状态机与 MA20 现行实现**：
-   - 文件：`strategy_bridge.py`
-   - MA20 计算位置：第 1917 行 `m20 = float(c300_series.tail(20).mean())`
-   - 偏离度计算位置：第 1944 行 `bias_20 = float((c300 / m20 - 1.0) * 100.0)`
-   - 突破距离计算位置：第 1949-1956 行：
-     ```python
-     if c300 < m20:
-         dist_to_m20_breakout = float((m20 / c300 - 1.0) * 100.0)
-         m20_status_desc = f"承压于 MA20 之下 ({bias_20:.2f}%)，距突破触发进攻还差 +{dist_to_m20_breakout:.2f}%"
-     else:
-         dist_to_m20_breakout = float((c300 / m20 - 1.0) * 100.0)
-         m20_status_desc = f"站上 MA20 生命线 (+{dist_to_m20_breakout:.2f}%)，处于多头趋势保护"
-     ```
-   - 状态转移判定位置：第 2067-2103 行与第 2333-2348 行：
-     ```python
-     cond_trend = (c300_e > m20_e) and (c300_e > m60_e) and ...
-     cond_breakout = (c300_e > m20_e) and (c300_e > m60_e) and (mom20_300_e > 6.0)
-     is_growth_lead = cond_trend or cond_breakout or cond_super
-     ```
-2. **深层问题定位**：
-   - 突破与退出门槛为单一刀锋硬阈值（0.0%）。指数在 MA20 附近哪怕出现 $+0.05\%$ 与 $-0.05\%$ 的微幅波动，状态机都会在 `GROWTH_BULL` 与 `STABLE_DIVIDEND` 之间频繁翻转（Whipsaw）。
-   - 每次翻转触发大额资产配置阶跃式跳变（如科创50从 0% 暴增至 44%），不仅产生频繁换手与滑点，还极易在场外基金触发未满 7 天的 1.50% 惩罚性赎回费。
-
-### 1.4 资产与基金映射
-1. `INDEX_TO_FUND_MAP` (行 57-131)：理论指数至公募基金映射：
-   - 常驻底仓映射 A 类：`H00922` -> `100032` (富国红利增强A), `H30269` -> `005561` (创金合信红利低波A), `AU9999` -> `000216` (华安黄金A), `H11009` -> `002351` (易方达纯债A), `SPX_CNY` -> `050025` (博时标普500A)。
-   - 波段进攻仓强制映射 C 类（0申购费+满30天0赎回费）：`STAR50_STITCH` -> `011613` (华夏科创50C), `H00852` -> `016634` (富国中证1000C), `H00905` -> `001053` (华夏中证500C), `H00300` -> `007339` (易方达沪深300C)。
-2. `StrategyBridge.map_index_weights_to_funds` (行 2369-2391)：执行从指数权重到基金代码权重的映射。
-3. `SECTOR_FUND_SELECTION_BY_TIER` (行 290-795)：定义 C1~C5 每一档各赛道的冠军基金标的及备选标的。
-
----
-
-## 2. Logic Chain
-
-### 2.1 R2 在线多专家乘性权重自更新算法 (`OnlineExpertWeightUpdater`) 演绎链
-1. **输入与流派正交化**：
-   系统需管理 $K=4$ 个独立正交流派输出的目标权重 $\mathbf{w}_{i, t}$：
-   - Expert 1 (`trend_momentum`): 顺应截面趋势，主升浪偏向科创50与中盘小盘；
-   - Expert 2 (`erp_macro`): 锚定宏观股债利差，极度低估时逆向增配权益，高估时撤回纯债；
-   - Expert 3 (`ma_contrarian`): 跟踪 MA60/120 均线偏离，负偏离超卖时吸筹，正偏离超买时兑现；
-   - Expert 4 (`liquidity_basis`): 监控资金面 DR007 息差与期指基差/期权 IV，流动性宽松且基差收敛时进攻，流动性骤紧或极端贴水/波动率飙升时避险。
-2. **净效用评估 $u_{i, t}$**：
-   在历史截面 $t \le T$ 滚动窗口内，每个专家组合在 $t$ 日产生真实组合收益 $r_{i, t} = \mathbf{w}_{i, t-1}^\top \mathbf{R}_t$、滚动方差 $\sigma_{i, t}^2$ 与双边换手率 $\text{Turnover}_{i, t} = \sum_m |w_{i, t}^m - w_{i, t-1}^m|$。
-   根据公式：
-   $$u_{i, t} = r_{i, t} - 0.5 \lambda \sigma_{i, t}^2 - c \cdot \text{Turnover}_{i, t}$$
-   频繁打脸、换手率高或回撤大的流派，其净效用 $u_{i, t}$ 将被惩罚为负数。
-3. **指数衰减与乘性更新**：
-   按 Exponentially Weighted Average Forecaster 公式更新权重：
-   $$P_{i, t+1} = \frac{P_{i, t}^\gamma \cdot \exp(\eta \cdot u_{i, t})}{\sum_{j=1}^K P_{j, t}^\gamma \cdot \exp(\eta \cdot u_{j, t})}$$
-   其中 $\gamma = 0.985$ 使得旧表现指数级衰减，$\eta$ 为学习率（建议 $\eta \in [5, 15]$）。
-   实时截面 $T$ 输出的 $P_{i, T}$ 保证 $\sum_{i=1}^4 P_{i, T} = 1.0$。
-4. **合成目标权重与白盒透传**：
-   最终自适应配置由 4 大专家实时加权：$\mathbf{W}_T = \sum_{i=1}^4 P_{i, T} \mathbf{w}_{i, T}$。
-   同时将 $P_{i, T}$ 透明注入 `snapshot["expert_weights"]` 与 `snapshot["expert_details"]`，供前端步骤二卡片渲染。
-
-### 2.2 R3 施密特迟滞缓冲环与 Sigmoid 连续仓位门控演绎链
-1. **迟滞死区阻断微幅震荡打脸**：
-   在现价偏离 MA20 的区间设置非对称迟滞带：
-   - 进攻触发上轨：指数有效突破 MA20 达 $+1.2\%$（或综合得分 $Z_t \ge +0.60$）；
-   - 防守退出下轨：指数有效跌破 MA20 达 $-1.5\%$（或综合得分 $Z_t < +0.20$）；
-   - 死区锁定：当指数在 $[-1.5\%, +1.2\%]$ 震荡带内，**强制锁定保持前一交易日的既有状态**，禁止触发状态翻转。
-2. **Sigmoid 仓位连续门控消除阶跃冲击**：
-   通过综合因子（趋势斜率、科创-红利动量差、ERP 分位数、期权 IV）归一化合成连续得分 $Z_t \in [-2, 2]$。
-   利用 Sigmoid 门控算子：
-   $$g(Z_t) = \frac{1}{1 + \exp(-k \cdot Z_t)}$$
-   使进攻资产权重在 $w_{min}$ 与 $w_{max}$ 之间平滑过渡，彻底杜绝单日跳跃 40%+ 的极端阶跃式调仓。
-3. **双向变盘触发线精确定位**：
-   在 UI 顶部卡片输出明确数值：
-   - 向上突破进攻线：$\text{Line}_{up} = \text{MA20} \times (1 + 0.012)$，严格高于现价（未进攻时）；
-   - 向下跌破防守线：$\text{Line}_{down} = \text{MA20} \times (1 - 0.015)$，严格低于现价（进攻态时）。
-
----
-
-## 3. Caveats
-
-1. **历史截面无未来函数约束**：
-   在计算滚动效用与更新 $P_{i, T}$ 时，必须严格截断至 $t \le T$，严禁使用全样本未来均值或全局极值做标准化（符合 `judge_engine.py` 检验A 因果探针红线）。
-2. **日历年份硬编码禁令**：
-   代码中严禁出现 `'2018'`, `'2019'`, `'YYYY-MM-DD'` 等日历字符串，所有回看天数必须采用基于交易日序的动态内生窗口（符合检验A+ AST 反作弊锁）。
-3. **计算性能考量**：
-   若逐日重新推演全部历史切片的 $K=4$ 专家回测，可能引起首次页面加载耗时较长。建议在 `OnlineExpertWeightUpdater` 中采用窗口增量缓存或仅在近 60~120 个交易日的活跃切片内滚动更新。
-4. **4 个基建文件零修改红线**：
-   `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py` 必须保持字节级不变。
-
----
-
-## 4. Conclusion & Precise Code Insertion Blueprint
-
-### 4.1 代码结构与插入点设计
-
-```
-strategy_bridge.py
-├── [行 904-924] TierWeightsDict
-├── [🌟 新增插入点 A - 行 925 前]:
-│   ├── class OnlineExpertWeightUpdater
-│   │   ├── compute_expert_weights(history_df, window_days=60, eta=10.0, gamma=0.985, ...) -> Dict[str, Any]
-│   │   ├── get_orthogonal_expert_streams(history_df) -> Dict[str, Dict[str, float]]
-│   │   └── blend_expert_weights(expert_weights, expert_portfolios) -> Dict[str, float]
-│   │
-│   └── class SchmidtHysteresisBuffer
-│       ├── compute_composite_z(trend_slope, diff_star_div, erp_percentile, option_iv) -> float
-│       ├── evaluate_state_transition(current_bias_20, composite_z, prev_state_is_attack) -> Tuple[bool, str]
-│       ├── compute_sigmoid_gating(z_score, k=3.0) -> float
-│       └── get_hysteresis_trigger_lines(m20_price) -> Dict[str, float]
-│
-├── [行 925-1046] strategy_fn_for_tier:
-│   └── 融合 Sigmoid 门控 g(Z_t) 与施密特状态过滤
-│
-├── [行 1339] class StrategyBridge:
-│   ├── 静态类属性 _expert_updater = None, _schmidt_buffer = None
-│   ├── get_online_expert_weights() 类方法暴露
-│   │
-│   ├── [行 1948-1956] get_latest_market_snapshot:
-│   │   └── 接入 get_hysteresis_trigger_lines，生成符合 R7 规范的双向变盘触发线
-│   │
-│   ├── [行 2067-2103] get_latest_market_snapshot (状态机判定):
-│   │   └── 接入 SchmidtHysteresisBuffer.evaluate_state_transition
-│   │       在 [-1.5%, +1.2%] 死区内锁定原有状态
-│   │
-│   ├── [行 2205-2215] get_latest_market_snapshot (快照字典组装):
-│   │   └── 注入 expert_weights, expert_details, trigger_lines, sigmoid_gate
-│   │
-│   └── [行 2282-2350] _calculate_state_streak:
-│       └── 采用施密特迟滞过滤时序计算持续天数，保证状态连续性
-```
-
-### 4.2 详细接口与签名规范
-
-#### 1. `OnlineExpertWeightUpdater` 规范接口
-```python
-class OnlineExpertWeightUpdater:
-    def __init__(self, gamma: float = 0.985, eta: float = 10.0, risk_lambda: float = 1.0, cost_c: float = 0.0015):
-        self.gamma = gamma
-        self.eta = eta
-        self.risk_lambda = risk_lambda
-        self.cost_c = cost_c
-
-    def get_orthogonal_expert_streams(self, history_df: pd.DataFrame) -> Dict[str, Dict[str, float]]:
-        """
-        获取当前截面四大正交分析流派独立输出的目标资产权重字典：
-        - 'trend_momentum': 趋势动量专家 (islands.island_momentum)
-        - 'erp_macro': ERP宏观估值专家 (islands.island_erp)
-        - 'ma_contrarian': 均线乖离逆向专家 (islands.island_breadth)
-        - 'liquidity_basis': 流动性与期指基差专家 (结合 DR007 与股指贴水)
-        """
-        ...
-
-    def compute_expert_weights(
-        self,
-        history_df: pd.DataFrame,
-        window_days: int = 60
+### 1.1 `advisory_engine.py` 中 `generate_chief_advisor_memo` 的确切位置
+- **确切定义位置**：`AGY2_FundAdvisory\advisory_engine.py` 第 **4170 行至第 4375 行**。
+  - 函数签名：
+    ```python
+    def generate_chief_advisor_memo(
+        snapshot: Optional[Dict[str, Any]] = None,
+        holdings: Optional[Union[Dict[str, Any], List[Any]]] = None,
+        radar_top3: Optional[List[Dict[str, Any]]] = None,
+        sentry_rep: Optional[Dict[str, Any]] = None,
+        **kwargs
     ) -> Dict[str, Any]:
-        """
-        执行 Hedge 乘性权重更新，返回：
-        {
-            "weights": {"trend_momentum": P1, "erp_macro": P2, "ma_contrarian": P3, "liquidity_basis": P4},
-            "sum_weights": 1.0,
-            "blended_target_weights": {"STAR50_STITCH": ..., "H00922": ..., ...},
-            "details": {...}
-        }
-        """
-        ...
+    ```
+  - 别名导出（第 4382~4383 行）：
+    ```python
+    get_chief_advisor_memo = generate_chief_advisor_memo
+    OpportunityRadarEngine.generate_chief_advisor_memo = staticmethod(generate_chief_advisor_memo)
+    ```
+- **关于第 1545~1705 行的核实**：
+  - 经走查，第 1545~1705 行实际位于 `OpportunityRadarEngine.evaluate_opportunity`（赛道动量、卡夫曼信噪比 ER、MA20 偏离度评分）内部，属于早期需求描述中的行号混淆或草稿定位，并非备忘录函数的定义处。
+
+### 1.2 `pl_ratio` 盈亏率计算缺陷与数据结构不一致证据
+- **代码直接观测**：在 `advisory_engine.py` 第 4281~4289 行：
+  ```python
+  for h in h_items:
+      mv = float(getattr(h, "market_value", 0.0) or (h.get("market_value", 0.0) if isinstance(h, dict) else 0.0))
+      tot_val += mv
+      cost_v = float(getattr(h, "cost_value", 0.0) or (h.get("cost_value", 0.0) if isinstance(h, dict) else 0.0))
+      pl_ratio = (mv / cost_v - 1.0) if cost_v > 0 else 0.0
+      fname = getattr(h, "fund_name", "") or (h.get("fund_name", "") if isinstance(h, dict) else "")
+      fcode = getattr(h, "fund_code", "") or (h.get("fund_code", "") if isinstance(h, dict) else "")
+      if pl_ratio < -0.10:
+          deep_loss_list.append((fname or fcode, pl_ratio, mv - cost_v))
+  ```
+- **真实对象属性比对**：
+  - 在 `portfolio_manager.py` 第 261~305 行，`FundHolding`（以及别名 `HoldingItem = FundHolding`，第 323 行）定义的真实属性为：
+    - `shares`: float = 0.0
+    - `cost_price`: float = 1.0 (或 `cost_nav`)
+    - `market_value`: float = 0.0
+    - `cost_basis`: float = 0.0 (成本总金额，定义为 `round(self.shares * self.cost_price, 2)`)
+    - `floating_pnl`: float = 0.0 (浮动盈亏额)
+    - `floating_pnl_pct`: float = 0.0 (浮动盈亏率，百分比如 `-17.13`)
+    - **根本不存在 `cost_value` 属性！**
+  - 在 `multi_ledger_manager.py` 第 238~248 行，预置账本与 JSON 导出的键名同样是 `cost_basis`、`cost_price`、`floating_pnl`、`floating_pnl_pct`，**不存在 `cost_value` 键！**
+- **动态探针实测 (`probe_combat29.py`)**：
+  - 输入：29 只真实实战持仓（含深套标的 011613 华夏科创50C 浮亏 -17.1%、100032 富国红利增强A 浮亏 -12.0%、161725 招商白酒A 浮亏 -25.1%）。
+  - 运行结果：
+    ```
+    cost_value (hasattr): False
+    deep_loss_count: 0
+    content: 🧹 长尾碎片尾仓：检测到 20 只持仓金额小于 ¥200 的碎片/羊毛基...
+    ```
+  - 结论直接证实：因第 4284 行读取了不存在的 `cost_value`，导致 `cost_v` 永远为 `0.0`，`pl_ratio` 永远为 `0.0`，真实账户的严重亏损标的被 100% 漏检！
+- **旧单元测试之所以“绿灯”的原因**：
+  - 在 `tests/test_adversarial_m2_challenger2_timemachine_and_memo.py` 第 46~61 行与 `tests/test_g15_phase2_memo_and_timemachine.py` 第 30~38 行，测试用例编写了 `MockFundHolding` 与 `DummyHolding`，这两个桩类被特意人工注入了 `self.cost_value = cost_value`！导致测试套件产生了虚假绿灯。
+
+### 1.3 Tab 1 权重字典 `opt_weights` 误判为碎片基的根因
+- **代码调用观测**：在 `app_gui.py` 第 4058~4063 行（Tab 1 建仓方案生成后）：
+  ```python
+  memo_t1 = generate_chief_advisor_memo(
+      snapshot=snapshot,
+      holdings=opt_weights,
+      radar_top3=None,
+      sentry_rep=None
+  )
+  ```
+  此时传入的 `opt_weights` 是目标组合权重字典，例如：
+  `{"005561": 0.35, "002351": 0.20, "110020": 0.15, "011613": 0.15, "017436": 0.10, "000216": 0.05}`（权重之和为 1.00）。
+- **逻辑推演与实机对比**：
+  - 在 `advisory_engine.py` 第 4273 行，`h_items = list(holdings.values())` 将各标的权重浮点数 `[0.35, 0.20, 0.15, ...]` 传入循环。
+  - 若在遍历时若将浮点数直接作为市值（或若写成 `mv = float(h if isinstance(h, (int, float)) else ...)`）：
+    `0.35` 会被当成 `0.35 元` 市值；
+    因为 `0 < 0.35 < 200.0` 恒成立，6 只基金全被推入 `tail_fragments`；
+    合计金额正好是 `0.35 + 0.20 + 0.15 + 0.15 + 0.10 + 0.05 = 1.00 元`；
+    界面遂输出滑稽的：“检测到 6 只持仓金额小于 ¥200 的碎片/羊毛基（合计沉淀资金 ¥1.00），建议一键清扫”！
+  - 业务本质：Tab 1 是**新资建仓蓝图规划**，根本不是存量账本，不应做存量深套或碎片尾仓清扫，而应校验“拟建仓资产组合结构”。
+
+### 1.4 五维备忘录当前数据源接入现状
+- **维度 1：宏观政策面（行 4184~4216）**：
+  - 数据源：入参 `snapshot` 字典。
+  - 核心指标：`cgb_10y`（10Y国债收益率，默认 1.6258%）、`dr007`（1.389%）、`dr007_bp`（逆回购利差 -11.1bp）、`erp_pct`（81.9% 分位）、`erp_val`（6.54%）。
+  - 数据链路：由 `strategy_bridge.py` 中的 `StrategyBridge.get_latest_market_snapshot` 从 `data/macro/chinabond_yield_curve.parquet` 及 `WindToolkit.macro_liquidity` 注入，链路完整。
+- **维度 2：国际汇率面（行 4219~4253）**：
+  - 数据源：`DataLoader.fetch_macro_cross_market_indicators(use_cache=True)`。
+  - 核心指标：`usdcnh_rate`（离岸人民币 7.2450）、`usdcnh_chg`（-0.05%）、`gold_price`（黄金ETF ¥8.25 或现货 ¥628.5）、`gold_chg`、`nasdaq_chg`（隔夜纳指）。
+  - 欠缺：目前尚未显式计算“中美利差”（美债 10Y ~4.40% 与中债 10Y 1.63% 倒挂约 -277bp），且对场内 QDII 溢价预警目前为静态文案，未联动 `DataLoader.fetch_etf_feeder_arbitrage_sensors()`。
+- **维度 3：产业估值面（行 4255~4269）**：
+  - 数据源：入参 `radar_top3` 列表，由首屏从 `data/cache/radar_sectors_cache.json` 磁盘缓存直读的 Top 3 赛道。
+  - 现状：已能有效展示如【红利低波 (005561)】、【纯债固收 (002351)】、【科创50 (011613)】。
+- **维度 4：存量持仓病灶（行 4272~4312）**：
+  - 数据源：入参 `holdings` 与 `sentry_rep`。
+  - 现状：深套识别受 `cost_value` Bug 阻断；尾仓统计采用粗暴的 `0 < mv < 200`，会误将腰部仓位（如 `005827 易方达蓝筹` ¥124.14）也当成碎片，导致统计出 20 只而不是真实的 19 只免赎碎片。
+- **维度 5：今日 14:30 行动准则（行 4314~4334）**：
+  - 数据源：`snap.get("bias_20")` 与 `erp_pct`。
+  - 现状：三档状态判定（逢高适度止盈、逆向定投吸筹、维持底仓吃息），配合 7 天惩罚锁、C 类 30 天置换与红利再投三大铁律。
+
+### 1.5 `app_gui.py` 备忘录卡片与布局走查
+- **定义位置**：`AGY2_FundAdvisory\app_gui.py` 第 **249 行至第 329 行**。
+  - 当前 CSS：第 275 行写死 `<div style="display: grid; grid-template-columns: 1fr; gap: 10px;">`，纵向堆叠 5 个大块，高度达数百像素。
+- **首屏渲染调用位置**：`app_gui.py` 第 **3196~3202 行**：
+  ```python
+  wing_expander = st.expander(f"{act_status_icon} {expander_title}", expanded=False)
+  with wing_expander:
+      ...
+      render_chief_advisor_memo_card(memo_top, title="🧭 首席投顾五维全息决策备忘录")
+      col_radar, col_sentry = st.columns([6.2, 3.8])
+  ```
+  - **严重遮蔽问题**：因为被包裹在 `with wing_expander:`（第 3168 行）且 `expanded=False`，用户进入主页时备忘录**完全不可见**，必须手动点击折叠框才能看到！
+- **顶部 4 张全局指标卡位置**：`app_gui.py` 第 **2948 行至第 3028 行**：
+  - `top_c1, top_c2, top_c3, top_c4 = st.columns(4)`：分别渲染“交易时钟与窗口”、“市场定调与攻防”、“估值与资金量能”、“总资产与今日预估”。
+  - 第 3028 行之后，紧接着是工具缓存函数定义，随后在第 3418 行调用 `render_dual_wing_advisory_dashboard(pm, snapshot)`。
+
+---
+
+## 2. Logic Chain (推理链条与根因剖析)
+
+基于上述实地走查证据，逻辑推理链条如下：
+
+```
+[证据 1.2]: FundHolding 类与 JSON 数据结构只有 cost_basis/cost_price/floating_pnl_pct，无 cost_value
+    │
+    ▼
+[逻辑推论 A]: advisory_engine.py:4284 读取 getattr(h, "cost_value", 0.0) 必然恒等于 0.0
+    │
+    ▼
+[逻辑推论 B]: pl_ratio 恒为 0.0，使 if pl_ratio < -0.10 永远不满足，deep_loss_list 永远为空
+    │
+    ▼
+[实证闭环]: 导致 29 基账本中科创 50C (-17.1%)、白酒 A (-25.1%) 等核心亏损拖累被 100% 漏检！
 ```
 
-#### 2. `SchmidtHysteresisBuffer` 规范接口
-```python
-class SchmidtHysteresisBuffer:
-    def __init__(self, upper_threshold: float = 1.2, lower_threshold: float = -1.5, z_upper: float = 0.60, z_lower: float = 0.20):
-        self.upper_threshold = upper_threshold  # +1.2%
-        self.lower_threshold = lower_threshold  # -1.5%
-        self.z_upper = z_upper                  # +0.60
-        self.z_lower = z_lower                  # +0.20
+```
+[证据 1.3]: Tab 1 调用 generate_chief_advisor_memo 时传入的是 opt_weights 权重字典 {"005561": 0.35, ...}
+    │
+    ▼
+[逻辑推论 C]: 权重浮点数 0.35 属于 0 < v < 1.0；若被误当做市值处理，0.35 落在 0 < mv < 200.0 区间
+    │
+    ▼
+[逻辑推论 D]: 6 只建仓标的权重被误判为 6 只碎片，权重和 1.00 被误报为总金额 ¥1.00
+    │
+    ▼
+[业务定性]: Tab 1 属于“新资拟建仓蓝图”，其备忘录第 4 栏应当是“拟建仓资产组合结构与攻防配比校验”，而非“存量病灶体检”！
+```
 
-    def evaluate_state_transition(
-        self,
-        bias_20: float,
-        composite_z: float,
-        is_currently_attack: bool
-    ) -> Tuple[bool, str]:
-        """
-        根据双阈值迟滞环判定状态转移：
-        - 非进攻态 -> 必须 bias_20 >= +1.2% 或 composite_z >= 0.60 才进入进攻态
-        - 进攻态 -> 必须 bias_20 <= -1.5% 或 composite_z < 0.20 才退出进攻态
-        - 中间 [-1.5%, +1.2%] 死区：保持 is_currently_attack 原状不变
-        返回: (new_is_attack, transition_reason)
-        """
-        ...
+```
+[证据 1.4]: ActiveRiskSentry 判定碎片尾仓的规则为：m_val < 100 或 (m_val < 200 且 (C类 或 联接/ETF/体验金))
+    │
+    ▼
+[逻辑推论 E]: combat_29_funds 中 005827 易方达蓝筹精选混合（¥124.14）为 A 类偏股蓝筹腰部仓，不应算作碎片
+    │
+    ▼
+[对齐结论]: generate_chief_advisor_memo 若使用纯 mv < 200 会算成 20 只；对齐规则后精准锁定 19 只免赎碎片、¥442.70！
+```
 
-    @staticmethod
-    def compute_sigmoid_gating(z_score: float, k: float = 3.0) -> float:
-        """g(Z_t) = 1 / (1 + exp(-k * Z_t))"""
-        ...
+```
+[证据 1.5]: render_chief_advisor_memo_card 位于 with wing_expander (expanded=False) 内部
+    │
+    ▼
+[逻辑推论 F]: 首屏核心投顾洞察被隐藏在默认收起的折叠框中，违背“破除唯算法论，让用户一眼看清投顾参谋”的初心
+    │
+    ▼
+[提权方案]: 必须将备忘录卡片移至 wing_expander 之前渲染，紧跟在顶部 4 张全局指标卡之后，并从 1 列竖排重构为 1 行 5 列横向高密度矩阵网格！
 ```
 
 ---
 
-## 5. Verification Method
+## 3. Caveats (潜在风险与边界条件)
 
-后续实施阶段可通过以下自动化测试独立验证：
+1. **测试用例向后兼容风险**：
+   - `tests/test_adversarial_m2_challenger2_timemachine_and_memo.py` 与 `test_g15_phase2_memo_and_timemachine.py` 中的 `MockFundHolding`/`DummyHolding` 仅包含 `cost_value`。
+   - **防范措施**：在重构成本读取时，必须采用降级链：`cost_basis -> shares * cost_price -> cost_value -> floating_pnl_pct`，绝不能直接删除对 `cost_value` 的支持，确保老测试用例 100% 绿灯。
+2. **Tab 1 `opt_weights` 与拟建仓金额联动**：
+   - 在 Tab 1 调用时，应通过 `kwargs` 传入 `total_capital`（如当前规划的建仓本金，默认 100,000 元），用于测算目标建仓市值分布与集中度；若只传权重，则以 100,000 元为基准测算，坚决跳过碎片尾仓与亏损检查。
+3. **HTML 与 CommonMark 语法安全（规则 27 门禁）**：
+   - 备忘录卡片改用 1 行 5 列网格时，内部生成的 HTML 字符串必须严格经过 `_clean_html()` 清洗（剥离行首 4 个前导空格），并通过 `safe_markdown_html()` 渲染，杜绝任何 CommonMark 代码块转义泄露。
+4. **移动端响应式与视口自适应（规则 14、15 门禁）**：
+   - 1 行 5 列在屏幕宽度 $\ge 1024\text{px}$ 时等高排列；但在移动端或窄屏（$\le 768\text{px}$）下必须流式自适应折行（如利用 `repeat(auto-fit, minmax(200px, 1fr))` 或媒体查询），卡片高度锁在 115px 左右，内部文字设置 `line-height: 1.45` 与 `overflow-y: auto; scrollbar-width: thin;`。
 
-1. **R2 在线多专家权重更新单测**：
-   - 编写 `tests/test_expert_weight_updater.py`：
-     - 测试 1：验证在全历史切片下 `updater.compute_expert_weights(df)["weights"]` 四大专家权重和严格等于 `1.0`（允许误差 `1e-5`）。
-     - 测试 2：在科技成长主升行情切片（Slice 2 / Slice 6），断言 `trend_momentum` 权重显著高于平均值；在震荡下跌或高估值切片，断言 `erp_macro` 或 `ma_contrarian` 权重获得自适应提升。
-     - 测试 3：单期权重更新符合乘性更新数学公式，验证衰减半衰期 $\gamma=0.985$ 与换手惩罚项生效。
-2. **R3 施密特迟滞环与防打脸单测**：
-   - 编写 `tests/test_schmidt_hysteresis.py`：
-     - 测试 1：构造沪深300 在 MA20 附近 $\pm 0.5\%$ 微幅震荡序列（如连续 10 天交替 $+0.3\%, -0.4\%, +0.5\%, -0.3\%$），断言状态机保持锁定，换手率降为 0，不触发频繁满仓/清仓横跳。
-     - 测试 2：验证从非进攻态必须超过 $+1.2\%$（或 $Z_t \ge 0.60$）才能转为进攻态；从进攻态必须跌破 $-1.5\%$（或 $Z_t < 0.20$）才退出进攻态。
-     - 测试 3：测试 Sigmoid 门控 $g(Z_t)$ 输出在 $(0, 1)$ 之间单调平滑连续，无突变跳跃。
-     - 测试 4：断言变盘触发线计算正确：向上进攻线严格高于现价，向下防守线严格低于现价。
-3. **裁判基建完整性与全量回归**：
-   - 执行命令：`pytest tests/`
-   - 实测基线数据：全量 246 项测试（涵盖 `test_acceptance_r1_r7.py`, `test_infra.py`, `test_strategy_bridge.py`, `test_adversarial_*.py` 等 17 个测试集）**100% 全部通过 (246 passed, 0 failed, 耗时 408.85s)**。
-   - 断言 4 个裁判文件未受任何改动，因果探针零报警，Streamlit 端到端渲染及所有量化计算均处于健康受控状态。
+---
+
+## 4. Conclusion (确切修改方案与实施蓝图)
+
+### 4.1 `advisory_engine.py` 精确修改方案 (第 4170~4375 行)
+
+#### 修改点 1：重构维度 4（存量持仓病灶 vs 拟建仓结构校验）与多字段兼容读取
+```python
+# ── 4. 存量持仓病灶 / 新建仓组合结构校验 ──────────────────────────
+is_weight_dict = (
+    isinstance(holdings, dict)
+    and len(holdings) > 0
+    and all(isinstance(v, (int, float)) and 0.0 <= float(v) <= 1.0 for v in holdings.values())
+    and abs(sum(float(v) for v in holdings.values()) - 1.0) < 0.05
+)
+
+if is_weight_dict:
+    # Tab 1 拟建仓方案：展示建仓组合结构校验，而非存量病灶
+    sim_capital = float(kwargs.get("total_capital", 100000.0))
+    n_funds = len(holdings)
+    max_w = max(float(v) for v in holdings.values()) if holdings else 0.0
+    top1_code = max(holdings, key=holdings.get) if holdings else ""
+    
+    # 区分固收纯债与权益
+    def_w = sum(float(v) for c, v in holdings.items() if c in ("002351", "005561", "000216"))
+    off_w = max(0.0, 1.0 - def_w)
+    
+    pathology_badge = "📐 建仓结构校验"
+    pathology_text = (
+        f"<b>建仓标的</b>：共精选 <b>{n_funds}</b> 只核心基金，规划本金 <b>¥{sim_capital:,.2f}</b>；<br>"
+        f"<b>攻防配比</b>：稳健底仓 <b>{def_w*100:.1f}%</b> ｜ 弹性进攻 <b>{off_w*100:.1f}%</b>；<br>"
+        f"<b>分散度</b>：最大单标权重 <b>{max_w*100:.1f}%</b> ({top1_code})，符合 ≤35% 分散铁律，无碎片尾仓风险。"
+    )
+    deep_loss_count = 0
+    frag_count = 0
+    frag_amt = 0.0
+else:
+    # Tab 2 / 存量真实账本体检
+    h_items = list(holdings.values()) if isinstance(holdings, dict) else (holdings or [])
+    deep_loss_list = []
+    tail_fragments = []
+    tot_val = 0.0
+    
+    for h in h_items:
+        mv = float(getattr(h, "market_value", 0.0) or (h.get("market_value", 0.0) if isinstance(h, dict) else 0.0))
+        tot_val += mv
+        
+        # 兼容读取成本：cost_basis -> shares * cost_price -> cost_value
+        cost_v = 0.0
+        shares = float(getattr(h, "shares", 0.0) or (h.get("shares", 0.0) if isinstance(h, dict) else 0.0))
+        cost_p = float(getattr(h, "cost_price", None) or getattr(h, "cost_nav", 0.0) or (h.get("cost_price", h.get("cost_nav", 0.0)) if isinstance(h, dict) else 0.0) or 0.0)
+        cost_b = float(getattr(h, "cost_basis", None) or getattr(h, "cost_value", 0.0) or (h.get("cost_basis", h.get("cost_value", 0.0)) if isinstance(h, dict) else 0.0) or 0.0)
+        
+        if cost_b > 0:
+            cost_v = cost_b
+        elif shares > 0 and cost_p > 0:
+            cost_v = shares * cost_p
+
+        pl_ratio = 0.0
+        if cost_v > 0:
+            pl_ratio = (mv / cost_v - 1.0)
+        else:
+            raw_pnl_pct = getattr(h, "floating_pnl_pct", None) or getattr(h, "pnl_pct", None) or (h.get("floating_pnl_pct") or h.get("pnl_pct") if isinstance(h, dict) else None)
+            if raw_pnl_pct is not None:
+                pl_ratio = float(raw_pnl_pct) / 100.0
+                cost_v = mv / (1.0 + pl_ratio) if (1.0 + pl_ratio) > 0 else mv
+
+        pnl_amt = getattr(h, "floating_pnl", None) or (h.get("floating_pnl") if isinstance(h, dict) else None)
+        if pnl_amt is None:
+            pnl_amt = mv - cost_v
+
+        fname = getattr(h, "fund_name", "") or (h.get("fund_name", "") if isinstance(h, dict) else "")
+        fcode = getattr(h, "fund_code", "") or (h.get("fund_code", "") if isinstance(h, dict) else "")
+        s_cls = str(getattr(h, "share_class", "A") or (h.get("share_class", "A") if isinstance(h, dict) else "A")).upper()
+
+        if pl_ratio < -0.10:
+            deep_loss_list.append((fname or fcode, pl_ratio, float(pnl_amt)))
+            
+        # 与 ActiveRiskSentry 判定规则 100% 对齐：不足100元，或100~200元且为C类/联接/尾仓
+        is_tail = (
+            (0 < mv < 100.0)
+            or (100.0 <= mv < 200.0 and (s_cls == "C" or any(k in fname for k in ["联接", "ETF", "指数", "红包", "体验", "尾仓"])))
+        )
+        if is_tail:
+            tail_fragments.append((fname or fcode, mv))
+
+    frag_count = len(tail_fragments)
+    frag_amt = sum(x[1] for x in tail_fragments)
+    deep_loss_count = len(deep_loss_list)
+    
+    top1_mv = max([float(getattr(h, "market_value", 0.0) or (h.get("market_value", 0.0) if isinstance(h, dict) else 0.0)) for h in h_items], default=0.0)
+    top1_pct = (top1_mv / tot_val * 100.0) if tot_val > 0 else 0.0
+
+    pathology_bullets = []
+    if deep_loss_list:
+        deep_loss_list.sort(key=lambda x: x[2]) # 按亏损额从大到小排序
+        w_f = deep_loss_list[0]
+        pathology_bullets.append(f"🔴 <b>核心亏损拖累源</b>：发现 {len(deep_loss_list)} 只标的浮亏超 10%，最大拖累为【{w_f[0]}】(浮亏 {w_f[1]*100:.1f}%)；")
+    if frag_count > 0:
+        pathology_bullets.append(f"🧹 <b>长尾碎片尾仓</b>：检测到 {frag_count} 只免赎碎片尾仓 (合计沉淀资金 ¥{frag_amt:.2f})，建议一键清扫归集；")
+    if top1_pct > 35.0:
+        pathology_bullets.append(f"⚠️ <b>单标集中度过高</b>：第一大重仓占比达 {top1_pct:.1f}% (建议单一标的 ≤ 30%)；")
+    if not pathology_bullets:
+        pathology_bullets.append("🟢 <b>持仓结构优良</b>：各标的配比均衡，无深套拖累与碎片尾仓，资产健康度满分。")
+        
+    pathology_badge = "🩺 诊断排雷" if (deep_loss_count > 0 or frag_count > 0) else "🟢 健康良好"
+    pathology_text = "<br>".join(pathology_bullets)
+```
+
+#### 修改点 2：补充国际汇率面中的“中美利差”与精炼文案
+在维度 2 补充计算中美 10Y 国债利差（如中债 1.63% - 美债 4.40% = -277 bp 深度倒挂），强化跨市场宏观叙事。
+
+---
+
+### 4.2 `app_gui.py` 精确修改方案 (第 249~329 行 及 第 3166~3205 行)
+
+#### 修改点 1：重构 `render_chief_advisor_memo_card` 为 1 行 5 列横向等高矩阵网格 (行 263~328)
+```python
+def render_chief_advisor_memo_card(memo_data: Dict[str, Any], title: str = "🧭 首席投顾五维决策备忘录"):
+    if not memo_data:
+        return
+        
+    m_macro = memo_data.get("macro_policy", {})
+    m_intl = memo_data.get("international_fx", {})
+    m_ind = memo_data.get("industry_valuation", {})
+    m_path = memo_data.get("portfolio_pathology", {})
+    m_act = memo_data.get("action_directive", {})
+    ts = memo_data.get("timestamp", "")
+    act_color = m_act.get("color", "var(--accent-primary)")
+
+    html_code = f"""
+    <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 6px;">
+            <div style="font-size: 14px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+                <span>{title}</span>
+                <span style="font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(37,99,235,0.08); color: var(--accent-primary); border: 1px solid rgba(37,99,235,0.2);">买方高密情报矩阵</span>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted);">
+                研判截面：{ts} ｜ 无未来数据泄露
+            </div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; width: 100%;">
+            <!-- 1. 宏观政策 -->
+            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: var(--bg-elevated); border-top: 3px solid var(--accent-primary); border-radius: 6px; border: 1px solid var(--border-subtle); border-top-width: 3px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-size: 12px; font-weight: 700; color: var(--accent-primary);">🏛️ 宏观与政策面</span>
+                    <span style="font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: rgba(37,99,235,0.08); color: var(--accent-primary);">{m_macro.get('badge', '')}</span>
+                </div>
+                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.45; overflow-y: auto; max-height: 85px;">
+                    {m_macro.get('content', '')}
+                </div>
+            </div>
+            
+            <!-- 2. 国际汇率 -->
+            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: var(--bg-elevated); border-top: 3px solid #8b5cf6; border-radius: 6px; border: 1px solid var(--border-subtle); border-top-width: 3px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-size: 12px; font-weight: 700; color: #8b5cf6;">🌐 国际与汇率面</span>
+                    <span style="font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: rgba(139,92,246,0.08); color: #8b5cf6;">{m_intl.get('badge', '')}</span>
+                </div>
+                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.45; overflow-y: auto; max-height: 85px;">
+                    {m_intl.get('content', '')}
+                </div>
+            </div>
+            
+            <!-- 3. 产业估值 -->
+            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: var(--bg-elevated); border-top: 3px solid #0284c7; border-radius: 6px; border: 1px solid var(--border-subtle); border-top-width: 3px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-size: 12px; font-weight: 700; color: #0284c7;">📈 产业与估值面</span>
+                    <span style="font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: rgba(2,132,199,0.08); color: #0284c7;">{m_ind.get('badge', '')}</span>
+                </div>
+                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.45; overflow-y: auto; max-height: 85px;">
+                    {m_ind.get('content', '')}
+                </div>
+            </div>
+            
+            <!-- 4. 存量病灶 / 拟建仓校验 -->
+            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: var(--bg-elevated); border-top: 3px solid var(--color-up); border-radius: 6px; border: 1px solid var(--border-subtle); border-top-width: 3px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-size: 12px; font-weight: 700; color: var(--color-up);">{m_path.get('title', '🩺 存量持仓病灶')}</span>
+                    <span style="font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: rgba(239,68,68,0.08); color: var(--color-up);">{m_path.get('badge', '')}</span>
+                </div>
+                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.45; overflow-y: auto; max-height: 85px;">
+                    {m_path.get('content', '')}
+                </div>
+            </div>
+            
+            <!-- 5. 今日行动准则 -->
+            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: rgba(37,99,235,0.03); border-top: 3px solid {act_color}; border-radius: 6px; border: 1px solid rgba(37,99,235,0.18); border-top-width: 3px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-size: 12px; font-weight: 800; color: var(--text-primary);">🎯 今日行动准则</span>
+                    <span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: rgba(37,99,235,0.1); color: {act_color};">{m_act.get('badge', '')}</span>
+                </div>
+                <div style="font-size: 11px; color: var(--text-primary); line-height: 1.45; overflow-y: auto; max-height: 85px;">
+                    {m_act.get('content', '')}
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+    safe_markdown_html(html_code)
+```
+
+#### 修改点 2：将备忘录从 `wing_expander` 提权至指标卡正下方、折叠框上方 (行 3166 之前)
+在 `render_dual_wing_advisory_dashboard`（第 3165 行之前）：
+1. 先读取 14 赛道扫描缓存获取 `top3_sectors`；
+2. 执行 `memo_top = generate_chief_advisor_memo(...)`；
+3. 执行 `render_chief_advisor_memo_card(memo_top, title="🧭 首席投顾五维全息决策备忘录")`（在 `st.expander` 外层！）；
+4. 随后再定义 `wing_expander = st.expander(...)`，并在其内部仅保留左右双翼（机会雷达与主动风控哨）！
+- **效果**：首屏打开后，第一眼先看到 4 张指标卡，紧接着就是横向 1 行 5 列的首席备忘录矩阵，下方才是折叠的双翼深度工具，达成完全无点击直达投顾核心。
+
+---
+
+## 5. Verification Method (独立验证方法与测试命令)
+
+后续实现智能体 (coder) 与审查智能体 (reviewer) 可通过以下步骤进行 100% 独立验证：
+
+### 5.1 自动化单测命令
+在 Windows PowerShell 环境下运行：
+```powershell
+# 1. 验证备忘录算子与 HTML 安全渲染
+py -3 -m pytest tests/test_adversarial_m2_challenger2_timemachine_and_memo.py -v
+
+# 2. 验证基础架构单测不受破坏
+py -3 -m pytest tests/test_infra.py -v
+```
+
+### 5.2 专项验证用例设计（供实施阶段编写）
+编写 `tests/test_g16_phase1_memo_and_combat29.py`：
+1. **测试用例 1：`FundHolding` 对象深套识别精准度**：
+   - 灌入包含 `011613`（-17.1%）、`100032`（-12.0%）、`161725`（-25.1%）的 `FundHolding` 列表；
+   - 断言 `memo["portfolio_pathology"]["deep_loss_count"] >= 3`；
+   - 断言 `memo["portfolio_pathology"]["content"]` 中包含 `011613` 或 `华夏上证科创板50`，且包含 `核心亏损拖累源`。
+2. **测试用例 2：Tab 1 权重字典不报碎片基**：
+   - 传入 `opt_weights = {"005561": 0.35, "002351": 0.20, "110020": 0.15, "011613": 0.15, "017436": 0.10, "000216": 0.05}`；
+   - 断言 `memo["portfolio_pathology"]["frag_count"] == 0`；
+   - 断言“合计 ¥1.00”绝对不出现，包含“建仓标的”与“攻防配比”。
+3. **测试用例 3：29 基实战账本碎片尾仓精确识别**：
+   - 加载 `MultiLedgerManager.get_instance().get_pm("combat_29_funds").holdings`；
+   - 断言 `memo["portfolio_pathology"]["frag_count"] == 19`；
+   - 断言 `abs(memo["portfolio_pathology"]["frag_amt"] - 442.70) < 0.01`。
+4. **测试用例 4：HTML 纯度与 CommonMark 4 空格防御**：
+   - 调用 `render_chief_advisor_memo_card(memo)`；
+   - 捕获 `st.markdown` 输出，断言没有任何一行以 4 个空格开头。
+
+### 5.3 失效判定准则 (Invalidation Conditions)
+若出现以下任一情况，判定本次探查结论被推翻或实现失败：
+1. `combat_29_funds` 在备忘录中仍然显示 `deep_loss_count == 0`；
+2. Tab 1 在新资建仓时仍弹出“检测到 6 只持仓金额小于 ¥200 的碎片/羊毛基（合计沉淀资金 ¥1.00）”；
+3. 首屏未点击任何按钮时看不到五维备忘录卡片（仍被锁在闭合折叠框内）；
+4. `test_adversarial_m2_challenger2_timemachine_and_memo.py` 出现任何红灯。

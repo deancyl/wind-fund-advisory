@@ -1,139 +1,139 @@
-# G15 第二阶段独立审查与对抗性挑战报告 (Handoff Report - Phase 2)
+# Milestone 2 (M2) 审查与对抗挑战报告 (Review & Challenge Report)
 
-- **审查员**: `reviewer_m2_1` (Reviewer & Adversarial Critic)
-- **被审查对象**: `worker_m2`
-- **任务目标**: G15 Generation Milestone 2 (Phase 2): "破除唯算法论：实装五维投顾首席备忘录与历史任意时点盲测时光机"
-- **父会话 ID**: `9a123e21-7525-4c57-9715-710c2a94c199`
-- **交接类型**: Hard Handoff (审查完全交付)
-- **审查结论**: **APPROVE (完全批准)**
+## Review Summary
+
+**Verdict**: **REQUEST_CHANGES** (需针对手机视图 Card 3/4 尾仓计算与同屏一致性进行轻量级修正)
 
 ---
 
-## 1. 观察记录 (Observation)
+## 1. Observation (客观实地走查与证据链)
 
-### 1.1 物理安全红线核验 (Physical Safety Redlines)
-1. **4 大只读裁判文件 SHA/Git Diff 核验**:
-   - 目标文件: `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`
-   - 执行命令: `git diff HEAD -- judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py`
-   - 观察结果: 返回为空（退出码 0），上述 4 个文件 100% 未触碰、哈希完全一致。
-2. **基线执行仿真算子锁定核验**:
-   - 目标函数: `AGY2_FundAdvisory/data_loader.py` 行 1437 处 `DataLoader.simulate_execution`
-   - 执行命令: `git diff HEAD -- AGY2_FundAdvisory/data_loader.py`
-   - 观察结果: 返回为空（退出码 0），函数默认签名 `(weights_df, prices_df, is_otc=True, penalty_days=7, penalty_rate=0.015, etf_impact=0.001)` 及扣费逻辑绝对锁定，零篡改。
+根据调度任务要求与审查底线，审查智能体对 `worker_m2` 交付代码、核心账本数据及自动化测试套件进行了独立、客观的穿透核验：
 
-### 1.2 生产代码实现观察 (Production Code Inspection)
-1. **五维全息投顾首席备忘录算子** (`AGY2_FundAdvisory/advisory_engine.py` 行 4137-4351):
-   - 实装 `generate_chief_advisor_memo(snapshot=None, holdings=None, radar_top3=None, sentry_rep=None, **kwargs)`；
-   - 完整输出五大核心决策维度：
-     - `macro_policy`: 包含 `cgb_10y` (1.6258%), `dr007` (1.389%), `dr007_bp` (-11.1 bp), `erp_pct` (81.9%), `badge` 与解读文本；
-     - `international_fx`: 包含 `usdcnh_rate` (7.2450), `usdcnh_chg`, `gold_price` (¥628.5/g), `nasdaq_chg`, 提示跨境 QDII 溢价与汇率双向波动风险；
-     - `industry_valuation`: 输出低估值黄金击球区（Top 3 机会赛道与高股息纯债）与超买拥挤区（乖离率 > 6%、拥挤度 < 60）；
-     - `portfolio_pathology`: 遍历持仓，精准识别浮亏超 10% 的核心亏损拖累源、金额小于 ¥200 的长尾碎片尾仓及单标集中度超 35% 风险；
-     - `action_directive`: 结合均线负乖离与估值温度定调今日 14:30 尾盘行动准则（如“逆向定投吸筹”、“维持底仓吃息”或“逢高适度止盈”），重申未满 7 天 1.5% 惩罚费红线；
-   - 容错与优雅降级: 遇输入为 `None` 或 `{}` 时平滑回退，网络离线时平滑读取 snapshot 或静态基线；
-   - 导出别名: `get_chief_advisor_memo` 与 `OpportunityRadarEngine.generate_chief_advisor_memo` 均已就绪。
-2. **买方参谋备忘录前端同源卡片与双向挂载** (`AGY2_FundAdvisory/app_gui.py`):
-   - 行 249-329 实装 `render_chief_advisor_memo_card(memo_data, title=...)`，统一收口至 `safe_markdown_html`，通过 `_clean_html` 彻底剥离行首行尾空格，物理防御 CommonMark 4+ 空格缩进代码块泄露；
-   - 行 3193-3204 成功挂载于首屏 `wing_expander` 投顾参谋展开区顶栏；
-   - 行 4055-4066 成功挂载于 Tab 1「🌱 新资建仓」方案与核心指标条上方，实现同源双向渲染。
-3. **历史任意时点盲测时光机引擎** (`AGY2_FundAdvisory/strategy_bridge.py` 行 7194-7352):
-   - 实装 `StrategyBridge.run_historical_time_machine_backtest(target_date, tier="C3", capital=100000.0, df=None)`；
-   - **严格 Point-in-Time 零未来数据泄露**:
-     `hist_slice = df[df_dates <= dt_target].copy()`
-     仅利用历史切片调用 `strategy_fn_for_tier(hist_slice, tier=tier)` 重演当时权重；
-   - **全额公募交易摩擦精算**:
-     - 初始净值扣除 0.12% 申购费 (`init_nav = 1.0 * (1 - 0.0012) = 0.9988`)；
-     - 日度计提 0.40% C 类销售服务费与 5% 现金管理缓冲（1.8% 年化收益）；
-     - 退出时按持有自然日严格执行公募 FIFO 阶梯赎回费（`<7d`: 1.50%, `<30d`: 0.50%, `<180d`: 0.35%, `<365d`: 0.15%, `>=365d`: 0.00%）；
-   - 输出 3M(63d), 6M(126d), 1Y(252d), 持有至今(全量) 的真实到手净收益率、最大回撤、同期沪深 300 / 股债 50/50 基准收益及超额 Alpha。
-4. **Tab 3 顶部时光机盲测界面** (`AGY2_FundAdvisory/app_gui.py` 行 6670-6759):
-   - 置顶展示 `st.expander("🕰️ 历史任意时点时光机盲测验证（检验投顾真赚钱能力）", expanded=True)`；
-   - 提供 4 大快捷预设按钮（`🔥 2024.09 底部反转前`, `😱 2022.04 恐慌砸盘底`, `🏔️ 2021.02 核心资产见顶日`, `📅 1年前今日`）与 `st.date_input` 自定义日期选择器；
-   - 响应式渲染 4 周期到手净收益与最大回撤指标卡，并调用 Plotly 渲染全扣费净值与沪深300/股债平衡基准对比走势图。
+### 1.1 审查要求逐项核对证据链
 
-### 1.3 自动化测试与对抗性实测结果
-1. **只读裁判测试**: `py -3 -m pytest tests/test_infra.py -v` -> **14 passed** in 6.45s.
-2. **回归基线测试**: `py -3 -m pytest tests/test_adv_final_closure.py -v` -> **14 passed** in 34.66s.
-3. **M1 保护伞测试**: `py -3 -m pytest tests/test_delta_m1_guardrails.py -v` -> **5 passed** in 20.76s.
-4. **M2 针对性测试**: `py -3 -m pytest tests/test_g15_phase2_memo_and_timemachine.py -v` -> **8 passed** in 21.33s.
-5. **四套测试套件联合全回归**: `py -3 -m pytest tests/test_infra.py tests/test_adv_final_closure.py tests/test_delta_m1_guardrails.py tests/test_g15_phase2_memo_and_timemachine.py -q` -> **41 passed** in 47.53s.
-6. **对抗性压力脚本实测**:
-   - 非交易日/周末输入 (`target_date='2024-09-21'` 周六): 平滑从下周一 (2024-09-23) 起算，前推 514 个交易日，曲线完整无报错；
-   - 跨风险档位 C1~C5 验证: C1 稳健档 1Y 到手净收益 +7.78% (低波防守)，C5 进取档 1Y 到手净收益 -8.52% (完整呈现 2023 权益熊市压力)，证明算子完全基于真实资产净值推演，无特异性后门与常数伪造。
+1. **全局紧凑顶栏挂载位置**：
+   - 走查位置：`AGY2_FundAdvisory/app_gui.py` 第 2850~2924 行。
+   - 挂载顺序：顶栏渲染完全置于 `if st.session_state.get("app_view_layout_mode") == "📱 手机极简盯盘":`（第 2928 行）之前，且手机视图分支在第 3274 行执行 `st.stop()`。
+   - 结论：**验证通过 (PASS)**。桌面专业模式与手机极简模式 100% 共享全局顶栏，左侧品牌角标、中间激活账本选择器、右侧视图模式切换胶囊在双模式下均能正常渲染与交互。
 
----
+2. **激活账本切换功能**：
+   - 走查位置：`app_gui.py` 第 2883~2894 行与 `switch_active_ledger`（第 2451~2490 行）。
+   - 实操核验：调用 `MultiLedgerManager.get_instance().list_ledgers()`，准确返回 `main_live`（主实盘账本）与 `combat_29_funds`（实战存量组合（29只·¥2.66万））。
+   - 切换联动：切换时调用 `pm.save_state()` 保存旧账本，更新 `st.session_state.active_ledger_id` 与 `pm` 实例，清除诊断与再平衡缓存，并触发 `st.rerun()`。
+   - 结论：**验证通过 (PASS)**。
 
-## 2. 逻辑推导链 (Logic Chain)
+3. **手机模式真 OCR 切片解析与一键入库闭环**：
+   - 走查位置：`app_gui.py` 第 3154~3274 行。
+   - 证据：彻底移除了敷衍用户的假上传提示文本（静态检索确认无任何残留）；用户上传图片后当场调用 `pm.parse_screenshot_ocr_holdings`（底层驱动 `slice_long_screenshot_for_ocr` 100% 原始宽度横向无损切片与 RapidOCR 离线模型）；在手机端即时渲染 `st.data_editor` 预览编辑表；提供「✅ 确认无误，一键覆盖写入当前账本 (`btn_mob_ocr_commit_replace`)」与「➕ 追加合并写入当前账本 (`btn_mob_ocr_commit_append`)」，落盘并刷新。
+   - 结论：**验证通过 (PASS)**。
 
-- **[观察 1.1]** 4 大裁判文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）及 `DataLoader.simulate_execution` 签名与扣费逻辑 git diff 为空。
-  - **[推论 1]** 物理安全红线零触碰，裁判系统纯洁性与真实性 100% 保持。
-- **[观察 1.2.1]** `generate_chief_advisor_memo` 严格计算宏观 ERP、DR007 资金利差、外汇纳指联动、持仓深套标的与碎片尾仓，并生成 14:30 尾盘清晰行动指引；在空输入及异常状态下自动降级兜底。
-  - **[推论 2]** 备忘录算子完全破除了“唯算法论”与“参数黑盒”，兼备买方首席投顾的业务通俗性与算法严谨性，接口契约完备。
-- **[观察 1.2.2]** `render_chief_advisor_memo_card` 统一收口至 `safe_markdown_html`，且在首屏与 Tab 1 顶部完成双向同源挂载。
-  - **[推论 3]** 满足 CommonMark 防代码块泄露规范，界面展现一致，无视口或样式冲突。
-- **[观察 1.2.3 & 1.3.6]** `StrategyBridge.run_historical_time_machine_backtest` 严格按 `df_dates <= dt_target` 切片求解权重，彻底阻断未来信息；初始扣除 0.12% 申购费、日计销售费、持有自然日扣除阶梯赎回费。
-  - **[推论 4]** 时光机盲测验证器真实再现了中国公募基金交易现实摩擦，各档位测算收益分化真实合理，杜绝了后视镜幻觉。
-- **[观察 1.3]** 针对性测试 `tests/test_g15_phase2_memo_and_timemachine.py` (8 项) 与全套回归 (41 项) 均 100% 绿灯通过，无假断言与虚荣测试。
-  - **[推论 5]** 交付代码质量达标，完全满足 Milestone 2 所有设计要求。
+4. **手机模式 5 张卡片流与尾仓清扫卡一致性审查**：
+   - 走查位置：`app_gui.py` 第 2931~3153 行。
+   - **重大异常发现**：
+     - 在 Card 2（五维决策备忘录）第 2950 行调用 `generate_chief_advisor_memo`，对于 `combat_29_funds` 账本计算出的碎片统计为：
+       `frag_count = 19`, `frag_amt = 442.70`，界面徽章渲染为 `🧹 19只碎片(¥442.70)`；
+     - 但在紧接着的 Card 3（第 3003~3013 行），代码采用粗暴过滤：
+       ```python
+       for fc, h in pm.holdings.items():
+           mv_h = getattr(h, "shares", 0.0) * getattr(h, "current_nav", 1.0)
+           min_d = min((getattr(b, "holding_days", 30) for b in getattr(h, "batches", [])), default=getattr(h, "holding_days", 30))
+           if 0 < mv_h < 200.0 and min_d >= 30:
+               tail_items.append((fc, getattr(h, "fund_name", fc), mv_h, min_d))
+       ```
+     - 运行探针实测该代码段对 `combat_29_funds` 的计算结果为：
+       `len(tail_items) = 20`, `sum = 566.84`！
+     - 经逐项核对，用户的第 10 号持仓——**`005827 易方达蓝筹精选混合`**（持有市值 ¥124.14，份额 A 类，持仓天数 1041 天，累计浮亏 -¥27.28，属于用户的“3只腰部核心持仓”之一）因市值处于 100~200 元区间且持有天数 > 30 天，被**错误卷入碎片清扫列表**！
+     - 导致在同一手机屏幕上：
+       - Card 2 显示：`🧹 19只碎片(¥442.70)`；
+       - Card 3 显示：`检测到当前账本含有 20 只免赎碎片尾仓（合计沉淀资金 ¥566.84）`；
+       - Card 4 显示：`• 碎片清扫: 建议赎回 20 只尾仓 (¥566.84)，资金买入 002351 易方达裕祥纯债`；
+       - 一键按钮提示：`将 20 只免赎碎片 (¥566.84) 全额平移归集至 002351`！
+   - 结论：**重大不一致缺陷 (FAIL)**。同屏数据显示自相矛盾，且违背了用户需求与 GEMINI.md 第 1 条穿透铁律（将腰部偏股基金割肉归集至纯债）。
+
+### 1.2 物理裁判文件与自动化测试独立运行证据
+
+- 四只读裁判文件校验：
+  `git status --porcelain judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py` 输出完全为空，绝对 0 修改。
+- 自动化测试实跑记录：
+  - `pytest tests/test_m2_features.py`：5 passed in 38.78s。
+  - `pytest tests/test_infra.py`：14 passed in 5.86s。
+  - `pytest tests/test_adv_final_closure.py`：14 passed in 43.16s。
 
 ---
 
-## 3. 局限与注意事项 (Caveats)
+## 2. Logic Chain (推理与逻辑链)
 
-1. **宏观实时行情数据接口容灾**:
-   - 当调用 `DataLoader.fetch_realtime_macro_indicators` 或 `fetch_macro_cross_market_indicators` 遇外网网络抖动或超时时，算子会自动回退读取 snapshot 或离线预置基准参数，确保前端渲染 100% 稳定高可用；若需高精度实时数值，需保证外网连接通畅。
-2. **极早期时点回测范围**:
-   - 时光机回测要求历史数据不少于 60 天（`2018-01-02` 之前会抛出 `ValueError`），且目标日期不能超过已有数据集的最新日期。此边界在 UI 端均有 `st.error` 捕获保护。
-
----
-
-## 4. 结论 (Conclusion)
-
-- **审查裁定**: **APPROVE (完全批准)**
-- **裁定依据**:
-  1. 物理安全红线 100% 守死，只读裁判文件与基线函数零修改；
-  2. 五维首席投顾备忘录算子及前端双向挂载功能完整、排版专业优雅、具备完备容错与 CommonMark 纯化防护；
-  3. 历史任意时点盲测时光机引擎严格 Point-in-Time 零未来数据泄露，公募全套交易摩擦精算严谨，Tab 3 顶部交互体验优良；
-  4. 41 项自动化测试 100% 绿灯，对抗性压力测试与边界用例全部通过，零作弊违规。
+1. **真实持仓结构与需求契约溯源**：
+   - 需求文档 §一.1 与 §三.3 明确定义了 29 基的持仓分层：7 大主力仓（5681.55 至 1023.71 元）、3 只腰部仓（161725 招商白酒 524.24 元、000217 黄金联接C 395.73 元、005827 蓝筹精选 124.14 元[-27.28]），以及 **19 只 89.60 至 0.59 元的碎片尾仓（合计 ¥442.70）**。
+   - `advisory_engine.py` 第 4374~4389 行对碎片尾仓给出了严格的量化定义：
+     `is_tail = (0 < mv < 100.0) or (100.0 <= mv < 200.0 and (s_cls == "C" or any(k in fname for k in ["联接", "ETF", "指数", "红包", "体验", "尾仓", "碎片"])))`
+     `is_fee_free = (s_cls == "C" and int(m_days) >= 30) or (s_cls != "C" and int(m_days) >= 365)`
+   - 在此定义下，`005827`（A类份额，主动混合型，市值 124.14 元）正确被排除在碎片尾仓之外，剩余 19 只微型尾仓准确合计为 **19 只 · ¥442.70**。
+2. **Card 3 过滤条件遗漏导致的因果断裂**：
+   - `app_gui.py` 第 3008 行未复用上述严密判定，仅凭 `0 < mv_h < 200.0 and min_d >= 30` 粗筛，导致 005827 被误收割。
+   - 进而导致 Card 3 与 Card 4 的统计数字（20只 · ¥566.84）与 Card 2（19只 · ¥442.70）在同一视觉流中冲突，且在点击一键清扫后会将尚处浮亏的蓝筹精选误卖出。
+3. **测试虚荣问题 (Anti-Testing Vanity)**：
+   - `tests/test_m2_features.py` 中的 `test_app_gui_source_code_integrity` 仅断言了字符串 `"btn_mob_sweep_tails" in src`，没有对实际计算的尾仓数量与金额进行数值断言，使得此逻辑缺陷绕过了现有测试。
 
 ---
 
-## 5. 独立复核方法 (Verification Method)
+## 3. Findings (审查发现清单)
 
-### 5.1 自动化测试命令
+### [Major] Finding 1: 手机视图 Card 3/4 尾仓清扫计算规则与 Card 2 及风控契约脱节
+
+- **What**: 手机极简盯盘视图中，Card 3（尾仓清扫卡）与 Card 4（下单口令小抄）将腰部主动权益仓位 `005827 易方达蓝筹精选混合`（市值 124.14 元，A类）错误算作碎片尾仓，输出“20只 · ¥566.84”，与 Card 2 的“19只 · ¥442.70”同屏矛盾。
+- **Where**: `AGY2_FundAdvisory/app_gui.py` 第 3003~3013 行。
+- **Why**: 违反需求契约（明确指定 19 只 · ¥442.70 方案）、GEMINI.md 第 1 条穿透铁律与第 3 条反向踏空防御准则。
+- **Suggested Fix**:
+  将 `app_gui.py` 第 3003~3013 行的 `tail_items` 扫描逻辑与 `advisory_engine.py` 完全对齐，加入 A/C 份额与 100~200 元特征识别：
+  ```python
+  tail_items = []
+  if pm.holdings:
+      for fc, h in pm.holdings.items():
+          mv_h = getattr(h, "shares", 0.0) * getattr(h, "current_nav", 1.0)
+          s_cls = getattr(h, "share_class", "A")
+          fname = getattr(h, "fund_name", fc)
+          min_d = min((getattr(b, "holding_days", 30) for b in getattr(h, "batches", [])), default=getattr(h, "holding_days", 30))
+          is_tail = (0 < mv_h < 100.0) or (100.0 <= mv_h < 200.0 and (s_cls == "C" or any(k in fname for k in ["联接", "ETF", "指数", "红包", "体验", "尾仓", "碎片"])))
+          is_fee_free = (s_cls == "C" and min_d >= 30) or (s_cls != "C" and min_d >= 365)
+          if is_tail and is_fee_free:
+              tail_items.append((fc, fname, mv_h, min_d))
+  ```
+  并在 `tests/test_m2_features.py` 中增加对 `combat_29_funds` 尾仓精确数量（19 只）与金额（¥442.70）的断言。
+
+### [Minor] Finding 2: 手机模式追加合并导入默认赋予满期持有天数缺少新老批次保护
+
+- **What**: 手机长截图识别导入在「➕ 追加合并写入当前账本 (`btn_mob_ocr_commit_append`)」时，对于已有持仓追加份额时赋予 `holding_days = 365`。
+- **Where**: `AGY2_FundAdvisory/app_gui.py` 第 3260 行。
+- **Why**: 若用户在生产实盘中通过追加导入了新买入份额，可能使原本未满 7 天或 30 天的份额被误标为 365 天。
+- **Suggested Fix**: 建议优化为对已有持仓保留原有批次或使用悲观最小持有天数，作为后续稳健性增强。
+
+---
+
+## 4. Caveats (限制条件与边界假设)
+
+1. 本审查严格恪守 **只读契约**，未私自修改任何生产与测试代码文件。
+2. 除 Finding 1 发现的尾仓逻辑差异外，全局顶栏挂载位置、双模式一键切换、真 OCR 横向切片与一键覆盖/追加落盘闭环的其余实现质量极高，符合技术规范。
+
+---
+
+## 5. Conclusion (裁决结论与改动建议)
+
+- **审查裁决**: **REQUEST_CHANGES**
+- **返工指示**:
+  1. 请 Worker（或由主管分派）在 `AGY2_FundAdvisory/app_gui.py` 第 3003~3013 行修正 `tail_items` 判定逻辑，使其与 `advisory_engine.py` 100% 对齐，确保在 `combat_29_funds` 账本下 Card 3 与 Card 4 准确展示为 **19 只 · ¥442.70**；
+  2. 在 `tests/test_m2_features.py` 中补充对 29 基账本尾仓真实提取结果的严密断言（断言数量为 19，金额为 442.70，且 `005827` 绝不在清扫列表中）；
+  3. 修复完成后再次提审，审查员将快速核验并放行。
+
+---
+
+## 6. Verification Method (独立核验与验收指令)
+
 ```powershell
-# 1. 裁判基建核验 (14 passed)
-py -3 -m pytest tests/test_infra.py -v
+# 1. 验证 combat_29_funds 真实尾仓计算准确对齐 19 只与 ¥442.70
+py -3 -c "from AGY2_FundAdvisory.multi_ledger_manager import MultiLedgerManager; pm = MultiLedgerManager.get_instance().get_pm('combat_29_funds'); tails = [(fc, getattr(h, 'shares', 0.0)*getattr(h, 'current_nav', 1.0)) for fc, h in pm.holdings.items() if ((0 < getattr(h, 'shares', 0.0)*getattr(h, 'current_nav', 1.0) < 100.0) or (100.0 <= getattr(h, 'shares', 0.0)*getattr(h, 'current_nav', 1.0) < 200.0 and (getattr(h, 'share_class', 'A') == 'C' or any(k in getattr(h, 'fund_name', '') for k in ['联接', 'ETF', '指数', '红包', '体验', '尾仓', '碎片'])))) and ((getattr(h, 'share_class', 'A') == 'C' and min((getattr(b, 'holding_days', 30) for b in getattr(h, 'batches', [])), default=30) >= 30) or (getattr(h, 'share_class', 'A') != 'C' and min((getattr(b, 'holding_days', 30) for b in getattr(h, 'batches', [])), default=30) >= 365))]; print('Count:', len(tails), 'Total:', round(sum(x[1] for x in tails), 2)); assert len(tails) == 19; assert abs(sum(x[1] for x in tails) - 442.70) < 0.1"
 
-# 2. 回归基线核验 (14 passed)
-py -3 -m pytest tests/test_adv_final_closure.py -v
-
-# 3. M1 保护伞用例核验 (5 passed)
-py -3 -m pytest tests/test_delta_m1_guardrails.py -v
-
-# 4. M2 五维备忘录与时光机针对性测试 (8 passed)
-py -3 -m pytest tests/test_g15_phase2_memo_and_timemachine.py -v
-
-# 5. 四套联合回归 (41 passed)
-py -3 -m pytest tests/test_infra.py tests/test_adv_final_closure.py tests/test_delta_m1_guardrails.py tests/test_g15_phase2_memo_and_timemachine.py -q
+# 2. 运行 M2 专项测试
+py -3 -m pytest tests/test_m2_features.py -v
 ```
-
-### 5.2 物理安全红线复核
-```powershell
-# 核验 4 只读文件绝对未动
-git diff HEAD -- judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py
-
-# 核验 DataLoader.simulate_execution 绝对未动
-git diff HEAD -- AGY2_FundAdvisory/data_loader.py
-```
-
-### 5.3 生产代码核查文件
-- `AGY2_FundAdvisory/advisory_engine.py`: 行 4137-4351
-- `AGY2_FundAdvisory/app_gui.py`: 行 249-329, 行 3193-3204, 行 4055-4066, 行 6670-6759
-- `AGY2_FundAdvisory/strategy_bridge.py`: 行 7194-7352
-- `tests/test_g15_phase2_memo_and_timemachine.py`: 8 项测试用例
-
-### 5.4 失效条件 (Invalidation Conditions)
-1. 任何只读裁判文件发生修改；
-2. 历史时光机存在历史切片以外的未来数据泄露；
-3. 测试套件 41 项用例中有任何一项报错或断言失败。

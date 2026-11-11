@@ -1,14 +1,24 @@
-# Progress Tracker — worker_m1
+# Progress Tracking - Worker M1
 
-Last visited: 2026-11-09T16:16:30Z
+Last visited: 2026-11-11T01:16:30Z
 
-## Status: IN_PROGRESS
-- [x] Read DISPATCH.md, ORIGINAL_REQUEST.md, PROJECT.md, and explorer_g15_survey_1/handoff.md
-- [x] Baseline test verification: `test_infra.py` (14/14 pass), `test_adv_final_closure.py` (14/14 pass)
-- [x] Step 1: Chart Vanity Removal (app_gui.py - `render_monte_carlo_stress_table` implemented, 3D surface chart replaced, alias preserved; Tab 2 caller updated without expander nesting; Factor Evolver RuleTree `st.code` replaced with 2D parameter mechanism table)
-- [/] Step 2: Right-Wing Alert Sentry Bug (app_gui.py - in progress: badge color, desc/action extraction, sorting)
-- [ ] Step 3: Tab 2 DataFrame Column Headers & Buttons Layout (app_gui.py - format_micro_execution_slices_df, remove duplicate button, organize top toolbar)
-- [ ] Step 4: Tab 4 Secondary Navigation & Fund Name Consistency (app_gui.py - segmented control, portfolio_manager.py & strategy_bridge.py - 017436 name unification, eliminate 存量标的_XXXXXX & false 7-day lock-ins)
-- [ ] Step 5: Mobile View Toggle & 3 Single-Column Cards (app_gui.py - app_view_layout_mode)
-- [ ] Step 6: Test suite verification (test_infra.py & test_adv_final_closure.py)
-- [ ] Step 7: Handoff report & message orchestrator
+- [x] Initialized DISPATCH.md, BRIEFING.md, and progress.md
+- [x] Read reference files (SCOPE.md, handoff from explorer, audit plan)
+- [x] Inspect `advisory_engine.py` (lines 4170-4375) and `app_gui.py` (lines 249-329, 3020-3210)
+- [x] Inspect existing tests and `ActiveRiskSentry` fragment logic
+- [x] Implement fixes in `advisory_engine.py`
+  - Multi-field compatible cost reading (`cost_basis` -> `shares * cost_price` -> `cost_value` -> `floating_pnl_pct`)
+  - Target weight dictionary protection (`is_weight_dict`) for Tab 1 construction mode
+  - Alignment of 19 fee-free tail fragments totaling ¥442.70
+  - Enhanced 5D causal narrative with Sino-US 10Y spread
+- [x] Implement refactoring in `app_gui.py`
+  - Promoted `render_chief_advisor_memo_card` above `wing_expander` directly visible on first screen
+  - Rebuilt as 1-row-5-col responsive equal-height grid with CSS media queries
+  - CommonMark 4-space defense via `_clean_html` and `safe_markdown_html`
+- [x] Write comprehensive unit tests in `tests/test_g16_phase1_memo_and_combat29.py`
+- [x] Run tests and verify:
+  - `tests/test_g16_phase1_memo_and_combat29.py`: 6 passed
+  - `tests/test_adversarial_m2_challenger2_timemachine_and_memo.py`: 12 passed
+  - `tests/test_challenger_m2_adversarial.py`: 24 passed
+  - `tests/test_infra.py`: 14 passed
+- [x] Document in handoff.md and report to parent

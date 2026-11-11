@@ -1,7 +1,7 @@
-# BRIEFING — 2026-11-09T17:34:00Z
+# BRIEFING — 2026-11-11T01:27:00Z
 
 ## Mission
-Independently review, QA, and stress-test the implementation of Milestone 1 in Wind workspace across app_gui.py, portfolio_manager.py, and strategy_bridge.py, verify test suites and physical safety redlines, and issue a definitive verdict.
+审查并对抗性测试 Milestone 1 (worker_m1 交付代码)：`advisory_engine.py` 中 `generate_chief_advisor_memo` 的持仓成本属性修复与多字段兼容性、Tab 1 目标权重字典防护、19 只免赎碎片 ¥442.70 平账，以及业务逻辑完备性。
 
 ## 🔒 My Identity
 - Archetype: reviewer & critic
@@ -10,50 +10,53 @@ Independently review, QA, and stress-test the implementation of Milestone 1 in W
 - Original parent: 9a123e21-7525-4c57-9715-710c2a94c199
 - Milestone: Milestone 1
 - Instance: 1 of 1
+- Current Parent (2026-11-11): a4d409c2-aeca-47df-a18c-528d9465a6c8 (orchestrator_g16_gen2)
 
 ## 🔒 Key Constraints
 - Review-only — do NOT modify implementation code
 - Absolute redlines: judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py, DataLoader.simulate_execution must be 100% untouched
 - Adversarial critic: actively check for integrity violations (hardcoded test outputs, dummy implementations, shortcuts, fabricated verification, self-certifying work)
 - Response language: Chinese
+- Review scope: `advisory_engine.py` (重点 4170~4375 行) 以及相关测试
 
 ## Current Parent
-- Conversation ID: 9a123e21-7525-4c57-9715-710c2a94c199
-- Updated: 2026-11-09T17:14:00Z
+- Conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8
+- Updated: 2026-11-11T01:17:33Z
 
 ## Review Scope
-- **Files to review**: app_gui.py, portfolio_manager.py, strategy_bridge.py, tests/test_delta_m1_guardrails.py
-- **Interface contracts**: ORIGINAL_REQUEST.md, orchestrator_18/PROJECT.md
-- **Review criteria**: Correctness, completeness, adversarial robustness, no integrity violations, test suite pass, safety redlines untouched
+- **Files to review**: `d:\Google\Workspace\Wind\AGY2_FundAdvisory\advisory_engine.py` (lines 4170~4492), `AGY2_FundAdvisory/app_gui.py` (lines 249~350, 3182~3225, 4075~4088)
+- **Interface contracts**:
+  - `ORIGINAL_REQUEST.md`
+  - `orchestrator_g16_gen2/SCOPE.md`
+  - `worker_m1/handoff.md`
 
 ## Review Checklist
 - **Items reviewed**:
-  1. 3D surface chart removal & RuleTree 2D mechanism table (`app_gui.py`: lines 2147-2196, 3145-3151, 4461, 5288) -> VERIFIED
-  2. Right-wing alert sentry case-insensitive red/yellow matching & desc/action extraction (`app_gui.py`: lines 3059-3078, 3273-3318) -> VERIFIED
-  3. Tab 2 micro execution DataFrame column headers mapping & button layout (`app_gui.py`: lines 2199-2216, 4928-5050, 5975-6075) -> VERIFIED
-  4. Tab 4 segmented control secondary navigation & 017436 name unification (`app_gui.py`: lines 7240-7255; `portfolio_manager.py`: line 842; `strategy_bridge.py`: lines 491, 588, 704, 820, 3765-3802) -> VERIFIED
-  5. Mobile watchdog view toggle & 3-card stream rendering (`app_gui.py`: lines 2468-2476, 2746-2861) -> VERIFIED
-  6. Automated test suites execution (`test_infra.py` 14/14, `test_adv_final_closure.py` 14/14, `test_delta_m1_guardrails.py` 5/5) -> VERIFIED
-  7. Physical safety redlines check (0-modified referee files) -> VERIFIED
+  1. `generate_chief_advisor_memo` 成本属性修复与多字段兼容性 (`cost_basis`, `cost_price*shares`, `cost_value`, `floating_pnl_pct`, `pnl_pct`) -> VERIFIED (9/9 异构输入通过)
+  2. 真实 29 基账本深套超 10% 标的检出 (`deep_loss_count=18 >= 3`)，点名 011613 (-17.1%)、100032 (-12.0%)、161725 (-25.1%) -> VERIFIED
+  3. Tab 1 目标权重字典自适应切换为“拟建仓资产组合结构校验”，跳过碎片尾仓和深套检查（`deep_loss_count=0`, `frag_count=0`），消除 ¥1.00 乌龙 -> VERIFIED
+  4. 碎片尾仓判定与 `ActiveRiskSentry` 对齐，排除 #10 005827 易方达蓝筹，锁定 19 只免赎碎片合计平账为 ¥442.70 -> VERIFIED
+  5. 首屏 1 行 5 列横向等高情报矩阵网格移出折叠框直显，规则 27 CommonMark 防御达标 -> VERIFIED
+  6. 自动化测试套件全量通过 (共 80/80 passed: test_g16_phase1, test_adversarial_m2, test_infra, test_challenger_m2, test_adv_final_closure, test_gui_multi_ledger_stress) -> VERIFIED
+  7. 物理安全红线零改动 -> VERIFIED
 - **Verdict**: APPROVE
-- **Unverified claims**: None. All worker claims independently re-verified.
+- **Unverified claims**: None.
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - Malformed inputs to `format_micro_execution_slices_df` (None, empty, missing keys) -> handled gracefully
-  - Malformed inputs to `render_monte_carlo_stress_table` (missing fields, scalar liquidation_days) -> handled gracefully
-  - Holding state interactions on new vs held funds in `StrategyBridge.generate_ai_rebalance_orders` -> holding_days=-1, no false 7-day lock
-  - Integrity violation checks (hardcoding, facades, shortcuts) -> 0 violations detected
-- **Vulnerabilities found**: None that compromise system stability or safety contracts
-- **Untested angles**: None within M1 scope
+  - 9 种成本/盈亏率异构对象与字典结构 -> 全部成功识别深套
+  - 空、None、全零、负市值等极限输入 -> 全部安全兜底无异常
+  - Tab 1 浮点权重字典 vs 真实持仓字典的模式切换边界 -> 鲁棒隔离无混淆
+  - 完整性审计：无硬编码、无假常数、无作弊绕过
+- **Vulnerabilities found**: 0
+- **Untested angles**: M2/M3 功能将在后续里程碑继续审查
 
 ## Key Decisions Made
-- Confirmed full compliance with all 7 review criteria
-- Confirmed zero integrity violations and zero modifications to referee files
-- Issued definitive verdict: APPROVE
+- 确认 M1 交付代码完整性与准确性，测试 100% 绿灯，红线 100% 保持未触碰。
+- 裁决结论：APPROVE。
 
 ## Artifact Index
-- d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\DISPATCH.md
-- d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\BRIEFING.md
-- d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\progress.md
-- d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\handoff.md
+- `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\DISPATCH.md`
+- `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\BRIEFING.md`
+- `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\progress.md`
+- `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\handoff.md`

@@ -1,64 +1,57 @@
-# BRIEFING — 2026-11-09T18:28:00Z
+# BRIEFING — 2026-11-11T02:10:00Z
 
 ## Mission
-执行 G15 第二阶段 (Milestone 2)「破除唯算法论：实装五维投顾首席备忘录与历史任意时点盲测时光机」的经验性对抗压力测试与终局裁判复核。
+对 Milestone 2 的全局紧凑顶栏与手机极简盯盘视图运行独立对抗性 AppTest 和无头探针，严格核查桌面/手机视图切换、账本快速切换与长截图解析交互闭环，寻找潜在缺陷并做出裁决。
 
 ## 🔒 My Identity
-- Archetype: empirical_challenger
+- Archetype: challenger (empirical challenger)
 - Roles: critic, specialist
-- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_2
-- Original parent: c98181d5-8d61-4839-8d62-5dbcef7c85af
-- Milestone: Milestone 2 Review
-- Instance: 2 of 2 (Challenger M2-2)
-- G15 Parent: 9a123e21-7525-4c57-9715-710c2a94c199
-- G15 Milestone: G15 M2 Phase 2 Verification
+- Working directory: d:\Google\Workspace\Wind
+- State folder: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_2
+- Original parent: a4d409c2-aeca-47df-a18c-528d9465a6c8
+- Milestone: Milestone 2
+- Instance: 1 of 1
 
 ## 🔒 Key Constraints
-- Review-only — 严禁擅自修改业务实现代码（发现问题必须记录为 findings 并要求修复）
-- 必须基于真实测试运行与对抗场景实测验证，不盲从 Worker 声称
-- .agents/teamwork/ 目录仅存放元数据，不得放置源码或测试脚本
-- 所有回复与沟通必须使用中文
-- 4 大物理只读文件严禁修改：`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`
-- `DataLoader.simulate_execution` 签名与默认扣费逻辑保持 100% 只读
+- Review-only — do NOT modify implementation code directly; write independent tests and stress harnesses to verify or falsify.
+- Verification must be empirical: execute code myself, do not trust claims.
+- Never write tests or source code inside `.agents/teamwork/`. Put tests in `AGY2_FundAdvisory/tests/` or run them in workspace test directories.
+- Comply with GEMINI.md rules: Chinese responses, CommonMark safety, avoid test vanity (check structure/content, not just `assert not at.exception`).
 
 ## Current Parent
-- Conversation ID: 9a123e21-7525-4c57-9715-710c2a94c199
-- Updated: 2026-11-09T18:28:00Z
+- Conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8
+- Updated: 2026-11-11T01:52:55Z
 
 ## Review Scope
-- **Files to review**:
-  - `AGY2_FundAdvisory/advisory_engine.py`: `generate_chief_advisor_memo` 算子、数据兜底、异常抵抗
-  - `AGY2_FundAdvisory/app_gui.py`: `render_chief_advisor_memo_card`、CommonMark 4-空格防御、空值/畸形字典容错、Tab 3 盲测时光机 UI 挂载
-  - `AGY2_FundAdvisory/strategy_bridge.py`: `StrategyBridge.run_historical_time_machine_backtest` 严格 Point-in-Time 零未来函数、公募全套交易摩擦扣除、历史拐点回放
-  - `tests/test_g15_phase2_memo_and_timemachine.py`
-  - `tests/test_adversarial_m2_challenger2_timemachine_and_memo.py` (新增 12 项对抗用例)
-  - 4 大只读裁判文件与 `DataLoader.simulate_execution`
-- **Interface contracts**: `ORIGINAL_REQUEST.md`, `PROJECT.md`, `GEMINI.md`
-- **Review criteria**: 对抗性压力测试、CommonMark 防泄露、历史拐点金融现实匹配、公募摩擦真实性、零白屏/零崩溃。
+- **Files to review**: `AGY2_FundAdvisory/app_gui.py`, `AGY2_FundAdvisory/portfolio_manager.py`, `tests/test_m2_features.py`
+- **Interface contracts**: `SCOPE.md`, `ORIGINAL_REQUEST.md`, `worker_m2/handoff.md`
+- **Review criteria**: 顶栏双向同步、账本选择器、手机极简盯盘5张卡片渲染与交互、长截图交互闭环、AppTest真实运行与几何/语义断言。
 
 ## Key Decisions Made
-- 确认 4 大只读文件与 `DataLoader.simulate_execution` 100% 未受改动。
-- 实装并通过 12 项针对性对抗测试（涵盖 CommonMark 4-格缩进防御、HTML 注入免疫、预设日期与自定义日期盲测、三大历史拐点金融实证检验、公募阶梯扣费精度及 C1~C5 风险梯度单调性）。
-- 53 项全回归测试（包含裁判用例、M1 守卫、回归闭环、M2 针对用例与本轮对抗用例）100% 绿灯通过。
-- 给出终局裁决：APPROVE。
+- 编写独立对抗测试套件 `tests/test_challenger_g16_m2_adversarial.py`，覆盖 7 大维度：
+  1. 顶栏双向同步与账本切换（桌面与手机模式）；
+  2. 手机极简盯盘 5 张卡片真实语义渲染与 29 基特征断言；
+  3. 卡片 3 碎片尾仓清扫按钮点击与 Session State 变异；
+  4. 卡片 5 长截图 OCR 上传、预览及覆盖/追加交互闭环（带 save_state 防护）；
+  5. 损坏图片/非法张量错误边界兜底；
+  6. 昨日收益正则清洗与数字代码防截断压测；
+  7. 手机端 `st.stop()` 性能隔离与大表剪枝断言。
+- 验证结果：7/7 PASSED（耗时 95.29s），只读裁判文件 0 变更，全量回归套件绿灯。给出最终裁决：`APPROVE`。
 
 ## Artifact Index
-- `DISPATCH.md` — 调度指令记录
-- `BRIEFING.md` — 持续记忆与审查范围
-- `progress.md` — 执行进度与心跳
-- `handoff.md` — 最终审查交接报告
-- `tests/test_adversarial_m2_challenger2_timemachine_and_memo.py` — 12 项独立对抗实测用例
+- `tests/test_challenger_g16_m2_adversarial.py` — 独立对抗性质询测试套件
+- `handoff.md` — 5 范式质询报告
 
 ## Attack Surface
 - **Hypotheses tested**:
-  * CommonMark 4-space code block 泄漏攻击：经 `_clean_html` 统一收口清洗，物理杜绝行首 4 格空格与空行截断（已验证通过）。
-  * 畸形字典与注入数据对备忘录渲染攻击：`None` / `{}` 安全静默退出；但非 dict 子字段存在 `AttributeError` 边缘风险（已提出防御性建议）。
-  * 历史三大拐点实证回放偏差：2021.02 见顶防守 Alpha +15.39%、2022.04 恐慌底 1Y 收益 +11.57% (MDD 2.91%)、2024.09 底部反转 3M 收益 +6.73% (扣除 0.35% 赎回费)，符合金融历史真实。
-  * 极端边界越界：<60 天历史及未来越界确定性抛出 `ValueError`，UI 端被 `try ... except Exception: st.error(...)` 捕获，无白屏风险。
-  * 曲线 Plotly 数值退化：0 NaNs, 0 Infs, 100% 有限正数。
+  - H1: 顶栏在手机模式下是否丢失或无法渲染（已证伪：顶栏在手机极简模式下正常渲染）。
+  - H2: 账本切换下拉框是否只支持单个账本（已证伪：完整支持 `main_live` 与 `combat_29_funds`）。
+  - H3: 手机模式卡片 3 碎片清扫按钮是否有效变异状态（已证实：点击后正确写入 Tab 2 预案参数）。
+  - H4: 卡片 5 截图上传是否仍为假提示（已证伪：支持真实 RapidOCR 离线模型，且提供覆盖与追加操作）。
+  - H5: 损坏图片是否导致 Streamlit 白屏崩溃（已证伪：错误边界捕获并给出用户级 warning/error）。
 - **Vulnerabilities found**:
-  * 1 处防御性边缘漏洞（Low）：`render_chief_advisor_memo_card` 对子字段（如 `macro_policy`）直接调用 `.get()`，若被赋值为 `None` 或非 dict 类型会抛出 `AttributeError`。由于业务层已通过 `generate_chief_advisor_memo` 规范输出且调用处包裹了 `try-except`，实际运行不会导致白屏，已记入建议。
-- **Untested angles**: Phase 3 相关的移动端长图切片与 29 基账本（属于 Milestone 3 范围）。
+  - V1 (已探明并记录): 模式切换时若仅通过代码直接篡改 `st.session_state["app_view_layout_mode"]` 而未联动 `sb_view_layout_radio`，侧边栏单选框会在下一帧强制回拨模式；UI 原生通过顶栏切换胶囊（第 2920 行）已显式同步 `st.session_state.sb_view_layout_radio = target_full_mode`，因此真实交互完全健壮。
+- **Untested angles**: 无（核心交互链路已全部由 AppTest 探针覆盖）。
 
 ## Loaded Skills
 - None requested in dispatch.

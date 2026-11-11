@@ -1,138 +1,128 @@
-# Milestone 1 (R1 Look-Through Risk Screen Engine) Handoff Report
+# M1 里程碑交付报告：投顾备忘录 Bug 修复与首屏 1行5列横向情报矩阵重构
 
-- **Worker**: Worker M1 (`worker_m1`)
-- **Date**: 2026-10-29T09:31:00Z
-- **Target File Owned**: `d:\Google\Workspace\Wind\AGY2_FundAdvisory\portfolio_manager.py`
-- **Parent Conversation ID**: `5fd996d1-bc98-447a-9f35-c5aef5be2e1c` (Project Orchestrator)
+## 1. Observation (客观观测与证据记录)
+
+本智能体按照 M1 里程碑契约与安全底线红线，针对独占所有权文件 `AGY2_FundAdvisory/advisory_engine.py` 与 `AGY2_FundAdvisory/app_gui.py` 开展了详尽实证与代码重构，直接观测到以下事实：
+
+### 1.1 `advisory_engine.py` 中 `generate_chief_advisor_memo` 的历史缺陷
+- **行号定位**：原函数定义位于 `AGY2_FundAdvisory/advisory_engine.py` 第 4170 至 4375 行。
+- **原成本属性 Bug**：在第 4284 行代码：
+  ```python
+  cost_v = float(getattr(h, "cost_value", 0.0) or (h.get("cost_value", 0.0) if isinstance(h, dict) else 0.0))
+  ```
+  在系统真实对象 `FundHolding` / `HoldingItem`（定义于 `portfolio_manager.py:261-305`）及账本 JSON 中，总成本字段名为 `cost_basis`，单价为 `cost_price`，且计算了 `floating_pnl` 与 `floating_pnl_pct`，**根本不存在 `cost_value` 属性**。
+  实测表明：在旧代码下直接传入 `combat_29_funds` 持仓，`cost_v` 永远读取为 `0.0`，导致 `pl_ratio` 恒为 `0.0`，`deep_loss_count` 恒为 `0`，真实账本中浮亏严重的 `011613` (-17.1%)、`100032` (-12.0%)、`161725` (-25.1%) 被 100% 漏检！
+- **Tab 1 目标权重字典误判**：
+  在 `app_gui.py:4080` 中，Tab 1 建仓方案传入 `holdings=opt_weights`（例如 `{"005561": 0.35, "002351": 0.20, ...}`）。
+  旧代码遍历 `opt_weights.values()`，将权重浮点数 `0.35` 视为市值 `mv = 0.35 元`，落入 `0 < mv < 200.0` 区间，导致 6 只建仓标的全被计入碎片尾仓，合计报出“6只碎片尾仓合计 ¥1.00”的荒谬文案。
+- **碎片判定未与 `ActiveRiskSentry` 对齐**：
+  旧代码采用简单的 `0 < mv < 200.0`，导致腰部持仓 `#10 005827 易方达蓝筹精选混合`（市值 ¥124.14，A 类偏股混合）被错误计为碎片，总碎片数被虚高统计为 20 只。
+
+### 1.2 `app_gui.py` 中 `render_chief_advisor_memo_card` 与首屏布局的遮蔽问题
+- **原卡片布局**：在 `app_gui.py` 第 249~329 行，卡片 CSS 写死为单列纵向堆叠：
+  ```html
+  <div style="display: grid; grid-template-columns: 1fr; gap: 10px;">
+  ```
+  每个维度卡片高度达数百像素，整体垂直占用极大。
+- **首屏默认折叠遮蔽**：在 `app_gui.py` 第 3186 行：
+  ```python
+  wing_expander = st.expander(f"{act_status_icon} {expander_title}", expanded=False)
+  with wing_expander:
+      ...
+      render_chief_advisor_memo_card(memo_top, title="🧭 首席投顾五维全息决策备忘录")
+  ```
+  因处于 `expanded=False` 的折叠框内，用户打开首屏时备忘录处于完全不可见状态，必须手动点击折叠框。
 
 ---
 
-## 1. 勘测与实施观察 (Observation)
+## 2. Logic Chain (推理链条与修复推导)
 
-### 1.1 代码变更位置与实现细节
-在专属归属文件 `d:\Google\Workspace\Wind\AGY2_FundAdvisory\portfolio_manager.py` 中实施了以下纯正金融量化排雷逻辑：
+1. **多字段兼容读取推导**：
+   - 优先读取 `cost_basis`（真实 `FundHolding` 的成本总金额）；
+   - 若 `cost_basis` 不存在或为 0，尝试 `cost_price * shares`（或 `cost_nav * shares`）；
+   - 降级尝试 `cost_value`（确保旧 mock 桩类 100% 绿灯兼容）；
+   - 同时支持直接读取 `floating_pnl_pct` 或 `pnl_pct`：若存在且非 0，直接换算为 `pl_ratio = float(raw_pnl_pct) / 100.0`；
+   - 盈亏金额优先读取 `floating_pnl`，缺省回退至 `mv - cost_v`；
+   - 对 `pl_ratio < -0.10` 的标的精确计入 `deep_loss_list`，按亏损金额由负大到负小排序，提取前三大出血点核心标的。
+2. **Tab 1 目标权重字典防护推导**：
+   - 检测 `isinstance(holdings, dict) and all(0.0 <= float(v) <= 1.0) and abs(sum(v) - 1.0) < 0.05`；
+   - 命中时定性为“拟建仓资产组合结构校验”：计算总本金（支持 `total_capital` 入参，默认 10 万元）、攻防配比（纯债固收 vs 弹性进攻）以及单标的最大分散度；
+   - 强制将 `deep_loss_count = 0`、`frag_count = 0`、`frag_amt = 0.0`，从根本上杜绝“6 只碎片合计 ¥1.00”的不良展示。
+3. **19 只免赎碎片与 ¥442.70 严格对齐推导**：
+   - 规则与 `ActiveRiskSentry` 维度 13 物理对齐：
+     `is_tail = (0 < mv < 100.0) or (100.0 <= mv < 200.0 and (s_cls == 'C' or any(k in fname for k in ['联接', 'ETF', '指数', '红包', '体验', '尾仓', '碎片'])))`；
+   - 免赎持有天数检查：C 类满 30 天，A 类满 365 天（未指定时缺省已满期）；
+   - `005827 易方达蓝筹`（¥124.14，A 类，主动权益）不满足上述特征，精准排除；
+   - 真实 29 基账本中的 19 只碎片尾仓（89.60 元至 0.59 元）全部为 `< 100` 元，精准计入，合计资金严格等于 **¥442.70**。
+4. **中美利差与宏观因果叙事推导**：
+   - 在国际与汇率面（`international_fx`）补充读取 `us_10y`（美债 10Y 收益率，默认 4.40%），与国内 10Y 国债（1.63%）做差，精算中美利差深度倒挂（约 -277 bp），强化跨境大类资产配置逻辑。
+5. **首屏 1 行 5 列横向矩阵与提权推导**：
+   - 将 `render_chief_advisor_memo_card` 移出 `with wing_expander:`，直接在第 3028 行 4 张全局指标卡之后、`wing_expander` 之前渲染，首屏无需任何点击即可直视全景投顾参谋；
+   - 重构 CSS 为横向网格：`grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; width: 100%;`；
+   - 引入媒体查询 `@media (max-width: 768px)`，窄屏移动端自适应折行为 `repeat(auto-fit, minmax(180px, 1fr))`；
+   - 每张子卡片顶部带鲜明色标（宏观蓝、国际紫、产业青、病灶红、行动绿），高度控制在 115px 左右，正文设置 `line-height: 1.45; overflow-y: auto; max-height: 85px;`；
+   - 渲染统一经由 `safe_markdown_html(html_code)`，配合 `_clean_html()` 物理剥离首尾空格，彻底消除 CommonMark 4 个前导空格代码块泄露风险（严格遵循规则 27）。
 
-1. **WindToolkit 与全市场代码解析器连接**（第 55-66 行）：
-   - 引入 `WindToolkit` (`from src.toolkit import WindToolkit`) 及 `MasterDictParser` (`from src.parsers.master_dict_parser import MasterDictParser`)；
-   - 在 `PortfolioManager.__init__` 中增加 `self._toolkit` 懒加载引用与 `self._stock_screen_cache` 内存排雷结果缓存字典；
-   - 提供 `@property def toolkit(self) -> Optional[Any]` 属性。
+---
 
-2. **股票名称与代码多级双向解析器 (`resolve_stock_symbol`)**（第 68-230 行）：
-   - 内置 `STOCK_NAME_TO_SYMBOL_MAP` 字典，涵盖 72+ 只 A 股核心标的（贵州茅台 `600519.SH`、宁德时代 `300750.SZ`、中芯国际 `688981.SH`、海光信息 `688041.SH`、中国神华 `601088.SH`、比亚迪 `002594.SZ`、招商银行 `600036.SH`、中国平安 `601318.SH`、五粮液 `000858.SZ`、立讯精密 `002475.SZ`、紫金矿业 `601899.SH`、恒瑞医药 `600276.SH`、迈瑞医疗 `300760.SZ`、美的集团 `000333.SZ`、长江电力 `600900.SH`、东方财富 `300059.SZ` 等）；
-   - 支持纯 6 位数字代码智能补齐市场后缀（`60/68/90` -> `.SH`，`00/30/20` -> `.SZ`，`8/4/920` -> `.BJ`）；
-   - 支持向 `MasterDictParser` 模糊检索全市场 6,155+ 只标的代码；
-   - 支持回退查询本地 DuckDB 时序湖仓视图 `v_financial_risk_screen` 与 `v_pledge_risk`；
-   - 兼顾模块级函数 `resolve_stock_symbol(...)` 与类方法 `pm.resolve_stock_symbol(...)`。
+## 3. Caveats (风险防范与边界假设)
 
-3. **单基金底层前十大重仓穿透排雷引擎 (`screen_fund_look_through_risk`)**（第 2828-3095 行）：
-   - **非 A 股权益资产免疫机制**：精准识别纯债（如 `002351`、`018757`）、黄金现货 ETF（如 `000216`、`000217`）、海外美股 QDII（如 `050025`、`001071`、`017436`）及货币资产，由于其不承担 A 股财务报表与质押监管口径风险，判定为 `is_ashare_equity = False`，穿透风险分 `penetration_risk_score = 0.0`，三色评级直接定性为 `Safe` / `🟢 健康`；
-   - **A 股权益基金逐股穿透扫描**：
-     * **商誉占净资产比重**：`goodwill_ratio_pct > 30%` 扣 30 分；`> 40%` 扣 40 分；
-     * **存贷双高财务造假特征**：`double_high_risk == True` 扣 40 分；
-     * **控股股东高比例质押**：`pledge_ratio_controlling_pct > 80%` 或 `warning_close_line_status == "击穿平仓线"` 扣 35 分；`50% ~ 80%` 或临界预警线扣 15 分；
-     * **未来 30~90 天大额限售股解禁**：未来 90 天内解禁且具有高抛压/解禁市值 $\ge 20$ 亿元扣 20 分；
-     * **自由现金流 (FCF)**：`fcf_billion < 0` 扣 10 分；
-     * **股票单体评分**：$S_{stock} = \max(0, 100 - \sum \text{扣分})$，$\ge 80$ 为 Safe 🟢，`60 ~ 80` 为 Watch 🟡，$< 60$ 为 Danger 🔴；
-     * **基金穿透排雷综合得分**：$\text{penetration\_risk\_score} = \frac{1}{N} \sum (100 - S_{stock})$；
-     * **基金评级**：$\le 20.0$ 且无 Danger 标的为 🟢 健康；$20.0 \sim 45.0$ 或 1 只 Danger 标的为 🟡 关注；$> 45.0$ 或 $\ge 2$ 只 Danger 标的为 🔴 预警。
+1. **向后兼容性保护**：
+   老旧测试桩（如 `MockFundHolding` 与 `DummyHolding`）仅含 `cost_value` 属性，我们在成本读取链中保留了对 `cost_value` 的降级解析，确保旧测试用例 100% 绿灯。
+2. **只读裁判文件零改动**：
+   全程未触碰四个只读裁判文件：`judge_engine.py`、`holdout_vault.py`、`AGENT_SPEC.md`、`tests/test_infra.py`，未修改 `DataLoader.simulate_execution` 签名。
+3. **后续里程碑衔接**：
+   - M2 将在首屏最顶部挂载当前激活账本选择器与桌面/手机切换胶囊；
+   - M3 将在 Tab 2 与 Tab 3 实装 29 基的三阶手术面板与时光机回测；
+   - 本里程碑已为后续功能提供了完美平滑的数据底层与 UI 顶层占位。
 
-4. **组合整体穿透风险指数计算 (`calculate_portfolio_penetration_risk`)**（第 3097-3180 行）：
-   - 提取当前账本中市值 $> 0$ 的活跃持仓，计算各基金权重 $w_i = \text{market\_value}_i / \text{total\_market\_val}$；
-   - 计算加权穿透风险指数：$\text{portfolio\_risk\_index} = \sum w_i \times \text{penetration\_risk\_score}_i$；
-   - 全组合穿透三色分级标准：
-     * $\le 20.0$ 且无 Danger 标的：🟢 健康 (Safe)
-     * $20.0 \sim 45.0$ 或存在 1 只 Danger 标的：🟡 关注 (Watch)
-     * $> 45.0$ 或存在 $\ge 2$ 只 Danger 标的：🔴 预警 (Danger)
-   - 准确汇总全组合去重后的 Danger 标的数、Watch 标的数、具体风险原因列表 `high_risk_reasons` 与各标的穿透拆解 `funds_breakdown`。
+---
 
-### 1.2 物理只读底座不可变量核验
-执行核验命令：
-`Get-Item AGY2_FundAdvisory/judge_engine.py, AGY2_FundAdvisory/holdout_vault.py, AGY2_FundAdvisory/AGENT_SPEC.md, AGY2_FundAdvisory/tests/test_infra.py | Select-Object Name, IsReadOnly, Mode, Attributes`
-结果：
-- `judge_engine.py`: `IsReadOnly: True`, Mode: `-ar--`
-- `holdout_vault.py`: `IsReadOnly: True`, Mode: `-ar--`
-- `AGENT_SPEC.md`: `IsReadOnly: True`, Mode: `-ar--`
-- `test_infra.py`: `IsReadOnly: True`, Mode: `-ar--`
-确认核心只读文件 100% 保持只读未受任何改动。
+## 4. Conclusion (实现结论)
 
-### 1.3 既有测试与集成测试全量验证
-在 `AGY2_FundAdvisory` 目录下执行 `python -m pytest tests`，实测结果：
-```text
-============================= test session starts =============================
-platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0
-collected 147 items
+1. `advisory_engine.py` 中的 `generate_chief_advisor_memo` 已完成实质性修复：
+   - 彻底修复 `cost_value` 缺陷，多字段兼容读取成本与盈亏率；
+   - 29 基账本实测报出 `deep_loss_count = 18 >= 3`，核心亏损拖累源准确点名 `011613` (-17.1%)、`100032` (-12.0%)、`161725` (-25.1%)；
+   - 目标权重字典自适应切换为“拟建仓组合结构校验”，零碎片、零亏损报错，彻底消除“6 只碎片合计 ¥1.00”现象；
+   - 碎片尾仓严格与 `ActiveRiskSentry` 对齐，锁定 19 只免赎碎片、金额精准平账至 ¥442.70；
+   - 补充中美利差 (-277 bp) 与十维宏观叙事。
+2. `app_gui.py` 中的 `render_chief_advisor_memo_card` 已成功提权与重构：
+   - 移出 `wing_expander`，位于 4 张指标卡正下方，首屏直显无需点击；
+   - 重构为 1 行 5 列横向等高矩阵（子卡高度约 115px，窄屏流式自适应折行）；
+   - 严格遵循规则 27，CommonMark 4 空格泄露防御 100% 达标。
+3. 测试套件全量通过：
+   - 新增专项测试 `tests/test_g16_phase1_memo_and_combat29.py`（6/6 passed）；
+   - 备忘录回归测试 `tests/test_adversarial_m2_challenger2_timemachine_and_memo.py`（12/12 passed）；
+   - 备忘录对抗测试 `tests/test_challenger_m2_adversarial.py`（24/24 passed）；
+   - 基础架构与裁判测试 `tests/test_infra.py`（14/14 passed）。
 
-tests\test_dynamic_risk_and_metrics.py .......................           [ 15%]
-tests\test_e2e_gui_render.py ........                                    [ 21%]
-tests\test_infra.py ...............                                      [ 31%]
-tests\test_live_rebalance_upgrades.py ............                       [ 39%]
-tests\test_portfolio_manager.py ...................                      [ 52%]
-tests\test_realtime_and_upgrades.py ...........                          [ 59%]
-tests\test_strategy_bridge.py .........                                  [ 65%]
-tests\test_toolkit_integration.py ...................................    [ 89%]
-tests\test_trading_clock_fee.py ..........                               [ 96%]
-tests\test_ui_and_logic_refinements.py .....                             [100%]
+---
 
-================= 147 passed, 56 warnings in 65.59s (0:01:05) =================
+## 5. Verification Method (独立复核方法与命令)
+
+后续审查智能体可按以下步骤进行独立法证核验：
+
+### 5.1 运行备忘录专项全量测试命令
+```powershell
+# 1. 运行 M1 新增专属针对性单测 (覆盖 HoldingItem, 29基真实账本, Tab 1 字典保护, 1行5列矩阵布局)
+py -3 -m pytest tests/test_g16_phase1_memo_and_combat29.py -v
+
+# 2. 运行备忘录全量回归与对抗测试套件 (共 42 项全部通过)
+py -3 -m pytest tests/test_adversarial_m2_challenger2_timemachine_and_memo.py tests/test_challenger_m2_adversarial.py tests/test_g16_phase1_memo_and_combat29.py -v
+
+# 3. 运行基础架构与物理安全红线单测 (14 项全部通过)
+py -3 -m pytest tests/test_infra.py -v
 ```
-147 项测试 100% 全量通过，原既有 112 项测试零回归。
 
----
+### 5.2 独立 Python 探针核验实战账本
+```powershell
+py -3 -c "from AGY2_FundAdvisory.multi_ledger_manager import MultiLedgerManager; from AGY2_FundAdvisory.advisory_engine import generate_chief_advisor_memo; mlm = MultiLedgerManager(); pm = mlm.get_pm('combat_29_funds'); memo = generate_chief_advisor_memo(holdings=pm.holdings); p = memo['portfolio_pathology']; assert p['deep_loss_count'] >= 3; assert p['frag_count'] == 19; assert abs(p['frag_amt'] - 442.70) < 0.01; print('PROBE VERIFICATION SUCCESS: deep_loss >= 3, fragments == 19 (¥442.70)')"
+```
 
-## 2. 逻辑推导链 (Logic Chain)
-
-1. **观察 1**: `PROJECT.md` 与 `DISPATCH.md` 规定对纯债（`002351`）、黄金（`000216`）、美股 QDII（`050025`）等资产实施非 A 股免疫机制。
-   - **推导**: 在进入股票级循环前，检测基金代码及底层资产构成。若为纯债、黄金现货或海外资产，直接输出 `is_ashare_equity = False`、`penetration_risk_score = 0.0` 与 `🟢 健康`，并给出说明，杜绝非 A 股因缺少 A 股财报科目而被误扣分。
-2. **观察 2**: 组合内不同基金常重合持有相同核心标的（例如富国红利与大成红利均重仓中国神华、陕西煤业、招商银行），频繁调用在线 API 会因网络时延导致多基金组合穿透缓慢。
-   - **推导**: 在 `PortfolioManager` 中引入 `self._stock_screen_cache`，对已完成体检的个股结果实施深拷贝复用，同时将底仓标的精准映射到本地 Parquet 湖仓与 DuckDB 视图，既保证结果真实客观，又将单次组合穿透时间压缩在毫秒级。
-3. **观察 3**: 银行股（如招商银行、江苏银行等）由于经营性质，账面现金与债务均超百亿且负债/现金 $\ge 1.2$，触发存贷双高扣 40 分，其单股得分为 60.0。
-   - **推导**: 根据分级准则，$\ge 80$ 为 Safe 🟢，`60 ~ 80` 为 Watch 🟡，$< 60$ 为 Danger 🔴。因此 60 分准确落入 Watch 关注区间，绝非 Danger 高危。对于富国中证红利指数增强A（`100032`），前十大重仓无任何 Danger 标的，加权风险分恰为 20.0，精准判定为 🟢 健康（Safe），与金牌红利推荐理由完全契合。
-4. **观察 4**: 当组合引入高风险标的（如同时重仓中芯国际解禁与万科A存贷双高）时，Danger 标的数达到 2 只。
-   - **推导**: 组合穿透逻辑依据 `danger_stock_count >= 2 or portfolio_risk_index > 45.0`，准确触发 🔴 预警（Danger），验证了风险评级规则在各种资产搭配下的严谨性与有效性。
-
----
-
-## 3. 注意事项与假设 (Caveats)
-
-1. **写权限边界**: 本智能体严格遵循 Worker M1 的专属写权限，仅修改了 `AGY2_FundAdvisory/portfolio_manager.py`，未改动任何其他生产代码、测试文件或物理只读文件。
-2. **离线高可用兜底**: 当运行于断网或第三方东财 API 发生网络超时环境时，代码自动下潜至本地 DuckDB 湖仓（`storage.duckdb`）与基准仿真生成器，确保 100% 零未捕获异常抛出。
-
----
-
-## 4. 结论 (Conclusion)
-
-- **Milestone 1 (R1 前十大重仓股穿透排雷引擎) 完满达成**:
-  1. 成功在 `portfolio_manager.py` 中接入 `WindToolkit`；
-  2. 实现了 72+ 只常见核心标的及全市场模糊解析的 `resolve_stock_symbol`；
-  3. 实现了满足商誉、存贷双高、质押爆仓、解禁抛压与现金流全要素打分的 `screen_fund_look_through_risk`，支持非 A 股资产免死免疫机制；
-  4. 实现了组合加权穿透风险指数与三色分级预警算法 `calculate_portfolio_penetration_risk`；
-  5. 实现了全量测试套件 147 项测试 100% 通过（原 112 项测试零回归）。
-
----
-
-## 5. 独立验证方法 (Verification Method)
-
-审阅者或后续流水线可通过执行以下命令独立复现并核验：
-
-1. **验证单基金穿透排雷与非 A 股免疫机制**:
-   ```powershell
-   python -c "import sys; sys.path.extend(['AGY2_FundAdvisory', '.']); from portfolio_manager import PortfolioManager; pm = PortfolioManager(db_path=':memory:'); r1 = pm.screen_fund_look_through_risk('002351'); assert r1['is_ashare_equity'] == False and r1['risk_badge'] == '🟢 健康'; r2 = pm.screen_fund_look_through_risk('100032'); assert r2['is_ashare_equity'] == True and r2['risk_badge'] == '🟢 健康'; print('Look-through screening verification PASSED!')"
-   ```
-
-2. **验证组合加权穿透风险指数计算**:
-   ```powershell
-   python -c "import sys; sys.path.extend(['AGY2_FundAdvisory', '.']); from portfolio_manager import PortfolioManager; pm = PortfolioManager(db_path=':memory:'); pm.takeover_mode_a([{'fund_code': '100032', 'amount': 50000.0, 'nav': 1.0}, {'fund_code': '002351', 'amount': 50000.0, 'nav': 1.0}], available_cash=0.0); res = pm.calculate_portfolio_penetration_risk(); assert res['portfolio_risk_index'] == 10.0 and res['risk_badge'] == '🟢 健康'; print('Portfolio risk calculation verification PASSED!')"
-   ```
-
-3. **验证全量测试套件通过（147 项）**:
-   ```powershell
-   cd d:\Google\Workspace\Wind\AGY2_FundAdvisory
-   python -m pytest tests
-   ```
-   预期输出：`147 passed in ~65s`，退出码为 `0`。
-
-4. **验证物理只读底座未篡改**:
-   ```powershell
-   Get-Item d:\Google\Workspace\Wind\AGY2_FundAdvisory\judge_engine.py, d:\Google\Workspace\Wind\AGY2_FundAdvisory\holdout_vault.py, d:\Google\Workspace\Wind\AGY2_FundAdvisory\AGENT_SPEC.md, d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_infra.py | Select-Object Name, IsReadOnly
-   ```
-   预期输出：4 个文件的 `IsReadOnly` 均为 `True`。
+### 5.3 失效判定准则 (Invalidation Conditions)
+若出现以下任一现象，即判定实现失败：
+1. `combat_29_funds` 在备忘录中报出 `deep_loss_count < 3` 或漏掉 `011613`、`100032`、`161725`；
+2. `frag_count != 19` 或 `frag_amt != 442.70`（如误将 `005827 易方达蓝筹` 计入）；
+3. Tab 1 建仓方案输入权重字典时仍报出“6只碎片尾仓合计 ¥1.00”；
+4. 首屏在未点击折叠框时看不到备忘录卡片；
+5. `test_infra.py` 或备忘录单测出现任何断言失败。

@@ -1,57 +1,47 @@
-## 2026-11-09T15:55:43Z
-You are worker_m1, an implementation worker agent.
-Your working directory is: d:\Google\Workspace\Wind\.agents\teamwork\worker_m1\
+## 2026-11-11T00:53:48Z
+【任务背景与目标】
+你是具有高可靠工程与量化投顾开发能力的执行智能体 (teamwork_worker)。
+当前里程碑：M1 —— 修复 `advisory_engine.py` 中 `generate_chief_advisor_memo` 的持仓成本属性 Bug，并重构首屏「十维感知·五维横向投顾情报矩阵」(`render_chief_advisor_memo_card`)。
 
-MANDATORY FIRST STEP:
-Read the full user specification at:
-d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
-
-Read the project scope and architecture at:
-d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_18\PROJECT.md
-
-Read the complete Explorer 1 blueprint and exact code proposals at:
-d:\Google\Workspace\Wind\.agents\teamwork\explorer_g15_survey_1\handoff.md
-
-YOUR MISSION (Milestone 1: Fix 5 UI/UX & Code Alignment Bugs + Remove 3D/RuleTree Vanity):
-Follow the exact code solutions provided in explorer_g15_survey_1/handoff.md:
-1. Chart Vanity Removal:
-   - In AGY2_FundAdvisory/app_gui.py, replace render_monte_carlo_3d_chart with render_monte_carlo_stress_table (2D 3-crisis scenario comparison table + plain human conclusion), keeping render_monte_carlo_3d_chart as alias for compatibility.
-   - In factor evolution popover, delete the RuleTree code box (st.code), replacing with a clean 2D parameter mechanism table explaining Mom_Win, Vol_Pulse, and Panic_Safe.
-2. Right-Wing Alert Sentry Bug:
-   - In app_gui.py render_dual_wing_advisory_dashboard (lines 2905-2909 & 3097-3115), fix condition to al_lvl in ("red", "critical", "CRITICAL") for red badge 🔴, al_lvl in ("yellow", "warning", "WARNING") for yellow badge 🟡.
-   - Extract detail text via alert.get("desc") or alert.get("detail") or alert.get("message", "").
-   - Extract action via alert.get("action") or alert.get("suggested_action", "").
-   - Sort alerts by severity so red critical warnings are never drowned out by scale check warnings.
-3. Tab 2 DataFrame Column Headers & Buttons Layout:
-   - In app_gui.py (lines 4410 and 5732), map English columns phase, label, vol_ratio, slice_amount, strategy to 执行阶段, 窗口类型, 分配比例, 建议挂单金额(元), 微观执行策略 with percentage and currency formatting.
-   - Delete the duplicate full-width blue overwrite button at the bottom of Tab 2 (line 5809).
-   - In Tab 2 top toolbar, organize the 6-key action toolbar (quick fund entry, batch text, screenshot import, undo, sync, ledger settings).
-4. Tab 4 Secondary Navigation & Fund Name Consistency:
-   - In Tab 4 (lines 6976-6983), replace multi-row st.tabs with a single-row compact st.segmented_control (or horizontal radio fallback).
-   - Unify 017436 name to "华安纳斯达克100ETF联接A" across portfolio_manager.py and strategy_bridge.py.
-   - In strategy_bridge.py (lines 3758-3770), search CORE_STRATEGY_POOL / EXTENDED_FUND_CATALOG / resolve_fund_meta to eliminate 存量标的_XXXXXX, and fix false 7-day lock-ins on new buy targets.
-5. "📱 手机极简盯盘视图 / 🖥️ 桌面专业模式" Toggle:
-   - Add the toggle in sidebar (app_view_layout_mode).
-   - In mobile mode, skip heavy wide tables and render the 3 clean single-column card streams: ① Today's total equity & estimated PnL, ② 14:30 action instructions, ③ Critical red/yellow risk alerts & mobile screenshot upload entry.
-6. Build & Test Verification:
-   - Run tests: py -3 -m pytest tests/test_infra.py
-   - Run tests: py -3 -m pytest tests/test_adv_final_closure.py
-   - If tests fail due to old button text or old 3D expander title assertions, update the non-read-only test assertions to match the new clean UI.
-   - Verify 100% test pass.
-
-MANDATORY INTEGRITY WARNING:
+【强制诚信警告 (MANDATORY INTEGRITY WARNING)】
 DO NOT CHEAT. All implementations must be genuine. DO NOT hardcode test results, create dummy/facade implementations, or circumvent the intended task. A teamwork_auditor will independently verify your work. Integrity violations WILL be detected and your work WILL be rejected.
 
-PHYSICAL SAFETY REDLINES:
-严禁修改四个只读裁判文件 judge_engine.py、holdout_vault.py、AGENT_SPEC.md、tests/test_infra.py，严禁修改 DataLoader.simulate_execution 的默认函数签名与默认扣费逻辑。
+【关键输入与参考文件】
+- 原始需求：d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+- 范围与契约：d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_g16_gen2\SCOPE.md
+- 详细勘察报告：d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\handoff.md
+- 外部审计参考：c:\Users\deanc\Downloads\agy2_ui_ux_audit_and_fix_plan (4).md
+- 你的独占所有权文件：
+  1. `d:\Google\Workspace\Wind\AGY2_FundAdvisory\advisory_engine.py`
+  2. `d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py` (仅限 memo 卡片函数与首屏调用位置)
+- 你的状态文件夹：d:\Google\Workspace\Wind\.agents\teamwork\worker_m1
+- 成果交付文件：d:\Google\Workspace\Wind\.agents\teamwork\worker_m1\handoff.md
 
-OUTPUT:
-Write your complete implementation report, including modified file paths, git diff summary, test execution commands, and test output into:
-d:\Google\Workspace\Wind\.agents\teamwork\worker_m1\handoff.md
-Update progress.md as you work.
-When done, send a completion message back to the orchestrator.
+【核心实现要求】
+1. 修复 `advisory_engine.py` 中的 `generate_chief_advisor_memo` (第 4170~4375 行)：
+   - **多字段兼容读取成本与盈亏率**：
+     彻底修复第 4284 行读取不存在的 `cost_value` 的 Bug！必须按以下层级读取：
+     优先读取 `getattr(h, "cost_basis", 0.0)`，若为 0 则尝试 `getattr(h, "cost_price", 0.0) * getattr(h, "shares", 0.0)`，再兼容字典取值与降级 `cost_value`；
+     同时支持直接读取 `floating_pnl_pct` 或 `pnl_pct`：若存在且不为 0，则直接用 `pl_ratio = float(pnl_pct) / 100.0`；
+     对 `pl_ratio < -0.10` 的标的精确计入 `deep_loss_list`，确保 29 基账本中的 011613 (-17.1%)、100032 (-12.0%)、161725 (-25.1%) 准确报出且 `deep_loss_count >= 3`！
+   - **Tab 1 权重字典误判修复**：
+     检测 `holdings` 是否为目标权重字典（如 `{"005561": 0.35, ...}`，所有值在 0~1 之间且和约为 1.0）。若为权重字典，则将其定位为“拟建仓资产组合结构校验”，展示攻防配比与单标的集中度，坚决跳过碎片尾仓和深套亏损检查，彻底消除“6 只碎片合计 ¥1.00”的荒谬文案！
+   - **19 只免赎碎片与 ¥442.70 严格对齐**：
+     按照 `ActiveRiskSentry` 的碎片尾仓标准统计，识别出市值 < ¥200 且满足免赎/C类/联接特征的碎片尾仓，精确锁定 19 只免赎碎片合计 ¥442.70（排除 #10 005827 易方达蓝筹 ¥124.14）。
+   - **强化五维决策备忘录因果叙事**：
+     宏观政策面（10Y国债、DR007利差、ERP分位）、国际汇率面（USD/CNH、黄金纳指联动、中美利差）、产业估值面（Top 3低估黄金击球区赛道与高拥挤度赛道）、存量持仓病灶（精确点名出血点标的与金额、碎片尾仓数量与金额）、今日 14:30 明确行动准则。
 
-## 2026-11-09T16:15:35Z
-**Context**: Milestone 1 Implementation (UI/UX Bugs, 3D Chart Removal, Tab 2/4 Layout & Mobile View)
-**Content**: Liveness query. It has been 19 minutes since dispatch. Please report your current progress, files modified, test status, and whether you are preparing handoff.md.
-**Action**: Update your progress.md immediately with your current implementation status and finalize handoff.md.
+2. 重构 `app_gui.py` 中的 `render_chief_advisor_memo_card` (第 249~329 行与第 3196~3202 行)：
+   - **提权至首屏主视野**：
+     将 `render_chief_advisor_memo_card` 从第 3196 行收起的 `wing_expander` 内部移出，直接放置在顶部 4 张全局指标卡（第 3028 行之后、双翼展开栏之前），使首屏一打开立即可见！
+   - **重构为 1 行 5 列横向等高响应式矩阵网格**：
+     CSS 布局从纵向单列重构为横向网格：`grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px;`（在移动端或窄屏宽度 `< 768px` 时自动流式折行）。
+     每张子卡片高度控制在 115px 左右，顶部带鲜明色标（宏观蓝/国际紫/产业青/病灶橙红/行动绿）与结论胶囊，正文精炼干脆。
+     使用 `_clean_html()` 与 `safe_markdown_html()`，严格遵循规则 27 消除任何 CommonMark 代码块转义泄露。
+
+3. 执行构建与针对性测试验证：
+   - 编写针对 `generate_chief_advisor_memo` 的单测（支持 `HoldingItem`、支持 29 基真实持仓、验证 `deep_loss_count >= 3`、验证 Tab 1 权重字典不报碎片）。
+   - 运行测试并确保通过，并在交付报告中提供命令和测试输出证据。
+
+【交付要求】
+在独占所有权文件中完成修改，运行测试验证，将修改详情、测试结果、验证证据写入 `d:\Google\Workspace\Wind\.agents\teamwork\worker_m1\handoff.md`，并通过 send_message 通知父智能体 (conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8)。

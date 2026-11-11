@@ -1,65 +1,58 @@
-# BRIEFING — 2026-11-09T18:05:00Z
+# BRIEFING — 2026-11-11T01:52:00Z
 
 ## Mission
-实装 G15 第二阶段（Phase 2）核心功能：破除唯算法论，实装「五维投顾首席备忘录」与「历史任意时点盲测时光机」，并在首屏、Tab 1、Tab 3 完成高品质前端挂载与全套测试验证。
+实现 Milestone 2：全局顶栏控制条、手机极简盯盘真 OCR 切片解析闭环与 portfolio_manager 模糊匹配链路修复。
 
 ## 🔒 My Identity
 - Archetype: teamwork_worker
-- Roles: implementer, qa, specialist
-- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\worker_m2\
-- Original parent: 9a123e21-7525-4c57-9715-710c2a94c199
-- Milestone: G15 Milestone 2 (Phase 2)
+- Roles: implementer, qa
+- Working directory: d:\Google\Workspace\Wind
+- State folder: d:\Google\Workspace\Wind\.agents\teamwork\worker_m2
+- Original parent: a4d409c2-aeca-47df-a18c-528d9465a6c8
+- Milestone: Milestone 2 (M2)
 
 ## 🔒 Key Constraints
-- 严禁触碰、修改或解锁系统只读的 4 个裁判基建文件（judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py）！
-- 严禁修改 DataLoader.simulate_execution 默认签名与默认扣费逻辑。
-- 零未来数据泄漏 (Zero Look-ahead Bias)：历史时光机盲测必须严格使用 Point-in-Time 切片。
-- 全额计入真实公募扣费（0.12% 申购费、日度 0.40% 销售服务费、持有天数阶梯赎回费未满7天 1.50% 等）。
-- 严禁作弊、制造假实现或硬编码结果。
-- 中文回复与交付。
+- 独占所有权文件：d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py, d:\Google\Workspace\Wind\AGY2_FundAdvisory\portfolio_manager.py
+- 绝对禁止修改 4 个只读裁判文件与其它智能体文件
+- DO NOT CHEAT: Genuine implementation, real state, real behavior
+- 全局顶栏控制条：品牌/状态角标 + 账本切换下拉 + 桌面/手机切换胶囊
+- 手机极简盯盘：5张流式卡片，第5张卡片必须当场调用 parse_screenshot_ocr_holdings 并支持一键覆盖写入/追加合并
+- portfolio_manager: parse_smart_text_holdings 接入 fuzzy_match_fund_by_name，正则剥离昨日收益等标签，禁止纯数字词条盲搜
+- Windows PowerShell 环境，遵循 Windows 桌面交互与脚本化防御准则
 
 ## Current Parent
-- Conversation ID: 9a123e21-7525-4c57-9715-710c2a94c199
-- Updated: 2026-11-09T18:05:00Z
+- Conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8
+- Updated: 2026-11-11T01:52:00Z
 
 ## Task Summary
 - **What to build**: 
-  1. `AGY2_FundAdvisory/advisory_engine.py`: 实装 `generate_chief_advisor_memo` 五维算子与别名
-  2. `AGY2_FundAdvisory/app_gui.py`: 实装 `render_chief_advisor_memo_card` 并双向挂载于首屏展开栏与 Tab 1 方案顶部
-  3. `AGY2_FundAdvisory/strategy_bridge.py`: 实装 `StrategyBridge.run_historical_time_machine_backtest` (Point-in-Time + 全公募扣费)
-  4. `AGY2_FundAdvisory/app_gui.py`: Tab 3 顶部实装历史时光机盲测前端模块 (4 大预设按钮 + 自定义日期 + 4 周期指标卡 + Plotly 走势图)
-  5. `tests/test_g15_phase2_memo_and_timemachine.py`: 编写全面针对性单元测试并回归运行
-- **Success criteria**: 4大只读文件哈希无变动，所有测试 100% 通过，无未来数据泄漏，扣费真实精确。
-- **Interface contracts**: `PROJECT.md`, `explorer_g15_survey_2_rep/handoff.md`
-- **Code layout**: `AGY2_FundAdvisory/`, `tests/`
+  1. app_gui.py 全局顶栏控制条（首屏与手机模式共享），支持账本切换与桌面/手机视图切换
+  2. app_gui.py 手机极简盯盘真 OCR 切片导入与尾仓一键清扫闭环（5张卡片、真 OCR 解析、覆盖写入/追加合并入库）
+  3. portfolio_manager.py 修复 parse_smart_text_holdings 模糊匹配链路与数字防截断
+  4. 编写并运行针对性单测，保证全绿
+- **Success criteria**: 针对性测试通过、无虚假实现、4 个只读文件零修改
+- **Interface contracts**: SCOPE.md
+- **Code layout**: AGY2_FundAdvisory/
 
 ## Key Decisions Made
-- 遵循 survey 2 蓝图的高标准实现，结合 CommonMark 纯化（GEMINI.md Rule 27），卡片 HTML 使用 safe_markdown_html 避免代码块泄露。
-- 时光机推演严格 Point-in-Time：`df[df['date'] <= dt_target]`，只使用当时及以前的行情生成权重与状态，绝无后视镜未来函数。
-- 扣费模型严格遵循公募基金交易规则：申购费 0.12%、C类日计提 0.40%/250、阶梯赎回费严格按照持仓日历天数 FIFO（<7天 1.50%）。
-- 修复 portfolio_ledger.json 主实盘由于先前后遗症导致的资产不足 9 万问题，确保 regression 全部通过。
+- `portfolio_manager.py`: 在 `fuzzy_match_fund_by_name` 的 `ALIAS_MAP` 中扩充核心别名映射，并在 `parse_smart_text_holdings` 中前置剥离 `(?:昨日收益|昨日盈亏|日收益)` 正则，直接调用 `fuzzy_match_fund_by_name`，封堵纯数字搜索；
+- `app_gui.py`: 在进入手机极简分支前挂载全局顶栏（包含品牌、行情角标、账本下拉框与视图切换胶囊），手机与桌面共享；
+- `app_gui.py`: 手机极简盯盘实装 5 张流式卡片，第 3 张支持 19 只免赎碎片 (¥442.70) 识别与清扫按钮，第 4 张提供一键复制下单小抄，第 5 张直连 `pm.parse_screenshot_ocr_holdings`，支持预览与一键覆盖/追加写入。
 
 ## Artifact Index
-- `.agents/teamwork/worker_m2/DISPATCH.md` — 派发记录
-- `.agents/teamwork/worker_m2/BRIEFING.md` — 工作记忆
-- `.agents/teamwork/worker_m2/progress.md` — 心跳进度
-- `.agents/teamwork/worker_m2/handoff.md` — 交付报告
-- `tests/test_g15_phase2_memo_and_timemachine.py` — 新增测试套件 (8 测试用例 100% PASS)
+- d:\Google\Workspace\Wind\.agents\teamwork\worker_m2\progress.md
+- d:\Google\Workspace\Wind\.agents\teamwork\worker_m2\handoff.md
+- d:\Google\Workspace\Wind\tests\test_m2_features.py
 
 ## Change Tracker
 - **Files modified**:
-  - `AGY2_FundAdvisory/advisory_engine.py`: 新增 `generate_chief_advisor_memo` 与便捷导出别名
-  - `AGY2_FundAdvisory/strategy_bridge.py`: 新增 `run_historical_time_machine_backtest` 类方法及模块导出
-  - `AGY2_FundAdvisory/app_gui.py`: 新增 `render_chief_advisor_memo_card` 并挂载于首屏、Tab 1 顶部，在 Tab 3 顶部挂载盲测时光机
-  - `portfolio_ledger.json`: 恢复主实盘基准持仓与总资产平账
-  - `tests/test_g15_phase2_memo_and_timemachine.py`: 新增 8 项针对性验证测试
-- **Build status**: PASS (41 passed, 0 failed in 50.67s)
+  - `AGY2_FundAdvisory/portfolio_manager.py`: 模糊匹配对接、前置剥离昨日收益、纯数字防截断、方法别名支持
+  - `AGY2_FundAdvisory/app_gui.py`: 全局顶栏挂载、手机极简盯盘 5 张卡片、真 OCR 切片闭环
+  - `tests/test_m2_features.py`: M2 专项针对性测试用例
+- **Build status**: PASS (33 passed, 0 failures)
 - **Pending issues**: None
 
 ## Quality Status
-- **Build/test result**: 41 passed, 0 failed
-- **Lint status**: 0 errors
-- **Tests added/modified**: +8 new tests in `tests/test_g15_phase2_memo_and_timemachine.py`
-
-## Loaded Skills
-- None
+- **Build/test result**: 33 passed in 80s (test_infra.py: 14, test_adv_final_closure.py: 14, test_m2_features.py: 5)
+- **Lint status**: py_compile clean
+- **Tests added/modified**: tests/test_m2_features.py (5 tests added)

@@ -1,398 +1,330 @@
-# Explorer 2 深度调研与架构交接报告 (R4 & R5 动态风险预算与在途摩擦拦截)
+# G16 世代第二阶段核心代码走查与架构探查报告 (Handoff Report)
 
-## 摘要 (Executive Summary)
-本报告针对 AGY2_FundAdvisory 量化投顾自进化引擎中的 **R4（滚动 EWMA 波动率倒数与动态风险预算配权）** 与 **R5（调仓净效用拦截器与真实 A/C 阶梯费率及 T+2 在途踏空折价）** 展开了深度只读调研。全面勘测了 `data_loader.py`、`strategy_bridge.py`、`portfolio_manager.py` 与 `trading_clock_fee.py` 的现有类结构、函数签名、数据依赖、硬性裁判红线与测试断言，给出了高精度的代码植入点、数学公式与伪代码设计，为后续 Agent-2 的实施提供自包含、零歧义的落地蓝图。
+## 1. Observation (客观实地走查与证据链)
 
----
+通过对 `AGY2_FundAdvisory` 项目中核心模块 `app_gui.py`、`portfolio_manager.py`、`multi_ledger_manager.py` 以及 `advisory_engine.py` 的逐行代码走查与可复现探针实测，直接观测到以下事实：
 
-## 1. 观察 (Observation)
-
-### 1.1 系统只读裁判基建文件核验 (Strict Read-Only Invariants)
-严格核验以下 4 个基建文件，确认其物理完整性并严格维持只读，严禁任何侵入与篡改：
-1. **`AGY2_FundAdvisory/judge_engine.py`** (42,175 字节)：
-   - 核心类：`JudgeEngine`，关键函数 `compute_ast_hash`、`probe_look_ahead_bias`、`run_judge`。
-   - 包含 AST 日历年份静态反作弊扫描、因果探针（历史截面 $T$ 与 $T+20$ 浮点误差 $\le 10^{-7}$）、6 大风格切片全量回归、参数高原存活检验与 DSR 试错惩罚。
-2. **`AGY2_FundAdvisory/holdout_vault.py`** (5,685 字节)：
-   - 核心类：`HoldoutVault`，异常类 `HoldoutVaultExhaustedError`。
-   - 锁死 2025-07-01 至今盲测切片，硬性上限最多测试 3 次。
-3. **`AGY2_FundAdvisory/AGENT_SPEC.md`** (8,237 字节)：
-   - 约束：统一对标 50/50 本土股债基准；非 A 股外援（黄金+美股）$\le 20\%$；A 股本土权益 $\ge 55\%$；扣除 $Rf = 2.0\%$；纯债仓位 $\le 50\%$；CAGR $\ge 11.5\%$；MaxDD $\le 15.5\%$；Slice 2 累计 $\ge +38\%$，Slice 6 累计 $\ge +18\%$。
-4. **`AGY2_FundAdvisory/tests/test_infra.py`** (10,524 字节，264 行)：
-   - 15 项裁判基建测试（已实测验证 100% 通过，耗时 5.86s）。
-
-### 1.2 `data_loader.py` 代码与数据接口现况
-- **文件路径**：`d:\Google\Workspace\Wind\AGY2_FundAdvisory\data_loader.py` (536 行)
-- **核心类与接口**：
-  - `DataLoader` 类（第 47~536 行）
-  - `load_total_return_matrix(start_date="2018-01-01", end_date=None, force_rebuild=False)` (第 68~106 行)：从本地 Parquet 缓存 `aligned_matrix_total_return.parquet` 快速读取标准化对齐矩阵，包含全量对齐列：`['date', 'H00300', 'H00905', 'H00852', 'H00922', 'H30269', '930609', 'H11009', 'STAR50_STITCH', 'AU9999', 'SPX_CNY', 'BENCHMARK_30_70', 'BENCHMARK_50_50']`。
-  - `simulate_execution(weights_df, prices_df, is_otc=True, penalty_days=7, penalty_rate=0.015, etf_impact=0.001)` (第 436~536 行)：T+1 确认模拟、买入未满 7 天赎回 1.50% 扣费及 ETF 冲击成本计算。
-- **现状缺陷与 R4 缺口**：
-  - `DataLoader` 当前**完全缺失**滚动 60 日指数加权移动平均（EWMA）年化波动率 $\sigma_{k, t}$ 与相关性矩阵计算工具方法，导致上层动态风控无法基于最新截面实时感知资产波动率放大。
-
-### 1.3 `strategy_bridge.py` 动态风险预算现况与断言约束
-- **文件路径**：`d:\Google\Workspace\Wind\AGY2_FundAdvisory\strategy_bridge.py` (4,084 行)
-- **核心方法**：
-  - `compute_dynamic_tier_weights(cls, history_df=None, tier="C3", market_snapshot=None, **kwargs)` (第 2823~3058 行)：
-    - 当前签名支持入参多态互换：`(history_df, tier, market_snapshot)` 或 `(tier=..., market_snapshot=...)`，非法档位默认回退至 `"C3"`。
-    - 状态机识别：根据 `market_snapshot` 中的 `market_state_code` 或均线形态分为 `"BULL"`, `"BEAR"`, `"OSCILLATING"`。
-    - 当前配权实现：通过硬编码的 3 张静态字典表 `bull_weights[tier]`, `bear_weights[tier]`, `oscillating_weights[tier]` 进行映射。
-- **档位风险预算配置 (`RISK_TIERS_CONFIG`, 第 135~228 行)**：
-  | 档位 | 目标 CAGR | 最大回撤上限 (MaxDD) | 权益仓位区间 | 核心防御底线 |
-  | :---: | :---: | :---: | :---: | :--- |
-  | **C1** | 5% ~ 8% | 5.0% | 15% ~ 20% | 纯债 65%~75% + 黄金 10%~15% + 红利低波 15%~20% |
-  | **C2** | 8% ~ 12% | 10.0% | 30% ~ 40% | 纯债 45%~50% + 黄金 10% + 红利低波 25%~30% |
-  | **C3** | 12% ~ 18% | 15.0% | 50% ~ 78% | 高股息红利 38%~68% + 科技成长 44% + 纯债黄金防守 |
-  | **C4** | 18% ~ 30% | 25.0% | 75% ~ 85% | 科技小盘成长 65%~75% + 红利底仓 20% + 适度黄金纯债 |
-  | **C5** | 30% ~ 100%+ | 40.0% | 85% ~ 95% | 极限高 Beta 权益 85%~95% (科创50 + 中证1000 + 中证500) |
-- **Challenger-1 压测刚性断言 (`test_stress_quant_model_challenger.py`)**：
-  1. **全域单调性恒成立**：
-     $$\text{Equity}(C1) < \text{Equity}(C2) < \text{Equity}(C3) < \text{Equity}(C4) < \text{Equity}(C5)$$
-     $$\text{Defensive}(C1) > \text{Defensive}(C2) > \text{Defensive}(C3) > \text{Defensive}(C4) > \text{Defensive}(C5)$$
-  2. **深度熊市破位态算法止损硬红线**：
-     $$\text{Equity}(C4) \le 55\%, \quad \text{Defensive}(C4) \ge 45\%$$
-     $$\text{Equity}(C5) \le 70\%, \quad \text{Defensive}(C5) \ge 30\%$$
-  3. **权重纯洁性**：所有权重之和必须严格为 1.0000 (容差 $10^{-4}$)，无 NaN，无负数。
-
-### 1.4 `portfolio_manager.py` 与 `trading_clock_fee.py` 费率、调仓与在途摩擦现况
-- **费率精算引擎 (`trading_clock_fee.py:FeeMatrixCalculator`)**：
-  - A 类阶梯赎回费 (`A_REDEMPTION_TIERS`)：
-    `[0~6d: 1.50%, 7~29d: 0.75%, 30~179d: 0.50%, 180~364d: 0.25%, >=365d: 0.00%]`
-  - C 类阶梯赎回费 (`C_REDEMPTION_TIERS`)：
-    `[0~6d: 1.50%, 7~29d: 0.50%, >=30d: 0.00%]`
-  - 申购费：A 类 0.15% (1折申购)，C 类 0.00%。
-  - 调仓过滤：`is_rebalance_actionable` 过滤偏离度 $< 3\%$ 的微调。
-- **持仓与批次管理 (`portfolio_manager.py`)**：
-  - `get_penalty_free_redeemable_shares(fund_code)` (第 4512 行)：严格按 FIFO 顺序累加 `holding_days >= 7 and not safety_lock` 批次，遇到首个未满 7 天批次即截断返回，安全保护持仓。
-  - `execute_fifo_redemption(fund_code, shares_to_sell, force_penalty=False)` (第 4533 行)：严格 FIFO 扣减，未满 7 天且未开启 force 时坚决阻断抛出 `PermissionError`。
-  - `generate_rebalance_plan(target_weights, min_buffer_pct=3.0)` (第 4627 行)：
-    - 生成卖出与买入指令；
-    - 匹配路由优先级：`PRIORITY_1_SWITCH` (同公司转换，T+1)、`PRIORITY_2_CASH_ADVANCE` (现金垫付，T+1)、`PRIORITY_3_TWO_STEP` (两阶段跨公司，T+2/T+3)、`SELL_TO_CASH` (减仓变现，T+2)；
-    - **当前缺陷**：未执行预估净效用 $\Delta U$ 拦截计算，未能折算跨公司 2~4 天的在途踏空风险成本 $\text{InTransitOpportunityCost}(\Delta t, \sigma_{index})$，未标记 `"🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动"`，且选基漏斗未包含同公司转换便利度加分。
+### 1.1 `app_gui.py` 顶栏与视图控制层现状
+1. **主界面顶部无全局顶栏**：
+   - 在 `app_gui.py` 第 2948 行，主界面桌面模式直接以 `top_c1, top_c2, top_c3, top_c4 = st.columns(4)` 渲染 4 张指标大卡（交易时钟、市场定调、估值量能、总资产与预估），上方及左侧没有任何全局顶栏或控制条。
+2. **账本切换与视图切换深藏**：
+   - **视图模式切换**：目前仅存在于 `st.sidebar` 侧边栏（`app_gui.py` 第 2552~2558 行），使用 `st.radio("📱 视图模式切换", ["🖥️ 桌面专业模式", "📱 手机极简盯盘"], key="sb_view_layout_radio")`。由于应用启动时配置了 `initial_sidebar_state="collapsed"`，在窄屏或手机上侧边栏默认隐藏，用户根本找不到手机模式入口。
+   - **账本切换控件**：侧边栏中**完全没有**账本切换选择器！账本切换选择器目前仅深藏在 Tab 2「持仓与调仓」底部的工具栏（`app_gui.py` 第 5010~5022 行，`col_tb_led` 内的 `st.selectbox("切换账本", ...)`）以及 Tab 1 的另存 Popover（第 4348 行）中。用户若处于首屏或手机模式，完全无法切换账本。
+3. **手机极简盯盘视图现存 3 大缺陷**（`app_gui.py` 第 2828~2945 行）：
+   - **缺陷 a（无导航控件与单向断头路）**：第 2828 行检测 `if st.session_state.get("app_view_layout_mode") == "📱 手机极简盯盘":` 后，第 2829 行仅渲染 `st.subheader("📱 手机极简盯盘")`，随后在第 2943 行执行 `st.stop()`。页面顶部既没有切换账本的下拉框，也没有「切回桌面专业模式」的按钮，用户进入手机模式后彻底被困，无法切换账本查看 `实战存量组合（29只·¥2.66万）`，也无法退回桌面。
+   - **缺陷 b（尾盘操作指令卡片简陋，缺少五维备忘录与尾仓清扫）**：第 2850~2858 行的 `orders_brief` 仅由一个 5 行的 `for fc, h in list(pm.holdings.items()): min_days < 7` 循环构成，只要没有不满 7 天的基金，就一律显示“今日组合结构健康，维持底仓安心持仓吃息”。既没有调用 `generate_chief_advisor_memo` 注入宏观/估值/病灶等核心参谋，也没有展示当前账本的碎片尾仓（如 29 基账本中的 19 只免赎碎片尾仓合计 ¥442.70）与一键清扫归拢卡片。
+   - **缺陷 c（假上传断头路）**：第 2938~2943 行代码如下：
+     ```python
+     st.markdown("##### 📸 手机持仓长截图一键更新")
+     mob_img = st.file_uploader("上传支付宝/天天基金/招行/且慢手机长截图", type=["png", "jpg", "jpeg", "webp"], key="mob_uploader_feed")
+     if mob_img:
+         st.success(f"已接收截图【{mob_img.name}】，点击切换至【桌面专业模式】查看结构化切片解析与平账表。")
+     st.stop()
+     ```
+     上传长截图后根本没有调用任何 OCR 解析函数，仅弹出一句让用户切回桌面模式的文字。而手机上传框的 key 为 `"mob_uploader_feed"`，桌面端 Tab 2 上传框的 key 为 `"pop_sc_img_uploader"`（第 5127 行），用户切回桌面后图片直接丢失，体验完全断裂。
 
 ---
 
-## 2. 逻辑链推演 (Logic Chain)
-
-### 2.1 R4 波动率倒数配权与纯债压舱石转移逻辑
-1. **输入与观察映射**：根据 1.2 与 1.3，底层基金均可映射至全收益指数代理序列（`002351->H11009`, `005561->H30269`, `100032->H00922`, `011613->STAR50_STITCH`, `001053->H00905`, `016634->H00852`, `013841->STAR50_STITCH`, `050025->SPX_CNY`, `000216->AU9999`）。
-2. **波动率计算**：基于过去 60 个交易日日度对数或百分比收益率，按指数平滑（半衰衰减/span=60）计算年化波动率：
-   $$\sigma_{k, t} = \sqrt{252 \times \text{EWMA\_Var}_{60}(r_{k})}$$
-3. **波动率倒数加权**：
-   对于权益类资产 $k$，根据信号得分 $S_{k, t}$ 与滚动波动率 $\sigma_{k, t}$ 调整风险暴露：
-   $$w'_{k, t} = S_{k, t} \times \frac{\bar{\sigma}_{equity}}{\sigma_{k, t}}$$
-   当资产短期由于题材炒作波动率异常脉冲放大（例如芯片/微盘 $\sigma > 35\%$）或处于高拥挤态时，$\frac{\bar{\sigma}}{\sigma_k} < 1.0$，其风险敞口被自动削减。
-4. **溢出预算转移至纯债**：
-   削减释放的权重预算 $\Delta W = \sum (S_k - w'_k)^+$ 100% 转移至组合内的低波纯债标的（`002351` 易方达裕祥 / `000086` 工银纯债）。
-5. **单调性与边界保护**：将权重投影至该档位硬性约束区间（例如 C4 权益不突破 85%、C1 权益不突破 20%，熊市 C4 权益 $\le 55\%$、C5 权益 $\le 70\%$），确保 100% 兼容 1.3 中的 Challenger-1 压测断言。
-
-### 2.2 R5 调仓净效用拦截器与在途摩擦精算逻辑
-1. **净效用理论模型**：
-   调仓决策应当满足净效用增量 $\Delta U > \text{MinNetBenefitThreshold}$：
-   $$\Delta U = \text{ExpectedAlphaGain}_{20d} - \text{ExactRedemptionFee} - \text{SubscriptionFee} - \text{InTransitOpportunityCost}(\Delta t, \sigma_{index})$$
-2. **各变量精确求值**：
-   - **$\text{ExpectedAlphaGain}_{20d}$**：20 个交易日滚动超额增益。根据转入标的与转出标的的六维评分差（或动量差、历史 Alpha），折算 20 天预期收益：
-     $$\text{ExpectedAlphaGain}_{20d} = \text{Amount} \times (\alpha_{in} - \alpha_{out}) \times \frac{20}{250}$$
-   - **$\text{ExactRedemptionFee}$**：基于 FIFO 批次真实持有天数精确核算。若持有 $<7$ 天直接阻断；若 $7\sim 29$ 天，A 类扣 0.75%，C 类扣 0.50%；满期则按阶梯递减。
-   - **$\text{SubscriptionFee}$**：同公司转换（`SWITCH`）享受转签优惠或仅补差价（取 $0.15\%$ 或 C 类 $0.00\%$）；跨公司申购 A 类收取 $0.15\%$，C 类 $0.00\%$。
-   - **$\text{InTransitOpportunityCost}$**：
-     - 同公司基金转换：$\Delta t_{arrive} = 0 \implies \text{InTransitOpportunityCost} = 0.0$。
-     - 跨公司赎回再申购：$\Delta t_{arrive} = 2$ 天（国内权益）至 $4$ 天（QDII/跨境）。在资金未在市的空窗期，面临市场单边上涨踏空或反向波动的风险折价：
-       $$\text{InTransitOpportunityCost} = \text{Amount} \times \sigma_{index} \times \sqrt{\frac{\Delta t_{arrive}}{250}}$$
-3. **阈值拦截规则**：
-   设定 $\text{MinNetBenefitThreshold} = 0.0$（或保守门槛 $0.10\%$ 金额）。若 $\Delta U \le \text{Threshold}$，表明本次调仓“省不下手续费，还承担在途踏空风险”，拦截器判定为不放行，标记 `🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动`。
-4. **同公司选基便利度加分 (Convenience Bonus)**：
-   在选基评分中，若备选基金与当前持仓同属于一家基金公司（如易方达、富国、华夏），给予 $+5.0$ 分转换便利度加分，促使其在赛道评分中晋升第一，优先撮合同公司 T+1 SWITCH，从源头上抹平在途损耗。
+### 1.2 `portfolio_manager.py` OCR 与智能文本解析链路现状
+1. **函数定义与调用关系**：
+   - `slice_long_screenshot_for_ocr`：定义于第 1592~1635 行，基于 PIL 实现 100% 原始宽度横向无损切片（默认高度 1000px，重叠 150px），返回 `[(slice_img, y_offset), ...]`.
+   - `fuzzy_match_fund_by_name`：定义于第 1638~1768 行，提取 A/C 份额特征，支持 29 只实战存量及核心池别名映射 `ALIAS_MAP`，并具备 28,177 基金字典 Bigram + SequenceMatcher 模糊匹配。
+   - `parse_screenshot_ocr_holdings`：定义于第 1770~1930 行，在第 1786 行调用 `slice_long_screenshot_for_ocr` 切片并调用 `RapidOCR`，并在第 1823 行将聚合文本传入 `parse_smart_text_holdings(aggregated_text)`。第 1832 行写道：`if len(clean_res) >= 1: return clean_res`。
+   - `parse_smart_text_holdings`：定义于第 1263~1560 行。
+2. **P0 级链路断层与正则截断实测证据**：
+   - **断层 1：未接入 `fuzzy_match_fund_by_name`**：`parse_smart_text_holdings`（第 1373~1392 行）使用独立的硬编码 `NAME_ALIAS_MAP`（第 1281~1299 行）。例如其定义了 `"黄金ETF": "000216"`（A 类），当输入 `"华安黄金ETF联接C (395.73元)"` 时，直接命中 `"黄金ETF"`，输出错误的 A 类代码 `000216`！经实机探针测试（`test_probe.py`）：
+     - `fuzzy_match_fund_by_name("华安黄金ETF联接C (395.73元)")` -> 准确返回 `{'fund_code': '000217', 'share_class': 'C'}`；
+     - 但 `parse_smart_text_holdings` -> 错误返回 `{'fund_code': '000216', 'share_class': 'A'}`。
+   - **断层 2：纯数字词条盲搜与昨日收益截断**：
+     - 在 `parse_smart_text_holdings` 第 1384 行：`words = re.findall(r'[\u4e00-\u9fa5A-Za-z0-9]+', cleaned_line)`，遍历每个词调用 `search_funds_in_catalog(w, limit=1)`。
+     - 实测命令：`search_funds_in_catalog("05")` 返回了 `005561` 和 `050025`；`search_funds_in_catalog("0")` 返回了 `100032`。
+     - 当输入包含 `"昨日收益 +0.05 34.50"` 时，切词得到的纯数字 `'05'` 或 `'0'` 命中了基金库，代码随即执行 `remain_line.replace(w, " ")`，将 `+0.05` 里的数字剥除，截断成 `0.` 和 `5`，导致金额和盈亏数据彻底错乱。
+     - 第 1420 行的正则清洗 `remain_line = re.sub(r'(?:昨日收益|昨日盈亏|日收益)...', ' ', remain_line)` 被错误地放在了第 1384 行的切词搜索**之后**，导致“昨日收益”包含的数字提前参与了基金匹配。
 
 ---
 
-## 3. 架构设计与代码植入点 (Architecture & Insertion Blueprint)
-
-### 3.1 模块与文件全景依赖图
-```
-AGY2_FundAdvisory/
-├── data_loader.py
-│   └── DataLoader
-│       └── [NEW] compute_ewma_volatility_and_correlation()  <-- R4 底层算子
-├── strategy_bridge.py
-│   └── StrategyBridge
-│       ├── [ENHANCE] compute_dynamic_tier_weights()          <-- R4 倒数配权+纯债压舱
-│       └── [ENHANCE] get_tier_sector_fund_selection()        <-- R5 同公司便利度加分
-└── portfolio_manager.py
-    └── PortfolioManager
-        ├── [NEW] calculate_rebalance_net_utility()          <-- R5 净效用精算拦截核心
-        ├── [ENHANCE] generate_rebalance_plan()              <-- R5 拦截标记与路由优选
-        └── [ENHANCE] compute_fund_six_dimension_score()     <-- R5 转换便利度加分
-```
-
-### 3.2 详细设计规格与代码模板
-
-#### 规范 1：`data_loader.py` 植入点
-- **目标位置**：`data_loader.py` 类 `DataLoader` 内部（建议置于 `simulate_execution` 之前，约第 435 行）。
-- **接口代码**：
-```python
-    @staticmethod
-    def compute_ewma_volatility_and_correlation(
-        df: pd.DataFrame,
-        window: int = 60,
-        span: int = 60,
-        asset_cols: Optional[List[str]] = None
-    ) -> Tuple[pd.Series, pd.DataFrame]:
-        """
-        [R4 核心算子] 实时计算各资产过去 window (60) 日 EWMA 年化波动率与相关性矩阵
-        """
-        default_cols = [
-            'H00300', 'H00905', 'H00852', 'H00922', 'H30269',
-            'STAR50_STITCH', 'AU9999', 'SPX_CNY', '930609', 'H11009'
-        ]
-        cols = [c for c in (asset_cols or default_cols) if c in df.columns]
-        if df is None or len(df) < 10 or not cols:
-            # 优雅降级兜底
-            default_vol = pd.Series({c: 0.18 for c in cols})
-            default_vol['H11009'] = 0.035
-            default_vol['930609'] = 0.030
-            default_vol['H30269'] = 0.140
-            default_vol['AU9999'] = 0.130
-            return default_vol, pd.DataFrame(np.eye(len(cols)), index=cols, columns=cols)
-
-        sub_df = df[cols].tail(window)
-        ret_df = sub_df.pct_change().dropna()
-        if len(ret_df) < 5:
-            default_vol = pd.Series({c: 0.18 for c in cols})
-            return default_vol, pd.DataFrame(np.eye(len(cols)), index=cols, columns=cols)
-
-        # EWMA 方差与年化波动率 sigma = sqrt(252 * var)
-        ewma_var = ret_df.ewm(span=span, adjust=True).var().iloc[-1]
-        # 避免非正方差
-        ewma_var = ewma_var.clip(lower=1e-8)
-        ewma_vol_ann = np.sqrt(ewma_var * 252.0)
-        corr_matrix = ret_df.corr().fillna(0.0)
-
-        return ewma_vol_ann, corr_matrix
-```
-
-#### 规范 2：`strategy_bridge.py` 植入点
-- **目标位置**：`strategy_bridge.py` 中的 `compute_dynamic_tier_weights`（第 2823~3058 行）。
-- **映射关系**：
-```python
-FUND_TO_PROXY_INDEX = {
-    "002351": "H11009", "000086": "H11009", "018757": "H11009",
-    "005561": "H30269", "005562": "H30269",
-    "100032": "H00922", "008682": "H00922",
-    "000216": "AU9999", "000217": "AU9999",
-    "050025": "SPX_CNY", "001071": "SPX_CNY",
-    "011613": "STAR50_STITCH", "011612": "STAR50_STITCH",
-    "001053": "H00905", "161017": "H00905",
-    "016634": "H00852", "016633": "H00852",
-    "013841": "STAR50_STITCH", "013840": "STAR50_STITCH",
-    "007339": "H00300", "110020": "H00300"
-}
-```
-- **核心逻辑重构**：
-```python
-        # 1. 解析基础字典 base_dict (bull_weights / bear_weights / oscillating_weights)
-        # 2. 获取行情矩阵以计算 60 日 EWMA 波动率
-        mat_df = history_df if (history_df is not None and len(history_df) >= 30) else None
-        if mat_df is None:
-            try:
-                mat_df = cls.load_matrix(auto_sync=False)
-            except Exception:
-                mat_df = None
-
-        if mat_df is not None and len(mat_df) >= 30:
-            from data_loader import DataLoader
-            ewma_vols, corr_mat = DataLoader.compute_ewma_volatility_and_correlation(mat_df, window=60, span=60)
-            
-            # 3. 波动率倒数加权与纯债压舱转移
-            adjusted_weights = {}
-            trimmed_budget = 0.0
-            equity_codes = [c for c in target_dict if c not in ["002351", "000086", "018757", "000216", "000217"]]
-            
-            for code, base_w in target_dict.items():
-                if code in equity_codes:
-                    proxy = FUND_TO_PROXY_INDEX.get(code, "H00300")
-                    vol = float(ewma_vols.get(proxy, 0.18))
-                    # 基准波动率设为 0.18，若资产波动率放大 (>0.22)，按比例收缩
-                    scaling = min(1.20, max(0.50, 0.18 / max(vol, 0.08)))
-                    new_w = base_w * scaling
-                    if new_w < base_w:
-                        trimmed_budget += (base_w - new_w)
-                        adjusted_weights[code] = new_w
-                    else:
-                        adjusted_weights[code] = base_w
-                else:
-                    adjusted_weights[code] = base_w
-            
-            # 将溢出的风险预算转移至纯债压舱石 (002351)
-            bond_code = "002351" if "002351" in adjusted_weights else ("000086" if "000086" in adjusted_weights else None)
-            if bond_code and trimmed_budget > 0:
-                adjusted_weights[bond_code] = adjusted_weights.get(bond_code, 0.0) + trimmed_budget
-            
-            target_dict = adjusted_weights
-        
-        # 4. 执行严谨的边界投影与单调性守护 (确保 100% 满足 Challenger-1 压测)
-```
-
-#### 规范 3：`portfolio_manager.py` 净效用拦截器与在途摩擦精算
-- **目标位置**：`portfolio_manager.py` 中新增 `calculate_rebalance_net_utility`，并在 `generate_rebalance_plan`（第 4627 行）中装配。
-- **接口代码**：
-```python
-    def calculate_rebalance_net_utility(
-        self,
-        from_fund_code: str,
-        to_fund_code: str,
-        amount: float,
-        expected_alpha_20d: Optional[float] = None,
-        market_snapshot: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        [R5 核心拦截器] 精算单笔拟调仓净效用 Delta U:
-        Delta U = ExpectedAlphaGain_20d - ExactRedemptionFee(FIFO) - SubscriptionFee - InTransitOpportunityCost(Delta t, sigma_index)
-        """
-        amt = float(max(0.0, amount))
-        from_meta = self.resolve_fund_meta(from_fund_code)
-        to_meta = self.resolve_fund_meta(to_fund_code)
-        
-        # 1. 同公司检测与在途时差
-        is_same_company = bool(
-            from_meta.get("company") and
-            to_meta.get("company") and
-            from_meta.get("company") == to_meta.get("company")
-        )
-        
-        # 2. 真实 FIFO 赎回费测算
-        exact_redemption_fee = 0.0
-        h_from = self.holdings.get(from_fund_code)
-        if h_from and amt > 0:
-            calc_shares = min(h_from.shares, amt / max(h_from.current_nav, 0.001))
-            rem_s = calc_shares
-            for b in h_from.batches:
-                if rem_s <= 1e-4:
-                    break
-                t_s = min(b.shares, rem_s)
-                rate, is_pen, _ = FeeMatrixCalculator.get_redemption_fee_rate(h_from.share_class, b.holding_days)
-                exact_redemption_fee += (t_s * h_from.current_nav * rate)
-                rem_s -= t_s
-        exact_redemption_fee = round(exact_redemption_fee, 2)
-        
-        # 3. 前端申购费测算
-        if is_same_company:
-            # 同公司基金转换享受费率优惠 (补偿转签差价约 0.15% 或 C类0)
-            sub_fee = 0.0 if to_meta.get("share_class") == "C" else round(amt * 0.0015, 2)
-            delta_t_arrive = 0
-            in_transit_cost = 0.0
-        else:
-            # 跨公司赎回再申购
-            sub_calc = FeeMatrixCalculator.calculate_subscription_fee(amt, share_class=to_meta.get("share_class", "A"))
-            sub_fee = sub_calc.get("fee_amount", round(amt * 0.0015, 2))
-            
-            # 在途踏空风险成本: 国内基金 T+2 到账, QDII T+4 到账
-            is_qdii = any(k in to_meta.get("fund_name", "") for k in ["QDII", "标普", "纳斯达克"]) or to_fund_code in ["050025", "001071"]
-            delta_t_arrive = 4 if is_qdii else 2
-            
-            snap = market_snapshot or {}
-            sigma_index = float(snap.get("c300_annualized_vol", 0.18))
-            # 在途风险成本 = Amount * sigma * sqrt(Delta t / 250)
-            in_transit_cost = round(amt * sigma_index * np.sqrt(delta_t_arrive / 250.0), 2)
-            
-        # 4. 20 日预期 Alpha 增益
-        if expected_alpha_20d is not None:
-            exp_alpha = float(expected_alpha_20d)
-        else:
-            # 基于六维总分差推算预期年化超额 (每分约对应 0.2% 年化超额)
-            score_to = self.compute_fund_six_dimension_score(to_fund_code).get("total_score", 85.0)
-            score_from = self.compute_fund_six_dimension_score(from_fund_code).get("total_score", 80.0)
-            alpha_annual = max(0.0, (score_to - score_from) * 0.002)
-            exp_alpha = round(amt * alpha_annual * (20.0 / 250.0), 2)
-            
-        # 5. 净效用 Delta U 与拦截判定
-        total_friction = round(exact_redemption_fee + sub_fee + in_transit_cost, 2)
-        delta_u = round(exp_alpha - total_friction, 2)
-        
-        min_threshold = 0.0
-        should_intercept = (delta_u <= min_threshold)
-        
-        interception_badge = "🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动" if should_intercept else "✅ 预期收益覆盖摩擦，建议调仓"
-        
-        return {
-            "from_fund_code": from_fund_code,
-            "to_fund_code": to_fund_code,
-            "amount": amt,
-            "is_same_company": is_same_company,
-            "delta_t_arrive": delta_t_arrive,
-            "expected_alpha_gain_20d": exp_alpha,
-            "exact_redemption_fee": exact_redemption_fee,
-            "subscription_fee": sub_fee,
-            "in_transit_opportunity_cost": in_transit_cost,
-            "total_friction_and_risk_cost": total_friction,
-            "delta_u": delta_u,
-            "should_intercept": should_intercept,
-            "interception_badge": interception_badge
-        }
-```
-
-#### 规范 4：同公司选基便利度加分 (Convenience Bonus)
-- **目标位置**：`portfolio_manager.py:compute_fund_six_dimension_score` 与 `strategy_bridge.py:get_tier_sector_fund_selection`。
-- **机制**：
-  若备选基金所属基金公司在用户当前持仓公司集合 `held_companies = {h.company for h in self.holdings.values() if h.shares > 0}` 中，在六维打分中赋予 `+5.0` 分：
+### 1.3 `advisory_engine.py` 成本属性写错 Bug
+- 在 `advisory_engine.py` 第 4284 行：
   ```python
-  if fund_company and fund_company in held_companies:
-      switch_convenience_bonus = 5.0
-      total_score = min(100.0, total_score + switch_convenience_bonus)
+  cost_v = float(getattr(h, "cost_value", 0.0) or (h.get("cost_value", 0.0) if isinstance(h, dict) else 0.0))
+  pl_ratio = (mv / cost_v - 1.0) if cost_v > 0 else 0.0
   ```
-  引导算法在同赛道多标的竞争时，自动推荐与现有持仓同门派的冠军，消除在途摩擦。
+- `HoldingItem`（`portfolio_manager.py` 第 34~68 行）及账本 JSON 字典中，真实持仓成本属性名为 `cost_price`（成本净值）与 `cost_basis`（成本总金额），根本不存在 `cost_value`！
+- 这导致 `cost_v` 永远为 `0.0`，`pl_ratio` 永远为 `0.0`，第 4288 行 `if pl_ratio < -0.10:` 永远无法触发，五维备忘录对账户中深套超 10% 的亏损标的漏检率达 100%。
 
 ---
 
-## 4. 边界与注意事项 (Caveats)
+## 2. Logic Chain (推理与逻辑链)
 
-1. **测试性能与并发开销**：
-   `test_stress_quant_model_challenger.py` 包含从 1000 点到 10000 点的全域点位扫描与极端扰动测试。`compute_dynamic_tier_weights` 必须保持极高计算效率（建议缓存 60 日 EWMA 序列，避免每一轮重算全量 Parquet）。
-2. **空矩阵与极端非标入参容错**：
-   在单元测试中，部分测试用例会传入 `history_df=None` 或极短的 DataFrame（如 10 行）。此时必须平滑回退至预置基准字典，严禁抛出 `IndexError` 或 `KeyError`。
-3. **持仓状态持久化与在途队列隔离**：
-   当 `Delta U <= 0` 触发拦截并标记为 `🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动` 时，该路由不得生成执行订单，避免向 `pending_orders` 写入无效换仓单。
-
----
-
-## 5. 结论 (Conclusion)
-
-- **可行性论证**：R4 与 R5 的量化数学逻辑完全内生封闭，不依赖任何外部黑盒 API，完全符合因果律与防作弊规范。
-- **分工接口契约**：
-  - **Agent-2** 可直接在 `data_loader.py` 中植入 `DataLoader.compute_ewma_volatility_and_correlation`，在 `strategy_bridge.py` 中重构 `compute_dynamic_tier_weights`。
-  - **Agent-2** 与 **Agent-3** 协同在 `portfolio_manager.py` 中集成 `calculate_rebalance_net_utility` 与同公司便利度加分，并向 `generate_rebalance_plan` 注入拦截标记。
-  - 4 个系统只读裁判基建文件（`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`）继续受到严格隔离保护。
+1. **顶栏架构统一性**：
+   - 观察 1.1 显示，当前顶栏缺失，且模式切换与账本切换分散在侧边栏和 Tab 2，导致移动端和首屏存在死胡同。
+   - 因此，最合理的架构是将全局紧凑控制条提升到 `app_gui.py` 第 2825 行（即侧边栏渲染结束后、手机模式分支 `if st.session_state.get("app_view_layout_mode") == ...` 之前）。
+   - 这样无论是桌面端还是手机端，都能在页面最顶部获得一致的品牌标识、实时行情源指示、账本切换下拉框以及桌面/手机视图切换胶囊。
+2. **手机模式真闭环设计**：
+   - 观察 1.1 表明手机模式中当前长截图上传是仅含文字提示的空桩（第 2941 行）。
+   - 同时观察 1.1 显示桌面端 Tab 2（第 5123~5205 行）已具备成熟的 `pm.parse_screenshot_ocr_holdings` 解析、表格预览与确认入库逻辑。
+   - 因此，应将该完整链路平移至手机视图，并在手机视图下呈现紧凑预览表（含反推投入本金 `cost_basis = mv - pnl`）与「一键覆盖写入当前账本」/「追加合并」按钮，并与 Session State 状态管理深度闭环。
+3. **OCR 与智能匹配链路打通**：
+   - 观察 1.2 表明，`parse_screenshot_ocr_holdings` 优先调用 `parse_smart_text_holdings`，而后者因未调用 `fuzzy_match_fund_by_name` 导致 A/C 份额错乱且因纯数字搜索导致昨日收益数字截断。
+   - 修复逻辑：必须在 `parse_smart_text_holdings` 行首优先剥离“昨日收益”及数值，并直接调用 `fuzzy_match_fund_by_name(cleaned_line)`，禁止对 `w.isdigit()` 的纯数字执行基金库搜索。由于 `parse_screenshot_ocr_holdings` 依赖该函数，此修复可一箭双雕同时修复文本导入与截图 OCR。
 
 ---
 
-## 6. 独立验证方法 (Verification Method)
+## 3. Caveats (限制条件与边界假设)
 
-在实施完成后，可通过以下命令与测试用例进行独立验证：
+1. **只读保护红线**：
+   - 本调查严格遵守只读契约，未修改任何项目业务代码。
+   - 裁判文件 `judge_engine.py`、`holdout_vault.py`、`AGENT_SPEC.md`、`tests/test_infra.py` 必须保持绝对零修改。
+2. **OCR 运行环境依赖**：
+   - `RapidOCR` 需要本地 `rapidocr_onnxruntime` 库及 ONNX 权重文件支持。若在无 GPU/低配机器上解析超大长截图，切片数量较多可能需要 2~4 秒执行时间，需在前端包裹 `st.spinner` 并利用 Session State 对同图哈希进行结果缓存。
+3. **29 基账本幂等挂载**：
+   - `multi_ledger_manager.py` 已内置 `combat_29_funds`（总市值 ¥26,615.10，投入本金 ¥27,568.50），在 `list_ledgers()` 中其 ID 为 `"combat_29_funds"`，系统已能稳定识别与切换。
 
-1. **基建与裁判测试验证**：
-   ```powershell
-   cd AGY2_FundAdvisory
-   python -m pytest tests/test_infra.py -q
+---
+
+## 4. Conclusion (重构设计与方案细则)
+
+### 4.1 方案 A：`app_gui.py` 首屏全局顶栏与手机模式深度重构
+
+#### 1. 全局顶栏插入位置与组件设计（插入于 `app_gui.py` 约第 2826 行）
+在进入 `if st.session_state.get("app_view_layout_mode") == "📱 手机极简盯盘":` 分支前，渲染全局紧凑顶栏：
+```python
+# -------------------------------------------------------------
+# 🌐 全局紧凑顶栏：品牌标识 + 行情源角标 + 激活账本切换 + 视图模式切换
+# -------------------------------------------------------------
+mlm_inst = st.session_state.get("mlm") or (MultiLedgerManager.get_instance() if MultiLedgerManager else None)
+all_ledgers = mlm_inst.list_ledgers() if mlm_inst else []
+avail_lids = [l["id"] for l in all_ledgers]
+active_lid = st.session_state.get("active_ledger_id", "main_live")
+if active_lid not in avail_lids:
+    active_lid = "main_live" if "main_live" in avail_lids else (avail_lids[0] if avail_lids else "main_live")
+    st.session_state.active_ledger_id = active_lid
+
+col_top_brand, col_top_ledger, col_top_mode = st.columns([4.2, 3.8, 2.0])
+
+with col_top_brand:
+    # 品牌与行情源角标单行渲染
+    safe_markdown_html(f"""
+    <div style="display: flex; align-items: center; gap: 8px; padding-top: 4px;">
+        <span style="font-size: 15px; font-weight: 800; color: var(--text-primary); white-space: nowrap;">🧭 AGY2 智投量化终端</span>
+        <span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgba(16,185,129,0.1); color: var(--color-down); border: 1px solid rgba(16,185,129,0.25); white-space: nowrap;">
+            {data_src_badge} ｜ {latest_date}
+        </span>
+    </div>
+    """)
+
+with col_top_ledger:
+    def _fmt_topbar_ledger(lid: str) -> str:
+        m = mlm_inst.get_ledger_meta(lid) or {}
+        tag = "🟢 [实盘]" if m.get("type") == "live" else ("🧪 [沙盒]" if m.get("type") == "sandbox" else "👨‍👩‍👧 [家庭]")
+        try:
+            eq = float(mlm_inst.get_pm(lid).total_equity)
+        except Exception:
+            eq = 0.0
+        return f"{tag} {m.get('name', lid)} (¥{eq:,.0f})"
+
+    active_idx = next((i for i, l in enumerate(all_ledgers) if l["id"] == active_lid), 0)
+    selected_lid = st.selectbox(
+        "当前激活账本",
+        options=[l["id"] for l in all_ledgers],
+        index=active_idx,
+        format_func=_fmt_topbar_ledger,
+        key=f"topbar_ledger_select_{active_lid}",
+        label_visibility="collapsed"
+    )
+    if selected_lid != active_lid:
+        switch_active_ledger(selected_lid)
+        st.rerun()
+
+with col_top_mode:
+    # 视图模式切换胶囊
+    cur_mode = st.session_state.get("app_view_layout_mode", "🖥️ 桌面专业模式")
+    mode_opts = ["🖥️ 桌面专业", "📱 手机盯盘"]
+    cur_idx = 0 if "桌面" in cur_mode else 1
+    if hasattr(st, "segmented_control"):
+        sel_mode = st.segmented_control(
+            "视图模式",
+            options=mode_opts,
+            default=mode_opts[cur_idx],
+            key="seg_topbar_view_mode",
+            label_visibility="collapsed"
+        )
+    else:
+        sel_mode = st.radio(
+            "视图模式",
+            options=mode_opts,
+            index=cur_idx,
+            horizontal=True,
+            key="rad_topbar_view_mode",
+            label_visibility="collapsed"
+        )
+    target_full_mode = "🖥️ 桌面专业模式" if "桌面" in (sel_mode or "") else "📱 手机极简盯盘"
+    if target_full_mode != cur_mode:
+        st.session_state.app_view_layout_mode = target_full_mode
+        st.rerun()
+
+st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+```
+
+#### 2. 手机极简盯盘视图重构（`app_gui.py` 第 2828~2945 行）
+在 `if st.session_state.get("app_view_layout_mode") == "📱 手机极简盯盘":` 分支内，构建 5 张垂直流式卡片：
+1. **卡片 1：总资产与预估盈亏卡**（保留并微调间距与大字号）。
+2. **卡片 2：🧭 首席投顾五维决策备忘录摘要卡**：
+   - 提取 `generate_chief_advisor_memo(snapshot=snapshot, holdings=pm.holdings, ...)` 结果；
+   - 渲染宏观政策、产业估值、持仓病灶及 14:30 明确行动的紧凑徽章与 1 行核心人话结论。
+3. **卡片 3：🧹 碎片尾仓一键清扫卡**：
+   - 检查 `pm.holdings` 中市值 `< 200.0` 且持有天数 `>= 30` 的标的；
+   - 若存在（如 29 基账本命中 19 只共 ¥442.70），渲染橙色清扫提示卡与 `st.button("🧹 一键模拟/清扫碎片尾仓归拢至纯债", key="btn_mob_sweep_tails")`。
+4. **卡片 4：⏱️ 14:30 尾盘关键操作指令与核心风险提醒**：
+   - 结合交易时钟状态、未满 7 天锁仓保护与主动风控哨前 3 条告警，提供可一键复制的下单小抄。
+5. **卡片 5：📸 手机持仓长截图真 OCR 切片解析与一键入库闭环**：
+   ```python
+   st.markdown("##### 📸 手机持仓长截图智能切片识别")
+   mob_img = st.file_uploader("上传支付宝/天天基金/招行等长截图", type=["png", "jpg", "jpeg", "webp"], key="mob_ocr_file_uploader")
+   if mob_img is not None:
+       img_bytes = mob_img.getvalue()
+       cache_key = f"mob_ocr_parsed_{mob_img.name}_{len(img_bytes)}"
+       if cache_key not in st.session_state:
+           with st.spinner("🔍 正在执行高清切片 OCR 识别与基金字典智能对齐..."):
+               try:
+                   parsed_ocr = pm.parse_screenshot_ocr_holdings(img_bytes)
+                   st.session_state[cache_key] = parsed_ocr
+                   st.session_state["shared_ocr_parsed_items"] = parsed_ocr
+               except Exception as e_ocr:
+                   st.error(f"截图解析异常: {e_ocr}")
+                   st.session_state[cache_key] = []
+       
+       parsed_items = st.session_state.get(cache_key) or []
+       if parsed_items:
+           tot_ocr_mv = sum(float(it.get("market_value", 0.0)) for it in parsed_items)
+           tot_ocr_pnl = sum(float(it.get("floating_pnl", 0.0)) for it in parsed_items)
+           tot_ocr_cost = tot_ocr_mv - tot_ocr_pnl
+           st.success(f"✅ 成功识别 {len(parsed_items)} 只基金！合计市值 ¥{tot_ocr_mv:,.2f} ｜ 投入本金 ¥{tot_ocr_cost:,.2f} ｜ 累计盈亏 ¥{tot_ocr_pnl:+,.2f}")
+           
+           df_preview = pd.DataFrame([{
+               "基金代码": it.get("fund_code", ""),
+               "基金名称": it.get("fund_name", ""),
+               "持有市值(元)": float(it.get("market_value", 0.0)),
+               "持有收益(元)": float(it.get("floating_pnl", 0.0)),
+               "投入成本(元)": float(it.get("cost_basis", 0.0)),
+               "份额类别": it.get("share_class", "A"),
+               "持有天数": int(it.get("holding_days", 365)),
+           } for it in parsed_items])
+           
+           edited_ocr_df = st.data_editor(df_preview, use_container_width=True, num_rows="dynamic", key="mob_ocr_editor")
+           
+           c_mob_act1, c_mob_act2 = st.columns(2)
+           with c_mob_act1:
+               if st.button("✅ 一键覆盖写入当前账本", type="primary", use_container_width=True, key="btn_mob_ocr_replace"):
+                   rows = edited_ocr_df.to_dict(orient="records")
+                   pm.import_from_smart_text(rows, replace_existing=True)
+                   pm.save_state()
+                   st.session_state.tab2_diag_cache = None
+                   st.session_state.tab2_rebal_cache = None
+                   st.success(f"✅ 已成功覆盖写入【{active_lid}】！")
+                   st.rerun()
+           with c_mob_act2:
+               if st.button("➕ 追加合并写入当前账本", use_container_width=True, key="btn_mob_ocr_append"):
+                   rows = edited_ocr_df.to_dict(orient="records")
+                   pm.import_from_smart_text(rows, replace_existing=False)
+                   pm.save_state()
+                   st.session_state.tab2_diag_cache = None
+                   st.session_state.tab2_rebal_cache = None
+                   st.success(f"✅ 已成功追加合并至【{active_lid}】！")
+                   st.rerun()
    ```
-   *断言*：15 项基建测试全部通过，无日历硬编码或因果泄露。
 
-2. **R4 动态风险预算与对抗压测验证**：
+---
+
+### 4.2 方案 B：`portfolio_manager.py` 解析主干与模糊匹配器闭环打通
+
+1. **`parse_smart_text_holdings`（第 1360~1395 行）重构要点**：
+   - **第一步：前置剔除“昨日收益”干扰**：
+     在行首匹配基金代码前，先执行：
+     ```python
+     remain_line = re.sub(r'(?:昨日收益|昨日盈亏|日收益)\s*[+-]?\d+(?:,\d{3})*(?:\.\d+)?', ' ', cleaned_line)
+     ```
+   - **第二步：优先提取 6 位数字基金代码**（保留原有 `re.search(r'\b(\d{6})\b', remain_line)`）。
+   - **第三步：若无 6 位代码，直接调用 `fuzzy_match_fund_by_name`**：
+     彻底删除旧的 `NAME_ALIAS_MAP` 遍历与切词数字盲搜，直接调用：
+     ```python
+     f_match = fuzzy_match_fund_by_name(remain_line)
+     if f_match and f_match.get("score", 0) >= 0.50:
+         fund_code = f_match["fund_code"]
+         fund_name = f_match["fund_name"]
+         share_class = f_match.get("share_class", "A")
+         # 从 remain_line 中安全剔除匹配到的名称与代码
+         remain_line = remain_line.replace(fund_code, " ")
+         if f_match.get("raw_keyword"):
+             remain_line = remain_line.replace(f_match["raw_keyword"], " ")
+     ```
+   - **第四步：切词搜索安全防护**：
+     若必须保留分词兜底，强制增加防护：
+     ```python
+     words = [w for w in re.findall(r'[\u4e00-\u9fa5A-Za-z0-9]+', remain_line) if not w.isdigit() and len(w) >= 2]
+     ```
+     彻底杜绝将 `'05'`、`'34'` 等数值误当成基金名称送入 `search_funds_in_catalog`。
+
+2. **`parse_screenshot_ocr_holdings` 与空间块聚类优化**：
+   - 经过上述对 `parse_smart_text_holdings` 的升级，`parse_screenshot_ocr_holdings` 在第 1823 行调用聚合文本解析时，将直接享有 `fuzzy_match_fund_by_name` 带来的 100% 准确别名与 A/C 份额识别能力。
+
+---
+
+### 4.3 方案 C：`advisory_engine.py` 修复成本属性名 Bug
+
+在 `advisory_engine.py` 第 4284 行：
+将原代码：
+```python
+cost_v = float(getattr(h, "cost_value", 0.0) or (h.get("cost_value", 0.0) if isinstance(h, dict) else 0.0))
+pl_ratio = (mv / cost_v - 1.0) if cost_v > 0 else 0.0
+```
+修改为安全兼容的多字段回退逻辑：
+```python
+# 优先读取 cost_basis 与 cost_price
+cost_v = float(
+    getattr(h, "cost_basis", 0.0)
+    or (getattr(h, "cost_price", 0.0) * getattr(h, "shares", 0.0))
+    or (getattr(h, "cost_nav", 0.0) * getattr(h, "shares", 0.0))
+    or getattr(h, "cost_value", 0.0)
+    or (h.get("cost_basis", 0.0) if isinstance(h, dict) else 0.0)
+    or (h.get("cost_price", 0.0) * h.get("shares", 0.0) if isinstance(h, dict) else 0.0)
+)
+if cost_v > 0:
+    pl_ratio = (mv / cost_v - 1.0)
+elif hasattr(h, "floating_pnl_pct") and getattr(h, "floating_pnl_pct") is not None:
+    pl_ratio = float(getattr(h, "floating_pnl_pct", 0.0)) / 100.0
+elif isinstance(h, dict) and "floating_pnl_pct" in h:
+    pl_ratio = float(h.get("floating_pnl_pct", 0.0)) / 100.0
+else:
+    pl_ratio = 0.0
+```
+并在 Tab 1 传入 `holdings` 为纯权重字典时，增加 `if all(isinstance(v, float) and v <= 1.0 for v in holdings.values())` 判断，跳过存量碎片与亏损检查，杜绝报出“6只碎片合计¥1.00”的乌龙。
+
+---
+
+## 5. Verification Method (独立核验与验收指令)
+
+后续实现智能体（或终审验证者）可通过以下步骤独立复现与验证：
+
+1. **静态代码核验**：
+   - 检查 `app_gui.py` 是否在第 2826 行前后新增全局顶栏（包含 `st.selectbox` 切换 `combat_29_funds` 与 `main_live`，以及 `segmented_control` 切换模式）；
+   - 检查手机模式第 2939 行是否已接入 `pm.parse_screenshot_ocr_holdings` 并具备 `st.data_editor` 与入库按钮；
+   - 检查 `portfolio_manager.py` 第 1373 行是否调用 `fuzzy_match_fund_by_name`，且排除 `w.isdigit()`；
+   - 检查 `advisory_engine.py` 第 4284 行是否修正为 `cost_basis` / `cost_price`。
+
+2. **自动化测试命令**：
+   在工作区根目录下执行测试套件：
    ```powershell
-   cd AGY2_FundAdvisory
-   python -m pytest tests/test_stress_quant_model_challenger.py tests/test_dynamic_risk_and_metrics.py -q
+   pytest tests/test_infra.py tests/test_adv_final_closure.py tests/test_gui_multi_ledger_stress.py -v
    ```
-   *断言*：全域点位扫描不倒挂、单调性定理 `Equity(C1) < Equity(C2) < Equity(C3) < Equity(C4) < Equity(C5)` 恒成立，熊市 C4/C5 减仓防爆仓通过。
-
-3. **R5 交易时钟、费率与在途拦截专项验证**：
+   并运行探针脚本验证模糊匹配与 OCR：
    ```powershell
-   cd AGY2_FundAdvisory
-   python -m pytest tests/test_trading_clock_fee.py tests/test_portfolio_manager.py -q
+   py -3 d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_2\test_probe.py
    ```
-   *断言*：FIFO 批次扣减、7天强拦截、在途踏空成本与 `🛡️ 摩擦/在途损耗大于预期收益，建议原地持仓不动` 拦截标记准确触发。
+   断言 `"华安黄金ETF联接C"` 解析结果之 `fund_code == '000217'` 且 `share_class == 'C'`。
 
-4. **全量回归基线验证 (Empirical Baseline Pass)**：
+3. **四裁判文件零修改验证**：
    ```powershell
-   cd AGY2_FundAdvisory
-   python -m pytest tests/ -q
+   git status --porcelain judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py
    ```
-   *实测基线*：全量套件共 246 项测试（`246 passed in 408.77s`，零错误通过）。任何新增算法与修改均须保持此全量回归 100% 通过。
-
+   输出必须严格为空，确保物理安全红线零触碰。

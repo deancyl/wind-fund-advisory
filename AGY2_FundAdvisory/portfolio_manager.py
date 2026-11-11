@@ -1278,26 +1278,6 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
 
     raw_text = str(text).strip()
 
-    NAME_ALIAS_MAP = {
-        "科创50C": "011613", "科创50 C": "011613", "华夏科创50C": "011613", "科创50": "011613",
-        "科创50A": "011612", "科创50 A": "011612", "华夏科创50A": "011612",
-        "红利低波": "005561", "创金合信红利低波": "005561", "创金合信": "005561", "红利低波A": "005561",
-        "华泰柏瑞低波": "005561", "华泰低波": "005561", "低波": "005561",
-        "中证红利": "100032", "富国中证红利": "100032", "富国红利": "100032", "富国红利A": "100032",
-        "富国红利C": "008682", "中证红利C": "008682",
-        "纯债": "002351", "易方达裕祥": "002351", "裕祥回报": "002351", "裕祥": "002351",
-        "黄金": "000216", "华安黄金": "000216", "黄金ETF": "000216", "黄金A": "000216", "黄金C": "000217",
-        "标普500": "050025", "博时标普": "050025", "标普": "050025", "博时标普500": "050025",
-        "摩根标普": "001071", "摩根标普500": "001071",
-        "中证1000": "016634", "富国1000": "016634", "1000C": "016634",
-        "中证500": "001053", "华夏500": "001053", "500C": "001053",
-        "沪深300": "007339", "易方达300": "007339", "300C": "007339",
-        "易方达蓝筹": "005827", "蓝筹": "005827", "蓝筹精选": "005827",
-        "集成电路": "013841", "银华集成电路": "013841", "半导体": "013841",
-        "红利质量": "016440", "纳斯达克": "017436", "稳益增强": "018757",
-        "白酒": "161725", "招商白酒": "161725"
-    }
-
     if "\n" in raw_text:
         raw_lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
     elif "；" in raw_text:
@@ -1314,10 +1294,17 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
         clean_s = re.sub(r'[\s\(\)（）:：¥元,，]', '', s)
         if any(stop in clean_s for stop in ["持有金额", "持有收益", "昨日收益", "累计收益", "日收益", "持有天数", "持仓份额"]):
             return False
-        for a_k in NAME_ALIAS_MAP.keys():
-            if a_k in clean_s:
+        # 优先使用 fuzzy_match_fund_by_name 判断是否为有效基金行
+        try:
+            f_test = fuzzy_match_fund_by_name(clean_s)
+            if f_test and f_test.get("score", 0) >= 0.45:
                 return True
-        return any(w in clean_s for w in ["ETF", "联接", "混合", "债券", "指数", "基金", "价值", "成长", "回报", "精选", "优势"])
+        except Exception:
+            pass
+        return any(w in clean_s for w in [
+            "ETF", "联接", "混合", "债券", "指数", "基金", "价值", "成长", "回报",
+            "精选", "优势", "红利", "低波", "蓝筹", "标普", "纳指", "白酒", "新能源", "芯片", "半导体", "黄金", "纯债"
+        ])
 
     def _line_has_val(s: str) -> bool:
         rem = re.sub(r'\b\d{6}\b', '', s)
@@ -1351,7 +1338,6 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
 
     lines = aggregated_blocks
 
-
     parsed_results = []
     combined_pool = {**CORE_STRATEGY_POOL, **EXTENDED_FUND_CATALOG}
 
@@ -1362,26 +1348,33 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
 
         fund_code = None
         fund_name = None
+        share_class = None
+
+        # 0. 优先前置使用正则剥离昨日收益/日收益及其数值，防止昨日收益数字被误当成基金代码或金额
+        remain_line = re.sub(r'(?:昨日收益|昨日盈亏|日收益)[:：\s]*[+-]?[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?', ' ', cleaned_line)
+        remain_line = re.sub(r'(?:昨日收益|昨日盈亏|日收益)', ' ', remain_line)
 
         # 1. 优先提取 6 位基金代码
-        code_match = re.search(r'\b(\d{6})\b', cleaned_line)
+        code_match = re.search(r'\b(\d{6})\b', remain_line)
         if code_match:
             fund_code = code_match.group(1)
-            remain_line = cleaned_line.replace(fund_code, " ")
+            remain_line = remain_line.replace(fund_code, " ")
         else:
-            remain_line = cleaned_line
-            # 2. 尝试别名匹配 (按长度降序优先匹配最长别名)
-            sorted_aliases = sorted(NAME_ALIAS_MAP.keys(), key=lambda x: len(x), reverse=True)
-            for alias in sorted_aliases:
-                if alias in cleaned_line:
-                    fund_code = NAME_ALIAS_MAP[alias]
-                    fund_name = alias
-                    remain_line = remain_line.replace(alias, " ")
-                    break
+            # 2. 直接调用 fuzzy_match_fund_by_name 进行模糊与别名精准匹配
+            f_match = fuzzy_match_fund_by_name(remain_line)
+            if f_match and f_match.get("score", 0) >= 0.45:
+                fund_code = f_match["fund_code"]
+                fund_name = f_match["fund_name"]
+                share_class = f_match.get("share_class", "A")
+                remain_line = remain_line.replace(fund_code, " ")
+                if fund_name in remain_line:
+                    remain_line = remain_line.replace(fund_name, " ")
+                if f_match.get("raw_keyword"):
+                    remain_line = remain_line.replace(f_match["raw_keyword"], " ")
 
-            # 3. 搜索本地全量库
+            # 3. 若仍未匹配，分词搜索全量库（严格排除纯数字 w.isdigit() 且长度 >= 2）
             if not fund_code:
-                words = re.findall(r'[\u4e00-\u9fa5A-Za-z0-9]+', cleaned_line)
+                words = [w for w in re.findall(r'[\u4e00-\u9fa5A-Za-z0-9]+', remain_line) if not w.isdigit() and len(w) >= 2]
                 for w in words:
                     matches = search_funds_in_catalog(w, limit=1)
                     if matches:
@@ -1396,12 +1389,18 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
         meta = combined_pool.get(fund_code, {})
         if not fund_name:
             fund_name = meta.get("fund_name", f"基金_{fund_code}")
-        share_class = meta.get("share_class", "C" if fund_code.endswith("3") or fund_code.endswith("7") or "C" in fund_name else "A")
+        if not share_class:
+            share_class = meta.get("share_class", "C" if fund_code.endswith("3") or fund_code.endswith("7") or "C" in fund_name else "A")
 
         # 将已识别的中文名与大盘缩写从 remain_line 中清理，避免基金名中的数字（如科创50的50、中证1000的1000）被误识别为金额
         if fund_name in remain_line:
             remain_line = remain_line.replace(fund_name, " ")
-        for alias_kw in ["科创50", "中证1000", "中证500", "沪深300", "标普500", "30天"]:
+        for alias_kw in [
+            "科创50", "中证1000", "中证500", "沪深300", "标普500", "30天",
+            "红利低波", "中证红利", "裕祥回报", "华安黄金", "黄金ETF", "白酒",
+            "集成电路", "动漫游戏", "新能源", "半导体", "纳斯达克100", "纳指",
+            "ETF联接", "ETF", "联接", "A类", "C类"
+        ]:
             remain_line = remain_line.replace(alias_kw, " ")
 
         amount = 0.0
@@ -1685,28 +1684,34 @@ def fuzzy_match_fund_by_name(
     # 4. 29 只实战存量及核心策略池精准别名优先映射
     ALIAS_MAP = {
         "红利低波": "005561", "创金合信红利低波": "005561", "创金合信中证红利低波": "005561", "创金合信中证红利": "005561",
+        "创金合信": "005561" if share_class != "C" else "005562", "创金合信红利": "005561" if share_class != "C" else "005562",
+        "华泰柏瑞低波": "005561", "华泰低波": "005561", "低波": "005561",
         "沪深300": "110020" if share_class != "C" else "007339", "易方达沪深300": "110020" if share_class != "C" else "007339",
-        "纳斯达克100": "017436", "华安纳斯达克100": "017436", "纳指": "017436",
+        "易方达300": "007339" if share_class == "C" else "110020", "300C": "007339",
+        "纳斯达克100": "017436", "华安纳斯达克100": "017436", "纳指": "017436", "纳斯达克": "017436",
         "裕祥回报": "002351" if share_class != "C" else "002352", "易方达裕祥": "002351" if share_class != "C" else "002352",
+        "纯债": "002351" if share_class != "C" else "002352", "裕祥": "002351" if share_class != "C" else "002352",
         "富国中证红利": "100032" if share_class != "C" else "008682", "富国红利增强": "100032" if share_class != "C" else "008682",
-        "富国红利": "100032" if share_class != "C" else "008682",
+        "富国红利": "100032" if share_class != "C" else "008682", "中证红利": "100032" if share_class != "C" else "008682",
         "科创50": "011613" if share_class == "C" else "011612", "华夏科创50": "011613" if share_class == "C" else "011612",
         "华夏上证科创板50": "011613" if share_class == "C" else "011612", "科创板50": "011613" if share_class == "C" else "011612",
         "华安黄金": "000216" if share_class != "C" else "000217", "黄金ETF联接": "000216" if share_class != "C" else "000217",
+        "黄金ETF": "000216" if share_class != "C" else "000217", "黄金": "000216" if share_class != "C" else "000217",
         "招商中证白酒": "161725", "招商白酒": "161725", "中证白酒": "161725", "白酒": "161725",
-        "易方达蓝筹": "005827", "蓝筹精选": "005827", "易方达蓝筹精选": "005827",
+        "易方达蓝筹": "005827", "蓝筹精选": "005827", "易方达蓝筹精选": "005827", "蓝筹": "005827",
         "银华集成电路": "013841" if share_class == "C" else "013840", "集成电路混合": "013841" if share_class == "C" else "013840",
-        "富国中证1000": "016634" if share_class == "C" else "016633",
-        "华夏中证500": "001053" if share_class == "C" else "001052",
-        "博时标普500": "050025", "标普500ETF联接": "050025",
+        "集成电路": "013841" if share_class == "C" else "013840", "半导体": "013841" if share_class == "C" else "013840",
+        "富国中证1000": "016634" if share_class == "C" else "016633", "1000C": "016634", "富国1000": "016634" if share_class == "C" else "016633",
+        "华夏中证500": "001053" if share_class == "C" else "001052", "500C": "001053", "华夏500": "001053" if share_class == "C" else "001052",
+        "博时标普500": "050025", "标普500ETF联接": "050025", "标普500": "050025", "博时标普": "050025", "标普": "050025",
         "华夏中证红利质量": "016441" if share_class == "C" else "016440", "红利质量": "016441" if share_class == "C" else "016440",
         "南方中证新能源": "012832" if share_class == "C" else "012831",
         "华夏中证动漫游戏": "012769" if share_class == "C" else "012768", "动漫游戏": "012769" if share_class == "C" else "012768",
         "博时黄金": "002611" if share_class == "C" else "002610",
         "富国周期优势": "019260",
         "华夏中小板": "000086",
-        "招商中证红利": "018757" if share_class == "C" else "018756",
-        "摩根标普500": "001071",
+        "招商中证红利": "018757" if share_class == "C" else "018756", "稳益增强": "018757" if share_class == "C" else "018756",
+        "摩根标普500": "001071", "摩根标普": "001071",
         "汇添富中证红利低波": "006113", "汇添富红利低波": "006113",
         "广发中证500": "004854",
         "华安安顺": "001595",
@@ -1726,7 +1731,7 @@ def fuzzy_match_fund_by_name(
             if not fn:
                 fn = clean_name
             s_cls = share_class or ("C" if "C" in fn or code.endswith("3") or code.endswith("7") else "A")
-            return {"fund_code": code, "fund_name": fn, "share_class": s_cls, "score": 0.95}
+            return {"fund_code": code, "fund_name": fn, "share_class": s_cls, "score": 0.95, "raw_keyword": k}
 
     # 5. 全量 28,177 基金字典模糊匹配
     import difflib
@@ -1928,6 +1933,9 @@ def parse_screenshot_ocr_holdings(image_bytes: bytes) -> List[Dict[str, Any]]:
         })
 
     return structured_holdings
+
+
+parse_long_screenshot_holdings = parse_screenshot_ocr_holdings
 
 
 # 核心底层重仓股财务与排雷真实特征字典 (杜绝 2.4% 假常数，按真实行业特征精准赋值)
@@ -9144,6 +9152,10 @@ class PortfolioManager:
 
     def parse_screenshot_ocr_holdings(self, image_bytes: bytes) -> List[Dict[str, Any]]:
         """手机长截图高清切片 OCR 识别与基金对齐"""
+        return parse_screenshot_ocr_holdings(image_bytes)
+
+    def parse_long_screenshot_holdings(self, image_bytes: bytes) -> List[Dict[str, Any]]:
+        """手机长截图高清切片 OCR 识别与基金对齐 (兼容别名)"""
         return parse_screenshot_ocr_holdings(image_bytes)
 
     @staticmethod

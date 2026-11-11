@@ -56,7 +56,7 @@
 | M1 | 根治 5 处 UI/UX 缺陷与代码对齐 Bug，砍除 3D 曲面图与 RuleTree 代码框 | Features 1-5: 3D/RuleTree 移除, 右翼预警对接, Tab 2 表头与按钮重构, Tab 4 分段导航与 017436 名称归一, 手机极简视图 | none | DONE |
 | M2 | 实装五维全息投顾首席备忘录与历史任意时点盲测时光机验证器 | Features 6-9: generate_chief_advisor_memo 算子, render_chief_advisor_memo_card, run_historical_time_machine_backtest, Tab 3 时光机前端 | M1 | DONE |
 | M3 | 实装手机长截图高清切片识别导入、碎片尾仓免赎清理器与 29 基真实存量账本 | Features 10-15: slice_long_screenshot_for_ocr, 本地 RapidOCR 识别, 截图导入弹窗, 碎片尾仓清理诊断, 预置 combat_29_funds 账本与体检 | M1, M2 | DONE |
-| M4 | 物理红线校验、全量测试回归、服务平滑重启、/browser 页面走查验收与 G16 指令 | Features 16-18: 物理红线校验, 针对性测试与全量回归, 8501 平滑重启, /browser 走查, Git tag v4.5-G15, 纯文本无冒号 G16 指令 | M1, M2, M3 | IN_PROGRESS |
+| M4 | 物理红线校验、全量测试回归、服务平滑重启、/browser 页面走查验收与 G16 指令 | Features 16-18: 物理红线校验, 针对性测试与全量回归, 8501 平滑重启, /browser 走查, Git tag v4.5-G15, 纯文本无冒号 G16 指令 | M1, M2, M3 | DONE |
 
 ## Interface Contracts
 ### M1 ↔ M2: Advisory Dashboard Container & Theme Contract

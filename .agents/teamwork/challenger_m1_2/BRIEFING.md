@@ -1,14 +1,15 @@
-# BRIEFING — 2026-11-09T17:30:00Z
+# BRIEFING — 2026-11-11T01:25:00Z
 
 ## Mission
-Adversarial challenge and empirical verification of Milestone 1 changes (Monte Carlo stress table rendering, micro-execution slices DataFrame formatting, Right-Wing Alert Sentry sorting & deduplication, 017436 fund resolution, test suite execution, and edge-case probing).
+Adversarial challenge & UI geometric/AST verification for Milestone 1 (M1): `render_chief_advisor_memo_card` and front-page promotion layout in `app_gui.py`.
 
 ## 🔒 My Identity
 - Archetype: challenger
 - Roles: critic, specialist
 - Working directory: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_2\
-- Original parent: 9a123e21-7525-4c57-9715-710c2a94c199
-- Milestone: Milestone 1
+- State folder: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_2
+- Original parent: a4d409c2-aeca-47df-a18c-528d9465a6c8
+- Milestone: Milestone 1 (G16)
 - Instance: 2 of 2
 
 ## 🔒 Key Constraints
@@ -17,40 +18,42 @@ Adversarial challenge and empirical verification of Milestone 1 changes (Monte C
 - Zero unverified claims; definitive verdict: APPROVE or REJECT
 
 ## Current Parent
-- Conversation ID: 9a123e21-7525-4c57-9715-710c2a94c199
-- Updated: not yet
+- Conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8
+- Updated: 2026-11-11T01:25:00Z
 
 ## Review Scope
 - **Files to review**:
   - `AGY2_FundAdvisory/app_gui.py`
-  - `AGY2_FundAdvisory/portfolio_manager.py`
-  - `AGY2_FundAdvisory/strategy_bridge.py`
-  - `tests/test_delta_m1_guardrails.py`
+  - `AGY2_FundAdvisory/advisory_engine.py`
+  - `tests/test_g16_phase1_memo_and_combat29.py`
+  - `tests/test_challenger_m1_adv_memo.py`
   - `tests/test_infra.py`
   - `tests/test_adv_final_closure.py`
-  - `tests/test_challenger_m1_2_empirical.py`
-- **Interface contracts**: `PROJECT.md`, `ORIGINAL_REQUEST.md`
-- **Review criteria**: robustness, edge cases, no regressions, layout invariants, no 3D plotly surfaces
+- **Interface contracts**: `SCOPE.md`, `ORIGINAL_REQUEST.md`
+- **Review criteria**: AST call-graph location, CSS geometry invariants (1440px desktop / 375px mobile), CommonMark 4-space defense (Rule 27), adversarial resilience
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - `render_monte_carlo_stress_table` resilience on None, empty, missing scenarios, extreme drawdowns, non-dict liquidation days: PASSED.
-  - `format_micro_execution_slices_df` resilience on empty, partial, non-numeric, and Chinese header preservation: PASSED.
-  - Right-Wing Alert Sentry case-insensitivity, red/critical top sorting, scale check deprioritization, desc/detail fallback: PASSED.
-  - `017436` canonical name resolution across PM, Bridge, UI, and rebalance 7-day penalty lock defense: PASSED.
-  - Physical referee files integrity: PASSED.
+  - `render_chief_advisor_memo_card` position relative to `st.expander`: PASSED (called at line 3218 before expander at line 3223).
+  - Component renders on first screen without expander click: PASSED.
+  - CSS 5-column grid layout & media query capacity (1440px, 768px, 375px, 320px): PASSED (no horizontal overflow, auto-fit/scroll bounds verified).
+  - CommonMark 4+ space code block leak & HTML purity: PASSED (0 lines with >=4 leading spaces or tabs).
+  - Advisory engine resilience under fuzzed inputs: PASSED (100% safe on empty/None, caught explicit `market_value: None` edge case documented as advisory finding).
+  - Physical referee integrity (`test_infra.py`): PASSED (14/14).
+  - Regression baseline (`test_adv_final_closure.py`): PASSED (14/14).
 - **Vulnerabilities found**:
-  - None in implementation code.
-  - Noted test fragility in prior challenger test suite regarding pandas DataFrame float inference on None values and dynamic date calculation for holding days (addressed in `test_challenger_m1_2_empirical.py`).
-- **Untested angles**: All target mission areas empirically verified and stressed.
+  - Defensive flaw in `advisory_engine.py:4319`: `mv = float(getattr(h, "market_value", 0.0) or ...)` raises `TypeError` if input dict explicitly contains `{"market_value": None}`. GUI is protected by try-except. Logged as finding for future milestones.
+- **Untested angles**: All target areas empirically verified.
 
 ## Loaded Skills
 None required.
 
 ## Key Decisions Made
-- Executed all required test suites (`test_infra.py`, `test_adv_final_closure.py`, `test_delta_m1_guardrails.py`).
-- Authored and executed dedicated 19-case empirical adversarial test harness `tests/test_challenger_m1_2_empirical.py` (all passed).
-- Final verdict: APPROVE.
+- Executed official referee tests (`test_infra.py` 14 passed).
+- Executed regression suite (`test_adv_final_closure.py` 14 passed).
+- Executed M1 unit test suite (`test_g16_phase1_memo_and_combat29.py` 6 passed).
+- Authored and executed dedicated 11-case adversarial test harness (`tests/test_challenger_m1_adv_memo.py` 11 passed).
+- Verdict: APPROVE.
 
 ## Artifact Index
 - `DISPATCH.md` — Incoming task prompt

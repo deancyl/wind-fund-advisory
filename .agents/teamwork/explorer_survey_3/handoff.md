@@ -1,248 +1,261 @@
-# Explorer 3 调查与架构勘测报告 (AGY2_FundAdvisory)
+# G16 世代第二阶段后半段及第三、第四阶段只读实地走查深度调查报告 (handoff.md)
 
-**报告作者**：Explorer 3 (Track 3: portfolio_manager, app_gui, tests)  
-**工作区路径**：`d:\Google\Workspace\Wind\AGY2_FundAdvisory`  
-**基准时间**：2026-10-30T01:08:00Z  
+## 1. 核心观察 (Observation)
 
----
+### 1.1 `multi_ledger_manager.py` 存量 29 基账本与幂等挂载机制
 
-## 1. Observation (客观观察与实证数据)
-
-### 1.1 测试套件架构与执行机制观察
-- **根目录与配置冲突**：
-  - 在工作区根目录 `D:\Google\Workspace\Wind` 下存在 `pyproject.toml`。
-  - 当在 `d:\Google\Workspace\Wind\AGY2_FundAdvisory` 目录下直接运行 `pytest tests/test_infra.py` 时，pytest 自动将根目录识别为 `rootdir: D:\Google\Workspace\Wind`，导致 Python `sys.path` 仅挂载父目录，抛出异常：
-    ```text
-    ModuleNotFoundError: No module named 'data_loader'
-    ```
-  - **实证解决指令**：设置 `$env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"` 后，`tests/test_infra.py` 15 项测试全部通过（6.57 秒），`tests/test_portfolio_manager.py` 22 项测试全部通过（9.68 秒），`tests/test_strategy_bridge.py` 9 项测试全部通过（6.58 秒）。
-  - **既有测试总量**：`AGY2_FundAdvisory/tests/` 目录共收集 **246 项测试用例**（分布在 17 个测试模块中）。
-  - **网络延迟与警告观察**：运行 `test_acceptance_r1_r7.py` 时耗时 132 秒（8 项全部通过），主要原因为 `app_gui.py` 渲染表格时对东方财富接口发出未经缓存的实时估值拉取，产生了 214 条 `InsecureRequestWarning`。单元测试套件需对外部网络调用保持 Mock 或使用纯离线本地缓存。
-
-### 1.2 系统只读裁判基建文件完整性验证 (R1 红线)
-4 个只读裁判基建文件均位于 `d:\Google\Workspace\Wind\AGY2_FundAdvisory`，代码与哈希完整无损：
-1. `judge_engine.py` (绝对路径: `d:\Google\Workspace\Wind\AGY2_FundAdvisory\judge_engine.py`, 42,175 字节, 844 行)
-   - 核心类: `JudgeEngine`，关键函数: `compute_ast_hash()`, `scan_ast_for_calendar_cheating()`, `probe_look_ahead_bias()`。
-2. `holdout_vault.py` (绝对路径: `d:\Google\Workspace\Wind\AGY2_FundAdvisory\holdout_vault.py`, 5,685 字节, 162 行)
-   - 核心类: `HoldoutVault`，异常: `HoldoutVaultExhaustedError`，硬编码硬限: `MAX_HOLDOUT_ATTEMPTS = 3`，盲测隔离日期: `2025-07-01`。
-3. `AGENT_SPEC.md` (绝对路径: `d:\Google\Workspace\Wind\AGY2_FundAdvisory\AGENT_SPEC.md`, 8,237 字节, 110 行)
-   - 包含四大关卡（检验A因果探针、检验A+ AST静态扫描、检验B 6风格切片全量回归、检验C扰动高原、检验D DSR惩罚计数器）。
-4. `tests/test_infra.py` (绝对路径: `d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_infra.py`, 10,524 字节, 264 行)
-   - 包含 15 个基础单元测试，直接 `from data_loader import DataLoader`，`from judge_engine import JudgeEngine`。
-   - **红线结论**：开发过程中严禁修改此 4 个文件中的任何一个字符！
-
-### 1.3 `portfolio_manager.py` 选基漏斗与六维评分现状观察
-- **核心策略池定义**：`portfolio_manager.py` 第 306~708 行定义全局元数据字典 `CORE_STRATEGY_POOL`，覆盖 30+ 只公募基金的交易属性（代码、中文名、基金公司、A/C份额、限额 `daily_limit`、备选代码 `fallback_code`、结算周期等）。
-- **赛道金牌标的与备选池**：
-  - `portfolio_manager.py` 第 714~805 行定义 `SECTOR_FUND_SELECTION`：
-    - `CORE_DIVIDEND`: 冠军 `100032` (富国中证红利指数增强A)，备选 `090010`, `012643`, `008682`。
-    - `BOND_SHIELD`: 冠军 `002351` (易方达裕祥回报债券A)，备选 `000086`, `018757`, `002352`。
-    - `GOLD_HEDGE`: 冠军 `000216` (华安易富黄金ETF联接A)，备选 `002610`, `000217`, `002611`。
-    - `TECH_GROWTH`: 冠军 `011613` (华夏上证科创板50成份ETF联接C)，备选 `016634`, `001053`, `013841`。
-    - `GLOBAL_HEDGE`: 冠军 `050025` (博时标普500ETF联接A)，备选 `001071`, `017436`, `006075`。
-  - `strategy_bridge.py` 第 290~797 行定义各风险档位分层的 `SECTOR_FUND_SELECTION_BY_TIER` (C1~C5)。
-- **全市场四级选基漏斗统计**：
-  - `get_fund_selection_funnel_stats()` (第 808~838 行)：
-    - Level 1: 全市场公募基金池 28,177 只（从本地 DuckDB 或兜底）
-    - Level 2: 硬指标合规初筛 6,850 只（成立 > 3年，规模 > 2亿）
-    - Level 3: 5大赛道入围池 16~20 只（低费率 & 高 Alpha）
-    - Level 4: 最终优选金牌组合 4~5 只
-- **六维量化打分实现**：
-  - `portfolio_manager.py` 第 3624~3783 行 `compute_fund_six_dimension_score()` / `_do_compute_six_dimension_score()`：
-    1. 超额 Alpha 得分 (35% 权重)：读取 DuckDB `v_scorecards` 或 `v_fund_snapshot`。
-    2. 低费率得分 (25% 权重)：读取 DuckDB `v_fund_trading_rules` 中的综合运营费率。
-    3. 底层排雷健康分 (15% 权重)：调用 `screen_fund_look_through_risk()`，扣除商誉、存贷双高、质押、解禁、负FCF风险分，非A股资产（纯债、黄金、QDII）绝对免疫。
-    4. 北向聪明钱流入分 (10% 权重)：读取 DuckDB `v_northbound_holdings`。
-    5. 反拥挤度安全分 (10% 权重)：纯债/黄金 97，红利 95，核心蓝筹 91，科技成长 88。
-    6. 衍生品与宏观契合度 (5% 权重)：期权 IV 与 IC/IM 贴水率匹配。
-    - 权重计算：$Score = 0.35 \cdot \alpha + 0.25 \cdot Fee + 0.15 \cdot Risk + 0.10 \cdot SmartMoney + 0.10 \cdot Crowding + 0.05 \cdot Macro$。
-- **现有变点检测状态**：
-  - 全局搜索 `cusum` 或 `变点` 为 0 处命中，证明当前代码库中尚未实现 CUSUM 变点检测算法，为本次 R6 核心新增量化模块。
-
-### 1.4 `app_gui.py` 界面架构与推演流程观察
-- **顶部状态栏与触发线**：
-  - 第 295~315 行：调仓网格日历与盘中紧急破位预警横幅。
-    - 绑定 `rebal_grid['countdown_display']` 与 `rebal_grid['emergency_warning']`。
-    - 数据源来自 `StrategyBridge.get_rebalance_grid_status()`（`strategy_bridge.py` 第 1585~1645 行）。
-  - 第 316~438 行：7 列顶部状态大字号指标卡片（申赎时钟、AI 策略大脑、沪深300实时与偏离、股债性价比、宏观流动性DR007、今日预估浮盈亏、全组合总资产）。
-- **步骤一：定目标 / 测风险** (第 533~690 行)：
-  - 模式 A（滑块即拉即变 6%~60% -> C1~C5）与模式 B（问卷定档）。
-- **步骤二：现场推演看好坏** (第 694~1117 行)：
-  - 动态现场推演进度条 `st.status` (Step 1~4，第 708~768 行)。
-  - 5 张大字号人话指标卡（最好情况冲刺、最坏情况大熊市、极端水下回本考验、目标胜率与达成周期、适合人群与策略灵魂，第 773~844 行）。
-  - **四阶量化推演工作流白盒展开面板** (第 846~1058 行)：
-    - Step 1: 全市场 28,177 只基金四级漏斗海选与金牌标的（4 列漏斗、六维加权公式、六维对比宽表 `df_quant`、金牌与备选替换下拉框）。
-    - Step 2: 宏观与衍生品四维状态机实时定调（趋势生命线、风格动量、大小盘结构、股债性价比与期权期指卡片）。
-    - Step 3: 2018-2026 跨牛熊 2,000+ 交易日实境压力测试（最好/最坏归因、水下回本推演、达成周期、市场环境适宜表）。
-    - Step 4: 交易摩擦精算、限购拆单与实盘执行清单（手续费精算、股息回本周期、限购拆单与锁仓）。
-  - **《三句话看懂本方案》三栏作战卡片** (第 1060~1117 行)：
-    - 收益引擎拆解（怎么赚钱）
-    - 反脆弱对冲机制（为什么能赢）
-    - 底线与执行铁律（风险与铁律）
-- **步骤三：拿方案去执行** (第 1119~1250 行)：
-  - 场景一（从 0 开始建仓）与场景二（存量持仓诊断调仓）。
-  - **9 列精简执行表格**（基金代码、基金名称、份额、目标占比%、精确买入金额、最新净值、实时估值涨跌%、排雷与拥挤度、实操分红与限购指引）。
-  - 一键复制手机下单小抄卡片 (`st.code`)。
-
----
-
-## 2. Logic Chain (推理链条与技术因果)
-
-### 2.1 R6: 赛道冠军基金 CUSUM 变点检测与自动优胜劣汰推理
-1. **现状与痛点**：目前每个赛道的金牌冠军标的（如高股息赛道 100032、纯债赛道 002351 等）由静态元数据指定。若 100032 的底层重仓股暴雷（如 R1 扣分严重）、或发生机构极度抱团踩踏（R3 拥挤度超标）、或其超额收益持续衰减跑输同赛道备选标的（如 090010 或 012643），系统仍会死板推荐 100032，导致实盘损失。
-2. **CUSUM 衰减检测数学机制**：
-   - 设赛道内备选基金集合为 $\mathcal{F}$，当前默认冠军基金为 $c$。
-   - 对任意候选标的 $f \in \mathcal{F}$，基于其滚动动量超额 $ER_{f, t}$、跟踪误差惩罚 $TE_{f, t}$、运营与申赎费率损耗 $Fee_{f}$、R1 重仓股排雷健康分 $Risk_{f, t}$、以及 R3 聪明钱净流入与拥挤度安全分 $SM_{f, t}$，计算综合实时竞争力得分 $S_{f, t}$：
-     $$S_{f, t} = 0.35 \cdot ER_{f, t} + 0.25 \cdot (100 - Fee_{f}) + 0.15 \cdot Risk_{f, t} + 0.15 \cdot SM_{f, t} + 0.10 \cdot (100 - TE_{f, t})$$
-   - 针对当前默认冠军基金 $c$，维护单向累积和（Page's CUSUM）衰减监测指标 $C_{c, t}$：
-     $$C_{c, 0} = 0$$
-     $$C_{c, t} = \max\left(0, C_{c, t-1} + (\max_{f \in \mathcal{F}} S_{f, t} - S_{c, t}) - k\right)$$
-     其中 $k \ge 0$ 为允许的正常波动松弛容忍带（如 $k = 2.0$ 分）。
-   - **变点触发判定 (Change-Point Trigger)**：
-     若出现以下任一条件，判定默认冠军标的触发结构性衰减变点：
-     1. $C_{c, t} \ge h$（累积衰减超过变点阈值 $h$，如 $h = 8.0$ 分）；
-     2. 或 $Risk_{c, t} < 60.0$（底层重仓股发生严重暴雷，直接触发 R1 熔断）；
-     3. 或 $SM_{c, t}$ 触发严重拥挤踩踏预警（R3 极度拥挤）。
-3. **自动晋升逻辑与白盒透传**：
-   - 变点触发时，算法将当前赛道内综合得分排名第 1 的备选标的 $f^* = \arg\max_{f \in \mathcal{F}} S_{f, t}$ 自动晋升为当前赛道的金牌标的。
-   - 标注显式自进化标签：
-     `"🔄 自进化优选：因综合评分领先，已自动为您优选 {champion_name} (原默认标的评分衰减触发 CUSUM 轮换)"`。
-   - 该晋升结果无缝透传至：
-     - `SECTOR_FUND_SELECTION` / `SECTOR_FUND_SELECTION_BY_TIER`
-     - `get_tier_quant_selection_table`（表格中标注标的身份）
-     - `generate_zero_start_blueprint`（建仓单自动使用新冠军并记录 notes）
-     - `app_gui.py` Step 1 白盒卡片与下拉框。
-
-### 2.2 R7: Streamlit UI 交互升级与白盒仪式感推理
-1. **四阶推演白盒展开面板 (Step 1 ~ Step 4)**：
-   - **Step 1 (选基与 CUSUM)**：展示 28,177 漏斗与 CUSUM 动态晋升状态。当触发优胜劣汰时，以明显的高亮卡片标注 `🔄 自进化优选`。
-   - **Step 2 (Hedge 专家与施密特)**：展示 `OnlineExpertWeightUpdater` 输出的四大专家实时权重柱状图/指标（趋势动量、ERP估值、均线乖离逆向、流动性期指，权重和恒等于 1.0），以及施密特迟滞状态机缓冲区指示（$[-1.5\%, +1.2\%]$ 锁定区间与当前状态）。
-   - **Step 3 (压力测试与作战书)**：2018-2026 回测曲线与 5 张人话指标卡归因、环境适宜表。
-   - **Step 4 (摩擦拦截与拆单)**：展示 $\Delta U$ 调仓净效用拦截详情、A/C 阶梯费率对照、同公司 SWITCH 零在途优势与限购自动拆单。
-2. **三句话看懂本方案卡片**：
-   - 确保卡片三栏紧扣：① 怎么赚钱（收益来源：高股息底仓 + 动量弹性 + 期指贴水）、② 为什么能赢（极低相关资产对冲 + 跨牛熊 1年胜率）、③ 风险与铁律（最大回撤底线 + 水下回本天数 + 7天惩罚费拦截 + 估值底部不割肉）。
-3. **双向变盘触发线刚性防倒挂**：
-   - 向上突破进攻线（结合施密特迟滞上轨 $+1.2\%$）点位严格高于现价：`surge_c300 > c300_price`；
-   - 向下跌破防守线（结合施密特迟滞下轨 $-1.5\%$）点位严格低于现价：`breakdown_c300 < c300_price`；
-   - 彻底杜绝历史版本中因口径不一致产生的倒挂，并与盘中实时点位联动。
-4. **1080p 紧凑排版与零截断**：
-   - 顶部 7 列卡片使用百分比自适应宽度与 `min-width`。
-   - 步骤三 9 列表格中最后一列提炼为精炼动作（<=15 字），长篇原理解析统一收归表头 `help` (`ⓘ` 悬停提示)。
-
----
-
-## 3. Caveats (局限性与风险假设)
-
-1. **历史数据驱动假设**：CUSUM 变点检测依赖历史滚动截面指标（如 60 日超额收益与 DuckDB 中的历史财报排雷数据）。若 DuckDB 连接异常，必须具备完备的内置离线快照兜底，不得抛出未捕获异常。
-2. **网络环境与 AppTest 测试耗时**：`fetch_realtime_fund_quote()` 在未命中本地缓存时会访问外网接口，导致 Streamlit AppTest 测试单次耗时达数十秒。建议在自动化测试中对实时接口设置默认快速 Mock 或加载离线快照，以提升 CI/CD 执行效率。
-3. **只读裁判文件依赖**：`tests/test_infra.py` 直接从根命名空间 `import data_loader, judge_engine`，因此整个测试生命周期必须强制在带有 `PYTHONPATH` 的环境下运行，绝不能为了“迁就”测试而修改只读文件。
-
----
-
-## 4. Conclusion & Actionable Recommendations (结论与精准植入点)
-
-### 4.1 R6 关键实现与代码植入点 (portfolio_manager.py 与 strategy_bridge.py)
-
-#### 植入点 1: `portfolio_manager.py` — 植入 `CUSUMFundChangePointDetector`
-- **建议位置**：`portfolio_manager.py` 第 806 行（紧随 `SECTOR_FUND_SELECTION` 之后）或第 3784 行（紧随六维评分之后）。
-- **接口设计**：
+- **文件位置**: `D:\Google\Workspace\Wind\AGY2_FundAdvisory\multi_ledger_manager.py`
+- **初始化与挂载逻辑 (第 170~187 行 与 189~312 行)**:
   ```python
-  class CUSUMFundChangePointDetector:
-      """
-      基于 Page's CUSUM 变点检测的赛道冠军基金自动优胜劣汰引擎 (R6)
-      """
-      def __init__(self, slack_k: float = 2.0, threshold_h: float = 8.0):
-          self.slack_k = slack_k
-          self.threshold_h = threshold_h
-          self._cusum_scores: Dict[str, float] = {}
-
-      def evaluate_track_candidates(
-          self,
-          sector_id: str,
-          default_champion_code: str,
-          candidates: List[Dict[str, Any]],
-          snapshot: Optional[Dict[str, Any]] = None,
-          pm: Optional[Any] = None
-      ) -> Dict[str, Any]:
-          """
-          计算各候选基金实时竞争力得分 S_{f, t} 与当前冠军的 CUSUM 衰减指标，
-          若触发变点，自动将综合得分第 1 的候选标的晋升为推荐冠军标的。
-          返回结构包含:
-          - active_champion_code: 当前生效冠军代码
-          - is_promoted: 是否触发自动轮换晋升
-          - promotion_label: "🔄 自进化优选：因综合评分领先，已自动为您优选 XXXXX"
-          - scored_candidates: 包含各项细分得分的排序列表
-          """
+  # AGY2_FundAdvisory/multi_ledger_manager.py:170-182
+  # 确保预置实战存量组合（29只·¥2.66万）存在
+  combat_item = next((l for l in final_ledgers if l.get("id") == "combat_29_funds"), None)
+  combat_json_path = self.ledgers_dir / "combat_29_funds.json"
+  if not combat_item or not combat_json_path.exists():
+      combat_meta = self._init_preset_combat_29_ledger()
+      if not combat_item:
+          final_ledgers.append(combat_meta)
+      else:
+          for idx, l in enumerate(final_ledgers):
+              if l.get("id") == "combat_29_funds":
+                  final_ledgers[idx] = combat_meta
+                  break
   ```
-
-#### 植入点 2: `strategy_bridge.py` — 桥接层多档位晋升与透传
-- **位置**：`strategy_bridge.py` 第 3188 行 `get_tier_sector_fund_selection()` 与第 3200 行 `get_tier_quant_selection_table()`。
-- **改动方式**：
-  - 在 `get_tier_sector_fund_selection` 中调用 CUSUM 评估器，若某赛道原冠军发生衰减，动态替换当前生效的 `champion_code` 与 `champion_name`，并将 `promotion_label` 注入赛道字典。
-  - 在 `get_tier_quant_selection_table` 中，若标的为自动晋升冠军，将其“标的身份”列标记为 `🏆 🔄 自进化优选冠军`，并在 UI 下拉框默认选中该新晋标的。
-  - 在 `generate_zero_start_blueprint` (第 3269 行) 中，默认使用自进化优选出的冠军标的进行资金分配。
-
----
-
-### 4.2 R7 关键实现与代码植入点 (app_gui.py)
-
-#### 植入点 1: 4 阶推演白盒展开面板强化
-- **位置**：`app_gui.py` 第 846~1058 行。
-- **改动内容**：
-  - **Step 1 (第 850~914 行)**：在 4 列漏斗卡片下方新增【CUSUM 动态优胜劣汰监测提示栏】，若检测到赛道标的被自动轮换，以橙/绿高亮横幅提示：`"🔄 自进化优选：因综合评分领先，已自动为您优选【XXXX】替代原默认标的"`。
-  - **Step 2 (第 916~979 行)**：新增【Hedge 四大策略专家在线自适应权重与施密特防打脸校验】可视化卡片，展示 Trend, ERP, Bias, Liquidity 四大专家的实时权重配比（权重和为 100%），以及当前指数位于施密特迟滞缓冲环的锁定状态。
-  - **Step 3 (第 981~1017 行)**：保留 2018-2026 实境压力测试与 5 张人话指标卡归因，表格字体与列宽优化。
-  - **Step 4 (第 1019~1058 行)**：强化摩擦精算卡片，展示 $\Delta U$ 调仓净效用拦截器逻辑（同公司 SWITCH 转换 0 在途踏空，跨公司赎回再申购在途损耗折价核验）。
-
-#### 植入点 2: 修复双向变盘触发线与施密特迟滞对齐
-- **位置**：`strategy_bridge.py` 第 1597~1618 行与 `app_gui.py` 第 305~314 行。
-- **改动内容**：
-  - 向上突破进攻线：严格结合施密特迟滞上轨（$+1.2\%$）：
-    $$surge\_c300 = \text{round}(c300\_price \times (1 + \max(0.012, \text{SchmittThreshold})), 1) > c300\_price$$
-  - 向下跌破防守线：严格结合施密特迟滞下轨（$-1.5\%$）：
-    $$breakdown\_c300 = \text{round}(c300\_price \times (1 - \max(0.015, \text{SchmittExitThreshold})), 1) < c300\_price$$
-  - 严格保持 $breakdown\_c300 < c300\_price < surge\_c300$ 恒成立，彻底杜绝倒挂。
-
-#### 植入点 3: 1080p 紧凑无滚动条与 ⓘ 悬停全面落地
-- **位置**：`app_gui.py` 第 316~438 行（顶部指标卡）与第 1157~1223 行（步骤三 9 列表格）。
-- **改动内容**：
-  - 确保步骤三 9 列表格的最后一列字段名设为 `"实操分红与限购指引 ⓘ"`，单元格文本控制在 12 字以内（如“现金分红·满期免赎A”、“红利再投·弹性进攻C”、“现金分红·限额买500”），核心原理与计算公式完全放入 `help="..."`。
-  - 设置 `st.dataframe(..., use_container_width=True)`，在 1080p 屏幕下彻底消除横向滚动条与省略号截断。
+- **数据结构与数值核验 (`combat_29_funds.json` 与 `multi_ledger_manager.py` 第 196~229 行)**:
+  - **总市值 (Total Market Value)**: 严格分厘平账为 **¥26,615.10**。
+    - 7 大核心仓位 (`005561`, `110020`, `017436`, `002351`, `100032`, `011613`, `000216`): 市值合计 **¥25,128.29**。
+    - 3 只腰部仓位 (`161725`, `000217`, `005827`): 市值合计 **¥1,044.11**。
+    - 19 只碎片尾仓 (`016634` 至 `001551`, 单只 < ¥200): 市值合计 **¥442.70**。
+    - $25,128.29 + 1,044.11 + 442.70 = 26,615.10$ 元。
+  - **投入本金与累计收益核验**:
+    - `ORIGINAL_REQUEST.md` (第 12、44 行) 规定目标: 总市值 ¥26,615.10，投入本金 ¥27,568.50，累计收益 -¥953.40 ($26,615.10 - 27,568.50 = -953.40$)。
+    - 当前 `combat_29_funds.json` 实际数据: `cost_basis` 合计为 **¥27,372.20**，`floating_pnl` 合计为 **-¥757.10** ($26,615.10 - 27,372.20 = -757.10$)。
+    - 差异分析: 存在 ¥196.30 差额。主要因原始核心标的中有盈利标的（`005561` 浮盈 +112.88, `110020` 浮盈 +137.52, `017436` 浮盈 +54.91, `000216` 浮盈 +34.81, `000217` 浮盈 +16.93）部分冲抵了亏损；且腰部 `005827` 在需求中记录为浮亏 -27.28，在代码中记录为 -23.86 (差额 3.42)。
+    - 三大深套出血点数据完全一致: `#5 100032` 浮亏 -332.54, `#6 011613` 浮亏 -428.48, `#8 161725` 浮亏 -175.76，三大出血点浮亏严格等于 **-¥936.78**。
+- **持有天数失配现状 (400 天 vs 1040 天)**:
+  - 在 `multi_ledger_manager.py` 第 249、254 行，批次字段写死 `"buy_date": "2024-01-05"`，而 `holding_days` 静态填入 `400`。
+  - 当 `PortfolioManager._recalculate_totals()` (见 `portfolio_manager.py:4053-4058`) 运行时，会基于当前自然日与 `buy_date` 动态重新计算:
+    ```python
+    b_dt = datetime.strptime(b.buy_date, "%Y-%m-%d").date()
+    b.holding_days = max(0, (today_date - b_dt).days)
+    ```
+    当前为 2026 年 11 月，距离 2024-01-05 已达 **1040 天**！
+  - 导致结果: 首屏主动风控哨与运行时显示“持有第 1040 天”，而 Tab 2 专属卡片文案（`app_gui.py:5798, 5809`）静态写死“持仓天数均已达 400 天”，产生界面上下文案数值不一致。
+- **单测污染与崩溃实测**:
+  - 运行 `pytest tests/test_multi_ledger_manager.py -v` 发现:
+    `test_get_all_ledgers_summary FAILED` (报错: `Obtained: 427615.1, Expected: 400000.0`)。
+  - 根因定位: `test_get_all_ledgers_summary` 依赖隔离的 `temp_workspace` fixture，预期只有 `main_live` (100,000) 与新创建的 `稳健养老金` (300,000)，合计 400,000。
+  - 但因 `MultiLedgerManager.__init__` 内部无条件调用 `_ensure_index_initialized()`，将 `combat_29_funds` (资产 27,615.10) 自动强行注入到了该临时单测目录中，导致单测断言失败。
 
 ---
 
-## 5. Verification Method (独立复现与验证步骤)
+### 1.2 `strategy_bridge.py` 与 `app_gui.py` (Tab 2 与 Tab 3)
 
-接手 Agent 可通过执行以下具体步骤与命令独立复现并验证本报告的所有结论：
+#### Tab 2: 瘦身重构面板与量化指标
+- **现有实现 (`app_gui.py:5744-5845`)**:
+  - 第 5744~5779 行: 渲染了 `🧹 碎片尾仓一键瘦身建议卡`，点击后直接激活 `btn_sweep_tail_cleaner`，将 `rad_tab2_scenario_mode` 设置为 `sweep_tail_and_c_class`，锚定到 `002351 易方达裕祥回报债券A`。
+  - 第 5780~5845 行: 在 `active_lid == "combat_29_funds"` 时渲染 `🎯 实战存量组合（29只·¥26,615.10）三阶专项重塑与减亏手术方案`:
+    1. ① 🧹 19 只免赎碎片尾仓全额清扫归拢 (回收 ¥442.70 · 零赎回费);
+    2. ② 🩺 三大核心深套亏损源精准手术（#5、#6、#8 合计浮亏 -¥936.78);
+    3. ③ 📊 调仓优化前后全周期对照（29 只 -> 7 只全天候压舱石，年化 +6.12% -> +11.92%，最大回撤 -20.29% -> -14.80%）。
+- **指标缺失与未联动链条**:
+  - 在 `strategy_bridge.py` 第 6140~6235 行，存在现成的 `estimate_rebalance_impact` 函数，专门精算 `vol_diff`、`div_diff`（票息垫提升）与 `payback_days`（回本天数缩短）。
+  - **严重脱节**: `estimate_rebalance_impact` 在整个 `app_gui.py` 中**从未被调用**（全局调用次数为 0）！
+  - 需求中明确指出的四个量化指标维度:
+    1. 持仓数量: 29只 -> 6只 (清扫 19 只尾仓后剩 10 只，再置换合并 #6、#8 后精炼至 6 只);
+    2. 盘活零费率碎片资金: ¥442.70 (仅19只碎片) ~ ¥962.57 (合并置换白酒及C类等非标尾部);
+    3. 票息安全垫提升: 调仓后加权股息率/防御垫增加;
+    4. 预计回本天数缩短: 依赖 `payback_days` 精算输出。
 
-### 5.1 验证命令与测试运行
-1. **设置环境变量并运行只读基建测试**：
+#### Tab 3: 组合回测与历史时点时光机盲测
+- **回测入口与接入点 (`app_gui.py:6840-7250`)**:
+  - 第 6857~6944 行: 顶部置顶了 `🕰️ 历史任意时点时光机盲测验证（检验投顾真赚钱能力）`。
+  - 第 6948~7012 行: 下方提供了四种回测模式 (`["📒 单账本/方案回测", "🔄 调仓前 vs 调仓后对比", "🆚 双账本同屏 PK", "📊 C1~C5 策略基准档"]`)。
+  - **缺失独立接入点**: 当前 Tab 3 **没有显式的「实战存量组合：原始29基 vs 投顾重构6基（近1年真规则回测对比）」一键对比预设选项**！用户必须手动将激活账本切换为 `combat_29_funds`，再在下拉框中选择“🔄 调仓前 vs 调仓后对比”，且对标目标默认仍是全天候 C3 策略而非重构 6 基。
+  - **费率与交易规则支持度分析**:
+    - `StrategyBridge.build_custom_portfolio_backtest` (第 4897~5030 行): 仅进行了静态日度收益率累乘 `np.cumprod(1.0 + port_ret)`，对场外公募仅粗暴扣除 5% 现金拖累（`0.95 * p_ret + 0.05 * cash_ret`），**完全未接入**真实前端申购费（0.12%）、持有期阶梯赎回费（1.50%惩罚等）、限购限制与 T+1 交易规则！
+    - `run_historical_time_machine_backtest` (第 7194~7352 行): 完整支持了 0.12% 申购费、FIFO 阶梯赎回费（7天内1.50%、30天内0.50%、180天内0.35%、365天内0.15%）、C类日计提销售服务费（0.40%/250）与 5% 现金管理收益。
+- **时光机盲测核心缺陷 (静态锁死权重致 2024.09 踏空 -30.46%)**:
+  - **代码确切位置**: `strategy_bridge.py` 第 7223 行与第 7247~7260 行:
+    ```python
+    # 第 7223 行：仅在 t=0 起点日调用了一次策略函数
+    weights_t = strategy_fn_for_tier(hist_slice, tier=tier)
+    ...
+    # 第 7247~7260 行：前推整个周期内 norm_w 完全静态恒定
+    for t in range(1, n_fwd):
+        day_ret = 0.0
+        for a, w in norm_w.items():
+            p_prev = float(fwd_slice[a].iloc[t - 1])
+            p_curr = float(fwd_slice[a].iloc[t])
+            r_a = (p_curr / p_prev - 1.0) if p_prev > 0 else 0.0
+            day_ret += w * r_a
+    ```
+  - **实证后果**: 2024-09-18（9.24 史诗级反转前夕），当天市场尚未站上 MA20，起点权重偏重防守（纯债与红利重仓）；后续 250 个交易日内，虽然 9 月 24 日大盘出现暴烈放量突破，但由于静态权重从未再平衡，系统错失右侧加仓机会，导致前推 1 年收益仅 +19.94%，而同期沪深 300 暴涨 +50.40%，界面直接打出红字“跑输基准 (-30.46%)”。
+
+---
+
+### 1.3 物理红线与裁判文件完整性检验
+
+- **四个只读裁判文件状态**:
+  经过 SHA256 指纹校验与 `git status` 走查，四个只读裁判文件处于 100% 原始未修改保护状态:
+  1. `D:\Google\Workspace\Wind\AGY2_FundAdvisory\judge_engine.py`:
+     `SHA256: 76F930371176DE7EE6A413174B030101E3210AC6E037F5D10FE229AF31CC07BE` (干净无修改)
+  2. `D:\Google\Workspace\Wind\AGY2_FundAdvisory\holdout_vault.py`:
+     `SHA256: 88122EAF647040A410E2FD95DA81077DB10149A498A47340FF40B670BD031D2A` (干净无修改)
+  3. `D:\Google\Workspace\Wind\AGY2_FundAdvisory\AGENT_SPEC.md`:
+     `SHA256: A346586F9BD2DC0EE83E665BD18E7A6471464C9F7B658E392B989B800CD63957` (干净无修改)
+  4. `D:\Google\Workspace\Wind\tests\test_infra.py`:
+     `SHA256: 48BEE0DA300D7C0A0848EC1376E4B9B2E55224D2736081713B4340F0362CD100` (干净无修改)
+  5. （对照 `AGY2_FundAdvisory\tests\test_infra.py`: `SHA256: B8D781BE8135BE05CF61E62E4B534E359985AD880F27FFB61228A33DF6B02A6A` 亦完好存在）。
+- **`DataLoader.simulate_execution` 签名与逻辑**:
+  - 位置: `AGY2_FundAdvisory/data_loader.py:1437`
+  - 签名: `simulate_execution(weights_df, prices_df, is_otc=True, penalty_days=7, penalty_rate=0.015, etf_impact=0.001) -> pd.DataFrame` 保持完全未动。
+
+---
+
+### 1.4 回归测试套件实测运行现状
+
+| 测试文件 | 用例数 | 运行耗时 | 执行结果 | 关键发现与警告 |
+|---|---|---|---|---|
+| `tests/test_infra.py` | 14 | 9.03s | **100% PASSED** | 裁判基建因果探针、四岛接口、防套利红线全部绿灯 |
+| `tests/test_adv_final_closure.py` | 14 | 47.20s | **100% PASSED** | 9大资产穿透分类、多账本绑定、智能别名全覆盖通过 |
+| `tests/test_g3_evolution_loop.py` | 12 | 32.78s | **100% PASSED** | EWMA 动态相关、微观 VWAP 滑点、三大历史拐点信号通过 |
+| `tests/test_gui_multi_ledger_stress.py` | 10 | 62.95s | **100% PASSED** | 账本快速切换原子性、AppTest 动态状态机与自愈容错通过 |
+| `tests/test_adversarial_m3_combat29_challenger.py` | 9 | 13.98s | **100% PASSED** | 29基市值分厘平账(¥26,615.10)、19只碎片尾仓清理与3大深套亏损源通过 |
+| `tests/test_multi_ledger_manager.py` | 8 | 27.10s | **1 FAILED, 7 PASSED** | 失败点: `test_get_all_ledgers_summary` 因 `combat_29_funds` 无条件挂载到 temp fixture 导致总资产不符 (427,615.1 vs 400,000.0) |
+
+---
+
+### 1.5 `generate_chief_advisor_memo` 深套识别 Bug 与单测位置探查
+
+- **Bug 根因 (`advisory_engine.py:4284`)**:
+  ```python
+  # advisory_engine.py:4284
+  cost_v = float(getattr(h, "cost_value", 0.0) or (h.get("cost_value", 0.0) if isinstance(h, dict) else 0.0))
+  pl_ratio = (mv / cost_v - 1.0) if cost_v > 0 else 0.0
+  ```
+  `FundHolding` / `HoldingItem`（定义见 `portfolio_manager.py:261` 与 `323`）对象的真实字段是 `cost_basis`、`cost_price`、`cost_nav` 以及 `floating_pnl_pct`，根本不存在 `cost_value` 属性！
+  导致 `cost_v` 永远为 `0.0`，`deep_loss_list` 永远为空，深套亏损超 10% 的病灶永远报不出来。
+- **单测最佳编写位置探查**:
+  - 推荐编写位置: **`tests/test_adv_final_closure.py`** 中的 `TestAdvFinalClosure` 测试类（行尾新增测试方法 `test_specialized_15_chief_advisor_memo_holding_item_deep_loss_detection`）。
+  - **依据与优势**:
+    1. `tests/test_adv_final_closure.py` 第 16 行已经显式引入了 `from portfolio_manager import PortfolioManager, FundHolding, HoldingItem`；
+    2. 该文件正是第四阶段全量测试指令（`pytest tests/test_infra.py tests/test_adv_final_closure.py tests/test_g3_evolution_loop.py tests/test_gui_multi_ledger_stress.py`）中四个核心目标文件之一；
+    3. 测试逻辑直接传入真实 `HoldingItem`（或直接载入 `combat_29_funds` 的持仓字典），强力断言 `memo["portfolio_pathology"]["deep_loss_count"] >= 3`，实现 100% 原位拦截闭环。
+
+---
+
+### 1.6 G17 世代进化指令输出格式门禁红线
+
+- 规范约束（源自 `ORIGINAL_REQUEST.md` 第 60~66 行）:
+  - 绝对禁止输出带冒号的客户端转义格式（如 `slashCommand:goal`、`slashCommand:boost`、`slashCommand:teamwork`、`slashCommand:browser`）；
+  - 必须 100% 严格使用四个纯文本斜杠指令:
+    - `/goal`
+    - `/boost`
+    - `/teamwork`
+    - `/browser`
+  - 终审与外审代理若检测到包含任何 `slashCommand:` 冒号形式字符串，一律视为阻断性违规。
+
+---
+
+## 2. 逻辑推导链 (Logic Chain)
+
+```
+[Observation 1.1] MultiLedgerManager.__init__ 内部无条件调用 _init_preset_combat_29_ledger
+       ↓
+[Observation 1.4] 临时工作区测试 test_get_all_ledgers_summary 被注入了 combat_29_funds (¥27,615.10)
+       ↓
+[Inference 1] 导致 test_get_all_ledgers_summary 断言 total_equity 400000.0 失败 (实际为 427615.1)
+       ↓
+[Actionable Recommendation 1] 必须在 MultiLedgerManager 初始化中增加工作区环境判定：
+仅当 self.root == WORKSPACE_ROOT（即正式运行环境或 UI 调用 get_instance()）时自动幂等挂载 combat_29_funds；
+若为 pytest 临时目录（temp_workspace）则不主动注入，彻底恢复单测 100% 绿灯。
+
+-----------------------------------------------------------------------------------------
+
+[Observation 1.1] multi_ledger_manager 中 buy_date 写死 2024-01-05
+       ↓
+[Observation 1.1] portfolio_manager._recalculate_totals 动态计算持仓天数为 (今日 - 2024-01-05) = 1040 天
+       ↓
+[Observation 1.2] app_gui.py:5798, 5809 卡片静态文本硬编码写死“均已达 400 天”
+       ↓
+[Inference 2] 首屏主动风控哨与运行时报“持有第 1040 天”，与卡片文案“400天”直接冲突
+       ↓
+[Actionable Recommendation 2] 在 multi_ledger_manager 预置批次中将 buy_date 设定为动态的
+(datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")，或者将 UI 文案升级为自适应动态读取真实持仓天数，
+实现全页面各模块天数 100% 自洽。
+
+-----------------------------------------------------------------------------------------
+
+[Observation 1.5] advisory_engine.py:4284 读取了不存在的 getattr(h, "cost_value", 0.0)
+       ↓
+[Observation 1.5] real HoldingItem 仅包含 cost_basis, cost_price, floating_pnl_pct
+       ↓
+[Inference 3] pl_ratio 恒为 0.0，deep_loss_list 恒为空，导致五维备忘录永远漏检深套标的
+       ↓
+[Actionable Recommendation 3] 升级 cost 计算逻辑：按优先级兼容 cost_price * shares, cost_basis, cost_nav * shares，
+若存在 floating_pnl_pct 则直接读取；并在 tests/test_adv_final_closure.py 中新增 HoldingItem 测试断言 deep_loss_count >= 3。
+
+-----------------------------------------------------------------------------------------
+
+[Observation 1.2] Tab 3 run_historical_time_machine_backtest 在 t=0 静态冻结 norm_w
+       ↓
+[Observation 1.2] 2024-09-18 起点日为偏防守配置，9.24 暴烈突破后未动态加仓
+       ↓
+[Inference 4] 导致时光机前推 1 年严重踏空基准 30.46%，暴露出“假动态、真静态死拿”的伪盲测缺陷
+       ↓
+[Actionable Recommendation 4] 在前推循环中引入每 20 个交易日（或乖离率/ERP状态机切换点）的动态再平衡，
+以截至当日的无未来切片动态更新目标权重，并计入换仓双边摩擦。
+```
+
+---
+
+## 3. 局限与未探查项 (Caveats)
+
+1. **真实行情外网连通性与证书警告**: 在执行单元测试过程中，终端打印出少量 `urllib3` 访问 `datacenter-web.eastmoney.com` 的 InsecureRequestWarning，系离线/模拟环境下未校验 HTTPS 证书所致，不影响本地量化计算。
+2. **Tab 3 静态回测数据源跨度**: 本次回测探查基于当前本地 `data_loader.py` 加载的 2018 年至今历史矩阵，未对 2018 年以前的极端周期（如 2015 杠杆牛灾）在时光机盲测中进行全覆盖回放。
+3. **只读约束遵守**: 本次走查严格遵守探索智能体只读准则，未修改任何工作区代码或测试文件。
+
+---
+
+## 4. 结论与执行建议 (Conclusion)
+
+1. **多账本管理 (`multi_ledger_manager.py`)**:
+   - `combat_29_funds` 数据市值精确分厘平账为 ¥26,615.10，但投入本金与累计收益存在 ¥196.30 差额（目前累计亏损 -¥757.10 vs 目标 -¥953.40），可通过在初始数据中对齐腰部与非主力标的成本使之严格等于 ¥27,568.50 与 -¥953.40。
+   - `buy_date` 建议动态设为 400 天前，消除 1040 天与 400 天的界面冲突。
+   - 挂载机制需增加 `if self.root == WORKSPACE_ROOT:` 条件防护，避免污染 pytest 的 `temp_workspace`，立即可修复 `test_get_all_ledgers_summary` 单测。
+2. **Tab 2 瘦身面板与调仓精算 (`app_gui.py` & `strategy_bridge.py`)**:
+   - Tab 2 已具备三阶手术方案静态骨架，但尚未接入 `estimate_rebalance_impact` 动态算子。
+   - 建议在 Tab 2 中实装针对 29 基的一键模拟面板，直观呈现「持仓标的 29只 -> 6只、盘活零费率资金 ¥442.70~¥962.57、年化内生票息垫提升、回本天数缩短」四大核心量化指标。
+3. **Tab 3 回测与时光机盲测动态化 (`strategy_bridge.py` & `app_gui.py`)**:
+   - 在 Tab 3 回测模式下拉框或显著位置增加「实战存量组合：原始29基 vs 投顾重构6基（近1年真规则回测对比）」快捷预设。
+   - 将 `run_historical_time_machine_backtest` 从“起点单次静态锁死”重构为“前推周期动态切片再平衡”，彻底解决 2024.09 踏空问题。
+4. **全量测试与安全红线**:
+   - 四大只读裁判文件零改动，哈希完好。
+   - 推荐在 `tests/test_adv_final_closure.py` 中新增 `test_specialized_15_chief_advisor_memo_holding_item_deep_loss_detection`，断言 `deep_loss_count >= 3`。
+   - 严守 G17 命令标签输出门禁（仅允许纯文本 `/goal`, `/boost`, `/teamwork`, `/browser`，严禁 `slashCommand:` 冒号形式）。
+
+---
+
+## 5. 独立验证方法 (Verification Method)
+
+后续执行代理或内审代理可通过以下确定性步骤逐项复核本报告结论:
+
+1. **裁判文件防篡改哈希核查**:
    ```powershell
-   $env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"
-   cd d:\Google\Workspace\Wind\AGY2_FundAdvisory
-   pytest tests/test_infra.py -v
+   Get-FileHash -Algorithm SHA256 AGY2_FundAdvisory\judge_engine.py, AGY2_FundAdvisory\holdout_vault.py, AGY2_FundAdvisory\AGENT_SPEC.md, tests\test_infra.py
    ```
-   **断言**：15 项基建测试全部 PASS，耗时 < 10 秒。
-
-2. **运行既有组合管理与策略桥接测试**：
+2. **29 基账本持仓数据与会计恒等式核验**:
    ```powershell
-   $env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"
-   cd d:\Google\Workspace\Wind\AGY2_FundAdvisory
-   pytest tests/test_portfolio_manager.py tests/test_strategy_bridge.py -v
+   py -3 -m pytest tests/test_adversarial_m3_combat29_challenger.py -v
    ```
-   **断言**：31 项测试全部 PASS。
-
-3. **运行 R1~R7 验收测试套件**：
+3. **多账本单测失败复现**:
    ```powershell
-   $env:PYTHONPATH="d:\Google\Workspace\Wind\AGY2_FundAdvisory;d:\Google\Workspace\Wind"
-   cd d:\Google\Workspace\Wind\AGY2_FundAdvisory
-   pytest tests/test_acceptance_r1_r7.py -v
+   py -3 -m pytest tests/test_multi_ledger_manager.py::test_get_all_ledgers_summary -v
    ```
-   **断言**：8 项验收测试全部 PASS。
-
-4. **只读基建文件哈希完整性核对**：
-   检查以下 4 个文件未被修改：
-   - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\judge_engine.py`
-   - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\holdout_vault.py`
-   - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\AGENT_SPEC.md`
-   - `d:\Google\Workspace\Wind\AGY2_FundAdvisory\tests\test_infra.py`
+4. **四套核心回归套件一键验证**:
+   ```powershell
+   py -3 -m pytest tests/test_infra.py tests/test_adv_final_closure.py tests/test_g3_evolution_loop.py tests/test_gui_multi_ledger_stress.py -v
+   ```
+5. **时光机静态锁死代码位置复核**:
+   查看 `AGY2_FundAdvisory/strategy_bridge.py` 第 7223 行与 7247~7260 行 `for t in range(1, n_fwd):` 循环中的 `norm_w` 变量作用域。

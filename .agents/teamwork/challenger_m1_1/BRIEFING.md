@@ -1,7 +1,7 @@
-# BRIEFING — 2026-11-09T17:27:00Z
+# BRIEFING — 2026-11-11T01:30:00Z
 
 ## Mission
-Adversarial challenge and empirical verification of Milestone 1 implementations (Monte Carlo stress rendering, micro-execution slices df formatting, right-wing alert sentry case/priority normalization, and 017436 resolution across portfolio_manager and strategy_bridge).
+Adversarial challenge and empirical verification of G16 Milestone 1 (M1) implementations: `generate_chief_advisor_memo` in `AGY2_FundAdvisory/advisory_engine.py` and `render_chief_advisor_memo_card` in `AGY2_FundAdvisory/app_gui.py`.
 
 ## 🔒 My Identity
 - Archetype: empirical challenger
@@ -10,6 +10,8 @@ Adversarial challenge and empirical verification of Milestone 1 implementations 
 - Original parent: 9a123e21-7525-4c57-9715-710c2a94c199
 - Milestone: milestone_1
 - Instance: 1 of 1
+- Current Parent (G16): a4d409c2-aeca-47df-a18c-528d9465a6c8
+- Updated Milestone: g16_milestone_1
 
 ## 🔒 Key Constraints
 - Review-only — do NOT modify implementation code
@@ -18,39 +20,41 @@ Adversarial challenge and empirical verification of Milestone 1 implementations 
 - Defend against vanity tests and surface-level passes
 
 ## Current Parent
-- Conversation ID: 9a123e21-7525-4c57-9715-710c2a94c199
-- Updated: 2026-11-09T17:27:00Z
+- Conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8
+- Updated: 2026-11-11T01:30:00Z
 
 ## Review Scope
 - **Files to review**:
-  - `src/ui/tab1_overview.py` / `AGY2_FundAdvisory/app_gui.py` (render_monte_carlo_stress_table)
-  - `src/ui/tab1_micro_execution.py` / `AGY2_FundAdvisory/app_gui.py` (format_micro_execution_slices_df)
-  - `src/ui/right_wing_sentry.py` / `AGY2_FundAdvisory/app_gui.py` (alert normalization & sorting)
-  - `src/services/portfolio_manager.py` / `AGY2_FundAdvisory/portfolio_manager.py` (017436 mapping)
-  - `src/services/strategy_bridge.py` / `AGY2_FundAdvisory/strategy_bridge.py` (017436 handling)
-  - `tests/test_delta_m1_guardrails.py`
+  - `AGY2_FundAdvisory/advisory_engine.py` (`generate_chief_advisor_memo`)
+  - `AGY2_FundAdvisory/app_gui.py` (`render_chief_advisor_memo_card`)
+  - `tests/test_g16_phase1_memo_and_combat29.py`
+  - `tests/test_challenger_g16_m1_adversarial.py`
   - `tests/test_infra.py`
-  - `tests/test_adv_final_closure.py`
-  - `tests/test_challenger_m1_adversarial.py`
-- **Interface contracts**: `d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_18\PROJECT.md`, `d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md`
-- **Review criteria**: Correctness, edge-case robustness, anti-crash, regression immunity, mathematical integrity
+- **Interface contracts**: `d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_g16_gen2\SCOPE.md`, `d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md`
+- **Review criteria**: Multi-field cost basis & deep loss identification, Tab 1 target weights dictionary protection, 19-fund fragment ¥442.70 balance, zero crash on malformed/boundary inputs, GUI 1-row-5-col responsive grid and CommonMark 4-space markdown safety.
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - `render_monte_carlo_stress_table`: tested empty/None inputs, extreme drawdowns (99.9%), negative excess, non-dict liquidation days, verified 0 Plotly 3D objects produced. PASSED.
-  - `format_micro_execution_slices_df`: tested empty inputs, partial columns, non-numeric strings ("N/A", "待定"), NaN, verified 5 Chinese column headers and number formatting. PASSED.
-  - Right-wing alert sentry: tested case variations ("RED", "red", "critical", "CRITICAL", "yellow", "WARNING", "info", "green_notice"), verified red always sorted to top rank (0, 0), fallback field extraction. PASSED.
-  - 017436 resolution: verified canonical name "华安纳斯达克100ETF联接A", verified non-held target has holding_days=-1 (no false 7-day lock), verified held target < 7 days correctly triggers 7-day penalty lock. PASSED.
-  - Regression testing: ran test_infra.py (14/14), test_adv_final_closure.py (14/14), test_delta_m1_guardrails.py (5/5), test_challenger_m1_adversarial.py (18/18). 51/51 PASSED.
-- **Vulnerabilities found**: None. All edge cases handled robustly.
-- **Untested angles**: None within Milestone 1 scope.
+  1. `combat_29_funds` deep loss detection: Asserted `deep_loss_count >= 3` (actual: 18). Confirmed top 3 bleeding points explicitly name `011613` (华夏上证科创板50成份ETF联接C), `100032` (富国中证红利指数增强A), `161725` (招商中证白酒指数(LOF)A). PASSED.
+  2. Tab 1 target weights dict: Tested 6-fund, 10-fund, 0.999 sum, 1.001 sum, 0.96 and 1.04 bounds. Confirmed `deep_loss_count == 0`, `frag_count == 0`, `frag_amt == 0.0`, zero "¥1.00" or "合计 ¥1.00" anomalies, zero "长尾碎片尾仓" bullets. PASSED.
+  3. Extreme & boundary inputs: Tested `None`, `[]`, `{}`, string `"invalid"`, int `123456`, `[None]`. Zero crashes, graceful fallback to "持仓结构优良". PASSED.
+  4. Deformed holding items: Tested `cost_basis = 0`, `shares = 0`, negative `mv = -50.0`, zero `mv = 0.0`, extreme drawdown `-99.9%`, extreme gain `+500.0%`, reverse-engineered cost. Zero crashes, correct deep loss attribution. PASSED.
+  5. Hybrid object & dict list: Tested simultaneous mix of `HoldingItem`, `MockLegacyCostValueHolding` (with `cost_value` only), plain dicts, batched holdings, locked C-class (<30d) vs fee-free C-class (>=30d), locked A-class (<365d) vs fee-free A-class (>=365d). Verified fee-free locks are strictly respected. PASSED.
+  6. Fragment boundary & balance: Verified #10 `005827 易方达蓝筹精选混合` (¥124.14, A class) is cleanly excluded; verified remaining 19 funds (all < ¥100) sum strictly to ¥442.70. PASSED.
+  7. Ten-dimensional macro/international: Tested high DR007 spread (tightness), high ERP (gold strike zone), low ERP (overbought caution), Sino-US spread calculation (-280 bp). PASSED.
+  8. GUI & CommonMark safety: Verified 0 lines start with 4 spaces or tabs across combat and construction HTML; verified 1-row-5-col responsive grid css and mobile breakpoint. PASSED.
+- **Vulnerabilities found**:
+  - Found that `pathology_text` in construction mode includes the phrase `"符合 ≤35% 分散铁律，无碎片尾仓风险。"`. While this is semantically correct (informing the user there is no risk of fragments), a naive substring check like `assert "碎片尾仓" not in content` will match this positive explanation and fail. The proper check is `assert "长尾碎片尾仓" not in content` or `assert "合计 ¥1.00" not in content`.
+- **Untested angles**: None within M1 scope.
 
 ## Loaded Skills
 - None requested by orchestrator.
 
 ## Key Decisions Made
-- Executed 18 new adversarial test cases in `tests/test_challenger_m1_adversarial.py`.
-- Verified 51/51 tests passing in comprehensive test run.
+- Authored new dedicated adversarial test suite `tests/test_challenger_g16_m1_adversarial.py` containing 8 comprehensive stress test methods.
+- Executed `tests/test_challenger_g16_m1_adversarial.py` (8/8 passed).
+- Executed `tests/test_g16_phase1_memo_and_combat29.py` (6/6 passed) and `tests/test_infra.py` (14/14 passed).
+- Total empirical verification: 28/28 tests passed.
 - Final verdict: APPROVE.
 
 ## Artifact Index
@@ -58,4 +62,4 @@ Adversarial challenge and empirical verification of Milestone 1 implementations 
 - `BRIEFING.md` — Situational awareness
 - `progress.md` — Liveness & progress tracking
 - `handoff.md` — Final verdict report
-- `tests/test_challenger_m1_adversarial.py` — Adversarial test suite
+- `tests/test_challenger_g16_m1_adversarial.py` — Adversarial test suite

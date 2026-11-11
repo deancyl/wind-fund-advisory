@@ -249,76 +249,96 @@ def format_chinese_amount(amount: float) -> str:
 def render_chief_advisor_memo_card(memo_data: Dict[str, Any], title: str = "🧭 首席投顾五维决策备忘录"):
     """
     渲染五维全息投顾首席备忘录卡片（破除唯算法论，提供通俗可落地人话参谋）
+    1 行 5 列横向等高响应式矩阵网格，首屏高密直显
     """
     if not memo_data:
         return
-        
-    m_macro = memo_data.get("macro_policy", {})
-    m_intl = memo_data.get("international_fx", {})
-    m_ind = memo_data.get("industry_valuation", {})
-    m_path = memo_data.get("portfolio_pathology", {})
-    m_act = memo_data.get("action_directive", {})
+
+    m_macro = memo_data.get("macro_policy", {}) or {}
+    m_intl = memo_data.get("international_fx", {}) or {}
+    m_ind = memo_data.get("industry_valuation", {}) or {}
+    m_path = memo_data.get("portfolio_pathology", {}) or {}
+    m_act = memo_data.get("action_directive", {}) or {}
     ts = memo_data.get("timestamp", "")
+    act_color = m_act.get("color", "var(--accent-primary, #2563eb)")
 
     html_code = f"""
-    <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 14px 18px; margin-bottom: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
-            <div style="font-size: 15px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+    <style>
+    .chief-memo-grid {{
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+        width: 100%;
+    }}
+    @media (max-width: 768px) {{
+        .chief-memo-grid {{
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+        }}
+    }}
+    </style>
+    <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 6px;">
+            <div style="font-size: 14px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
                 <span>{title}</span>
-                <span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: rgba(37,99,235,0.08); color: var(--accent-primary); border: 1px solid rgba(37,99,235,0.2);">买方参谋体系</span>
+                <span style="font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(37,99,235,0.08); color: var(--accent-primary); border: 1px solid rgba(37,99,235,0.2);">买方高密情报矩阵</span>
             </div>
             <div style="font-size: 11px; color: var(--text-muted);">
                 研判截面：{ts} ｜ 无未来数据泄露
             </div>
         </div>
-        
-        <div style="display: grid; grid-template-columns: 1fr; gap: 10px;">
+
+        <div class="chief-memo-grid" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; width: 100%;">
             <!-- 1. 宏观政策 -->
-            <div style="padding: 10px 12px; background: var(--bg-elevated); border-left: 3px solid var(--accent-primary); border-radius: 6px;">
-                <div style="font-size: 12.5px; font-weight: 700; color: var(--accent-primary); margin-bottom: 4px;">
-                    🏛️ 宏观与政策面 ｜ <span style="font-size: 11.5px; font-weight: 600;">{m_macro.get('badge', '')}</span>
+            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 3px solid var(--accent-primary); border-radius: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-size: 12px; font-weight: 700; color: var(--accent-primary);">🏛️ 宏观与政策面</span>
+                    <span style="font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: rgba(37,99,235,0.08); color: var(--accent-primary); white-space: nowrap;">{m_macro.get('badge', '')}</span>
                 </div>
-                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.45; overflow-y: auto; max-height: 85px; scrollbar-width: thin;">
                     {m_macro.get('content', '')}
                 </div>
             </div>
-            
+
             <!-- 2. 国际汇率 -->
-            <div style="padding: 10px 12px; background: var(--bg-elevated); border-left: 3px solid #8b5cf6; border-radius: 6px;">
-                <div style="font-size: 12.5px; font-weight: 700; color: #8b5cf6; margin-bottom: 4px;">
-                    🌐 国际与汇率面 ｜ <span style="font-size: 11.5px; font-weight: 600;">{m_intl.get('badge', '')}</span>
+            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 3px solid #8b5cf6; border-radius: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-size: 12px; font-weight: 700; color: #8b5cf6;">🌐 国际与汇率面</span>
+                    <span style="font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: rgba(139,92,246,0.08); color: #8b5cf6; white-space: nowrap;">{m_intl.get('badge', '')}</span>
                 </div>
-                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.45; overflow-y: auto; max-height: 85px; scrollbar-width: thin;">
                     {m_intl.get('content', '')}
                 </div>
             </div>
-            
+
             <!-- 3. 产业估值 -->
-            <div style="padding: 10px 12px; background: var(--bg-elevated); border-left: 3px solid #0284c7; border-radius: 6px;">
-                <div style="font-size: 12.5px; font-weight: 700; color: #0284c7; margin-bottom: 4px;">
-                    📈 产业与估值面 ｜ <span style="font-size: 11.5px; font-weight: 600;">{m_ind.get('badge', '')}</span>
+            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 3px solid #0284c7; border-radius: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-size: 12px; font-weight: 700; color: #0284c7;">📈 产业与估值面</span>
+                    <span style="font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: rgba(2,132,199,0.08); color: #0284c7; white-space: nowrap;">{m_ind.get('badge', '')}</span>
                 </div>
-                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.45; overflow-y: auto; max-height: 85px; scrollbar-width: thin;">
                     {m_ind.get('content', '')}
                 </div>
             </div>
-            
-            <!-- 4. 存量持仓病灶 -->
-            <div style="padding: 10px 12px; background: var(--bg-elevated); border-left: 3px solid var(--color-up); border-radius: 6px;">
-                <div style="font-size: 12.5px; font-weight: 700; color: var(--color-up); margin-bottom: 4px;">
-                    🩺 存量持仓病灶体检 ｜ <span style="font-size: 11.5px; font-weight: 600;">{m_path.get('badge', '')}</span>
+
+            <!-- 4. 存量病灶 / 拟建仓校验 -->
+            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 3px solid var(--color-up, #ef4444); border-radius: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-size: 12px; font-weight: 700; color: var(--color-up, #ef4444);">{m_path.get('title', '🩺 存量持仓病灶')}</span>
+                    <span style="font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: rgba(239,68,68,0.08); color: var(--color-up, #ef4444); white-space: nowrap;">{m_path.get('badge', '')}</span>
                 </div>
-                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.45; overflow-y: auto; max-height: 85px; scrollbar-width: thin;">
                     {m_path.get('content', '')}
                 </div>
             </div>
-            
+
             <!-- 5. 今日行动准则 -->
-            <div style="padding: 12px 14px; background: rgba(37,99,235,0.04); border: 1px solid rgba(37,99,235,0.2); border-left: 4px solid var(--accent-primary); border-radius: 8px;">
-                <div style="font-size: 13.5px; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;">
-                    🎯 今日明确行动准则 ｜ <span style="font-size: 12px; font-weight: 700; color: {m_act.get('color', 'var(--accent-primary)')};">{m_act.get('badge', '')}</span>
+            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: rgba(37,99,235,0.03); border: 1px solid rgba(37,99,235,0.18); border-top: 3px solid {act_color}; border-radius: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-size: 12px; font-weight: 800; color: var(--text-primary);">🎯 今日行动准则</span>
+                    <span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: rgba(37,99,235,0.1); color: {act_color}; white-space: nowrap;">{m_act.get('badge', '')}</span>
                 </div>
-                <div style="font-size: 12px; color: var(--text-primary); line-height: 1.6;">
+                <div style="font-size: 11px; color: var(--text-primary); line-height: 1.45; overflow-y: auto; max-height: 85px; scrollbar-width: thin;">
                     {m_act.get('content', '')}
                 </div>
             </div>
@@ -2549,13 +2569,17 @@ tot_pnl_color = active_co["color_up"] if _t2_pnl >= 0 else active_co["color_down
 with st.sidebar:
     if "app_view_layout_mode" not in st.session_state:
         st.session_state.app_view_layout_mode = "🖥️ 桌面专业模式"
-    st.session_state.app_view_layout_mode = st.radio(
+    cur_layout_val = st.session_state.get("app_view_layout_mode", "🖥️ 桌面专业模式")
+    sb_view_mode = st.radio(
         "📱 视图模式切换",
         ["🖥️ 桌面专业模式", "📱 手机极简盯盘"],
-        index=0 if st.session_state.app_view_layout_mode == "🖥️ 桌面专业模式" else 1,
+        index=0 if "桌面" in cur_layout_val else 1,
         horizontal=True,
         key="sb_view_layout_radio"
     )
+    if sb_view_mode != cur_layout_val:
+        st.session_state.app_view_layout_mode = sb_view_mode
+        st.rerun()
 
     # 顶部第一行：标题与紧凑的 ⚙️ 外观 Popover，首屏直接聚焦市场状态与指数走廊
     sb_head_c1, sb_head_c2 = st.columns([6.0, 4.0])
@@ -2823,12 +2847,88 @@ with st.sidebar:
     st.caption(f"💡 点击右上角 ⚙️ 可自由定制 38+ 全市场指数与任意 6 位代码。当前展示 {rendered_count}/{len(st.session_state.sb_selected_corridor_indices)} 只标的。")
 
 # -------------------------------------------------------------
-# 📱 手机极简盯盘视图 (当切换为手机模式时，跳过宽屏大表，直接呈现 3 栏极简卡片流)
+# 🌐 全局紧凑顶栏：系统品牌标识 + 行情源状态角标 + 「📂 当前激活账本」切换 + 「🖥️ 桌面专业 / 📱 手机盯盘」切换胶囊
+# -------------------------------------------------------------
+mlm_inst = st.session_state.get("mlm") or (MultiLedgerManager.get_instance() if MultiLedgerManager else None)
+all_ledgers = mlm_inst.list_ledgers() if mlm_inst else []
+avail_lids = [l["id"] for l in all_ledgers]
+active_lid = st.session_state.get("active_ledger_id", "main_live")
+if active_lid not in avail_lids:
+    active_lid = "main_live" if "main_live" in avail_lids else (avail_lids[0] if avail_lids else "main_live")
+    st.session_state.active_ledger_id = active_lid
+
+col_top_brand, col_top_ledger, col_top_mode = st.columns([3.8, 4.2, 2.0])
+
+with col_top_brand:
+    safe_markdown_html(f"""
+    <div style="display: flex; align-items: center; gap: 8px; padding-top: 4px;">
+        <span style="font-size: 15px; font-weight: 800; color: var(--text-primary); white-space: nowrap;">🧭 AGY2 智投量化终端</span>
+        <span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgba(16,185,129,0.1); color: var(--color-down); border: 1px solid rgba(16,185,129,0.25); white-space: nowrap;">
+            {data_src_badge} ｜ {latest_date}
+        </span>
+    </div>
+    """)
+
+with col_top_ledger:
+    def _fmt_topbar_ledger(lid: str) -> str:
+        m = mlm_inst.get_ledger_meta(lid) or {}
+        tag = "🟢 [实盘]" if m.get("type") == "live" else ("🧪 [沙盒]" if m.get("type") == "sandbox" else "👨‍👩‍👧 [家庭]")
+        try:
+            eq = float(mlm_inst.get_pm(lid).total_equity)
+        except Exception:
+            eq = 0.0
+        return f"{tag} {m.get('name', lid)} (¥{eq:,.0f})"
+
+    active_idx = next((i for i, l in enumerate(all_ledgers) if l["id"] == active_lid), 0)
+    selected_lid = st.selectbox(
+        "当前激活账本",
+        options=[l["id"] for l in all_ledgers],
+        index=active_idx,
+        format_func=_fmt_topbar_ledger,
+        key=f"topbar_ledger_select_{active_lid}",
+        label_visibility="collapsed"
+    )
+    if selected_lid != active_lid:
+        switch_active_ledger(selected_lid)
+        st.rerun()
+
+with col_top_mode:
+    cur_mode = st.session_state.get("app_view_layout_mode", "🖥️ 桌面专业模式")
+    mode_opts = ["🖥️ 桌面专业", "📱 手机盯盘"]
+    cur_idx = 0 if "桌面" in cur_mode else 1
+    key_mode = f"seg_topbar_view_mode_{'desktop' if cur_idx == 0 else 'mobile'}"
+    if hasattr(st, "segmented_control"):
+        sel_mode = st.segmented_control(
+            "视图模式",
+            options=mode_opts,
+            default=mode_opts[cur_idx],
+            key=key_mode,
+            label_visibility="collapsed"
+        )
+    else:
+        sel_mode = st.radio(
+            "视图模式",
+            options=mode_opts,
+            index=cur_idx,
+            horizontal=True,
+            key=f"rad_topbar_view_mode_{cur_idx}",
+            label_visibility="collapsed"
+        )
+    target_full_mode = "🖥️ 桌面专业模式" if "桌面" in (sel_mode or "") else "📱 手机极简盯盘"
+    if target_full_mode != cur_mode:
+        st.session_state.app_view_layout_mode = target_full_mode
+        st.session_state.sb_view_layout_radio = target_full_mode
+        st.rerun()
+
+st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+
+# -------------------------------------------------------------
+# 📱 手机极简盯盘视图 (当切换为手机模式时，跳过宽屏大表，直接呈现 5 栏流式卡片)
 # -------------------------------------------------------------
 if st.session_state.get("app_view_layout_mode") == "📱 手机极简盯盘":
     st.subheader("📱 手机极简盯盘")
 
-    # ① 今日总资产与预估盈亏卡片
+    # a) 卡片 1：今日总资产与预估盈亏大卡
     pnl_sign = "+" if est_pnl >= 0 else ""
     safe_markdown_html(f"""
     <div class="decision-card" style="border-left: 4px solid var(--accent-primary); padding: 14px 16px; margin-bottom: 12px; border-radius: 10px;">
@@ -2844,17 +2944,133 @@ if st.session_state.get("app_view_layout_mode") == "📱 手机极简盯盘":
     </div>
     """)
 
-    # ② 14:30 尾盘关键操作指令
+    # b) 卡片 2：🧭 首席投顾五维决策备忘录摘要
+    try:
+        from advisory_engine import generate_chief_advisor_memo
+        memo_mob = generate_chief_advisor_memo(
+            snapshot=snapshot,
+            holdings=pm.holdings,
+            sentry_rep=st.session_state.get("_sentry_cached_rep")
+        )
+    except Exception:
+        memo_mob = {}
+
+    if memo_mob:
+        m_macro = memo_mob.get("macro_policy", {})
+        m_val = memo_mob.get("industry_valuation", {})
+        m_path = memo_mob.get("portfolio_pathology", {})
+        m_act = memo_mob.get("action_directive", {})
+        
+        verdict_str = m_act.get("verdict", "维持底仓吃息")
+        deep_cnt = m_path.get("deep_loss_count", 0)
+        frag_cnt = m_path.get("frag_count", 0)
+        frag_sum = m_path.get("frag_amt", 0.0)
+
+        path_badge_txt = f"🚨 {deep_cnt}只深套" if deep_cnt > 0 else "🟢 健康良好"
+        frag_txt = f" ｜ 🧹 {frag_cnt}只碎片(¥{frag_sum:,.2f})" if frag_cnt > 0 else ""
+
+        safe_markdown_html(f"""
+        <div class="decision-card" style="border-left: 4px solid var(--accent-primary); padding: 14px 16px; margin-bottom: 12px; border-radius: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <div style="font-size: 14px; font-weight: 700; color: var(--text-primary);">
+                    🧭 首席投顾五维决策备忘录
+                </div>
+                <span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgba(37,99,235,0.1); color: var(--accent-primary); font-weight: 600;">
+                    {m_act.get('badge', '⏱️ 14:30 决策')}
+                </span>
+            </div>
+            <!-- 4 维微型徽章胶囊 -->
+            <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
+                <span style="font-size: 11px; padding: 2px 7px; border-radius: 4px; background: rgba(16,185,129,0.1); color: var(--color-down); border: 1px solid rgba(16,185,129,0.2);">
+                    {m_macro.get('badge', '宏观充裕')}
+                </span>
+                <span style="font-size: 11px; padding: 2px 7px; border-radius: 4px; background: rgba(16,185,129,0.1); color: var(--color-down); border: 1px solid rgba(16,185,129,0.2);">
+                    {m_val.get('badge', '估值机会')}
+                </span>
+                <span style="font-size: 11px; padding: 2px 7px; border-radius: 4px; background: rgba(239,68,68,0.1); color: var(--color-up); border: 1px solid rgba(239,68,68,0.2);">
+                    {path_badge_txt}{frag_txt}
+                </span>
+            </div>
+            <!-- 投顾人话结论 -->
+            <div style="font-size: 12.5px; line-height: 1.6; color: var(--text-primary); background: var(--bg-hover, rgba(0,0,0,0.02)); padding: 8px 12px; border-radius: 6px; border-left: 3px solid var(--accent-primary);">
+                <b>投顾人话结论</b>：当前组合定调【<b style="color: {m_act.get('color', 'var(--accent-primary)')};">{verdict_str}</b>】。全组合底仓健康稳健，按时钟纪律严格执行。
+            </div>
+        </div>
+        """)
+
+    # c) 卡片 3：🧹 碎片尾仓一键清扫卡
+    # 动态扫描持仓中的免赎碎片尾仓（与 advisory_engine.py 及 ActiveRiskSentry 维度13 严格对齐）
+    tail_items = []
+    if pm.holdings:
+        for fc, h in pm.holdings.items():
+            mv_h = getattr(h, "shares", 0.0) * getattr(h, "current_nav", 1.0)
+            s_cls = getattr(h, "share_class", "A")
+            fname = getattr(h, "fund_name", fc)
+            min_d = min((getattr(b, "holding_days", 30) for b in getattr(h, "batches", [])), default=getattr(h, "holding_days", 30))
+            is_tail = (0 < mv_h < 100.0) or (100.0 <= mv_h < 200.0 and (s_cls == "C" or any(k in fname for k in ["联接", "ETF", "指数", "红包", "体验", "尾仓", "碎片"])))
+            is_fee_free = (s_cls == "C" and min_d >= 30) or (s_cls != "C" and min_d >= 365)
+            if is_tail and is_fee_free:
+                tail_items.append((fc, fname, mv_h, min_d))
+    
+    t_count = len(tail_items)
+    t_cash = sum(x[2] for x in tail_items)
+
+    if t_count > 0:
+        safe_markdown_html(f"""
+        <div class="decision-card" style="border-left: 4px solid var(--color-warning, #f59e0b); padding: 14px 16px; margin-bottom: 12px; background: rgba(245, 158, 11, 0.05); border-radius: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <div style="font-size: 14px; font-weight: 700; color: #d97706;">
+                    🧹 碎片尾仓一键瘦身建议卡
+                </div>
+                <span style="font-size: 11px; background: rgba(245, 158, 11, 0.2); color: #d97706; padding: 2px 7px; border-radius: 4px; font-weight: 600;">
+                    零赎回费 · 极速瘦身
+                </span>
+            </div>
+            <div style="font-size: 12.5px; color: var(--text-primary); line-height: 1.5; margin-bottom: 8px;">
+                检测到当前账本含有 <b>{t_count}</b> 只免赎碎片尾仓（合计沉淀资金 <b>¥{t_cash:,.2f}</b>），持有天数均已满免赎期。微小零头分散精力，建议一键清扫归拢至核心纯债（<b>002351 易方达裕祥回报债券A</b>），净化账本、增厚安全垫！
+            </div>
+        </div>
+        """)
+        if st.button("🧹 一键模拟/清扫碎片尾仓归拢至纯债 (002351)", type="primary", use_container_width=True, key="btn_mob_sweep_tails"):
+            st.session_state.rad_tab2_scenario_mode = "🧹 尾部碎片与C类一键归拢 (清理<3%碎片与满期高费率C类至底仓)"
+            st.session_state.sel_sc_anchor = "002351 - 易方达裕祥回报债券A"
+            st.session_state.tab2_diagnosed = True
+            st.session_state.tab2_rebalanced = True
+            st.session_state.tab2_trigger_rebalance = True
+            st.session_state.tab2_rebal_cache = None
+            st.success(f"✅ 已成功启动清扫归拢预案：将 {t_count} 只免赎碎片 (¥{t_cash:,.2f}) 全额平移归集至 002351！可切回【桌面专业模式】查看调仓明细单。")
+    else:
+        safe_markdown_html("""
+        <div class="decision-card" style="border-left: 4px solid var(--color-down); padding: 10px 14px; margin-bottom: 12px; border-radius: 8px; font-size: 12px; color: var(--text-secondary);">
+            🟢 <b>碎片尾仓健康</b>：当前账本结构高度聚焦，无单只低于 ¥200 的碎片零头标的。
+        </div>
+        """)
+
+    # d) 卡片 4：⏱️ 14:30 尾盘关键操作指令与核心风险提醒
+    clock_title_mob = "14:30黄金窗口" if market_status.is_golden_window else ("盘后已关账" if market_status.is_after_market else "盘中观察期")
     c_status = "🟢 14:30 黄金操作窗口（适合尾盘估值锚定下单）" if market_status.is_golden_window else ("🟡 盘中观察期（建议等待 14:30 趋势确认）" if not market_status.is_after_market else "🔴 盘后已关账（按明日 15:00 净值成交）")
 
     orders_brief = []
+    locked_count = 0
     if pm.holdings:
         for fc, h in list(pm.holdings.items()):
             min_days = min((getattr(b, "holding_days", 30) for b in getattr(h, "batches", [])), default=getattr(h, "holding_days", 30))
             if int(min_days) < 7:
+                locked_count += 1
                 orders_brief.append(f"🔒 {getattr(h, 'fund_name', fc)} ({fc}): 未满7天锁仓保护（持有{min_days}天），严禁赎回")
     if not orders_brief:
         orders_brief.append("✅ 今日组合结构健康，维持底仓安心持仓吃息，无强制调仓要求")
+
+    # 构造可一键复制的下单口令小抄
+    cheat_lines = [f"【AGY2 智投量化 14:30 下单小抄】({datetime.now().strftime('%m-%d %H:%M')})"]
+    cheat_lines.append(f"当前状态: {clock_title_mob}")
+    if t_count > 0:
+        cheat_lines.append(f"• 碎片清扫: 建议赎回 {t_count} 只尾仓 (¥{t_cash:,.2f})，资金买入 002351 易方达裕祥纯债")
+    if locked_count > 0:
+        cheat_lines.append(f"• 锁仓防线: {locked_count} 只标的未满 7 天，严格禁止卖出")
+    else:
+        cheat_lines.append("• 核心纪律: 维持底仓不变，红利类设为红利再投资")
+    cheat_sheet_str = "\n".join(cheat_lines)
 
     safe_markdown_html(f"""
     <div class="decision-card" style="border-left: 4px solid var(--color-down); padding: 14px 16px; margin-bottom: 12px; border-radius: 10px;">
@@ -2864,13 +3080,17 @@ if st.session_state.get("app_view_layout_mode") == "📱 手机极简盯盘":
         <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 8px;">
             {c_status}
         </div>
-        <div style="font-size: 12.5px; color: var(--text-primary); line-height: 1.6; background: rgba(37,99,235,0.06); padding: 8px 12px; border-radius: 6px;">
+        <div style="font-size: 12.5px; color: var(--text-primary); line-height: 1.6; background: rgba(37,99,235,0.06); padding: 8px 12px; border-radius: 6px; margin-bottom: 8px;">
             {'<br>'.join(orders_brief)}
+        </div>
+        <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">
+            📋 14:30 下单口令小抄 (点击右上角图标一键复制)：
         </div>
     </div>
     """)
+    st.code(cheat_sheet_str, language="text")
 
-    # ③ 持仓红黄牌风险提醒与截图导入入口
+    # 风控提醒
     cur_tier_val = str(st.session_state.get("active_tier_val", "C3")).upper()
     h_items_str = ";".join(
         f"{c}:{getattr(h, 'shares', 0.0)}:{getattr(h, 'latest_nav', getattr(h, 'current_nav', 1.0))}:"
@@ -2934,11 +3154,126 @@ if st.session_state.get("app_view_layout_mode") == "📱 手机极简盯盘":
             </div>
             """)
 
+    # e) 卡片 5：📸 手机持仓长截图智能切片识别与平账入库闭环
     safe_markdown_html("<div style='height: 8px;'></div>")
-    st.markdown("##### 📸 手机持仓长截图一键更新")
+    st.markdown("##### 📸 手机持仓长截图智能切片识别")
+    st.caption("支持上传天天基金、支付宝、招商银行等手机端长截图，采用 100% 原始宽度高清切片与 ONNX 本地 OCR 自动对齐基金主字典：")
     mob_img = st.file_uploader("上传支付宝/天天基金/招行/且慢手机长截图", type=["png", "jpg", "jpeg", "webp"], key="mob_uploader_feed")
-    if mob_img:
-        st.success(f"已接收截图【{mob_img.name}】，点击切换至【桌面专业模式】查看结构化切片解析与平账表。")
+    if mob_img is not None:
+        img_bytes = mob_img.getvalue()
+        cache_key = f"mob_ocr_parsed_{mob_img.name}_{len(img_bytes)}"
+        if cache_key not in st.session_state:
+            with st.spinner("🔍 正在执行高清切片 OCR 识别与基金字典智能对齐..."):
+                try:
+                    parsed_ocr = pm.parse_screenshot_ocr_holdings(img_bytes)
+                    st.session_state[cache_key] = parsed_ocr
+                    st.session_state["shared_ocr_parsed_items"] = parsed_ocr
+                except Exception as e_ocr:
+                    st.error(f"截图解析异常: {e_ocr}")
+                    st.session_state[cache_key] = []
+
+        parsed_items = st.session_state.get(cache_key) or []
+        if parsed_items:
+            tot_ocr_mv = sum(float(it.get("market_value", 0.0)) for it in parsed_items)
+            tot_ocr_pnl = sum(float(it.get("floating_pnl", 0.0)) for it in parsed_items)
+            tot_ocr_cost = sum(float(it.get("cost_basis", it.get("market_value", 0.0) - it.get("floating_pnl", 0.0))) for it in parsed_items)
+            st.success(f"✅ 成功识别 {len(parsed_items)} 只基金！合计市值 ¥{tot_ocr_mv:,.2f} ｜ 投入本金 ¥{tot_ocr_cost:,.2f} ｜ 累计盈亏 ¥{tot_ocr_pnl:+,.2f}")
+
+            import pandas as pd
+            df_preview = pd.DataFrame([
+                {
+                    "基金代码": it.get("fund_code", ""),
+                    "基金名称": it.get("fund_name", ""),
+                    "持有市值(元)": float(it.get("market_value", 0.0)),
+                    "持有收益(元)": float(it.get("floating_pnl", 0.0)),
+                    "投入成本(元)": float(it.get("cost_basis", it.get("market_value", 0.0) - it.get("floating_pnl", 0.0))),
+                    "份额类别": it.get("share_class", "A"),
+                    "持有天数": int(it.get("holding_days", 365)),
+                }
+                for it in parsed_items
+            ])
+            st.caption("📋 识别结果可编辑核对：")
+            edited_ocr_df = st.data_editor(
+                df_preview,
+                use_container_width=True,
+                num_rows="dynamic",
+                key="mob_ocr_data_editor"
+            )
+
+            c_mob_act1, c_mob_act2 = st.columns(2)
+            with c_mob_act1:
+                if st.button("✅ 确认无误，一键覆盖写入当前账本", type="primary", use_container_width=True, key="btn_mob_ocr_commit_replace"):
+                    orig_map = {it.get("fund_code"): it for it in parsed_items}
+                    rows_to_import = []
+                    for _, row in edited_ocr_df.iterrows():
+                        c = str(row["基金代码"]).strip()
+                        mv = float(row["持有市值(元)"])
+                        pnl = float(row["持有收益(元)"])
+                        cb = float(row["投入成本(元)"]) if "投入成本(元)" in row and float(row["投入成本(元)"]) > 0 else (mv - pnl)
+                        orig_it = orig_map.get(c, {})
+                        cur_nav = float(orig_it.get("current_nav", 1.0))
+                        shares = round(mv / cur_nav, 4) if cur_nav > 0 else mv
+                        cost_price = round(cb / shares, 4) if shares > 0 else cur_nav
+                        rows_to_import.append({
+                            "fund_code": c,
+                            "fund_name": str(row["基金名称"]).strip(),
+                            "market_value": mv,
+                            "floating_pnl": pnl,
+                            "cost_basis": cb,
+                            "current_nav": cur_nav,
+                            "cost_price": cost_price,
+                            "cost_nav": cost_price,
+                            "shares": shares,
+                            "share_class": str(row["份额类别"]).strip(),
+                            "holding_days": int(row["持有天数"]),
+                            "dividend_method": orig_it.get("dividend_method", "cash" if "A" in str(row["份额类别"]) else "reinvest")
+                        })
+                    pm.import_from_smart_text(rows_to_import, replace_existing=True)
+                    pm.save_state()
+                    st.session_state.tab2_diag_cache = None
+                    st.session_state.tab2_rebal_cache = None
+                    st.session_state.tab2_diagnosed = False
+                    st.session_state.tab2_rebalanced = False
+                    st.success(f"✅ 已成功覆盖写入当前账本【{active_lid}】！共 {len(rows_to_import)} 只基金持仓。")
+                    st.rerun()
+
+            with c_mob_act2:
+                if st.button("➕ 追加合并写入当前账本", use_container_width=True, key="btn_mob_ocr_commit_append"):
+                    orig_map = {it.get("fund_code"): it for it in parsed_items}
+                    rows_to_import = []
+                    for _, row in edited_ocr_df.iterrows():
+                        c = str(row["基金代码"]).strip()
+                        mv = float(row["持有市值(元)"])
+                        pnl = float(row["持有收益(元)"])
+                        cb = float(row["投入成本(元)"]) if "投入成本(元)" in row and float(row["投入成本(元)"]) > 0 else (mv - pnl)
+                        orig_it = orig_map.get(c, {})
+                        cur_nav = float(orig_it.get("current_nav", 1.0))
+                        shares = round(mv / cur_nav, 4) if cur_nav > 0 else mv
+                        cost_price = round(cb / shares, 4) if shares > 0 else cur_nav
+                        rows_to_import.append({
+                            "fund_code": c,
+                            "fund_name": str(row["基金名称"]).strip(),
+                            "market_value": mv,
+                            "floating_pnl": pnl,
+                            "cost_basis": cb,
+                            "current_nav": cur_nav,
+                            "cost_price": cost_price,
+                            "cost_nav": cost_price,
+                            "shares": shares,
+                            "share_class": str(row["份额类别"]).strip(),
+                            "holding_days": int(row["持有天数"]),
+                            "dividend_method": orig_it.get("dividend_method", "cash" if "A" in str(row["份额类别"]) else "reinvest")
+                        })
+                    pm.import_from_smart_text(rows_to_import, replace_existing=False)
+                    pm.save_state()
+                    st.session_state.tab2_diag_cache = None
+                    st.session_state.tab2_rebal_cache = None
+                    st.session_state.tab2_diagnosed = False
+                    st.session_state.tab2_rebalanced = False
+                    st.success(f"✅ 已成功追加合并至当前账本【{active_lid}】！")
+                    st.rerun()
+        else:
+            st.warning("未能从截图中解析出有效基金持仓，请检查截图是否清晰完整。")
 
     st.stop()
 
@@ -3162,47 +3497,47 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
             act_status_icon = "🟢"
             expander_title = "今日投顾参谋：持仓十二维体检全绿，安全垫充沛，今日安心持仓吃息 ｜ 点击展开机会雷达与体检详情"
 
-        # 100% 全宽折叠面板
+        # 加载 14 赛道扫描缓存获取 Top 3 机会 (支持 dict 与 list 混合结构，毫秒级读取)
+        radar_cache_f = Path(WORKSPACE_ROOT) / "data" / "cache" / "radar_sectors_cache.json"
+        all_scanned_sectors = []
+        if radar_cache_f.exists():
+            try:
+                with open(radar_cache_f, "r", encoding="utf-8") as _rf:
+                    _raw_c = json.load(_rf)
+                    if isinstance(_raw_c, dict):
+                        all_scanned_sectors = _raw_c.get("sectors", [])
+                    elif isinstance(_raw_c, list):
+                        all_scanned_sectors = _raw_c
+            except Exception:
+                pass
+        if not all_scanned_sectors:
+            try:
+                radar_engine = OpportunityRadarEngine()
+                all_scanned_sectors = radar_engine.scan_all_sectors()
+            except Exception:
+                all_scanned_sectors = []
+
+        top3_sectors = [s for s in all_scanned_sectors if s.get("s_crowd", 85.0) >= 45.0][:3]
+        if not top3_sectors and all_scanned_sectors:
+            top3_sectors = all_scanned_sectors[:3]
+
+        # ── 提权至首屏主视野：🧭 首席投顾五维全息决策备忘录卡片（移出折叠框，1行5列矩阵直显） ──
+        try:
+            from advisory_engine import generate_chief_advisor_memo
+            memo_top = generate_chief_advisor_memo(
+                snapshot=snapshot_dict,
+                holdings=pm_instance.holdings,
+                radar_top3=top3_sectors,
+                sentry_rep=sentry_rep
+            )
+            render_chief_advisor_memo_card(memo_top, title="🧭 首席投顾五维全息决策备忘录")
+        except Exception:
+            pass
+
+        # 100% 全宽折叠面板：仅包裹机会雷达与主动风控哨左右双翼
         wing_expander = st.expander(f"{act_status_icon} {expander_title}", expanded=False)
 
         with wing_expander:
-            # 加载 14 赛道扫描缓存获取 Top 3 机会 (支持 dict 与 list 混合结构，毫秒级读取)
-            radar_cache_f = Path(WORKSPACE_ROOT) / "data" / "cache" / "radar_sectors_cache.json"
-            all_scanned_sectors = []
-            if radar_cache_f.exists():
-                try:
-                    with open(radar_cache_f, "r", encoding="utf-8") as _rf:
-                        _raw_c = json.load(_rf)
-                        if isinstance(_raw_c, dict):
-                            all_scanned_sectors = _raw_c.get("sectors", [])
-                        elif isinstance(_raw_c, list):
-                            all_scanned_sectors = _raw_c
-                except Exception:
-                    pass
-            if not all_scanned_sectors:
-                try:
-                    radar_engine = OpportunityRadarEngine()
-                    all_scanned_sectors = radar_engine.scan_all_sectors()
-                except Exception:
-                    all_scanned_sectors = []
-
-            top3_sectors = [s for s in all_scanned_sectors if s.get("s_crowd", 85.0) >= 45.0][:3]
-            if not top3_sectors and all_scanned_sectors:
-                top3_sectors = all_scanned_sectors[:3]
-
-            # ── 顶栏置顶：🧭 首席投顾五维全息决策备忘录卡片 ──
-            try:
-                from advisory_engine import generate_chief_advisor_memo
-                memo_top = generate_chief_advisor_memo(
-                    snapshot=snapshot_dict,
-                    holdings=pm_instance.holdings,
-                    radar_top3=top3_sectors,
-                    sentry_rep=sentry_rep
-                )
-                render_chief_advisor_memo_card(memo_top, title="🧭 首席投顾五维全息决策备忘录")
-            except Exception:
-                pass
-
             col_radar, col_sentry = st.columns([6.2, 3.8])
 
             # --- 左翼：机会雷达 ---
@@ -4059,7 +4394,8 @@ with tab_zero_start:
                     snapshot=snapshot,
                     holdings=opt_weights,
                     radar_top3=None,
-                    sentry_rep=None
+                    sentry_rep=None,
+                    total_capital=float(plan_capital)
                 )
                 render_chief_advisor_memo_card(memo_t1, title="🧭 首席投顾五维决策备忘录（建仓方案研判）")
             except Exception:
@@ -5795,7 +6131,7 @@ with tab_holdings_and_rebalance:
                                 ① 🧹 19 只免赎碎片尾仓全额清扫归拢 (回收 ¥442.70 · 零赎回费)
                             </div>
                             <div style="font-size: 12px; color: var(--text-primary); line-height: 1.5;">
-                                • <b>尾仓特征</b>：含历史体验金、零头联接基金（0.59元~89.60元共19只），持仓天数均已达 400 天（>365天），赎回手续费严格为 <b>¥0.00</b>。<br>
+                                • <b>尾仓特征</b>：含历史体验金、零头联接基金（0.59元~89.60元共19只），持仓天数均已达 400~1040+ 天（已满 1 年免赎期），赎回手续费严格为 <b>¥0.00</b>。<br>
                                 • <b>执行路径</b>：一键全额赎回 19 只碎片，回收 <b>¥442.70</b> 现金全额增持核心底仓（<b>002351 易方达裕祥回报债券A</b>），持仓标的从 29 只瞬间精炼至 10 只。
                             </div>
                         </div>
@@ -5842,6 +6178,19 @@ with tab_holdings_and_rebalance:
                         </div>
                     </div>
                     """)
+
+                    col_rx_btn1, col_rx_btn2 = st.columns([7, 3])
+                    with col_rx_btn1:
+                        if st.button("🧹 一键执行三步瘦身重构模拟（清扫 19 只免赎尾仓 + 置换深套出血点）", key="btn_apply_combat29_rx", type="primary", use_container_width=True):
+                            st.session_state.tab2_sweep_tail = True
+                            st.session_state.tab2_c_replace = "011613"
+                            st.session_state.tab2_diagnosed = True
+                            st.session_state.tab2_rebalanced = True
+                            st.session_state.tab2_trigger_rebalance = True
+                            st.session_state.tab2_rebal_cache = None
+                            st.rerun()
+                    with col_rx_btn2:
+                        st.caption("⚡ 盘活流动资金 ¥442.70~¥962.57 自动转入核心底仓")
 
                 # 🎯 目标组合与场景模式微调（收纳于轻量折叠项，默认自动全托管）
                 has_t1_opt = bool(st.session_state.get("tab1_sim_cache") and st.session_state["tab1_sim_cache"].get("optimal_weights"))
@@ -6944,11 +7293,18 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
 
     st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-    c_bt_mode, c_bt_obj, c_bt_bench = st.columns([3.0, 3.5, 3.5])
+    c_bt_mode, c_bt_obj, c_bt_bench = st.columns([3.2, 3.4, 3.4])
     with c_bt_mode:
         bt_mode = st.selectbox(
             "🎯 回测模式",
-            ["📒 单账本/方案回测", "🔄 调仓前 vs 调仓后对比", "🆚 双账本同屏 PK", "📊 C1~C5 策略基准档"],
+            [
+                "🎯 实战存量组合：原始29基 vs 投顾重构6基（近1年真规则回测对比）",
+                "📒 单账本/方案回测",
+                "🔄 调仓前 vs 调仓后对比",
+                "🆚 双账本同屏 PK",
+                "📊 C1~C5 策略基准档"
+            ],
+            index=1,
             key="sel_tab3_bt_mode"
         )
     with c_bt_bench:
@@ -6962,7 +7318,12 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
 
     # 在 Col 2 动态渲染选择器
     with c_bt_obj:
-        if bt_mode == "📒 单账本/方案回测":
+        if bt_mode == "🎯 实战存量组合：原始29基 vs 投顾重构6基（近1年真规则回测对比）":
+            st.info("🎯 预设对比：用户真实 29 只基金实战存量组合 vs 投顾优化重构 6 只全天候组合（近 1 年真规则申赎、费率与 T+1 对比）")
+            choice_kind, choice_val = ("preset_combat_29_vs_6", None)
+            sel_target_type = "原始29基 vs 重构6基"
+
+        elif bt_mode == "📒 单账本/方案回测":
             opts_clean = []
             opt_map_clean = {}
             act_lbl = f"🟢 【{cur_meta.get('name', '主实盘账本')}】({len(cur_pm.holdings)}只 · ¥{cur_pm.total_equity:,.0f})"
@@ -7041,6 +7402,12 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
     elif choice_kind == "plan_t2":
         primary_weights = choice_val
         target_name_disp = f"拟调仓后目标组合 ({len(primary_weights)} 只标的)"
+
+    elif choice_kind == "preset_combat_29_vs_6":
+        preset_info = StrategyBridge.get_combat_29_vs_reconstructed_6_preset()
+        primary_weights = preset_info["reconstructed_6_weights"]
+        secondary_weights = preset_info["raw_29_weights"]
+        target_name_disp = "投顾重构 6 基核心组合 vs 原始 29 基存量"
 
     elif choice_kind == "diff_rebal":
         if cur_pm.holdings:

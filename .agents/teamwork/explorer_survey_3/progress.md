@@ -1,18 +1,16 @@
-# Progress Tracking - Explorer Survey 3
+# Progress Heartbeat
 
-Last visited: 2026-10-30T01:08:30Z
-Status: COMPLETED
+- Current Status: Task Complete. Report delivered in handoff.md.
+- Last visited: 2026-11-11T00:52:30Z
 
-## Milestones & Checklist
-- [x] Step 0: Initialize DISPATCH.md, BRIEFING.md, and progress.md
-- [x] Step 1: Read ORIGINAL_REQUEST.md for context and overall requirements
-- [x] Step 2: Investigate `portfolio_manager.py` (fund selection funnel, candidate pools, 6D scoring, R6 CUSUM change-point insertion points)
-- [x] Step 3: Investigate `app_gui.py` (Streamlit UI layout, 4-step execution flow, summary cards, breakout lines, 1080p fit, R7 insertion points)
-- [x] Step 4: Investigate `tests/` and test infra (pytest execution, existing test suite structure, read-only file validation)
-- [x] Step 5: Synthesize findings, update BRIEFING.md, write `handoff.md`, and notify orchestrator
-
-## Final Deliverables
-- `d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_3\handoff.md` (Detailed 5-component survey report)
-- `d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_3\BRIEFING.md` (Updated persistent working memory)
-- `d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_3\progress.md` (Updated progress tracking)
-- `d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_3\DISPATCH.md` (Incoming dispatch records)
+## Roadmap
+1. [x] Setup state folder, DISPATCH.md, BRIEFING.md, progress.md
+2. [x] Read `ORIGINAL_REQUEST.md` and `agy2_ui_ux_audit_and_fix_plan (4).md` for complete background
+3. [x] Investigate `multi_ledger_manager.py` (combat_29_funds, data consistency, holding days, idempotent mounting)
+4. [x] Investigate `strategy_bridge.py` & `app_gui.py` (Tab 2 瘦身面板, Tab 3 时光机盲测, 静态权重踏空问题)
+5. [x] Investigate referee files protection & hashes (`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`)
+6. [x] Investigate test files & test execution (`tests/test_infra.py`, `tests/test_adv_final_closure.py`, etc.)
+7. [x] Investigate `generate_chief_advisor_memo` deep loss test placement & G17 evolution command format
+8. [x] Write `handoff.md` with 5 components
+9. [x] Update BRIEFING.md
+10. [x] Send message to parent

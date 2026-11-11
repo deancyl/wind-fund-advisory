@@ -1,20 +1,26 @@
-## 2026-10-30T00:58:48Z
-You are Explorer 1 for the AGY2_FundAdvisory self-evolving quant engine project.
-Your working directory is d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\
-You MUST read d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md first before starting work.
-Working directory for code is d:\Google\Workspace\Wind\AGY2_FundAdvisory.
+## 2026-11-11T00:25:18Z
+【任务背景与目标】
+你是只读探索智能体 (teamwork_explorer)。本任务旨在针对 G16 世代第一阶段任务进行代码实地走查与深度探查，产出详尽的调查报告。
+你拥有只读权限，严禁修改任何代码。
 
-Mission:
-Investigate strategy_bridge.py and all related strategy/regime modules in d:\Google\Workspace\Wind\AGY2_FundAdvisory.
-Focus on:
-1. Existing expert models, market regime detection, status transition logic, MA20 calculation, and position mapping.
-2. Requirements and exact code insertion points for:
-   - R2: OnlineExpertWeightUpdater (Hedge online multiplicative weight updates, K=4 orthogonal expert streams: trend momentum, ERP macro valuation, MA divergence contrarian, liquidity & futures basis; rolling window half-life gamma=0.985, utility u_{i,t} = r_{i,t} - 0.5*lambda*sigma_{i,t}^2 - c*Turnover_{i,t}, learning rate eta, weights normalization sum=1.0, real-time weights P_{i,T} display).
-   - R3: Schmidt hysteresis buffer ring (asymmetric entry >= +1.2% / Z_t>=0.60 vs exit <= -1.5% / Z_t<0.20, noise oscillation lock in [-1.5%, +1.2%]) and Sigmoid continuous position gating g(Z_t) = 1/(1+exp(-k*Z_t)).
-3. Record all relevant classes, functions, variable names, interfaces, and dependencies.
-4. Check which files are read-only and must NOT be touched (judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py).
+【重要约束与输入文件】
+- 原始需求：d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+- 外部审计参考：c:\Users\deanc\Downloads\agy2_ui_ux_audit_and_fix_plan (4).md
+- 你的状态文件夹：d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1
+- 你的工作目录：d:\Google\Workspace\Wind
+- 成果交付文件：d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\handoff.md
 
-Deliverables:
-- Keep updating d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\progress.md with timestamps.
-- Write your detailed investigation report to d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\handoff.md following standard handoff structure (Observation, Logic Chain, Caveats, Conclusion, Verification Method).
-- Send a message to orchestrator when completed.
+【核心调查范围】
+1. `advisory_engine.py`:
+   - 深入定位 `generate_chief_advisor_memo` 函数的确切位置（检查行号如 1545~1705 或 4170~4375 附近）。
+   - 彻底梳理 `pl_ratio` 计算逻辑：检查 `cost_value`、`cost_basis`、`cost_price`、`shares`、`floating_pnl_pct`、`pnl_pct` 的属性命名与读取优先级。
+   - 检查在 Tab 1 新资建仓时传入权重字典 `opt_weights`（如 `{"005561": 0.35, ...}`）时，为什么会把 `0.35` 误判为小于 200 元的碎片基（导致“检测到 6 只碎片合计 ¥1.00”）。
+   - 检查五维决策备忘录中宏观政策面（10Y国债、DR007利差、沪深300 ERP）、国际汇率面（USD/CNH、中美利差、黄金与纳指联动、QDII溢价）、产业估值面（Top 3低估黄金击球区赛道与高拥挤度赛道）、存量持仓病灶（深套标的、免赎碎片尾仓数量与金额、赛道集中度）、今日 14:30 明确行动准则的当前实现与数据源接入方式。
+
+2. `app_gui.py`:
+   - 定位 `render_chief_advisor_memo_card` 函数及其实际渲染调用位置（原先是否被包在 `wing_expander` 或折叠框内）。
+   - 探查顶部 4 张全局指标卡（`render_global_metrics_strip` 或类似函数）的位置，分析如何将 `render_chief_advisor_memo_card` 提权至指标卡正下方、折叠栏上方。
+   - 检查 `render_chief_advisor_memo_card` 当前的 CSS 样式布局（是否纵向堆叠），分析如何重构为 1 行 5 列横向等高网格（`grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px;`），子卡片高度约 115px，包含色标、结论胶囊和精炼正文，移动端自适应折行。
+
+【交付要求】
+请将探查到的确切代码行号、现有实现逻辑、数据结构差异、修改点方案及潜在风险，写入你的 handoff.md，并在完成后通过 send_message 通知父智能体（conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8）。

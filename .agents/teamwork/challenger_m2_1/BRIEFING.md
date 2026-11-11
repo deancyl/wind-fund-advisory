@@ -1,7 +1,7 @@
-# BRIEFING — 2026-11-10T02:18:00Z
+# BRIEFING — 2026-11-11T02:06:00Z
 
 ## Mission
-对 G15 Milestone 2 (Phase 2)「破除唯算法论：实装五维投顾首席备忘录与历史任意时点盲测时光机」开展全面、对抗性的实证质询与压测验证，检验 Point-in-Time 零未来数据泄露、全套公募交易摩擦扣费、极端宏观边界与病灶识别鲁棒性，出具定性裁决结论。
+针对 G16 Milestone 2 中 `portfolio_manager.py` 的智能文本解析与模糊匹配功能（`parse_smart_text_holdings`、`fuzzy_match_fund_by_name` 及方法别名）编写对抗性测试脚本并运行压测，验证多源截图文本、带昨日收益文本、多份额同名混合、大额千分位及畸形格式输入的准确性与鲁棒性，出具客观、有据的定性裁决结论。
 
 ## 🔒 My Identity
 - Archetype: empirical-challenger
@@ -13,6 +13,10 @@
 - Appended Identity (2026-11-09T18:07:57Z):
   * Target Milestone: G15 Generation Milestone 2 (Phase 2) - 五维投顾首席备忘录与历史任意时点盲测时光机
   * Parent ID: 9a123e21-7525-4c57-9715-710c2a94c199
+  * Agent: challenger_m2_1
+- Appended Identity (2026-11-11T01:52:45Z):
+  * Target Milestone: G16 Generation Milestone 2 - portfolio_manager 智能文本解析与模糊匹配对抗性验证
+  * Parent ID: a4d409c2-aeca-47df-a18c-528d9465a6c8
   * Agent: challenger_m2_1
 
 ## 🔒 Key Constraints
@@ -26,47 +30,56 @@
   * `DataLoader.simulate_execution` signature and fee logic strictly untouched.
   * Provide definitive qualitative verdict: APPROVE or REQUEST_CHANGES.
   * Report completion to parent conversation `9a123e21-7525-4c57-9715-710c2a94c199`.
+- Appended Key Constraints (2026-11-11T01:52:45Z):
+  * Zero tolerance on physical safety redlines: 4 referee files (`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`) strictly untouched.
+  * Empirical verification: write and run adversarial tests independently, verify yesterday earnings disturbance, multi-class matching, and malformed inputs.
+  * Provide definitive qualitative verdict: APPROVE or FAIL.
+  * Report completion to parent conversation `a4d409c2-aeca-47df-a18c-528d9465a6c8`.
 
 ## Current Parent
-- Conversation ID: 9a123e21-7525-4c57-9715-710c2a94c199
-- Updated: 2026-11-10T02:18:00Z
+- Conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8
+- Updated: 2026-11-11T02:06:00Z
 
 ## Review Scope
 - **Files to review**:
-  - `AGY2_FundAdvisory/advisory_engine.py` (generate_chief_advisor_memo)
-  - `AGY2_FundAdvisory/strategy_bridge.py` (run_historical_time_machine_backtest)
-  - `AGY2_FundAdvisory/app_gui.py` (render_chief_advisor_memo_card & Tab 3 UI)
+  - `AGY2_FundAdvisory/portfolio_manager.py` (parse_smart_text_holdings, fuzzy_match_fund_by_name, parse_screenshot_ocr_holdings, parse_long_screenshot_holdings)
+  - `AGY2_FundAdvisory/app_gui.py` (顶栏控制条与手机模式卡片 5 截图入库闭环)
   - `.agents/teamwork/worker_m2/handoff.md`
 - **Interface contracts**:
-  - `ORIGINAL_REQUEST.md` (lines 169-204)
-  - `orchestrator_18/PROJECT.md`
-  - GEMINI.md (Look-through, anti-whipsaw, transaction frictions, commonmark HTML defense)
+  - `ORIGINAL_REQUEST.md`
+  - `orchestrator_g16_gen2/SCOPE.md`
+  - GEMINI.md
 
 ## Key Decisions Made
-- 确立实证测试优先原则：拒绝仅审查代码文字，编写了 24 项对抗测试用例 `tests/test_challenger_m2_adversarial.py`。
-- 采用未来数据投毒测试（Data Poisoning Assay）：在 target_date 之后人为注入 100x 异常价格脉冲，实证检验 `weights_at_t` 的绝对 PIT 不变性（差值 < 1e-12）。
-- 采用零收益冷冻测试：将未来资产收益率锁死为 0.0%，精确验证日度销售服务费与现金缓冲的理论损耗（-0.0000044/天）。
-- 5 档 FIFO 阶梯赎回费（1.50%, 0.50%, 0.35%, 0.15%, 0.00%）逐级数学对账。
-- 全量回归核验：包含裁判用例（14项）、保护伞用例（5项）、既有闭环（14项）、M2用例（8项）与对抗用例（24项），共计 65 项用例 100% 绿灯。
-- 给出终审裁决：APPROVE。
+- 确立实证测试优先原则：编写了专属实证对抗测试套件 `tests/test_challenger_g16_m2_1_adversarial.py`，包含 31 项高强度用例。
+- 实施场景全覆盖：
+  1. 昨日收益数字抗干扰：大额、小数、正负号、无换行连写、多位数穿插均 100% 剥离，不被当成基金代码，不截断市值。
+  2. 多份额同名区分：12 对核心池与存量池 A/C 基金 100% 精确区分，短别名、同屏多行混合解析均通过。
+  3. 畸形输入鲁棒性：千分位大额数字、多重负号、纯数字行、特殊标点与空值输入，系统 0 未捕获异常。
+  4. 方法别名：验证 `PortfolioManager.parse_long_screenshot_holdings` 及模块别名存在且与 `parse_screenshot_ocr_holdings` 行为一致。
+  5. 会计恒等式：`cost_basis == market_value - floating_pnl` 在入库后分毫不差。
+- 给出终审定性裁决：APPROVE。
 
 ## Artifact Index
-- `.agents/teamwork/challenger_m2_1/BRIEFING.md` — 态势感知与记忆
+- `.agents/teamwork/challenger_m2_1/BRIEFING.md` — 态势感知与持久记忆
 - `.agents/teamwork/challenger_m2_1/progress.md` — 心跳与进度记录
-- `.agents/teamwork/challenger_m2_1/handoff.md` — 5段式质询交接报告
-- `tests/test_challenger_m2_adversarial.py` — 24项实证对抗测试套件
+- `.agents/teamwork/challenger_m2_1/handoff.md` — 5段式质询交付报告
+- `tests/test_challenger_g16_m2_1_adversarial.py` — 31项实证对抗测试套件
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - 假设 1: `generate_chief_advisor_memo` 在 None、空字典、极值宏观（DR007利差-150bp、10Y国债<0%、ERP 0%与100%）、暴跌深套（-80%）、25只长尾碎片、超90%集中度、非标准嵌套等输入下 0 崩溃，结构完整。 (PASS)
-  - 假设 2: `run_historical_time_machine_backtest` 具备完全的 Point-in-Time 零未来数据泄漏特性，未来数据污染对 T 日配置权重影响为 0。 (PASS)
-  - 假设 3: 交易摩擦扣费完全遵循公募标准：Day 0 前端申购费 0.12%（净值 0.9988）、日度销售服务费（0.40%/250）与现金缓冲、FIFO 5 档阶梯赎回费。 (PASS)
-  - 假设 4: 基准指数 H00300 与 50/50 真实反映标的变动。 (PASS)
-  - 假设 5: 边界异常校验（<60天历史、<2天前推）确定性抛出 ValueError 并被前端错误边界妥善捕获。 (PASS)
-- **Vulnerabilities found**:
-  - 无致命阻断缺陷。仅需注意向后兼容：当外部调用传入自定义 DataFrame 时，DataFrame 须包含大盘指数列（如 `H00922`, `H00300`, `H11009`）以供底层轮动流派提取必要信号。
+  - 假设 1: 复杂昨日收益（含大额、正负号、千分位、不同标签）绝不被截断，绝不污染基金代码与市值识别。(PASS)
+  - 假设 2: A/C/E 份额及别名在核心池与 29 基存量中 100% 区分正确。(PASS)
+  - 假设 3: 畸形非标准格式（大额千分位、多重负号、纯数字行、特殊符号）零抛错崩溃。(PASS)
+  - 假设 4: `parse_long_screenshot_holdings` 别名完好挂载。(PASS)
+  - 假设 5: 会计恒等式在智能导入前后严格闭环平账。(PASS)
+  - 假设 6: 4 个只读裁判文件零修改。(PASS)
+- **Vulnerabilities / Caveats found**:
+  - Caveat A: `ALIAS_MAP` 中 `"黄金ETF联接"`（6字符）长于 `"博时黄金"`（4字符），导致输入 `"博时黄金ETF联接A"` 时优先命中华安黄金（建议未来扩充别名优先级）。
+  - Caveat B: `"招商中证白酒"` 目前默认映射 `161725`，未动态挂载 C 类 `012414`（存量账本仅使用 A 类 161725，后续可按需拓展）。
+  - Caveat C: `+¥` 或 `-¥` 紧贴数字时（如 `+¥123,456.78`），浮盈提取因正则字符边界退回 0.0（不崩溃，但未提取出浮盈）。
 - **Untested angles**:
-  - 无。关键业务逻辑与对抗场景均已全部实证闭环。
+  - 无。关键业务链路与对抗场景均已全部实证闭环。
 
 ## Loaded Skills
 - None

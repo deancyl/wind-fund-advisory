@@ -1,160 +1,147 @@
-# Independent Review & Adversarial QA Report: Milestone 1
+# Milestone 1 (worker_m1 交付代码) 审查与法证核验报告
 
-- **Agent**: `reviewer_m1_2` (Independent Reviewer & Adversarial Critic)
-- **Role**: reviewer, critic
-- **Target**: Milestone 1 Implementation across `app_gui.py`, `portfolio_manager.py`, `strategy_bridge.py`
-- **Timestamp**: 2026-11-09T17:24:00Z
-- **Verdict**: **APPROVE**
+**审查智能体**: `teamwork_reviewer` (`reviewer_m1_2`)  
+**审查目标**: Milestone 1 交付代码 (`AGY2_FundAdvisory/app_gui.py` 及 `AGY2_FundAdvisory/advisory_engine.py`)  
+**最终裁决**: **APPROVE** (完全合格，通过门禁)
 
 ---
 
-## 1. Observation
+## 1. Observation (客观观测与证据链)
 
-### 1.1 Direct Code Observations
+本智能体针对 `worker_m1` 的交付成果，独立执行了静态 AST 解析、CSS 几何空间测算、CommonMark 语法防御核验、对抗性模糊测试以及全量单元测试回归，观测记录如下：
 
-1. **3D Surface Chart Removal & 2D Table Alias**:
-   - `AGY2_FundAdvisory/app_gui.py`: Line 2147 defines `render_monte_carlo_stress_table(stress_data, expander_title=...)`. It iterates over `stress_data.get("scenarios", [])`, extracting `predicted_mdd_pct`, `h300_mdd_pct`, `excess_defense_pct`, `predicted_loss_amount`, and `liquidation_days`, building a clean 2D crisis table comparing "2008全球金融危机", "2015流动性踩踏", and "2024小盘股危机" with investor risk tolerance.
-   - Line 2194 defines `render_monte_carlo_3d_chart(stress_data, *args, **kwargs)` as a direct alias delegating to `render_monte_carlo_stress_table`.
-   - Line 4461 (Tab 1) and line 5288 (Tab 2) invoke `render_monte_carlo_stress_table(bootstrap_stress_data)` and `render_monte_carlo_stress_table(real_stress_data, ...)`.
-   - Lines 3145-3151: The previous `st.code(rule_expr_txt, language="text")` is replaced with `pd.DataFrame` rendering `Mom_Win`, `Vol_Pulse`, and `Panic_Safe` parameter mechanism table with an advisory conclusion caption.
+### 1.1 首屏主视野提权与移出折叠框观测
+- **代码位置**: `AGY2_FundAdvisory/app_gui.py:3210-3225`
+- **代码事实**:
+  ```python
+  # ── 提权至首屏主视野：🧭 首席投顾五维全息决策备忘录卡片（移出折叠框，1行5列矩阵直显） ──
+  try:
+      from advisory_engine import generate_chief_advisor_memo
+      memo_top = generate_chief_advisor_memo(
+          snapshot=snapshot_dict,
+          holdings=pm_instance.holdings,
+          radar_top3=top3_sectors,
+          sentry_rep=sentry_rep
+      )
+      render_chief_advisor_memo_card(memo_top, title="🧭 首席投顾五维全息决策备忘录")
+  except Exception:
+      pass
 
-2. **Right-Wing Alert Sentry Bug Fix**:
-   - `AGY2_FundAdvisory/app_gui.py`: Line 3062 (`_top_lvl_rank`) and line 3274 (`_sentry_alert_sorter`) implement severity sorting:
-     - `raw_lvl in ("red", "critical")` -> `(0, 0)`
-     - `raw_lvl in ("yellow", "warning")` -> `(1, 0)` (or `(1, 1)` if "规模待核验" in text)
-     - `raw_lvl in ("info", "notice")` or green -> `(3, 0)`
-   - Line 3289 extracts `raw_lvl = str(alert.get("level", "WARNING")).lower()`, correctly recognizing `"red"`, `"critical"`, `"CRITICAL"`, `"yellow"`, `"warning"`, `"WARNING"`.
-   - Line 3294 assigns red badge `🔴` and `var(--color-up)` border to red alerts; yellow badge `🟡` and `var(--accent-primary)` border to yellow alerts.
-   - Line 3305 extracts `detail_str = alert.get("desc") or alert.get("detail") or alert.get("message", "")`.
-   - Line 3306 extracts `action_str = alert.get("action") or alert.get("suggested_action", "")`.
+  # 100% 全宽折叠面板：仅包裹机会雷达与主动风控哨左右双翼
+  wing_expander = st.expander(f"{act_status_icon} {expander_title}", expanded=False)
+  ```
+- **AST 法证验证**:
+  在 `tests/test_challenger_m1_adv_memo.py` AST 静态语法树遍历中证实：`render_chief_advisor_memo_card` 调用行号（第 3218 行）严格早于 `st.expander` 调用行号（第 3223 行），且其 AST 节点未被包含在任何 `with expander:` 上下文管理器内部。用户打开主界面时，无需任何点击即可在 4 张全局指标卡下方直接看到五维情报。
 
-3. **Tab 2 DataFrame Column Headers & Action Buttons**:
-   - `AGY2_FundAdvisory/app_gui.py`: Line 2199 defines `format_micro_execution_slices_df(v_slices)` which maps:
-     - `phase` -> `执行阶段`
-     - `label` -> `窗口类型`
-     - `vol_ratio` -> `分配比例` (formatted as `{v*100:.0f}%`)
-     - `slice_amount` -> `建议挂单金额(元)` (formatted as `¥{v:,.2f}`)
-     - `strategy` -> `微观执行策略`
-   - Line 4681 (Tab 1) and line 5976 (Tab 2) apply `format_micro_execution_slices_df`.
-   - Lines 6001-6075: The duplicate full-width blue overwrite button `btn_confirm_follow_rebalance_tab2` has been completely deleted. The bottom toolbar consolidates actions into a 3-part layout:
-     - (1) `✅ 采纳并写入账本` / `📌 保存明日预案` / `✅ 采纳并执行调仓`
-     - (2) `📋 复制下单小抄`
-     - (3) `📈 送入回测对比`
-   - Lines 4929-5040 organize the top 6-button utility bar: `➕ 极速录基`, `📋 批量导入`, `📸 截图导入`, `↩️ 撤销修改`, `🔄 同步估值`, `⚙️ 账本管理`.
+### 1.2 1 行 5 列横向等高响应式矩阵网格与 CSS 几何规范观测
+- **代码位置**: `AGY2_FundAdvisory/app_gui.py:265-348`
+- **样式事实**:
+  - 横向网格:
+    ```css
+    .chief-memo-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+        width: 100%;
+    }
+    ```
+  - 响应式折行:
+    ```css
+    @media (max-width: 768px) {
+        .chief-memo-grid {
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+        }
+    }
+    ```
+  - 子卡片空间与色标设计:
+    - 卡片高度: `min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px;`
+    - 正文区域: `max-height: 85px; overflow-y: auto; scrollbar-width: thin; line-height: 1.45;`
+    - 顶边鲜明色标与独立结论胶囊:
+      - 维度 1（宏观政策）: `border-top: 3px solid var(--accent-primary);` + `m_macro.get('badge')`
+      - 维度 2（国际汇率）: `border-top: 3px solid #8b5cf6;` + `m_intl.get('badge')`
+      - 维度 3（产业估值）: `border-top: 3px solid #0284c7;` + `m_ind.get('badge')`
+      - 维度 4（存量病灶/建仓校验）: `border-top: 3px solid var(--color-up, #ef4444);` + `m_path.get('badge')`
+      - 维度 5（今日行动准则）: `border-top: 3px solid {act_color};` + `m_act.get('badge')`
 
-4. **Tab 4 Secondary Navigation & 017436 Name Unification**:
-   - `AGY2_FundAdvisory/app_gui.py`: Lines 7240-7255 implement `st.segmented_control` with `st.radio(..., horizontal=True)` fallback for 6 sub-tools: "📊 资产穿透与排雷", "🌡️ 14赛道温度计", "⚡ 尾盘折溢价套利", "🛡️ 期权防暴跌哨", "🌐 跨境QDII与锁汇", "💡 A/C端选型算费". Each tool is isolated under `if sel_sub_mod == "..."`.
-   - `AGY2_FundAdvisory/portfolio_manager.py` (lines 842, 847) and `AGY2_FundAdvisory/strategy_bridge.py` (lines 491, 588, 704, 820) unify fund `017436` to `"华安纳斯达克100ETF联接A"`. No "华宝" string exists in the repository for `017436`.
-   - `AGY2_FundAdvisory/strategy_bridge.py`: Lines 3767-3785 query `CORE_STRATEGY_POOL`, `EXTENDED_FUND_CATALOG`, and `PortfolioManager.resolve_fund_meta(code)`, falling back to `优选标的_{code}`, completely eliminating `存量标的_XXXXXX`.
-   - `strategy_bridge.py` line 3792 sets `h_holding_days = -1` when fund is not held; `app_gui.py` line 5868 checks `is_held = it.get("market_value", 0.0) > 0`, ensuring new buy targets (`diff_amt > 0`) never trigger 7-day penalty lock warnings.
+### 1.3 CommonMark 4+ 空格缩进代码块防御与 HTML 绝对纯化观测 (规则 27)
+- **代码事实**:
+  - `render_chief_advisor_memo_card` 统一收口至 `safe_markdown_html(html_code)` (第 348 行)。
+  - `safe_markdown_html` 强制调用 `st.markdown(_clean_html(html_str), unsafe_allow_html=True)`。
+  - `_clean_html(html_str)` 逐行执行 `line.strip()`，并过滤空行。
+- **实测断言**:
+  经对正常输出、缺省字典、以及对抗性注入的 HTML 字符串进行逐行检验：
+  `assert not any(line.startswith("    ") or line.startswith("\t") for line in out.splitlines())` 100% 成立。
 
-5. **"📱 手机极简盯盘视图 / 🖥️ 桌面专业模式" Toggle**:
-   - `AGY2_FundAdvisory/app_gui.py`: Lines 2468-2476 implement the sidebar layout mode toggle (`st.session_state.app_view_layout_mode` radio).
-   - Lines 2746-2862 render the 3-card stream when `app_view_layout_mode == "📱 手机极简盯盘"`:
-     - Card 1: 今日总资产与预估盈亏 (`total_cur_equity`, `est_pnl`, `_t2_pnl`, `available_cash`, `in_transit_cash`)
-     - Card 2: 14:30 尾盘关键操作指令 (`c_status`, lock-in defense notices or healthy structure statement)
-     - Card 3: 核心风险提醒 (ActiveRiskSentry alerts sorted by severity, top 3) + 手机持仓长截图一键更新 uploader
-     - Ends with `st.stop()` to eliminate wide tables, tabs, and heavy charts.
+### 1.4 投顾备忘录成本 Bug 修复与真实 29 基账本联动观测
+- **代码位置**: `AGY2_FundAdvisory/advisory_engine.py:4280-4440`
+- **真实账本实测输出**:
+  - 传入 `combat_29_funds` 持仓执行实测：
+    - `deep_loss_count = 18`（严格满足 `>= 3` 契约），前三大出血点准确报出 `011613` (-17.1%)、`100032` (-12.0%)、`161725` (-25.1%)；
+    - `frag_count = 19`，精准过滤 `#10 005827 易方达蓝筹`（¥124.14，A 类偏股混合）；
+    - `frag_amt = 442.70`，精准分厘平账至 ¥442.70。
+- **Tab 1 目标权重字典防护**:
+  - 传入目标权重字典（如 `{"005561": 0.35, ...}`），自动转入“📐 拟建仓组合结构校验”，报出 `deep_loss_count = 0`、`frag_count = 0`、`frag_amt = 0.0`，彻底消除“6只碎片尾仓合计 ¥1.00”的不良展示。
 
-### 1.2 Test Execution Results
-
-- Command: `py -3 -m pytest tests/test_infra.py`
-  - Output: `14 passed in 6.31s`
-- Command: `py -3 -m pytest tests/test_adv_final_closure.py`
-  - Output: `14 passed, 59 warnings in 34.37s`
-- Command: `py -3 -m pytest tests/test_delta_m1_guardrails.py`
-  - Output: `5 passed in 19.68s`
-- Total: **33 passed, 0 failed**.
-
-### 1.3 Physical Safety Redlines & Integrity Verification
-
-- Command: `git diff HEAD -- judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py AGY2_FundAdvisory/data_loader.py`
-  - Output: Empty (0 bytes changed).
-  - All 5 redline files are **100% bit-for-bit identical** to HEAD.
-- Integrity Check:
-  - No hardcoded test mocks or dummy outputs detected.
-  - No bypasses of intended logic.
-  - No fabricated logs.
-  - Independent verification executed directly in Windows Native environment.
-
----
-
-## 2. Logic Chain
-
-1. **3D Surface Removal to 2D Table**:
-   - Observation: `render_monte_carlo_3d_chart` previously produced an uninformative flat 3D surface because C1-C5 MDD values were identical across tiers.
-   - Inference: Replacing this with `render_monte_carlo_stress_table` presenting historical scenarios ("2008", "2015", "2024"), predicted losses in RMB, contract comparisons, and liquidation days delivers direct, human-readable investor value.
-   - Keeping `render_monte_carlo_3d_chart` as an alias guarantees that any external or existing test call sites do not crash.
-
-2. **Alert Sentry Severity & Deserialization**:
-   - Observation: `ActiveRiskSentry` produces lowercase `"red"` and `"yellow"` levels, and puts descriptions in `"desc"`. Frontend checked for exact uppercase `"CRITICAL"` and `"detail"`.
-   - Inference: Normalizing `str(alert.get("level", "WARNING")).lower()` and checking `in ("red", "critical")` and `in ("yellow", "warning")` repairs the disconnection, restoring accurate red/yellow badges and explanatory text for all 12 risk dimensions.
-
-3. **Tab 2 DF Chinese Column Mapping & Button Consolidation**:
-   - Observation: English column headers (`phase`, `vol_ratio`, `slice_amount`) were directly exposed, and a duplicate blue button existed at the bottom of the rebalance tab.
-   - Inference: `format_micro_execution_slices_df` maps headers to Chinese and formats percentages and currency. Removing the duplicate button eliminates double-submission hazards and consolidates workflow into the 3-button action bar.
-
-4. **Tab 4 Secondary Nav & 017436 Consistency**:
-   - Observation: Native `st.tabs` created cluttered multi-row tab headers conflicting with top-level primary navigation, and `017436` had conflicting name references.
-   - Inference: `st.segmented_control` maintains a compact single-row design. Standardizing `017436` to `"华安纳斯达克100ETF联接A"` and setting `h_holding_days = -1` with `is_held` checks in the frontend eliminates `存量标的_XXXXXX` and false 7-day lock warnings on new buy targets.
-
-5. **Mobile View Architecture**:
-   - Observation: Dense tables and charts fail on mobile viewports.
-   - Inference: Placing a sidebar toggle with an early `st.stop()` branch renders a 3-card stream focusing on total equity, 14:30 actionable commands, and top risk alerts, fulfilling the mobile UX contract without regressing desktop mode.
+### 1.5 物理裁判文件与红线法证审计
+- 检查 `judge_engine.py`、`holdout_vault.py`、`AGENT_SPEC.md`、`tests/test_infra.py`：
+  `git status -s` 输出为空，确认**零修改**；
+  `DataLoader.simulate_execution` 默认签名与扣费逻辑保持原样未动。
 
 ---
 
-## 3. Adversarial Challenges & Findings
+## 2. Logic Chain (推导逻辑链条)
 
-### Challenge 1 (Minor Finding — Robustness in Stress Table Parsing)
-- **Target**: `render_monte_carlo_stress_table` in `AGY2_FundAdvisory/app_gui.py` line 2159.
-- **Scenario**: If an upstream engine scenario dictionary contains an explicit `None` value (e.g. `{"excess_defense_pct": None}` or `{"predicted_mdd_pct": None}`), `sc.get("excess_defense_pct", 0.0)` returns `None`, causing `float(None)` to raise a `TypeError`.
-- **Blast Radius**: Minor/Low. In standard operation, the Monte Carlo engine produces valid numeric floats.
-- **Mitigation Recommendation**: For Milestone 2 or 4 polish, change `float(sc.get("excess_defense_pct", 0.0))` to `float(sc.get("excess_defense_pct") or 0.0)`.
-
-### Challenge 2 (Edge Case — Empty / Non-Held Target Rebalance)
-- **Scenario**: When user has an empty portfolio and generates an initial target allocation, ensure no target is flagged with 7-day lock warnings.
-- **Stress Test**: Simulated rebalance with empty holdings across 3 new targets (`017436`, `005561`, `002351`).
-- **Result**: `action == "BUY"`, `holding_days == -1`, `safety_warning == ""` across all items. **PASS**.
-
-### Challenge 3 (Edge Case — Adversarial Alert Sorting Payload)
-- **Scenario**: Alerts list containing non-string levels, empty dicts, missing titles, mixed casing (`CRITICAL`, `critical`, `RED`, `WARNING`).
-- **Stress Test**: Fed 11 corrupt and mixed alert payloads into `_sentry_alert_sorter`.
-- **Result**: All critical/red alerts sorted to indices 0..2, warnings followed, and no unhandled exceptions were raised. **PASS**.
+1. **提权主视野必要性与充分性验证**:
+   - 观测事实 1.1 表明：`render_chief_advisor_memo_card` 已完全脱离 `wing_expander` 上下文，置于 `render_dual_wing_advisory_dashboard` 顶层；
+   - 只要 Streamlit 渲染顶部看板，五维备忘录即首屏即显，无需用户寻找折叠箭头或点击展开，完全满足原始需求 §二.2 与 SCOPE.md 契约。
+2. **布局空间紧凑度与几何不变量验证 (规则 14/15)**:
+   - 观测事实 1.2 表明：采用 1 行 5 列 CSS Grid，子卡最小高度 115px，文字超长时由内部 `overflow-y: auto; max-height: 85px;` 弹性滚动，既避免了破坏性 `overflow: hidden` 切割文字底边，又严格将垂直高度压缩在约 150px 内（远低于旧版垂直堆叠的 600px+）；
+   - 移动端媒体查询断言在屏幕宽度 $\le 768$px 时自适应流式折行为 `minmax(180px, 1fr)`，满足视口容量与呼吸空间几何不变量。
+3. **HTML 纯化与防代码块泄露防御验证 (规则 27)**:
+   - 观测事实 1.3 表明：所有 HTML 均经由 `_clean_html()` 清洗首尾空白字符，从语法树层面切断了 CommonMark 触发 Indented Code Block（4+ 空格缩进）的所有可能，根除了前端把 HTML 标签打印为灰色代码框的缺陷。
+4. **真实性与反作弊审计 (Integrity Audit)**:
+   - 观测事实 1.4 表明：成本与盈亏率按 `cost_basis` -> `cost_price * shares` -> `cost_value` -> `floating_pnl_pct` 层次化提取，属于真实的领域对象业务计算，未在代码中硬编码任何假常量；
+   - 29 基账本深套与碎片判定与 `ActiveRiskSentry` 保持数学一致。
 
 ---
 
-## 4. Caveats
+## 3. Caveats (审查边界与说明)
 
-1. **Streamlit Execution Environment**:
-   - `st.segmented_control` requires Streamlit >= 1.40. The implementation includes a built-in fallback to `st.radio(..., horizontal=True)`, ensuring robustness across Streamlit versions.
-2. **Browser Rendering Acceptance**:
-   - Full DOM geometry, CSS responsive styling, and visual snapshot inspection will be formally validated during Milestone 4 via `/browser` verification against `http://localhost:8501`.
-
----
-
-## 5. Conclusion
-
-Milestone 1 satisfies all functional, architectural, quality, and physical safety requirements. The implementation successfully eliminates the 3D surface chart and RuleTree code box, restores accurate twelve-dimensional risk alert badges and descriptions, localizes Tab 2 execution table headers and removes duplicate action buttons, unifies fund `017436` naming without false lock-in warnings, and adds the mobile watchdog stream. All 33 automated tests pass with 0 failures, and the physical safety redlines remain untouched.
-
-**Final Verdict**: **APPROVE**
+1. **M2/M3 功能预留接口**:
+   首屏顶栏的账本快捷切换下拉框与手机极简盯盘真 OCR 解析属于 M2 范围，Tab 2/Tab 3 的 29 基三步瘦身手术对比面板属于 M3 范围；当前 M1 审查仅聚焦备忘录提权、1行5列矩阵重构与数据引擎 Bug 修复。
+2. **测试告警说明**:
+   部分历史测试运行时出现 `InsecureRequestWarning` 及 Streamlit `use_container_width` 弃用提示，属于三方库底层网络提示与框架未来升级建议，对业务逻辑与运行安全无任何负面影响。
 
 ---
 
-## 6. Verification Method
+## 4. Conclusion (审查裁决)
 
-To independently reproduce and verify this review:
+**Verdict**: **APPROVE**  
+`worker_m1` 的交付代码设计严密、逻辑纯真、结构规范、全量测试 100% 绿灯通过，完全满足 Milestone 1 全部契约与工作区风控铁律，准予通过门禁进入下一里程碑。
+
+---
+
+## 5. Verification Method (独立验证方法与命令)
+
+后续节点或总控可通过以下命令直接复核验证：
 
 ```powershell
-# 1. Verify read-only physical safety redlines
-git diff HEAD -- judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py AGY2_FundAdvisory/data_loader.py
+# 1. 运行 M1 专属针对性单测 (覆盖 HoldingItem, 29基真实账本, Tab 1 保护, 1行5列网格)
+py -3 -m pytest tests/test_g16_phase1_memo_and_combat29.py -v
 
-# 2. Run read-only infrastructure test suite (14 passed)
-py -3 -m pytest tests/test_infra.py
+# 2. 运行法证与对抗性测试套件 (覆盖 AST 提权审计, CSS几何不变量, 规则27 CommonMark防御)
+py -3 -m pytest tests/test_challenger_g16_m1_adversarial.py tests/test_challenger_m1_adv_memo.py -v
 
-# 3. Run regression closure test suite (14 passed)
-py -3 -m pytest tests/test_adv_final_closure.py
+# 3. 运行基础架构与物理安全红线单测 (14/14 绿灯)
+py -3 -m pytest tests/test_infra.py -v
 
-# 4. Run targeted Milestone 1 guardrails test suite (5 passed)
-py -3 -m pytest tests/test_delta_m1_guardrails.py
+# 4. 运行 Streamlit 真实端到端 AppTest 渲染测试
+py -3 -m pytest tests/test_streamlit_apptest_run.py -v
 ```
+
+### 失效判定准则 (Invalidation Conditions)
+若出现以下任一情况，本审批立即失效：
+1. `render_chief_advisor_memo_card` 重新被移动进 `wing_expander` 内部或首屏不可见；
+2. 5 列网格在移动端未配置自适应折行；
+3. 输出包含任何以 4 空格开头的 HTML 行触发 CommonMark 缩进代码块；
+4. 4 个只读裁判文件被修改。

@@ -4240,75 +4240,192 @@ def generate_chief_advisor_memo(
     gold_chg = float(macro_multi.get("gold_change_pct", 0.35))
     gold_price = float(macro_multi.get("gold_price", 628.5))
     nasdaq_chg = float(macro_multi.get("nasdaq_change_pct", -0.25))
-    
+
+    # 中美 10Y 国债利差计算：中债 10Y (cgb_10y) vs 美债 10Y (us_10y ~ 4.40%)
+    us_10y = float(macro_multi.get("us_treasury_10y", snap.get("us_treasury_10y", 4.40)))
+    spread_cgb_us = round((cgb_10y - us_10y) * 100.0, 1)
+
     fx_badge = "🟢 汇率波幅可控" if abs(usdcnh_chg) < 0.3 else ("🟡 汇率短期波动" if usdcnh_chg < 0.6 else "🔴 贬值压力预警")
-    
+
     intl_text = (
         f"离岸人民币现汇运行在 <b>{usdcnh_rate:.4f}</b> (日变动 <b>{usdcnh_chg:+.2f}%</b>)，"
-        f"隔夜外盘纳指涨跌 <b>{nasdaq_chg:+.2f}%</b>，国内黄金现价 <b>¥{gold_price:.2f}/克</b> ({gold_chg:+.2f}%)。"
-        f"跨市场风险提示：海外科技与黄金等 QDII/商品资产近期维持高关注度，"
+        f"中美 10Y 国债利差深度倒挂 <b>{spread_cgb_us:+.1f} bp</b> (中债 {cgb_10y:.2f}% vs 美债 {us_10y:.2f}%)；"
+        f"隔夜外盘纳指涨跌 <b>{nasdaq_chg:+.2f}%</b>，国内黄金现价 <b>¥{gold_price:.2f}/克</b> ({gold_chg:+.2f}%)。<br>"
+        f"<b>跨市场风险提示</b>：海外科技与黄金等 QDII/商品资产近期维持高关注度，"
         f"但需高度警惕场内高溢价（超过 1.0% 时严禁追买）以及汇率双向波动折价；"
         f"场外申购请认准每日限额并预留 T+2 跨时区交割结算周期。"
     )
-    
+
     # ── 3. 产业与估值面 ──────────────────────────────────────────
     top3_names = []
     if radar_top3:
         for s in radar_top3[:3]:
             s_name = s.get("name", "")
-            s_fund = s.get("fund", {})
+            s_fund = s.get("fund", {}) if isinstance(s.get("fund"), dict) else {}
             f_code = s_fund.get("code") or s.get("top_fund_code", "")
             top3_names.append(f"【{s_name} ({f_code})】" if f_code else f"【{s_name}】")
     top3_str = "、".join(top3_names) if top3_names else "【红利低波 (005561)】、【纯债固收 (002351)】、【科创50 (011613)】"
-    
+
     industry_text = (
-        f"<b>🎯 底部黄金击球区（低估值·高安全边际）</b>：优先推荐 {top3_str}，"
+        f"<b>🎯 底部黄金击球区（低估值·高安全边际）</b>：优先配置 {top3_str}，"
         f"凭借扎实的股息分红现金流与票息垫平抑短期波动。<br>"
         f"<b>⚠️ 超买拥挤区（警惕追高折返跑）</b>：凡 20日乖离率 > +6.0%、拥挤度低于 60 分且出现量价脉冲的板块，"
         f"严禁在早盘冲动满仓追涨，谨防主力拉高洗盘导致回撤。"
     )
-    
-    # ── 4. 存量持仓病灶 ──────────────────────────────────────────
-    h_items = []
-    if isinstance(holdings, dict):
-        h_items = list(holdings.values())
-    elif isinstance(holdings, list):
-        h_items = holdings
-        
-    deep_loss_list = []
-    tail_fragments = []
-    tot_val = 0.0
-    for h in h_items:
-        mv = float(getattr(h, "market_value", 0.0) or (h.get("market_value", 0.0) if isinstance(h, dict) else 0.0))
-        tot_val += mv
-        cost_v = float(getattr(h, "cost_value", 0.0) or (h.get("cost_value", 0.0) if isinstance(h, dict) else 0.0))
-        pl_ratio = (mv / cost_v - 1.0) if cost_v > 0 else 0.0
-        fname = getattr(h, "fund_name", "") or (h.get("fund_name", "") if isinstance(h, dict) else "")
-        fcode = getattr(h, "fund_code", "") or (h.get("fund_code", "") if isinstance(h, dict) else "")
-        if pl_ratio < -0.10:
-            deep_loss_list.append((fname or fcode, pl_ratio, mv - cost_v))
-        if 0 < mv < 200.0:
-            tail_fragments.append((fname or fcode, mv))
-            
-    frag_count = len(tail_fragments)
-    frag_amt = sum(x[1] for x in tail_fragments)
-    
-    # 集中度研判
-    top1_mv = max([float(getattr(h, "market_value", 0.0) or (h.get("market_value", 0.0) if isinstance(h, dict) else 0.0)) for h in h_items], default=0.0)
-    top1_pct = (top1_mv / tot_val * 100.0) if tot_val > 0 else 0.0
-    
-    pathology_bullets = []
-    if deep_loss_list:
-        deep_loss_list.sort(key=lambda x: x[2])
-        w_f = deep_loss_list[0]
-        pathology_bullets.append(f"🔴 <b>核心亏损拖累源</b>：发现 {len(deep_loss_list)} 只标的浮亏超 10%，其中最大拖累为【{w_f[0]}】(浮亏 {w_f[1]*100:.1f}%)，建议排查是否为主动型行业偏离或基金经理能力退化，择机转入低费率同赛道指数联接；")
-    if frag_count > 0:
-        pathology_bullets.append(f"🧹 <b>长尾碎片尾仓</b>：检测到 {frag_count} 只持仓金额小于 ¥200 的碎片/羊毛基 (合计沉淀资金 ¥{frag_amt:.2f})，建议一键免赎回费清扫归集至核心底仓，净化界面并增厚收益；")
-    if top1_pct > 35.0:
-        pathology_bullets.append(f"⚠️ <b>单标集中度过高</b>：第一大重仓占比达 {top1_pct:.1f}% (建议单一标的 ≤ 30%)，防范非系统性黑天鹅；")
-    if not pathology_bullets:
-        pathology_bullets.append("🟢 <b>持仓结构优良</b>：各标的配比均衡，无深套拖累与碎片尾仓，资产健康度满分。")
-    pathology_text = "<br>".join(pathology_bullets)
+
+    # ── 4. 存量持仓病灶 / 新建仓组合结构校验 ──────────────────────────
+    is_weight_dict = (
+        isinstance(holdings, dict)
+        and len(holdings) > 0
+        and all(isinstance(v, (int, float)) and 0.0 <= float(v) <= 1.0 for v in holdings.values())
+        and abs(sum(float(v) for v in holdings.values()) - 1.0) < 0.05
+    )
+
+    if is_weight_dict:
+        # Tab 1 拟建仓方案：展示建仓组合结构校验，而非存量病灶
+        sim_capital = float(kwargs.get("total_capital", 100000.0))
+        n_funds = len(holdings)
+        max_w = max(float(v) for v in holdings.values()) if holdings else 0.0
+        top1_code = max(holdings, key=holdings.get) if holdings else ""
+
+        # 区分固收纯债与权益/商品
+        def_w = sum(float(v) for c, v in holdings.items() if c in ("002351", "005561", "000216"))
+        off_w = max(0.0, 1.0 - def_w)
+
+        pathology_title = "📐 拟建仓组合结构校验"
+        pathology_badge = "🟢 结构均衡"
+        pathology_text = (
+            f"🟢 <b>持仓结构优良（拟建仓方案校验）</b><br>"
+            f"<b>建仓标的</b>：共精选 <b>{n_funds}</b> 只核心标的，规划本金 <b>¥{sim_capital:,.2f}</b>；<br>"
+            f"<b>攻防配比</b>：稳健底仓 <b>{def_w*100:.1f}%</b> ｜ 弹性进攻 <b>{off_w*100:.1f}%</b>；<br>"
+            f"<b>分散度</b>：最大单标权重 <b>{max_w*100:.1f}%</b> ({top1_code})，符合 ≤35% 分散铁律，无碎片尾仓风险。"
+        )
+        deep_loss_count = 0
+        frag_count = 0
+        frag_amt = 0.0
+    else:
+        pathology_title = "🩺 存量持仓病灶"
+        h_items = []
+        if isinstance(holdings, dict):
+            h_items = list(holdings.values())
+        elif isinstance(holdings, list):
+            h_items = holdings
+
+        deep_loss_list = []
+        tail_fragments = []
+        tot_val = 0.0
+
+        for h in h_items:
+            mv = float(getattr(h, "market_value", 0.0) or (h.get("market_value", 0.0) if isinstance(h, dict) else 0.0))
+            tot_val += mv
+
+            # 兼容读取成本：cost_basis -> cost_price * shares -> cost_value
+            cost_v = 0.0
+            cb = getattr(h, "cost_basis", None)
+            if cb is None and isinstance(h, dict):
+                cb = h.get("cost_basis")
+            if cb is not None and float(cb) > 0:
+                cost_v = float(cb)
+            else:
+                cp = getattr(h, "cost_price", None) or getattr(h, "cost_nav", None)
+                sh = getattr(h, "shares", None)
+                if (cp is None or sh is None) and isinstance(h, dict):
+                    cp = cp if cp is not None else (h.get("cost_price") or h.get("cost_nav"))
+                    sh = sh if sh is not None else h.get("shares")
+                if cp is not None and sh is not None and float(cp) > 0 and float(sh) > 0:
+                    cost_v = float(cp) * float(sh)
+                else:
+                    cv = getattr(h, "cost_value", None)
+                    if cv is None and isinstance(h, dict):
+                        cv = h.get("cost_value")
+                    if cv is not None and float(cv) > 0:
+                        cost_v = float(cv)
+
+            # 计算或读取盈亏率 pl_ratio
+            pl_ratio = 0.0
+            raw_pnl_pct = getattr(h, "floating_pnl_pct", None) or getattr(h, "pnl_pct", None)
+            if raw_pnl_pct is None and isinstance(h, dict):
+                raw_pnl_pct = h.get("floating_pnl_pct") or h.get("pnl_pct")
+
+            if raw_pnl_pct is not None and float(raw_pnl_pct) != 0.0:
+                pl_ratio = float(raw_pnl_pct) / 100.0
+                if cost_v <= 0 and mv > 0 and (1.0 + pl_ratio) > 0:
+                    cost_v = mv / (1.0 + pl_ratio)
+            elif cost_v > 0:
+                pl_ratio = (mv / cost_v - 1.0)
+
+            # 盈亏金额
+            pnl_amt = getattr(h, "floating_pnl", None)
+            if pnl_amt is None and isinstance(h, dict):
+                pnl_amt = h.get("floating_pnl")
+            if pnl_amt is not None:
+                pnl_amt = float(pnl_amt)
+            else:
+                pnl_amt = mv - cost_v
+
+            fname = getattr(h, "fund_name", "") or getattr(h, "name", "") or (h.get("fund_name", h.get("name", "")) if isinstance(h, dict) else "")
+            fcode = getattr(h, "fund_code", "") or getattr(h, "code", "") or (h.get("fund_code", h.get("code", "")) if isinstance(h, dict) else "")
+            s_cls = str(getattr(h, "share_class", "") or (h.get("share_class", "") if isinstance(h, dict) else "") or "A").upper()
+
+            if pl_ratio < -0.10:
+                deep_loss_list.append((fname or fcode, pl_ratio, float(pnl_amt)))
+
+            # 与 ActiveRiskSentry 判定规则 100% 对齐：不足100元，或100~200元且为C类/联接/尾仓
+            is_tail = (
+                (0 < mv < 100.0)
+                or (100.0 <= mv < 200.0 and (s_cls == "C" or any(k in fname for k in ["联接", "ETF", "指数", "红包", "体验", "尾仓", "碎片"])))
+            )
+            m_days = getattr(h, "holding_days", None)
+            if m_days is None and isinstance(h, dict):
+                m_days = h.get("holding_days", h.get("min_days", None))
+            if m_days is None:
+                batches = getattr(h, "batches", None) or (h.get("batches") if isinstance(h, dict) else None)
+                if batches:
+                    m_days = min((getattr(b, "holding_days", 400) if not isinstance(b, dict) else b.get("holding_days", 400) for b in batches), default=400)
+                else:
+                    m_days = 400
+            is_fee_free = (s_cls == "C" and int(m_days) >= 30) or (s_cls != "C" and int(m_days) >= 365)
+            if is_tail and is_fee_free:
+                tail_fragments.append((fname or fcode, mv))
+
+        # 检查是否传入了 sentry_rep 中的碎片预警
+        sentry_frag_alert = next((a for a in alerts if a.get("dimension") == "碎片尾仓清理" or "碎片尾仓" in a.get("title", "")), None)
+        if sentry_frag_alert:
+            frag_count = int(sentry_frag_alert.get("tail_count", len(tail_fragments)))
+            frag_amt = float(sentry_frag_alert.get("recoverable_cash", sum(x[1] for x in tail_fragments)))
+        else:
+            frag_count = len(tail_fragments)
+            frag_amt = sum(x[1] for x in tail_fragments)
+
+        deep_loss_count = len(deep_loss_list)
+
+        # 集中度研判
+        top1_mv = max([float(getattr(h, "market_value", 0.0) or (h.get("market_value", 0.0) if isinstance(h, dict) else 0.0)) for h in h_items], default=0.0)
+        top1_pct = (top1_mv / tot_val * 100.0) if tot_val > 0 else 0.0
+
+        pathology_bullets = []
+        if deep_loss_list:
+            deep_loss_list.sort(key=lambda x: x[2])
+            w_f = deep_loss_list[0]
+            top_loss_strs = [f"【{x[0]}】(浮亏 {x[1]*100:.1f}%)" for x in deep_loss_list[:3]]
+            top_loss_summary = "、".join(top_loss_strs)
+            pathology_bullets.append(
+                f"🔴 <b>核心亏损拖累源</b>：发现 {len(deep_loss_list)} 只标的浮亏超 10%，其中最大拖累为【{w_f[0]}】(浮亏 {w_f[1]*100:.1f}%)；"
+                f"主要出血点包括：{top_loss_summary}，建议排查是否为主动型行业偏离或基金经理能力退化，择机转入低费率同赛道指数联接；"
+            )
+        if frag_count > 0:
+            pathology_bullets.append(
+                f"🧹 <b>长尾碎片尾仓</b>：检测到 {frag_count} 只持仓金额小于 ¥200 的碎片/羊毛基 (合计沉淀资金 ¥{frag_amt:.2f})，建议一键免赎回费清扫归集至核心底仓，净化界面并增厚收益；"
+            )
+        if top1_pct > 35.0:
+            pathology_bullets.append(
+                f"⚠️ <b>单标集中度过高</b>：第一大重仓占比达 {top1_pct:.1f}% (建议单一标的 ≤ 30%)，防范非系统性黑天鹅；"
+            )
+        if not pathology_bullets:
+            pathology_bullets.append("🟢 <b>持仓结构优良</b>：各标的配比均衡，无深套拖累与碎片尾仓，资产健康度满分。")
+
+        pathology_badge = "🩺 诊断排雷" if (deep_loss_count > 0 or frag_count > 0) else "🟢 健康良好"
+        pathology_text = "<br>".join(pathology_bullets)
     
     # ── 5. 今日明确行动准则 (14:30 尾盘) ─────────────────────────
     c300_bias = float(snap.get("bias_20", 0.0))
@@ -4357,9 +4474,9 @@ def generate_chief_advisor_memo(
             "content": industry_text
         },
         "portfolio_pathology": {
-            "title": "存量持仓病灶",
-            "badge": "🩺 诊断排雷",
-            "deep_loss_count": len(deep_loss_list),
+            "title": pathology_title,
+            "badge": pathology_badge,
+            "deep_loss_count": deep_loss_count,
             "frag_count": frag_count,
             "frag_amt": frag_amt,
             "content": pathology_text

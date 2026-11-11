@@ -1,66 +1,70 @@
-# BRIEFING — 2026-11-04T10:29:00Z
+# BRIEFING — 2026-11-11T01:24:20Z
 
 ## Mission
-Forensic integrity audit of Milestone 1 (Open Data & Persistent Cache: Features 1-5) against physical safety redlines, anti-cheating/facade checks, fake constant purge (INDEX_PE_METAS and 3210/1780), and execution validation.
+Perform strict forensic integrity audit on G16 M1 deliverables (Chief Advisor Memo bug fix, 1x5 horizontal matrix layout, combat 29 alignment).
 
 ## 🔒 My Identity
 - Archetype: forensic_auditor
 - Roles: critic, specialist, auditor
-- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\auditor_m1
-- Original parent: 7eb668ae-6843-4834-9b3d-3455ac86af88
-- Target: Milestone 1 of AGY2_FundAdvisory
-- Milestone 1 Subagent Target: Milestone 1 of Wind 投顾系统全栈升级
+- Working directory: d:\Google\Workspace\Wind
+- State folder: d:\Google\Workspace\Wind\.agents\teamwork\auditor_m1
+- Original parent: a4d409c2-aeca-47df-a18c-528d9465a6c8
+- Target: milestone 1 (G16 Phase 1: Chief Advisor Memo & Combat 29 Alignment)
 
 ## 🔒 Key Constraints
 - Audit-only — do NOT modify implementation code
 - Trust NOTHING — verify everything independently
-- Physical safety invariants: referee files (judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py) must be untouched
-- Ground truth from ORIGINAL_REQUEST.md takes precedence over dispatch
+- BINARY VETO on integrity violations: reject if any check fails
+- 4 Read-only referee files must have 0 byte modification (100% hash/diff match):
+  - AGY2_FundAdvisory/judge_engine.py
+  - AGY2_FundAdvisory/holdout_vault.py
+  - AGY2_FundAdvisory/AGENT_SPEC.md
+  - AGY2_FundAdvisory/tests/test_infra.py
+- DataLoader.simulate_execution default signature and billing logic must not be modified
+- Anti-cheat: No test-specific branching ("if 'test' in ...: return ..."), dynamic real computation in generate_chief_advisor_memo
+- Rule 27 check: No unstripped indented HTML leading to 4-space CommonMark code block escapes
+- G17 command tag gate: No colon format slashCommand: in reports
 
 ## Current Parent
-- Conversation ID: c98181d5-8d61-4839-8d62-5dbcef7c85af
-- Updated: 2026-11-04T10:24:32Z
+- Conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8
+- Updated: not yet
 
 ## Audit Scope
-- **Work product**: AGY2_FundAdvisory (data_loader.py, cache_manager.py, market_screener.py, portfolio_manager.py, portfolio_optimizer.py, app_gui.py, test_m1_open_data_and_cache.py)
-- **Profile loaded**: General Project (Anti-Cheating & Integrity Forensics)
+- **Work product**: G16 Milestone 1 deliverable (advisory_engine.py, app_gui.py, tests/test_g16_phase1_memo_and_combat29.py)
+- **Profile loaded**: General Project / Integrity Forensics
 - **Audit type**: forensic integrity check
 
 ## Audit Progress
 - **Phase**: reporting
 - **Checks completed**:
-  - Physical safety redline SHA-256 hashes of 5 referee files (all 100% matched)
-  - git status --porcelain on 5 referee files (completely clean, 0 diffs)
-  - Purge of fake constants: INDEX_PE_METAS and 3210/1780 (0 occurrences in production code)
-  - Zero time.sleep or artificial delays
-  - Live EastMoney query and turnover calculation (empirically confirmed live connection and values)
-  - IndexValuationEngine 10-year percentile and dual-key caching
-  - FundPurchaseCacheManager Parquet caching (<11ms disk read, <50ms constraint satisfied)
-  - FundMetadataManager Tiantian Fund live extraction & 24h TTL cache (<1ms warm read)
-  - MarketScreener inception date bug fix (candidate pool restored to 12,519 funds, 0-row cache pollution prevented)
-  - Automated test execution (tests/test_infra.py 14/14 pass, test_m1_open_data_and_cache.py 6/6 pass, AGY2_FundAdvisory/tests/test_infra.py 15/15 pass)
-  - Adversarial stress tests (simulated network blackouts, DuckDB locks, invalid funds)
-- **Checks remaining**: None
-- **Findings so far**: CLEAN — 100% compliant with physical safety, anti-cheating, and development mode integrity rules.
+  - 1. 4 Read-only referee files git status & SHA256 verification (100% match) -> PASS
+  - 2. DataLoader.simulate_execution signature and logic audit (0 diff vs HEAD) -> PASS
+  - 3. Git diff walk-through & anti-cheat audit on advisory_engine.py, app_gui.py, test files -> PASS
+  - 4. Rule 27 & HTML pure rendering check (_clean_html & safe_markdown_html verified) -> PASS
+  - 5. Independent test execution & empirical probe verification (all tests pass) -> PASS
+  - 6. Handoff report & verdict formulation -> CLEAN
+- **Checks remaining**: none
+- **Findings so far**: CLEAN (all checks verified empirically)
+
+## Key Decisions Made
+- All 4 referee files confirmed byte-for-byte identical to HEAD.
+- No facade implementations, test-specific bypasses, or hardcoded cheating found.
+- Verdict: CLEAN.
+
+## Artifact Index
+- d:\Google\Workspace\Wind\.agents\teamwork\auditor_m1\DISPATCH.md — Task dispatch
+- d:\Google\Workspace\Wind\.agents\teamwork\auditor_m1\BRIEFING.md — Persistent memory
+- d:\Google\Workspace\Wind\.agents\teamwork\auditor_m1\progress.md — Liveness heartbeat
+- d:\Google\Workspace\Wind\.agents\teamwork\auditor_m1\handoff.md — Forensic audit deliverable
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - H1: Referee files were altered or bypassed -> DISPROVEN (0 diffs, identical SHA-256).
-  - H2: EastMoney turnover or breadth uses dummy constant -> DISPROVEN (verified live socket query).
-  - H3: Index valuation engine uses hardcoded values instead of percentiles -> DISPROVEN (verified dynamic computation and DuckDB/CSI fallbacks).
-  - H4: Parquet cache read violates <50ms latency constraint -> DISPROVEN (benchmark average 10.9ms).
-  - H5: Network failures crash the data loader -> DISPROVEN (mocked network blackouts cleanly trigger cached/master fallbacks).
-- **Vulnerabilities found**: None in audited M1 scope.
-- **Untested angles**: Milestone 2 and 3 downstream UI/theme and quant radar execution.
+  - Referee file tampering: Tested via SHA256 & git diff -> Confirmed 100% pristine.
+  - DataLoader signature alteration: Tested via inspect.signature & git diff -> Confirmed 0 diff.
+  - Hardcoded test bypass in generate_chief_advisor_memo: Tested via AST & source review -> Dynamic real calculation.
+  - Rule 27 HTML indentation leak: Tested via regex and string inspection -> 0 lines with 4+ spaces.
+- **Vulnerabilities found**: None in M1 code.
+- **Untested angles**: M2 and M3 future implementations.
 
 ## Loaded Skills
-- none
-
-## Key Decisions Made
-- Confirmed Milestone 1 implementation is genuine, mathematically sound, and compliant with all physical safety and anti-cheating invariants.
-- Final verdict: CLEAN.
-
-## Artifact Index
-- d:\Google\Workspace\Wind\.agents\teamwork\auditor_m1\DISPATCH.md — dispatch log
-- d:\Google\Workspace\Wind\.agents\teamwork\auditor_m1\progress.md — heartbeat progress log
-- d:\Google\Workspace\Wind\.agents\teamwork\auditor_m1\handoff.md — forensic audit report
+- None requested in dispatch

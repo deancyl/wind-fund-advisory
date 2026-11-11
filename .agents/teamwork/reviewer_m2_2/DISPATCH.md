@@ -49,3 +49,31 @@ REVIEW TASKS:
    `py -3 -m pytest tests/test_delta_m1_guardrails.py`
    `py -3 -m pytest tests/test_g15_phase2_memo_and_timemachine.py`
 3. Deliver a self-contained handoff.md with a definitive qualitative verdict (APPROVE or REQUEST_CHANGES) and send a completion message to parent.
+
+
+## 2026-11-11T01:52:35Z
+From: a4d409c2-aeca-47df-a18c-528d9465a6c8
+Priority: MESSAGE_PRIORITY_HIGH
+Content:
+【任务背景与目标】
+你是高可靠代码审查智能体 (teamwork_reviewer)。
+当前审查目标：Milestone 2 (worker_m2 交付代码) —— `portfolio_manager.py` 中 `parse_smart_text_holdings` 模糊匹配对接、前置剥离昨日收益、纯数字搜索封堵与 A/C 份额准确匹配。
+
+【关键输入与参考文件】
+- 原始需求：d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+- 范围契约：d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_g16_gen2\SCOPE.md
+- Worker 交付报告：d:\Google\Workspace\Wind\.agents\teamwork\worker_m2\handoff.md
+- 审查目标代码：`d:\Google\Workspace\Wind\AGY2_FundAdvisory\portfolio_manager.py` (重点检查 1260~1430 行及 fuzzy_match_fund_by_name)
+- 你的状态文件夹：d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_2
+- 交付报告路径：d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m2_2\handoff.md
+
+【审查要求】
+1. 检查 `parse_smart_text_holdings` 是否前置使用正则剥离了“昨日收益/昨日盈亏/日收益”及其数值，杜绝收益数字干扰基金代码和金额解析。
+2. 检查是否直接接入了 `fuzzy_match_fund_by_name`，验证 `华安黄金ETF联接C` 是否准确返回 `000217`（C类），`南方中证新能源ETF联接C` 是否准确返回 `012832`（C类）而非 100032。
+3. 检查是否封堵了对纯数字字符串（`w.isdigit()`）调用 `search_funds_in_catalog`，杜绝数字截断。
+4. 验证是否挂载了 `parse_long_screenshot_holdings = parse_screenshot_ocr_holdings` 兼容别名。
+5. 运行单测探针及测试套件，记录执行结果。
+6. 给出明确的裁决结论：`APPROVE` 或 `REQUEST_CHANGES`。
+
+【交付要求】
+将审查证据链、代码分析、测试输出及最终裁决写入你的 `handoff.md`，并通过 send_message 通知父智能体 (conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8)。

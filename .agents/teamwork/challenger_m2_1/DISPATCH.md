@@ -41,3 +41,27 @@ CHALLENGE TASKS:
    - Verify benchmark calculations (H00300 and BENCHMARK_50_50).
    - Verify boundary conditions (<60 days raises ValueError; <2 days forward raises ValueError).
 3. Run automated tests and write a comprehensive handoff.md with a definitive qualitative verdict (APPROVE or REQUEST_CHANGES). Send a message to parent when done.
+
+
+## 2026-11-11T01:52:45Z
+【任务背景与目标】
+你是对抗性质询与压力测试智能体 (teamwork_challenger)。
+当前挑战目标：针对 Milestone 2 中 `portfolio_manager.py` 的智能文本解析与模糊匹配功能编写对抗性测试脚本并运行压测，验证多源截图文本、带昨日收益文本及多份额混合输入的准确性与鲁棒性。
+
+【关键输入与参考文件】
+- 原始需求：d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+- 范围契约：d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_g16_gen2\SCOPE.md
+- Worker 交付报告：d:\Google\Workspace\Wind\.agents\teamwork\worker_m2\handoff.md
+- 被测代码：`d:\Google\Workspace\Wind\AGY2_FundAdvisory\portfolio_manager.py`
+- 你的状态文件夹：d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_1
+- 交付报告路径：d:\Google\Workspace\Wind\.agents\teamwork\challenger_m2_1\handoff.md
+
+【对抗性测试场景要求】
+1. **昨日收益干扰对抗**：构造包含多位数昨日收益的复杂文本（如 `"南方中证新能源ETF联接C \n 昨日收益 +0.05 34.50 \n 持有收益 -15.50 持有金额 1000.00"`、`"华安黄金ETF联接C 昨日收益 -123.45 市值 395.73"`），断言昨日收益数字绝不能被截断或误识别为基金代码，必须精准匹配为 012832 (C类) 与 000217 (C类)。
+2. **多份额与同名别名对抗**：输入 A 类、C 类、E 类同名基金，检验 A/C 份额是否 100% 区分正确。
+3. **畸形格式对抗**：输入带逗号的大额千分位数字（`¥123,456.78`）、负收益（`-¥953.40`）、换行混杂、纯数字文本行等，验证系统不抛出未捕获异常。
+4. **方法别名对抗**：断言 `hasattr(PortfolioManager, "parse_long_screenshot_holdings")` 为 True。
+5. 编写并运行对抗脚本，记录实际输出。给出明确结论：`APPROVE` 或 `FAIL`。
+
+【交付要求】
+将对抗用例设计、测试脚本运行日志及裁决写入你的 `handoff.md`，并通过 send_message 通知父智能体 (conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8)。

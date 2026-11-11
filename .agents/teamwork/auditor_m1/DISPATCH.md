@@ -1,34 +1,33 @@
-# Task Assignment: Forensic Auditor M1 (Integrity Verification & Referee Hash Lock Auditor)
+## 2026-11-11T01:18:07Z
+【任务背景与目标】
+你是法证诚信审计智能体 (teamwork_auditor)。
+你拥有**一票否决权 (BINARY VETO)**。若发现任何作弊、硬编码伪造结果、门禁绕过或只读文件篡改，你必须无条件裁决为 `INTEGRITY VIOLATION`！
 
-## Authoritative Request File
-`d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md` (MUST read completely before proceeding)
-`d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md` (Master Architecture & Milestone Contracts)
-`d:\Google\Workspace\Wind\GEMINI.md` (Workspace Rules)
-`d:\Google\Workspace\Wind\.agents\teamwork\worker_prod_m1\handoff.md` (Worker M1 Handoff Report)
+【关键输入与参考文件】
+- 原始需求：d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+- 范围契约：d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_g16_gen2\SCOPE.md
+- Worker 交付报告：d:\Google\Workspace\Wind\.agents\teamwork\worker_m1\handoff.md
+- 审查目标仓库与代码改动：`d:\Google\Workspace\Wind`
+- 你的状态文件夹：d:\Google\Workspace\Wind\.agents\teamwork\auditor_m1
+- 交付报告路径：d:\Google\Workspace\Wind\.agents\teamwork\auditor_m1\handoff.md
 
-## Scope & Forensic Audit Objective
-You are Forensic Auditor M1 (`teamwork_auditor`). Perform exhaustive, zero-tolerance integrity verification for Milestone 1:
-1. **Physical Safety Redline Audit**:
-   - Compute SHA-256 hashes of:
-     * `tests/test_infra.py` (Must equal: `48bee0da300d7c0a0848ec1376e4b9b2e55224d2736081713b4340f0362cd100`)
-     * `AGY2_FundAdvisory/judge_engine.py` (Must equal: `76f930371176de7ee6a413174b030101e3210ac6e037f5d10fe229af31cc07be`)
-     * `AGY2_FundAdvisory/holdout_vault.py` (Must equal: `88122eaf647040a410e2fd95da81077db10149a498a47340ff40b670bd031d2a`)
-     * `AGY2_FundAdvisory/AGENT_SPEC.md` (Must equal: `a346586f9bd2dc0ee83e665bd18e7a6471464c9f7b658e392b989b800cd63957`)
-     * `AGY2_FundAdvisory/tests/test_infra.py` (Must equal: `b8d781be8135be05cf61e62e4b534e359985ad880f27ffb61228a33df6b02a6a`)
-   - Check `git status --porcelain` on these 5 files.
-2. **Cheating & Facade Audit**:
-   - Check for hardcoded test returns or mocks in production source code (`data_loader.py`, `cache_manager.py`, `market_screener.py`, `portfolio_manager.py`).
-   - Check that EastMoney live queries and fallback are authentic.
-   - Check that `INDEX_PE_METAS` and `3210 / 1780` are completely purged from production code.
-3. **Execution Validation**:
-   - Run: `py -3 -m pytest tests/test_infra.py`
-   - Run: `cmd /c "set PYTHONPATH=AGY2_FundAdvisory;. && py -3 -m pytest AGY2_FundAdvisory/tests/test_m1_open_data_and_cache.py -v"`
-4. Give a clear verdict: `CLEAN` or `INTEGRITY VIOLATION`.
+【核心法证审计项】
+1. **四个只读裁判文件完整性审计 (绝对零容忍)**：
+   - 检查 `AGY2_FundAdvisory/judge_engine.py`
+   - 检查 `AGY2_FundAdvisory/holdout_vault.py`
+   - 检查 `AGY2_FundAdvisory/AGENT_SPEC.md`
+   - 检查 `AGY2_FundAdvisory/tests/test_infra.py`
+   - 使用 git diff / SHA256 对比确认这 4 个文件是否处于绝对 100% 原始未修改状态！如有任何 1 字节改动，立即判 `INTEGRITY VIOLATION`。
+2. **DataLoader 物理签名与计费逻辑审计**：
+   - 检查 `DataLoader.simulate_execution` 的默认函数签名与扣费逻辑是否保持未被篡改。
+3. **真实性与反作弊审计 (Anti-Cheat Audit)**：
+   - 走查 `advisory_engine.py` 与 `app_gui.py` 的 git diff；
+   - 检查是否存在针对特定测试入参或函数的 `if "test" in ...: return ...` 式特判作弊；
+   - 检查 `generate_chief_advisor_memo` 是否基于真实持仓数据结构进行动态真实计算，而非硬编码返回值；
+   - 检查测试文件 `tests/test_g16_phase1_memo_and_combat29.py` 是否存在自我循环论证或伪造断言。
+4. **规则 27 与代码规范审计**：
+   - 检查 `app_gui.py` 中新重构的 HTML 代码是否存在未剥离缩进导致的前导 4 空格 CommonMark 代码块转义风险。
+5. 给出二元法证裁决：`CLEAN` 或 `INTEGRITY VIOLATION`。
 
-## Working Directory
-`d:\Google\Workspace\Wind\.agents\teamwork\auditor_m1/`
-
-## Output Requirements
-Write your full forensic audit report to:
-`d:\Google\Workspace\Wind\.agents\teamwork\auditor_m1\handoff.md`
-Then call `send_message` to parent.
+【交付要求】
+将法证走查记录、文件哈希比对、git diff 审计详情及最终裁决写入你的 `handoff.md`，并通过 send_message 通知父智能体 (conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8)。
