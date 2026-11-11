@@ -6356,11 +6356,11 @@ class StrategyBridge:
                 "title": "第 3 步：重构为 6 只纯 A 类全天候核心压舱石",
                 "funds": [
                     {"code": "005561", "name": "创金合信中证红利低波动指数A", "weight_pct": 30.49},
-                    {"110020": "易方达沪深300ETF联接A", "weight_pct": 21.80},
-                    {"017436": "华安纳斯达克100ETF联接A", "weight_pct": 17.05},
-                    {"002351": "易方达裕祥回报债券A", "weight_pct": 17.54},
-                    {"011612": "华夏上证科创板50成份ETF联接A", "weight_pct": 7.79},
-                    {"000216": "华安黄金ETF联接A", "weight_pct": 5.33}
+                    {"code": "110020", "name": "易方达沪深300ETF联接A", "weight_pct": 21.80},
+                    {"code": "017436", "name": "华安纳斯达克100ETF联接A", "weight_pct": 17.05},
+                    {"code": "002351", "name": "易方达裕祥回报债券A", "weight_pct": 17.54},
+                    {"code": "011612", "name": "华夏上证科创板50成份ETF联接A", "weight_pct": 7.79},
+                    {"code": "000216", "name": "华安黄金ETF联接A", "weight_pct": 5.33}
                 ]
             },
             "metrics_comparison": {

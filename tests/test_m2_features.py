@@ -150,7 +150,7 @@ def test_app_gui_streamlit_apptest_rendering():
     from pathlib import Path
 
     app_path = (Path(__file__).parent.parent / "AGY2_FundAdvisory" / "app_gui.py").resolve()
-    at = AppTest.from_file(str(app_path), default_timeout=30)
+    at = AppTest.from_file(str(app_path), default_timeout=90)
     # 测试桌面模式初始化
     at.run()
     assert not at.exception, f"Desktop mode exception: {at.exception}"

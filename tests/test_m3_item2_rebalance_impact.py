@@ -39,6 +39,10 @@ def test_combat_29_rebalance_prescription_structure():
     # 步骤三：6 只核心全天候压舱石
     step3 = rx["step3_core_reconstruction"]
     assert len(step3["funds"]) == 6
+    assert all("code" in f and "name" in f and "weight_pct" in f for f in step3["funds"])
+    assert all(isinstance(f["code"], str) and len(f["code"]) == 6 for f in step3["funds"])
+    assert all(isinstance(f["name"], str) and len(f["name"]) > 0 for f in step3["funds"])
+    assert all(isinstance(f["weight_pct"], (int, float)) and f["weight_pct"] > 0 for f in step3["funds"])
 
     # 四维量化对比指标
     metrics = rx["metrics_comparison"]
