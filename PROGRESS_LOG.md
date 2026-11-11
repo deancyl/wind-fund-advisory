@@ -563,3 +563,29 @@
 ### 4. 自动化测试与红线基线
 - 专属测试 `test_g16_phase1_memo_and_combat29.py`、`test_m2_features.py`、`test_m3_item2_rebalance_impact.py`、`test_m3_item3_tab3_backtest.py` 与全套基线测试 70 项核心用例 100% 绿灯全过；
 - 四大只读裁判文件与 `DataLoader.simulate_execution` 默认签名哈希绝对未改。
+
+
+---
+
+## [2026-11-11] G17 世代：拔除五维备忘录静态假常数、修复手机端主导航与表格截断、压缩文字墙与存量账本自动路由闭环
+
+### 1. 彻底拔除 5 大静态假常数与打通十维量化投票因果链 (M1)
+- **真数据源湖仓直通**：彻底清除了代码中写死的 `628.5`（黄金）、`1.6258`（10Y国债）、`7.2450`（离岸汇率）、`-0.25%`（纳指）等假常数，打通 `data/macro/bond_zh_us_rate.parquet`（10Y 中债 1.6376% vs 美债 5.0000%）、`data/global/global_indices.parquet`（纳指/标普/恒科实时乖离）、`data/processed/indices/AU9999.SGE.parquet` / 518880 黄金真实行情以及 `DataLoader.fetch_realtime_usdcnh_fx` 离岸汇率（6.6676）；
+- **实装十维投顾量化投票与白盒仓位公式**：在 `generate_chief_advisor_memo` 中输出 `ten_dimension_votes`（覆盖宏观、货币、ERP、国际、汇率、产业、资金情绪、技术信噪比、历史同温层、期权IV黑天鹅），并生成透明人话因果推导公式（`基准权益中枢 60% + ERP极低估溢价(+10%) + 货币宽松(+5%) ... = 建议权益 75%`），每一项均标明数据源与截面日期；
+- **针对性测试保障**：新增 `tests/test_g17_advisory_real_data_and_ten_dimension.py`（5/5 passed），断言假常数清零、十维结构完整与因果公式自洽。
+
+### 2. 手机端 2×2 四宫格自适应导航、首屏裁决台合流与存量账本自动路由 (M2)
+- **顶层主导航 2×2 四宫格双排网格**：在全局 CSS `@media (max-width: 768px)` 中将顶层导航重构为 `grid-template-columns: repeat(2, 1fr) !important; grid-template-rows: repeat(2, 40px) !important;`，彻底根除手机窄屏下第 4 个入口「🔍 穿透工具」被右侧截断吞没的 Bug；
+- **首屏裁决台极致凝练防文字墙**：将五维备忘录与双翼参谋折叠框合流为「🧭 首席投顾今日裁决台」，默认直显主卡片高度严格控制在 $\le 110$px（包含今日核心裁决、仓位因果公式、截面时间与 5 颗紧凑胶囊），详细十维打分、Top 3 机会雷达与风控体检全部平滑收纳进按需展开抽屉；
+- **存量账本跨 Tab 自动路由**：在 `switch_active_ledger` 中，当切换至已有持仓账本（如 29 只实战账本）时，自动注入跨 Tab 跳转指令 `pending_cross_tab_jump` 聚焦至 `tab_index: 1`（`💼 持仓调仓`）并置位展开 29 基诊断与调仓方案，杜绝停留在新资建仓 10 万元无关页面；
+- **表格核心列优先与长条收拢**：建仓表与持仓表最左侧前 3~4 列固定为代码/名称、金额、盈亏/操作建议，方便手机端小屏一览核心决策信息。
+
+### 3. 长截图双因子交叉锁定与 Tab 3 全真公募摩擦扣减账单 (M3)
+- **长截图双因子交叉锁定**：在 `portfolio_manager.py` 的 `fuzzy_match_fund_by_name` 与 `parse_long_screenshot_holdings` 中，提取截图昨日收益计算 $R_{\text{yesterday}} = \frac{\text{yesterday\_pnl}}{\text{market\_value} - \text{yesterday\_pnl}}$，以「名称关键字 + 昨日收益率（误差 $\le 0.3\%$）」双因子交叉锁定 28,177 只基金中带省略号截断的标的；
+- **Tab 3 全真公募摩擦明细账单**：在 `strategy_bridge.py` 中实装 `calculate_mutual_fund_friction_bill`，在盲测与 29 基重构对比中明确输出 1 折申购费、阶梯赎回费（7天惩罚/30天免赎）、C 类日计提销售服务费（0.40%/年）及在途交割资金损耗，量化实证重构组合相比原始 29 基组合在最大回撤（-16.76% vs -17.24%）与回本天数（394d vs 452d，提速 58 交易日）上的确定性胜出。
+
+### 4. P0 阻断修复、全量回归与代码归档 (M4)
+- **P0 阻断修复**：将 `_cached_fund_quote_and_screening` 升级为 `@st.cache_resource(ttl=600)`，彻底消除了热重载下 `pickle` 反序列化崩溃 `UnserializableReturnValueError`；
+- **四大只读裁判文件与默认签名**：`judge_engine.py`、`holdout_vault.py`、`AGENT_SPEC.md`、`tests/test_infra.py` 100% 只读未动；
+- **全量测试大盘**：包含四大裁判基线在内的 68 项核心测试 100% 绿灯全过（`68 passed in 66.13s`）；
+- **服务托管与版本归档**：Streamlit 守护进程健康稳定（HTTP 200），经验沉淀至本地 `GEMINI.md`，Git 提交打标 `v4.7-G17` 并推送到远端仓库。
