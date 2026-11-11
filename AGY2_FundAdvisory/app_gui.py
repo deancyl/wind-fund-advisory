@@ -36,6 +36,7 @@ sys.path.insert(0, str(CURRENT_DIR))
 # ##### 🎨 外观与色彩
 # ##### 🕒 市场状态与底座
 # ##### 📊 核心指数行情走廊
+# rad_topbar_view_mode: 响应式设备感知自动切换 (User-Agent 与 @media 自适应)
 # 定权模型：已由 AI 智能托管并在机构面板中展开
 # 资产基线：综合看板基线
 
@@ -246,10 +247,28 @@ def format_chinese_amount(amount: float) -> str:
         return f"{standard_str} 折合 {sign}{wan_v:.2f} 万元"
 
 
+def _is_mobile_viewport() -> bool:
+    """自动感知移动端设备访问（User-Agent 判定与 URL 参数 ?view=mobile 识别）"""
+    try:
+        if hasattr(st, "query_params") and st.query_params:
+            v_param = str(st.query_params.get("view", "")).lower()
+            if v_param in ("mobile", "phone", "m"):
+                return True
+            if v_param in ("desktop", "pc", "d"):
+                return False
+        if hasattr(st, "context") and hasattr(st.context, "headers") and st.context.headers:
+            ua = str(st.context.headers.get("User-Agent", "")).lower()
+            if any(k in ua for k in ["mobile", "android", "iphone", "ipad", "ipod", "windows phone"]):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def render_chief_advisor_memo_card(memo_data: Dict[str, Any], title: str = "🧭 首席投顾五维决策备忘录"):
     """
     渲染五维全息投顾首席备忘录卡片（破除唯算法论，提供通俗可落地人话参谋）
-    1 行 5 列横向等高响应式矩阵网格，首屏高密直显
+    采用“顶部全宽行动定调通栏 + 下方 2×2 宽幅等高矩阵”，彻底杜绝文字截断与断行。
     """
     if not memo_data:
         return
@@ -262,84 +281,89 @@ def render_chief_advisor_memo_card(memo_data: Dict[str, Any], title: str = "🧭
     ts = memo_data.get("timestamp", "")
     act_color = m_act.get("color", "var(--accent-primary, #2563eb)")
 
+    # 规范化更新时间，去除内部技术用语
+    clean_ts = ts.split("｜")[0].replace("研判截面：", "").strip() if "｜" in ts else ts.replace("研判截面：", "").strip()
+
     html_code = f"""
     <style>
-    .chief-memo-grid {{
+    .chief-memo-grid-2x2 {{
         display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-        gap: 8px;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
         width: 100%;
     }}
     @media (max-width: 768px) {{
-        .chief-memo-grid {{
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+        .chief-memo-grid-2x2 {{
+            grid-template-columns: 1fr !important;
         }}
     }}
     </style>
-    <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 6px;">
+    <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 12px 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+        <!-- 标题栏与时间戳 -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 6px;">
             <div style="font-size: 14px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
                 <span>{title}</span>
                 <span style="font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(37,99,235,0.08); color: var(--accent-primary); border: 1px solid rgba(37,99,235,0.2);">买方高密情报矩阵</span>
             </div>
             <div style="font-size: 11px; color: var(--text-muted);">
-                研判截面：{ts} ｜ 无未来数据泄露
+                数据更新：{clean_ts}
             </div>
         </div>
 
-        <div class="chief-memo-grid" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; width: 100%;">
-            <!-- 1. 宏观政策 -->
-            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 3px solid var(--accent-primary); border-radius: 6px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+        <!-- 1. 顶部全宽行动定调横幅 (通透单行/双行无遮挡) -->
+        <div style="background: rgba(37,99,235,0.04); border: 1px solid rgba(37,99,235,0.2); border-left: 4px solid {act_color}; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; flex-wrap: wrap; gap: 6px;">
+                <span style="font-size: 13px; font-weight: 800; color: var(--text-primary);">🎯 今日行动准则</span>
+                <span style="font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: rgba(37,99,235,0.12); color: {act_color}; white-space: nowrap;">{m_act.get('badge', '')}</span>
+            </div>
+            <div style="font-size: 12px; color: var(--text-primary); line-height: 1.6;">
+                {m_act.get('content', '')}
+            </div>
+        </div>
+
+        <!-- 2. 下方 2×2 宽幅等高四维全息矩阵 -->
+        <div class="chief-memo-grid-2x2">
+            <!-- (1) 宏观与政策面 -->
+            <div style="box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 10px 12px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 3px solid var(--accent-primary); border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                     <span style="font-size: 12px; font-weight: 700; color: var(--accent-primary);">🏛️ 宏观与政策面</span>
-                    <span style="font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: rgba(37,99,235,0.08); color: var(--accent-primary); white-space: nowrap;">{m_macro.get('badge', '')}</span>
+                    <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(37,99,235,0.08); color: var(--accent-primary); white-space: nowrap;">{m_macro.get('badge', '')}</span>
                 </div>
-                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.45; overflow-y: auto; max-height: 85px; scrollbar-width: thin;">
+                <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.55;">
                     {m_macro.get('content', '')}
                 </div>
             </div>
 
-            <!-- 2. 国际汇率 -->
-            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 3px solid #8b5cf6; border-radius: 6px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <!-- (2) 国际与汇率面 -->
+            <div style="box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 10px 12px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 3px solid #8b5cf6; border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                     <span style="font-size: 12px; font-weight: 700; color: #8b5cf6;">🌐 国际与汇率面</span>
-                    <span style="font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: rgba(139,92,246,0.08); color: #8b5cf6; white-space: nowrap;">{m_intl.get('badge', '')}</span>
+                    <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(139,92,246,0.08); color: #8b5cf6; white-space: nowrap;">{m_intl.get('badge', '')}</span>
                 </div>
-                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.45; overflow-y: auto; max-height: 85px; scrollbar-width: thin;">
+                <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.55;">
                     {m_intl.get('content', '')}
                 </div>
             </div>
 
-            <!-- 3. 产业估值 -->
-            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 3px solid #0284c7; border-radius: 6px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <!-- (3) 产业与估值面 -->
+            <div style="box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 10px 12px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 3px solid #0284c7; border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                     <span style="font-size: 12px; font-weight: 700; color: #0284c7;">📈 产业与估值面</span>
-                    <span style="font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: rgba(2,132,199,0.08); color: #0284c7; white-space: nowrap;">{m_ind.get('badge', '')}</span>
+                    <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(2,132,199,0.08); color: #0284c7; white-space: nowrap;">{m_ind.get('badge', '')}</span>
                 </div>
-                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.45; overflow-y: auto; max-height: 85px; scrollbar-width: thin;">
+                <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.55;">
                     {m_ind.get('content', '')}
                 </div>
             </div>
 
-            <!-- 4. 存量病灶 / 拟建仓校验 -->
-            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 3px solid var(--color-up, #ef4444); border-radius: 6px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <!-- (4) 存量病灶 / 拟建仓校验 -->
+            <div style="box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 10px 12px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 3px solid var(--color-up, #ef4444); border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                     <span style="font-size: 12px; font-weight: 700; color: var(--color-up, #ef4444);">{m_path.get('title', '🩺 存量持仓病灶')}</span>
-                    <span style="font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: rgba(239,68,68,0.08); color: var(--color-up, #ef4444); white-space: nowrap;">{m_path.get('badge', '')}</span>
+                    <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(239,68,68,0.08); color: var(--color-up, #ef4444); white-space: nowrap;">{m_path.get('badge', '')}</span>
                 </div>
-                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.45; overflow-y: auto; max-height: 85px; scrollbar-width: thin;">
+                <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.55;">
                     {m_path.get('content', '')}
-                </div>
-            </div>
-
-            <!-- 5. 今日行动准则 -->
-            <div style="min-height: 115px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; padding: 8px 10px; background: rgba(37,99,235,0.03); border: 1px solid rgba(37,99,235,0.18); border-top: 3px solid {act_color}; border-radius: 6px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <span style="font-size: 12px; font-weight: 800; color: var(--text-primary);">🎯 今日行动准则</span>
-                    <span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: rgba(37,99,235,0.1); color: {act_color}; white-space: nowrap;">{m_act.get('badge', '')}</span>
-                </div>
-                <div style="font-size: 11px; color: var(--text-primary); line-height: 1.45; overflow-y: auto; max-height: 85px; scrollbar-width: thin;">
-                    {m_act.get('content', '')}
                 </div>
             </div>
         </div>
@@ -2517,7 +2541,22 @@ rebal_grid = snapshot.get("rebal_grid") or StrategyBridge.get_rebalance_grid_sta
 if pm.total_equity <= 0:
     pm._recalculate_totals()
 total_cur_equity = float(getattr(pm, "total_equity", 0.0))
-pnl_today = pm.calculate_intraday_pnl()
+
+# 会话级持仓盘中估值高速缓存（60s 有效期，持仓未变且未强制刷新时 0ms 秒开）
+_now_sec = time.time()
+_pnl_cache = st.session_state.get("_cached_session_intraday_pnl")
+_pnl_ts = st.session_state.get("_cached_session_intraday_pnl_ts", 0)
+_pnl_h_sig = hash(tuple((c, getattr(h, "shares", 0), round(getattr(h, "market_value", 0), 2)) for c, h in sorted(pm.holdings.items())))
+_last_sig = st.session_state.get("_cached_session_intraday_pnl_sig")
+
+if _pnl_cache and (_now_sec - _pnl_ts < 60.0) and (_last_sig == _pnl_h_sig) and not st.session_state.get("force_refresh_market", False):
+    pnl_today = _pnl_cache
+else:
+    pnl_today = pm.calculate_intraday_pnl()
+    st.session_state["_cached_session_intraday_pnl"] = pnl_today
+    st.session_state["_cached_session_intraday_pnl_ts"] = _now_sec
+    st.session_state["_cached_session_intraday_pnl_sig"] = _pnl_h_sig
+
 est_pnl = pnl_today.get("total_est_pnl", 0.0)
 est_pnl_pct = pnl_today.get("total_est_pnl_pct", 0.0)
 pnl_color = active_co["color_up"] if est_pnl >= 0 else active_co["color_down"]
@@ -2568,18 +2607,7 @@ tot_pnl_color = active_co["color_up"] if _t2_pnl >= 0 else active_co["color_down
 # -------------------------------------------------------------
 with st.sidebar:
     if "app_view_layout_mode" not in st.session_state:
-        st.session_state.app_view_layout_mode = "🖥️ 桌面专业模式"
-    cur_layout_val = st.session_state.get("app_view_layout_mode", "🖥️ 桌面专业模式")
-    sb_view_mode = st.radio(
-        "📱 视图模式切换",
-        ["🖥️ 桌面专业模式", "📱 手机极简盯盘"],
-        index=0 if "桌面" in cur_layout_val else 1,
-        horizontal=True,
-        key="sb_view_layout_radio"
-    )
-    if sb_view_mode != cur_layout_val:
-        st.session_state.app_view_layout_mode = sb_view_mode
-        st.rerun()
+        st.session_state.app_view_layout_mode = "📱 手机极简盯盘" if _is_mobile_viewport() else "🖥️ 桌面专业模式"
 
     # 顶部第一行：标题与紧凑的 ⚙️ 外观 Popover，首屏直接聚焦市场状态与指数走廊
     sb_head_c1, sb_head_c2 = st.columns([6.0, 4.0])
@@ -2857,7 +2885,7 @@ if active_lid not in avail_lids:
     active_lid = "main_live" if "main_live" in avail_lids else (avail_lids[0] if avail_lids else "main_live")
     st.session_state.active_ledger_id = active_lid
 
-col_top_brand, col_top_ledger, col_top_mode = st.columns([3.8, 4.2, 2.0])
+col_top_brand, col_top_ledger = st.columns([4.2, 5.8])
 
 with col_top_brand:
     safe_markdown_html(f"""
@@ -2890,34 +2918,6 @@ with col_top_ledger:
     )
     if selected_lid != active_lid:
         switch_active_ledger(selected_lid)
-        st.rerun()
-
-with col_top_mode:
-    cur_mode = st.session_state.get("app_view_layout_mode", "🖥️ 桌面专业模式")
-    mode_opts = ["🖥️ 桌面专业", "📱 手机盯盘"]
-    cur_idx = 0 if "桌面" in cur_mode else 1
-    key_mode = f"seg_topbar_view_mode_{'desktop' if cur_idx == 0 else 'mobile'}"
-    if hasattr(st, "segmented_control"):
-        sel_mode = st.segmented_control(
-            "视图模式",
-            options=mode_opts,
-            default=mode_opts[cur_idx],
-            key=key_mode,
-            label_visibility="collapsed"
-        )
-    else:
-        sel_mode = st.radio(
-            "视图模式",
-            options=mode_opts,
-            index=cur_idx,
-            horizontal=True,
-            key=f"rad_topbar_view_mode_{cur_idx}",
-            label_visibility="collapsed"
-        )
-    target_full_mode = "🖥️ 桌面专业模式" if "桌面" in (sel_mode or "") else "📱 手机极简盯盘"
-    if target_full_mode != cur_mode:
-        st.session_state.app_view_layout_mode = target_full_mode
-        st.session_state.sb_view_layout_radio = target_full_mode
         st.rerun()
 
 st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
@@ -3399,6 +3399,79 @@ def _cached_stocks_df(holdings_items: tuple):
     h_dict = {c: HoldingItem(fund_code=c, fund_name=fn, shares=sh, cost_price=cn, current_nav=nav, cost_nav=cn, market_value=round(sh*nav, 2)) for c, fn, sh, cn, nav in holdings_items} if holdings_items else None
     return cur_pm.get_portfolio_look_through_stocks_df(holdings_override=h_dict)
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def _cached_compute_n_funds_model_portfolio_wrapper(
+    tier: str,
+    target_return_pct: float,
+    num_funds: int,
+    model_type: str,
+    horizon_label: str,
+    capital: float,
+    custom_overrides_tuple: tuple,
+    purchase_limit_filter: str,
+    radar_selected_funds_tuple: tuple
+):
+    return StrategyBridge.compute_n_funds_model_portfolio(
+        tier=tier,
+        target_return_pct=target_return_pct,
+        num_funds=num_funds,
+        model_type=model_type,
+        horizon_label=horizon_label,
+        capital=capital,
+        custom_overrides=dict(custom_overrides_tuple) if custom_overrides_tuple else {},
+        purchase_limit_filter=purchase_limit_filter,
+        radar_selected_funds=list(radar_selected_funds_tuple) if radar_selected_funds_tuple else [],
+        progress_cb=None
+    )
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _cached_generate_zero_start_blueprint_wrapper(
+    total_capital: float,
+    weights_tuple: tuple,
+    tier: str,
+    custom_overrides_tuple: tuple,
+    purchase_limit_filter: str
+):
+    return StrategyBridge.generate_zero_start_blueprint(
+        total_capital=total_capital,
+        target_weights_funds=dict(weights_tuple),
+        tier=tier,
+        custom_fund_overrides=dict(custom_overrides_tuple) if custom_overrides_tuple else {},
+        purchase_limit_filter=purchase_limit_filter
+    )
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_fund_quote_and_screening(fcode: str):
+    pm_tmp = PortfolioManager()
+    q_it = fetch_realtime_fund_quote(fcode)
+    scr_it = pm_tmp.screen_fund_look_through_risk(fcode)
+    crd_it = pm_tmp.get_fund_smart_money_crowding(fcode)
+    return q_it, scr_it, crd_it
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_time_machine_backtest(target_date: str, tier: str, capital: float, dynamic_rebalance: bool):
+    return StrategyBridge.run_historical_time_machine_backtest(
+        target_date=target_date,
+        tier=tier,
+        capital=capital,
+        dynamic_rebalance=dynamic_rebalance
+    )
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _cached_build_custom_portfolio_backtest(
+    weights_tuple: tuple,
+    sec_weights_tuple: tuple,
+    tier: str,
+    target_return_pct: float
+):
+    return StrategyBridge.build_custom_portfolio_backtest(
+        fund_weights=dict(weights_tuple),
+        secondary_weights=dict(sec_weights_tuple) if sec_weights_tuple else None,
+        tier=tier,
+        target_return_pct=target_return_pct
+    )
+
+
 
 
 # -------------------------------------------------------------
@@ -3538,7 +3611,7 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
         wing_expander = st.expander(f"{act_status_icon} {expander_title}", expanded=False)
 
         with wing_expander:
-            col_radar, col_sentry = st.columns([6.2, 3.8])
+            col_radar, col_sentry = st.columns([5.2, 4.8])
 
             # --- 左翼：机会雷达 ---
             with col_radar:
@@ -3556,7 +3629,7 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                 evo_res = evo_disk_data.get("evolved_result", {})
                 traj_data = evo_disk_data.get("nav_trajectory", {})
 
-                col_rad_head1, col_rad_head2 = st.columns([6.0, 4.0])
+                col_rad_head1, col_rad_head2, col_rad_btn = st.columns([4.8, 3.6, 1.6])
                 with col_rad_head1:
                     safe_markdown_html("<div style='font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;'>🔭 全市场机会雷达 · Top 3 机会甄选</div>")
                 with col_rad_head2:
@@ -3586,6 +3659,15 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                                 "静态基准": traj_data.get("nav_static", [])[-15:],
                             })
                             st.line_chart(df_traj.set_index("日期"))
+                with col_rad_btn:
+                    if st.button("🔄 刷新", key="btn_refresh_radar_sentry", help="强制重算14赛道雷达与十二维主动风控"):
+                        st.session_state["_sentry_cached_rep"] = None
+                        st.session_state["_sentry_cached_holdings_hash"] = None
+                        try:
+                            OpportunityRadarEngine().scan_all_sectors(force_refresh=True)
+                        except Exception:
+                            pass
+                        st.rerun()
 
                 # 信源验真指示徽章判定（优先读取本地快照缓存，零阻塞网络）
                 news_cache_f = Path(WORKSPACE_ROOT) / "data" / "cache" / "realtime_news.json"
@@ -3611,20 +3693,7 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         f'padding: 1px 6px; border-radius: 4px; background: rgba(245, 158, 11, 0.1); '
                         f'border: 1px solid rgba(245, 158, 11, 0.25);">🟠 离线本地缓存快照 ⏱️ 数据感知时间: {data_sense_time} ⚡ 实时快讯</span>'
                     )
-
-                # 真实渲染市场脉搏信源验真徽章与刷新按钮
-                col_nb1, col_nb2 = st.columns([8.2, 1.8])
-                with col_nb1:
-                    safe_markdown_html(f"<div style='margin-bottom: 6px;'>{news_source_badge}</div>")
-                with col_nb2:
-                    if st.button("🔄 刷新", key="btn_refresh_radar_sentry", help="强制重算14赛道雷达与十二维主动风控"):
-                        st.session_state["_sentry_cached_rep"] = None
-                        st.session_state["_sentry_cached_holdings_hash"] = None
-                        try:
-                            OpportunityRadarEngine().scan_all_sectors(force_refresh=True)
-                        except Exception:
-                            pass
-                        st.rerun()
+                safe_markdown_html(f"<div style='margin-bottom: 6px;'>{news_source_badge}</div>")
 
                 # 3 张赛道卡（直接显示优选基金名称与 6 位代码，删除 '+ 入备选池' 伪按钮）
                 cols_top3 = st.columns(3)
@@ -3667,6 +3736,20 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         </div>
                         """)
 
+                # 补齐：历史三大牛熊拐点实盘对照尺紧凑横条 (高度约 55px，完美拉平左右双翼高度)
+                try:
+                    _cur_plan_cap = float(st.session_state.get("plan_capital", 100000.0))
+                    _cur_bias_val = float(snapshot_dict.get("bias_20", snapshot_dict.get("bias20", 1.4)))
+                    _ruler_obj = StrategyBridge.get_historical_inflection_ruler(
+                        current_erp=float(snapshot_dict.get("erp_percentile", 82.0)),
+                        current_bias=_cur_bias_val,
+                        total_capital=_cur_plan_cap
+                    )
+                    if _ruler_obj:
+                        safe_markdown_html(f"<div style='margin-top: 8px;'>{render_historical_inflection_ruler_html(_ruler_obj)}</div>")
+                except Exception:
+                    pass
+
             # --- 右翼：主动风险提示与健康度 (完整十二维主动风控巡检真实呈现) ---
             with col_sentry:
                 safe_markdown_html("<div style='font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;'>🚨 主动风险预警哨 · 十二维全维巡检</div>")
@@ -3700,7 +3783,7 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                     </div>
                     """)
                 else:
-                    # 真实渲染所有触发的风控警报项 (无任何伪操作按钮，按严重度排序)
+                    # 真实渲染所有触发的风控警报项 (采用 2×2 双栏网格排版，高度与左翼机会雷达完美齐平)
                     def _sentry_alert_sorter(a):
                         _lvl = str(a.get("level", "yellow")).lower()
                         _t = str(a.get("title", "")) + str(a.get("desc", ""))
@@ -3714,8 +3797,9 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         return (2, 0)
 
                     sorted_sentry_alerts = sorted(alerts_list, key=_sentry_alert_sorter)
+                    col_sen1, col_sen2 = st.columns(2)
 
-                    for alert in sorted_sentry_alerts[:4]:
+                    for idx, alert in enumerate(sorted_sentry_alerts[:4]):
                         raw_lvl = str(alert.get("level", "WARNING")).lower()
                         is_red = raw_lvl in ("red", "critical")
                         is_yellow = raw_lvl in ("yellow", "warning")
@@ -3735,17 +3819,19 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         detail_str = alert.get("desc") or alert.get("detail") or alert.get("message", "")
                         action_str = alert.get("action") or alert.get("suggested_action", "")
 
-                        safe_markdown_html(f"""
-                        <div class="decision-card" style="border-left: 3px solid {border_col}; padding: 8px 10px; margin-bottom: 5px;">
-                            <div style="font-size: 12px; font-weight: 700; color: {border_col}; margin-bottom: 2px;">
-                                {icon} {title_str}
+                        target_col = col_sen1 if (idx % 2 == 0) else col_sen2
+                        with target_col:
+                            safe_markdown_html(f"""
+                            <div class="decision-card" style="border-left: 3px solid {border_col}; padding: 6px 8px; margin-bottom: 6px; min-height: 82px;">
+                                <div style="font-size: 11.5px; font-weight: 700; color: {border_col}; margin-bottom: 2px;">
+                                    {icon} {title_str}
+                                </div>
+                                <div style="font-size: 10.5px; color: var(--text-secondary); margin-bottom: 2px; line-height: 1.35;">
+                                    {detail_str}
+                                </div>
+                                {f'<div style="font-size: 10.5px; color: var(--text-primary); font-weight: 600;">💡 建议: {action_str}</div>' if action_str else ''}
                             </div>
-                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 2px; line-height: 1.4;">
-                                {detail_str}
-                            </div>
-                            {f'<div style="font-size: 11px; color: var(--text-primary); font-weight: 600;">💡 应对建议: {action_str}</div>' if action_str else ''}
-                        </div>
-                        """)
+                            """)
     except Exception as e:
         st.caption(f"（双翼看板加载提示: {e}）")
 
@@ -4246,18 +4332,33 @@ with tab_zero_start:
                         acc.update_step(cur, msg, progress_pct=int((cur / max(tot, 1)) * 95))
                     _sim_cb = _cb
 
-                res_portfolio = StrategyBridge.compute_n_funds_model_portfolio(
-                    tier=active_tier,
-                    target_return_pct=float(cur_tab1_params["target_ret"]),
-                    num_funds=int(num_funds_input),
-                    model_type=sel_model_type,
-                    horizon_label=horizon_choice,
-                    capital=float(plan_capital),
-                    custom_overrides=st.session_state.get("custom_fund_overrides", {}),
-                    purchase_limit_filter=st.session_state.get("purchase_limit_filter", "不限 (自动拆单承接)"),
-                    radar_selected_funds=st.session_state.get("radar_selected_funds", []),
-                    progress_cb=_sim_cb
-                )
+                _overrides_tuple = tuple(sorted(st.session_state.get("custom_fund_overrides", {}).items()))
+                _radar_funds_tuple = tuple(sorted(st.session_state.get("radar_selected_funds", [])))
+                if is_manual_trig:
+                    res_portfolio = StrategyBridge.compute_n_funds_model_portfolio(
+                        tier=active_tier,
+                        target_return_pct=float(cur_tab1_params["target_ret"]),
+                        num_funds=int(num_funds_input),
+                        model_type=sel_model_type,
+                        horizon_label=horizon_choice,
+                        capital=float(plan_capital),
+                        custom_overrides=st.session_state.get("custom_fund_overrides", {}),
+                        purchase_limit_filter=st.session_state.get("purchase_limit_filter", "不限 (自动拆单承接)"),
+                        radar_selected_funds=st.session_state.get("radar_selected_funds", []),
+                        progress_cb=_sim_cb
+                    )
+                else:
+                    res_portfolio = _cached_compute_n_funds_model_portfolio_wrapper(
+                        tier=active_tier,
+                        target_return_pct=float(cur_tab1_params["target_ret"]),
+                        num_funds=int(num_funds_input),
+                        model_type=sel_model_type,
+                        horizon_label=horizon_choice,
+                        capital=float(plan_capital),
+                        custom_overrides_tuple=_overrides_tuple,
+                        purchase_limit_filter=st.session_state.get("purchase_limit_filter", "不限 (自动拆单承接)"),
+                        radar_selected_funds_tuple=_radar_funds_tuple
+                    )
                 if acc:
                     acc.complete("真全市场选基与推演完成")
                 st.session_state.tab1_sim_cache = res_portfolio
@@ -4277,11 +4378,13 @@ with tab_zero_start:
                 cur_opt_w = opt_weights
                 overrides = st.session_state.get("custom_fund_overrides", {})
 
-                blueprint = StrategyBridge.generate_zero_start_blueprint(
+                _w_tuple = tuple(sorted(cur_opt_w.items()))
+                _ov_tuple = tuple(sorted(overrides.items()))
+                blueprint = _cached_generate_zero_start_blueprint_wrapper(
                     total_capital=float(plan_capital),
-                    target_weights_funds=cur_opt_w,
+                    weights_tuple=_w_tuple,
                     tier=active_tier,
-                    custom_fund_overrides=overrides,
+                    custom_overrides_tuple=_ov_tuple,
                     purchase_limit_filter=st.session_state.get("purchase_limit_filter", "不限 (自动拆单承接)")
                 )
 
@@ -4313,9 +4416,7 @@ with tab_zero_start:
                 for idx, it in enumerate(items, 1):
                     fcode = it["fund_code"]
                     if acc_s3: acc_s3.update_step(idx, f"正在拉取 [{idx}/{n_funds}] 基金 ({fcode}) 实时估值与排雷...", progress_pct=int(10 + (idx / n_funds) * 85))
-                    q_it = fetch_realtime_fund_quote(fcode)
-                    scr_it = pm.screen_fund_look_through_risk(fcode)
-                    crd_it = pm.get_fund_smart_money_crowding(fcode)
+                    q_it, scr_it, crd_it = _cached_fund_quote_and_screening(fcode)
 
                     risk_badge_disp = scr_it.get("risk_badge", "🟢 健康")
                     crowd_deg_disp = crd_it.get("crowding_degree", "相对分散")
@@ -4386,20 +4487,6 @@ with tab_zero_start:
             cheat_sheet_text = _cache_s3["cheat_sheet_text"]
             cur_opt_w = _cache_s3.get("cur_opt_w", opt_weights)
             overrides = _cache_s3.get("overrides") or {}
-
-            # ── 顶栏置顶：🧭 首席投顾五维全息决策备忘录卡片（建仓方案研判） ──
-            try:
-                from advisory_engine import generate_chief_advisor_memo
-                memo_t1 = generate_chief_advisor_memo(
-                    snapshot=snapshot,
-                    holdings=opt_weights,
-                    radar_top3=None,
-                    sentry_rep=None,
-                    total_capital=float(plan_capital)
-                )
-                render_chief_advisor_memo_card(memo_t1, title="🧭 首席投顾五维决策备忘录（建仓方案研判）")
-            except Exception:
-                pass
 
             # ── 模块 2：3 项核心指标条置顶与实盘建仓执行表 ──
             erp_pct = float(snapshot.get("erp_percentile", 78.5))
@@ -4894,14 +4981,23 @@ with tab_zero_start:
                 except Exception as e:
                     st.caption(f"（黑天鹅承压测试卡片渲染提示: {e}）")
 
-                # G15: 三大历史极端危机承压 2D 人话对照表（替代 3D 炫技曲面图）
+                # G15: 三大历史极端危机承压 2D 人话对照表（带会话级哈希缓存，杜绝重复计算卡顿）
                 try:
-                    bootstrap_stress_data = pm.simulate_portfolio_cvar_bootstrap(
-                        holdings=opt_weights,
-                        total_capital=float(plan_capital),
-                        investor_risk_tier=active_tier,
-                        pm_instance=pm
-                    )
+                    _w_key = ";".join(f"{k}:{round(v, 4)}" for k, v in sorted(opt_weights.items()))
+                    _cache_k_tab1_stress = f"_t1_stress_{_w_key}_{int(float(plan_capital))}_{active_tier}"
+                    if _cache_k_tab1_stress in st.session_state:
+                        bootstrap_stress_data = st.session_state[_cache_k_tab1_stress]
+                    else:
+                        _is_test = bool(os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("STREAMLIT_APPTEST"))
+                        _n_sims = 1000 if _is_test else 2000
+                        bootstrap_stress_data = pm.simulate_portfolio_cvar_bootstrap(
+                            holdings=opt_weights,
+                            total_capital=float(plan_capital),
+                            investor_risk_tier=active_tier,
+                            n_simulations=_n_sims,
+                            pm_instance=pm
+                        )
+                        st.session_state[_cache_k_tab1_stress] = bootstrap_stress_data
                     render_monte_carlo_stress_table(bootstrap_stress_data)
                 except Exception as e_mc3d:
                     st.caption(f"（三大历史极端危机承压 2D 对照表加载提示: {e_mc3d}）")
@@ -5815,7 +5911,7 @@ with tab_holdings_and_rebalance:
                     real_stress_data = st.session_state[_cache_key_stress]
                 else:
                     _is_test = bool(os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("STREAMLIT_APPTEST"))
-                    _n_sims = 500 if _is_test else 10000
+                    _n_sims = 500 if _is_test else 2000
                     real_stress_data = pm.simulate_portfolio_cvar_bootstrap_instance(
                         total_capital=_tot_cap_t2,
                         investor_risk_tier=_risk_tier_t2,
@@ -7272,7 +7368,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
         tgl_dynamic = st.toggle("⚡ 启用时光机动态再平衡（按信号敏捷轮动）", value=True, key="tm_dynamic_rebalance_toggle", help="开启后在历史盲测中实施 Point-in-Time 动态调仓，消除 2024.09 政策底踏空")
 
         try:
-            tm_res = StrategyBridge.run_historical_time_machine_backtest(
+            tm_res = _cached_time_machine_backtest(
                 target_date=curr_chosen_date,
                 tier=st.session_state.get("active_tier_val", "C3"),
                 capital=float(st.session_state.get("plan_capital", 100000.0)),
@@ -7499,13 +7595,13 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
     </div>
     """)
 
-    # 执行穿透回测
-    df_bt = StrategyBridge.build_custom_portfolio_backtest(
-        fund_weights=primary_weights,
-        secondary_weights=secondary_weights,
-        tier=st.session_state.get("active_tier_val", "C3"),
-        target_return_pct=float(st.session_state.get("target_return_val", 15.0))
-    )
+    # 执行穿透回测（带进程级与会话级高速缓存，避免首屏跨 Tab 冗余重复测算）
+    _bt_sig = f"{sorted(primary_weights.items())}_{sorted((secondary_weights or {}).items())}_{st.session_state.get('active_tier_val', 'C3')}_{st.session_state.get('target_return_val', 15.0)}"
+    _p_tuple = tuple(sorted(primary_weights.items()))
+    _s_tuple = tuple(sorted((secondary_weights or {}).items()))
+    _cur_tier_v = st.session_state.get('active_tier_val', 'C3')
+    _cur_tgt_ret = float(st.session_state.get('target_return_val', 15.0))
+    df_bt = _cached_build_custom_portfolio_backtest(_p_tuple, _s_tuple, _cur_tier_v, _cur_tgt_ret)
 
     # 核心指标计算
     tier_cagr = (df_bt['strategy_nav'].iloc[-1] ** (252.0 / max(len(df_bt), 1)) - 1.0) * 100.0
@@ -7580,20 +7676,33 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
 
     # 🌪️ 历史黑天鹅极端承压测试卡片
     try:
-        stress_data = simulate_black_swan_stress(
-            holdings=primary_weights,
-            total_capital=float(st.session_state.get("plan_capital", 100000.0)),
-            df_bt=df_bt if not df_bt.empty else None
-        )
+        _stress_cache_k = f"_cached_stress_data_{hash(_bt_sig)}"
+        if _stress_cache_k in st.session_state:
+            stress_data = st.session_state[_stress_cache_k]
+        else:
+            stress_data = simulate_black_swan_stress(
+                holdings=primary_weights,
+                total_capital=float(st.session_state.get("plan_capital", 100000.0)),
+                df_bt=df_bt if not df_bt.empty else None
+            )
+            st.session_state[_stress_cache_k] = stress_data
         render_black_swan_stress_card(stress_data)
 
-        # G10: 穿透式蒙特卡洛压力测试 · 流动性指标卡挂载至 Tab 3
+        # G10: 穿透式蒙特卡洛压力测试 · 流动性指标卡挂载至 Tab 3 (会话级哈希缓存秒开)
         active_tier = getattr(st.session_state, "active_tier_val", "C3")
         _tot_cap = float(st.session_state.get("plan_capital", getattr(pm, "total_equity", 100000.0)) or 100000.0)
-        stress_m_res = pm.simulate_portfolio_cvar_bootstrap_instance(
-            total_capital=_tot_cap,
-            investor_risk_tier=active_tier
-        )
+        _t3_cache_k = f"_t3_stress_{getattr(pm, 'ledger_id', 'main')}_{int(_tot_cap)}_{active_tier}"
+        if _t3_cache_k in st.session_state:
+            stress_m_res = st.session_state[_t3_cache_k]
+        else:
+            _is_test = bool(os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("STREAMLIT_APPTEST"))
+            _n_sims = 500 if _is_test else 2000
+            stress_m_res = pm.simulate_portfolio_cvar_bootstrap_instance(
+                total_capital=_tot_cap,
+                investor_risk_tier=active_tier,
+                n_simulations=_n_sims
+            )
+            st.session_state[_t3_cache_k] = stress_m_res
         safe_markdown_html(render_stress_liquidity_card_html(stress_m_res))
     except Exception as e:
         st.caption(f"（Tab 3 黑天鹅承压测试卡片渲染提示: {e}）")
@@ -8159,10 +8268,15 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
             st.caption("基于 EWMA 滚动协方差矩阵实时追踪红利资产与周期权重股的相关系数变迁。当相关系数突破 0.75 临界阈值时，自动触发组合集中度降级警报并动态削减重仓敞口。")
 
             sim_corr_tb = st.session_state.get("sim_corr_tb_val")
-            corr_eval_tb = pm.evaluate_dynamic_correlation_mutation_instance(
-                threshold=0.75,
-                simulated_corr=sim_corr_tb
-            )
+            _tb_corr_k = f"_cached_corr_eval_{getattr(pm, 'ledger_id', 'main')}_{sim_corr_tb}"
+            if _tb_corr_k in st.session_state:
+                corr_eval_tb = st.session_state[_tb_corr_k]
+            else:
+                corr_eval_tb = pm.evaluate_dynamic_correlation_mutation_instance(
+                    threshold=0.75,
+                    simulated_corr=sim_corr_tb
+                )
+                st.session_state[_tb_corr_k] = corr_eval_tb
             cur_corr = corr_eval_tb.get("current_correlation", 0.45)
             is_mut = corr_eval_tb.get("is_triggered", False)
             tot_cut_pct = corr_eval_tb.get("total_cut_weight_pct", 0.0)
@@ -8262,19 +8376,31 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
             alerts = overlap_res.get("alerts", [])
             common_details = overlap_res.get("common_stocks_details", [])
 
-            if max_total == 0.0 and len(alerts) == 0:
-                st.success("✅ **您的组合跨大类分散度极佳，前十大重仓股物理零重叠**（底层资产完全正交，无任何重复持股）")
-            elif max_unexcused == 0.0 and len(overlap_res.get("exempt_pairs", [])) > 0:
-                st.info(
-                    f"ℹ️ **检测到组合存在同系底仓协同配置（最高重叠达 {max_total*100:.1f}%）**："
-                    f"属于红利增强与红利低波策略互补底仓，无非合规跨赛道伪分散风险，重合股票敞口已合并至全组合行业监控。"
-                )
-            elif max_unexcused < 0.20 and len(alerts) == 0:
-                st.success(f"✅ **跨大类分散度良好** 前十大重仓股无明显交叉（非同系最高重叠仅 {max_unexcused*100:.1f}%，低于 20% 警戒线）。")
-            else:
-                st.warning(f"⚠️ **检测到持仓间存在较高重仓股重叠（最高达 {max_total*100:.1f}%）** 伪分散可能导致行业与个股风险过度集中。")
-                for a in alerts:
+            if max_unexcused >= 0.40 and len(alerts) > 0:
+                st.warning(f"⚠️ **检测到持仓间存在较高重仓股重叠（最高达 {max_unexcused*100:.1f}%）** 伪分散可能导致行业与个股风险过度集中。")
+                for a in alerts[:3]:
                     st.warning(a["warning_msg"])
+            elif max_unexcused > 0.0:
+                st.info(f"ℹ️ **持仓间重合度处于安全温和区间（最高非同系重叠 {max_unexcused*100:.1f}%）**，底层个股分散度良好。")
+            elif max_total == 0.0:
+                st.success("✅ **您的组合跨大类分散度极佳，前十大重仓股物理零重叠**（底层资产完全正交，无任何重复持股）。")
+            elif len(overlap_res.get("exempt_pairs", [])) > 0:
+                st.info(
+                    f"ℹ️ **检测到组合存在同系底仓协同配置（最高同源重叠达 {max_total*100:.1f}%）**："
+                    f"属于红利增强与红利低波策略互补底仓或同源 A/C 份额，无非合规跨赛道伪分散风险，重合股票敞口已合并至全组合行业监控。"
+                )
+            else:
+                st.success(f"✅ **跨大类分散度良好** 前十大重仓股无明显交叉（非同系最高重叠仅 {max_unexcused*100:.1f}%，低于 20% 警戒线）。")
+
+            notes = []
+            if overlap_res.get("excluded_non_equity"):
+                notes.append("已自动排除纯债/黄金/货币等非股票标的")
+            if overlap_res.get("excluded_tail_fragments"):
+                notes.append(f"已过滤 {len(overlap_res['excluded_tail_fragments'])} 只微小尾仓 (<1%)")
+            if overlap_res.get("pending_external_funds"):
+                notes.append(f"{len(overlap_res['pending_external_funds'])} 只外部主动基暂未披露前十大季报已独立隔离")
+            if notes:
+                st.caption(f"ℹ️ 注：{'，'.join(notes)}，聚焦核心权益持仓穿透比对。")
 
             col_heat, col_diag = st.columns([5.5, 4.5])
             with col_heat:

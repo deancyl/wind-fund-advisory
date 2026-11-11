@@ -4410,7 +4410,7 @@ def generate_chief_advisor_memo(
             top_loss_strs = [f"【{x[0]}】(浮亏 {x[1]*100:.1f}%)" for x in deep_loss_list[:3]]
             top_loss_summary = "、".join(top_loss_strs)
             pathology_bullets.append(
-                f"🔴 <b>核心亏损拖累源</b>：发现 {len(deep_loss_list)} 只标的浮亏超 10%，其中最大拖累为【{w_f[0]}】(浮亏 {w_f[1]*100:.1f}%)；"
+                f"🔴 <b>核心亏损拖累源</b>：发现 {len(deep_loss_list)} 只标的浮亏超 10%，其中金额最大出血点为【{w_f[0]}】(亏损 -¥{abs(w_f[2]):,.2f} / {w_f[1]*100:+.1f}%)；"
                 f"主要出血点包括：{top_loss_summary}，建议排查是否为主动型行业偏离或基金经理能力退化，择机转入低费率同赛道指数联接；"
             )
         if frag_count > 0:

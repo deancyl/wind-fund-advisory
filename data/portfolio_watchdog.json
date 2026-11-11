@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-11 16:15:17",
+  "timestamp": "2026-11-11 21:58:55",
   "all_passed": false,
   "has_danger": false,
   "has_warning": true,
@@ -417,21 +417,21 @@
         "action_type": "BUY_ETF",
         "suggestion": "场内折价达 -1.60% (< -1.0%)！建议优先在二级市场低吸场内 ETF (518880 华安黄金ETF)，享折价向净值收敛的额外安全垫。",
         "action_advice": "场内折价达 -1.60% (< -1.0%)！建议优先在二级市场低吸场内 ETF (518880 华安黄金ETF)，享折价向净值收敛的额外安全垫。",
-        "timestamp": "16:14:50"
+        "timestamp": "21:58:30"
       }
     },
     {
       "level": "yellow",
       "dimension": "尾盘折溢价套利",
-      "title": "【尾盘套利机会】标普500/美股 场内折溢价率达 +10.59%",
-      "desc": "标的 博时标普500ETF(513500) 与场外联接 (050025) 出现显著价差 (+10.59%)，触发 1.0% 套利阈值！",
-      "action": "场内溢价达 +10.59% (> +1.0%)！建议暂停场内买入，改在场外以 15:00 净值申购联接基金 (050025 博时标普500ETF联接A)，锁定平价建仓或溢价套利。",
+      "title": "【尾盘套利机会】标普500/美股 场内折溢价率达 +11.06%",
+      "desc": "标的 博时标普500ETF(513500) 与场外联接 (050025) 出现显著价差 (+11.06%)，触发 1.0% 套利阈值！",
+      "action": "场内溢价达 +11.06% (> +1.0%)！建议暂停场内买入，改在场外以 15:00 净值申购联接基金 (050025 博时标普500ETF联接A)，锁定平价建仓或溢价套利。",
       "action_type": "etf_arbitrage_switch",
       "fund_code": "050025",
       "fund_name": "博时标普500ETF联接A",
       "etf_code": "513500",
       "feeder_code": "050025",
-      "discount_premium_pct": 10.59,
+      "discount_premium_pct": 11.06,
       "arbitrage_info": {
         "sector_id": "us_sp500_nasdaq",
         "name": "标普500/美股",
@@ -443,17 +443,17 @@
         "is_qdii": true,
         "price": 2.662,
         "etf_price": 2.662,
-        "iopv": 2.4071,
-        "etf_iopv": 2.4071,
+        "iopv": 2.3968,
+        "etf_iopv": 2.3968,
         "change_pct": 0.38,
-        "discount_premium_pct": 10.59,
+        "discount_premium_pct": 11.06,
         "arbitrage_signal": "PREMIUM_BUY_FEEDER",
         "signal": "PREMIUM_BUY_FEEDER",
         "signal_badge": "🚨 场内高溢价 (买场外联接)",
         "action_type": "BUY_FEEDER",
-        "suggestion": "场内溢价达 +10.59% (> +1.0%)！建议暂停场内买入，改在场外以 15:00 净值申购联接基金 (050025 博时标普500ETF联接A)，锁定平价建仓或溢价套利。",
-        "action_advice": "场内溢价达 +10.59% (> +1.0%)！建议暂停场内买入，改在场外以 15:00 净值申购联接基金 (050025 博时标普500ETF联接A)，锁定平价建仓或溢价套利。",
-        "timestamp": "16:14:50"
+        "suggestion": "场内溢价达 +11.06% (> +1.0%)！建议暂停场内买入，改在场外以 15:00 净值申购联接基金 (050025 博时标普500ETF联接A)，锁定平价建仓或溢价套利。",
+        "action_advice": "场内溢价达 +11.06% (> +1.0%)！建议暂停场内买入，改在场外以 15:00 净值申购联接基金 (050025 博时标普500ETF联接A)，锁定平价建仓或溢价套利。",
+        "timestamp": "21:58:30"
       }
     },
     {

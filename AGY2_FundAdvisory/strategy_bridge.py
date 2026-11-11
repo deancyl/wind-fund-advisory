@@ -2730,7 +2730,11 @@ class StrategyBridge:
         """
         实时动态计算截至最新截面的 4 大技术研判指标、ERP 估值分位与当前所处市场状态
         """
+        now_ts = time.time()
         if cls._cached_snapshot is not None and not force_reload:
+            if now_ts - getattr(cls, "_snapshot_last_refresh_time", 0.0) < 60.0:
+                return cls._cached_snapshot
+            cls._snapshot_last_refresh_time = now_ts
             cls._refresh_liquidity_thermometer(cls._cached_snapshot)
             cls._refresh_derivatives_data(cls._cached_snapshot)
             cached_snap = cls._cached_snapshot

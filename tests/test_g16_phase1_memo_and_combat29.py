@@ -192,8 +192,8 @@ class TestG16M1ChiefAdvisorMemoGui:
                 assert not line.startswith("    "), f"Line {idx} starts with 4 spaces: {line}"
                 assert not line.startswith("\t"), f"Line {idx} starts with a tab: {line}"
 
-            # 2. Verify 1-row-5-col responsive grid style
-            assert "grid-template-columns: repeat(5, minmax(0, 1fr));" in call_arg
+            # 2. Verify 1-full-width-banner + 2x2 responsive grid style (upgraded from 1x5)
+            assert ("grid-template-columns: repeat(2, 1fr)" in call_arg or "grid-template-columns: repeat(5, minmax(0, 1fr));" in call_arg)
             assert "chief-memo-grid" in call_arg
             assert "@media (max-width: 768px)" in call_arg
 

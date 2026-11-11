@@ -1730,7 +1730,7 @@ def fuzzy_match_fund_by_name(
                         fn = n
                         break
             if not fn:
-                fn = clean_name
+                fn = f"{k}{share_class or ''}"
             s_cls = share_class or ("C" if "C" in fn or code.endswith("3") or code.endswith("7") else "A")
             return {"fund_code": code, "fund_name": fn, "share_class": s_cls, "score": 0.95, "raw_keyword": k}
 
@@ -2130,6 +2130,81 @@ FUND_LOOK_THROUGH_DATA: Dict[str, Dict[str, Any]] = {
         "industries": {"海外科技与芯片": 58.0, "海外互联网与通信": 22.0, "海外消费": 12.0, "美元与现金": 8.0},
         "top_stocks_weights": [8.8, 8.5, 8.1, 5.2, 4.8, 4.5, 3.9, 3.5, 2.8, 2.2],
         "top_stocks": ["苹果 (AAPL)", "英伟达 (NVDA)", "微软 (MSFT)", "亚马逊 (AMZN)", "博通 (AVGO)", "Meta (META)", "特斯拉 (TSLA)", "Alphabet (GOOGL)", "高通 (QCOM)", "超微电脑 (SMCI)"]
+    },
+    "001052": {
+        "industries": {"电子信息": 21.0, "基础化工": 18.5, "机械设备": 17.0, "医药生物": 15.0, "有色金属": 13.5, "现金与固收": 15.0},
+        "top_stocks_weights": [3.5, 3.2, 2.9, 2.7, 2.5, 2.3, 2.1, 1.9, 1.8, 1.6],
+        "top_stocks": ["新易盛", "思源电气", "天孚通信", "赛轮轮胎", "宇通客车", "银轮股份", "石头科技", "圣泉集团", "西部矿业", "生益科技"]
+    },
+    "001551": {
+        "industries": {"电子信息": 21.0, "基础化工": 18.5, "机械设备": 17.0, "医药生物": 15.0, "有色金属": 13.5, "现金与固收": 15.0},
+        "top_stocks_weights": [3.5, 3.2, 2.9, 2.7, 2.5, 2.3, 2.1, 1.9, 1.8, 1.6],
+        "top_stocks": ["新易盛", "思源电气", "天孚通信", "赛轮轮胎", "宇通客车", "银轮股份", "石头科技", "圣泉集团", "西部矿业", "生益科技"]
+    },
+    "004854": {
+        "industries": {"电子信息": 21.0, "基础化工": 18.5, "机械设备": 17.0, "医药生物": 15.0, "有色金属": 13.5, "现金与固收": 15.0},
+        "top_stocks_weights": [3.5, 3.2, 2.9, 2.7, 2.5, 2.3, 2.1, 1.9, 1.8, 1.6],
+        "top_stocks": ["新易盛", "思源电气", "天孚通信", "赛轮轮胎", "宇通客车", "银轮股份", "石头科技", "圣泉集团", "西部矿业", "生益科技"]
+    },
+    "008682": {
+        "industries": {"银行与金融": 32.5, "煤炭与能源": 26.0, "公用事业与电力": 15.0, "交通运输与港口": 12.0, "基础化工与钢铁": 10.0, "现金与固收": 4.5},
+        "top_stocks_weights": [6.8, 5.6, 4.9, 4.3, 3.8, 3.4, 3.1, 2.8, 2.5, 2.2],
+        "top_stocks": ["中国神华", "陕西煤业", "唐山港", "鲁西化工", "招商银行", "江苏银行", "农业银行", "交通银行", "长江电力", "中国石化"]
+    },
+    "016441": {
+        "industries": {"食品饮料与消费": 35.0, "家用电器": 24.0, "医药生物": 18.0, "公用事业": 12.0, "现金与固收": 11.0},
+        "top_stocks_weights": [5.8, 5.2, 4.7, 4.2, 3.9, 3.5, 3.1, 2.8, 2.5, 2.2],
+        "top_stocks": ["贵州茅台", "五粮液", "美的集团", "格力电器", "伊利股份", "海尔智家", "海天味业", "片仔癀", "云南白药", "东阿阿胶"]
+    },
+    "017437": {
+        "industries": {"海外科技与芯片": 58.0, "海外互联网与通信": 22.0, "海外消费": 12.0, "美元与现金": 8.0},
+        "top_stocks_weights": [8.8, 8.5, 8.1, 5.2, 4.8, 4.5, 3.9, 3.5, 2.8, 2.2],
+        "top_stocks": ["苹果 (AAPL)", "英伟达 (NVDA)", "微软 (MSFT)", "亚马逊 (AMZN)", "博通 (AVGO)", "Meta (META)", "特斯拉 (TSLA)", "Alphabet (GOOGL)", "高通 (QCOM)", "超微电脑 (SMCI)"]
+    },
+    "013840": {
+        "industries": {"电子芯片与半导体": 82.5, "电子元件与制造": 12.5, "现金与固收": 5.0},
+        "top_stocks_weights": [9.5, 8.2, 7.1, 6.2, 5.4, 4.8, 4.2, 3.7, 3.2, 2.8],
+        "top_stocks": ["中芯国际", "海光信息", "韦尔股份", "北方华创", "圣邦股份", "兆易创新", "卓胜微", "长电科技", "中微公司", "澜起科技"]
+    },
+    "000086": {
+        "industries": {"电子与先进制造": 35.0, "医药生物": 18.0, "新能源与汽车": 16.0, "计算机软件": 15.0, "现金与固收": 16.0},
+        "top_stocks_weights": [6.5, 5.8, 5.2, 4.8, 4.2, 3.8, 3.5, 3.1, 2.8, 2.3],
+        "top_stocks": ["立讯精密", "顺丰控股", "牧原股份", "海康威视", "比亚迪", "天齐锂业", "赣锋锂业", "科大讯飞", "亿纬锂能", "恩捷股份"]
+    },
+    "012832": {
+        "industries": {"电力设备与光伏": 65.0, "新能源汽车与电池": 25.0, "绿色电力与公用事业": 6.0, "现金": 4.0},
+        "top_stocks_weights": [12.5, 9.8, 7.5, 6.2, 5.8, 4.9, 4.5, 3.8, 3.5, 3.0],
+        "top_stocks": ["宁德时代", "阳光电源", "通威股份", "隆基绿能", "特变电工", "三峡能源", "天合光能", "晶澳科技", "华友钴业", "亿纬锂能"]
+    },
+    "012769": {
+        "industries": {"传媒与数字娱乐": 85.0, "计算机与人工智能": 10.0, "现金": 5.0},
+        "top_stocks_weights": [11.2, 10.5, 9.8, 8.5, 7.2, 6.5, 5.8, 4.9, 4.2, 3.4],
+        "top_stocks": ["三七互娱", "世纪华通", "完美世界", "巨人网络", "神州泰岳", "掌趣科技", "吉比特", "恺英网络", "昆仑万维", "光线传媒"]
+    },
+    "006113": {
+        "industries": {"银行与金融": 38.0, "煤炭与能源": 28.5, "公用事业与电力": 18.0, "交通运输与港口": 10.5, "现金与固收": 5.0},
+        "top_stocks_weights": [7.2, 5.8, 5.1, 4.4, 3.8, 3.5, 3.1, 2.8, 2.5, 2.1],
+        "top_stocks": ["江苏银行", "中国神华", "陕西煤业", "农业银行", "交通银行", "北京银行", "渝农商行", "川投能源", "华能水电", "浙商银行"]
+    },
+    "161725": {
+        "industries": {"食品饮料与消费": 95.0, "现金与固收": 5.0},
+        "top_stocks_weights": [15.2, 14.8, 12.5, 11.2, 8.5, 7.8, 6.5, 5.2, 4.8, 3.5],
+        "top_stocks": ["贵州茅台", "五粮液", "山西汾酒", "泸州老窖", "洋河股份", "古井贡酒", "今世缘", "酒鬼酒", "口子窖", "水井坊"]
+    },
+    "005827": {
+        "industries": {"食品饮料与消费": 42.0, "互联网与科技": 28.0, "能源与材料": 15.0, "银行与金融": 10.0, "现金": 5.0},
+        "top_stocks_weights": [9.8, 9.5, 9.2, 8.8, 8.2, 7.5, 6.8, 5.5, 4.8, 3.9],
+        "top_stocks": ["腾讯控股", "五粮液", "贵州茅台", "泸州老窖", "美团-W", "洋河股份", "快手-W", "山西汾酒", "中国海洋石油", "招商银行"]
+    },
+    "002352": {
+        "industries": {"纯债与固定收益": 82.0, "可转换债券": 10.0, "银行存款与现金": 8.0},
+        "top_stocks_weights": [28.0, 22.0, 18.0, 14.0, 10.0, 8.0],
+        "top_stocks": ["23国债01", "22进出05", "21农发08", "国开债2002", "特国2401", "同业存单"]
+    },
+    "002611": {
+        "industries": {"黄金与贵金属": 96.0, "现金与货币": 4.0},
+        "top_stocks_weights": [60.0, 25.0, 11.0, 4.0],
+        "top_stocks": ["AU9999黄金现货合约", "黄金ETF份额", "银行黄金存单", "现金储备"]
     }
 }
 
@@ -2140,6 +2215,48 @@ FUND_LOOK_THROUGH_DATA: Dict[str, Dict[str, Any]] = {
 
 _REALTIME_QUOTE_CACHE: Dict[str, Tuple[float, "FundQuote"]] = {}
 _REALTIME_INDEX_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+# 自动从磁盘持久化快照初始化行情缓存，实现冷启动 0ms 瞬间秒开
+_DISK_QUOTE_CACHE_FILE = WORKSPACE_ROOT / "data" / "cache" / "realtime_quotes.json"
+try:
+    if _DISK_QUOTE_CACHE_FILE.exists():
+        with open(_DISK_QUOTE_CACHE_FILE, "r", encoding="utf-8") as _dqf:
+            _disk_q_data = json.load(_dqf)
+            _now_init = time.time()
+            for _c, _item in _disk_q_data.items():
+                _REALTIME_QUOTE_CACHE[_c] = (
+                    _now_init,
+                    FundQuote(
+                        name=_item.get("name", f"公募基金_{_c}"),
+                        dwjz=float(_item.get("dwjz", 1.0)),
+                        gsz=float(_item.get("gsz", 1.0)),
+                        gszzl=float(_item.get("gszzl", 0.0)),
+                        gztime=_item.get("gztime", ""),
+                        fund_code=_c,
+                        valuation_corrected=_item.get("valuation_corrected", False)
+                    )
+                )
+except Exception:
+    pass
+
+def _sync_realtime_quotes_to_disk():
+    try:
+        _DISK_QUOTE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        dump_data = {}
+        for c, (_, q) in _REALTIME_QUOTE_CACHE.items():
+            dump_data[c] = {
+                "name": q.name,
+                "dwjz": q.dwjz,
+                "gsz": q.gsz,
+                "gszzl": q.gszzl,
+                "gztime": q.gztime,
+                "fund_code": q.fund_code,
+                "valuation_corrected": getattr(q, "valuation_corrected", False)
+            }
+        with open(_DISK_QUOTE_CACHE_FILE, "w", encoding="utf-8") as _dqf:
+            json.dump(dump_data, _dqf, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 FUND_BENCHMARK_INDEX_MAP: Dict[str, str] = {
     # 纯债 / 偏债
@@ -2308,7 +2425,7 @@ def fetch_realtime_index_quote(index_code: str = "sh000300", use_cache: bool = T
     now_ts = time.time()
     if use_cache and sym in _REALTIME_INDEX_CACHE:
         cached_ts, cached_data = _REALTIME_INDEX_CACHE[sym]
-        if now_ts - cached_ts < 15.0:
+        if now_ts - cached_ts < 120.0:
             return cached_data
 
     try:
@@ -2397,7 +2514,7 @@ def fetch_batch_realtime_indices(use_cache: bool = True) -> List[Dict[str, Any]]
             c = item["code"]
             if c in _REALTIME_INDEX_CACHE:
                 cached_ts, cached_data = _REALTIME_INDEX_CACHE[c]
-                if now_ts - cached_ts < 15.0:
+                if now_ts - cached_ts < 120.0:
                     results_map[c] = cached_data
                 else:
                     all_cached = False
@@ -2691,10 +2808,10 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True) -> FundQuo
     now_ts = time.time()
     is_test_env = bool(os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("STREAMLIT_APPTEST"))
 
-    # 1. 命中高频内存防抖缓存 (120 秒 TTL，测试环境下永久有效)
+    # 1. 命中高频内存防抖缓存 (300 秒 TTL，测试环境下永久有效)
     if use_cache and code in _REALTIME_QUOTE_CACHE:
         cached_ts, cached_quote = _REALTIME_QUOTE_CACHE[code]
-        if is_test_env or (now_ts - cached_ts < 120.0):
+        if is_test_env or (now_ts - cached_ts < 300.0):
             return cached_quote
 
     # 自动化测试环境下快速兜底防超时，杜绝外网网络 IO 阻塞 AppTest
@@ -3049,6 +3166,28 @@ def get_fund_short_alias(code: str, full_name: str = "") -> str:
     res = f"{nm[:6]}{share_sfx}" if share_sfx and not nm.endswith(share_sfx) else nm[:6]
     return res.strip() or f"标的{c}"
 
+_MODULE_STOCK_SCREEN_CACHE: Dict[str, Dict[str, Any]] = {}
+_MODULE_FUND_LOOK_THROUGH_RISK_CACHE: Dict[str, Dict[str, Any]] = {}
+_MODULE_CROWDING_CACHE: Dict[str, Dict[str, Any]] = {}
+
+_DISK_FUND_LOOK_THROUGH_FILE = WORKSPACE_ROOT / "data" / "cache" / "fund_look_through_cache.json"
+try:
+    if _DISK_FUND_LOOK_THROUGH_FILE.exists():
+        with open(_DISK_FUND_LOOK_THROUGH_FILE, "r", encoding="utf-8") as _dfl:
+            _disk_fl_data = json.load(_dfl)
+            if isinstance(_disk_fl_data, dict):
+                _MODULE_FUND_LOOK_THROUGH_RISK_CACHE.update(_disk_fl_data)
+except Exception:
+    pass
+
+def _sync_fund_look_through_risk_to_disk():
+    try:
+        _DISK_FUND_LOOK_THROUGH_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(_DISK_FUND_LOOK_THROUGH_FILE, "w", encoding="utf-8") as _dfl:
+            json.dump(_MODULE_FUND_LOOK_THROUGH_RISK_CACHE, _dfl, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
 class PortfolioManager:
     @staticmethod
     def is_qdii_fund(fund_code: str, fund_name: str = "") -> bool:
@@ -3178,8 +3317,8 @@ class PortfolioManager:
 
         # WindToolkit 统一投研工具包接入
         self._toolkit: Optional[Any] = None
-        self._stock_screen_cache: Dict[str, Dict[str, Any]] = {}
-        self._crowding_cache: Dict[str, Dict[str, Any]] = {}
+        self._stock_screen_cache: Dict[str, Dict[str, Any]] = _MODULE_STOCK_SCREEN_CACHE
+        self._crowding_cache: Dict[str, Dict[str, Any]] = _MODULE_CROWDING_CACHE
 
         # R6: CUSUM 变点检测与冠军优胜劣汰引擎
         self.cusum_detector: CUSUMFundChangePointDetector = CUSUMFundChangePointDetector()
@@ -5306,9 +5445,11 @@ class PortfolioManager:
         df_res = pd.DataFrame(rows).sort_values(by="暴露占比(%)", ascending=False).reset_index(drop=True)
         return df_res
 
-    def _fetch_external_fund_holdings(self, fund_code: str) -> Optional[Dict[str, Any]]:
+    def _fetch_external_fund_holdings(self, fund_code: str, allow_network: bool = False) -> Optional[Dict[str, Any]]:
         """
-        尝试从本地 SQLite 缓存或 akshare.fund_portfolio_hold_em 穿透外部基金重仓股
+        尝试从本地 SQLite 缓存或 akshare.fund_portfolio_hold_em 穿透外部基金重仓股。
+        默认仅读取本地高速缓存 (allow_network=False)，杜绝首屏主线程同步调用爬虫导致页面卡死数十秒。
+        仅在用户显式触发联网刷新时才允许发起在线查询。
         """
         code = str(fund_code).strip().zfill(6)
         # 1. 检查 SQLite 缓存
@@ -5328,8 +5469,8 @@ class PortfolioManager:
         except Exception:
             pass
 
-        # 2. 尝试从 akshare 在线拉取 (安全异常保护，测试环境跳过网络 IO 避免超时)
-        if bool(os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("STREAMLIT_APPTEST")):
+        # 2. 若未显式开启 allow_network 或处于测试环境，直接返回 None 回退至本地智能行业推断（0ms 秒级响应）
+        if not allow_network or bool(os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("STREAMLIT_APPTEST")):
             return None
 
         try:
@@ -5374,7 +5515,32 @@ class PortfolioManager:
         支持传入 holdings_override
         """
         target_holdings = holdings_override if holdings_override is not None else self.holdings
-        active_funds = [code for code, h in target_holdings.items() if getattr(h, "market_value", 0.0) > 0]
+        tot_mv = sum(getattr(h, "market_value", 0.0) for h in target_holdings.values())
+
+        filtered_funds = []
+        excluded_non_equity = []
+        excluded_tail_fragments = []
+
+        for code, h in target_holdings.items():
+            mv = getattr(h, "market_value", 0.0)
+            if mv <= 0:
+                continue
+            fn = getattr(h, "fund_name", code) or code
+            cls_name = self.classify_fund_asset_class(code, fn)
+            # 排除纯债、固收、黄金、商品、货币、理财、现金等非股票资产
+            if any(k in cls_name for k in ["纯债", "固收", "黄金", "商品", "货币", "理财", "现金"]):
+                excluded_non_equity.append(code)
+                continue
+            
+            # 若持仓总标的数 >= 8，且单只持仓市值占比 < 1.0% (如 < 50 元的微小体验碎片)，不参与股票重仓交叉热力矩阵计算
+            wt = (mv / tot_mv) if tot_mv > 0 else 0.0
+            if len(target_holdings) >= 8 and wt < 0.01:
+                excluded_tail_fragments.append(code)
+                continue
+            
+            filtered_funds.append(code)
+
+        active_funds = filtered_funds
         pending_external_funds = []
         stock_sets = {}
         for c in active_funds:
@@ -5390,21 +5556,15 @@ class PortfolioManager:
                 pending_external_funds.append(c)
 
         if len(active_funds) < 2:
-            single_alerts = []
-            for c in pending_external_funds:
-                fund_n = getattr(target_holdings[c], "fund_name", c) if c in target_holdings else c
-                single_alerts.append({
-                    "fund1": c,
-                    "fund2": "",
-                    "overlap": 0.0,
-                    "common_stocks": [],
-                    "warning_msg": f"ℹ️ **待穿透外部主动基**：标的【{c} {fund_n}】暂未获取到最新前十大重仓股明细，已在重合度矩阵中独立隔离，杜绝假重合。"
-                })
             return {
                 "funds": [f"{c} {getattr(target_holdings.get(c), 'fund_name', c)[:6]}" for c in active_funds] if active_funds else [],
                 "matrix": np.array([[1.0]]) if active_funds else np.zeros((0, 0)),
-                "alerts": single_alerts,
+                "alerts": [],
+                "exempt_pairs": [],
+                "common_stocks_details": [],
                 "pending_external_funds": pending_external_funds,
+                "excluded_non_equity": excluded_non_equity,
+                "excluded_tail_fragments": excluded_tail_fragments,
                 "max_non_diag_unexcused": 0.0,
                 "max_total_overlap": 0.0
             }
@@ -5449,6 +5609,12 @@ class PortfolioManager:
             frozenset({"016440", "016441"}), # 华夏红利质量 A/C 同源份额
             frozenset({"017436", "017437"}), # 华安纳指100 A/C 同源份额
             frozenset({"006075", "006479"}), # 广发纳斯达克 A/C 同源份额
+            frozenset({"001052", "001551"}), # 华夏500 vs 天弘500 同指数
+            frozenset({"001053", "001551"}), # 华夏500 vs 天弘500 同指数
+            frozenset({"001052", "004854"}), # 华夏500 vs 广发500 同指数
+            frozenset({"001053", "004854"}), # 华夏500 vs 广发500 同指数
+            frozenset({"001551", "004854"}), # 天弘500 vs 广发500 同指数
+            frozenset({"005561", "006113"}), # 红利低波同源
         }
 
         unexcused_overlaps = []
@@ -5549,16 +5715,7 @@ class PortfolioManager:
 
         max_total_overlap = round(float(max(all_off_diag)), 2) if all_off_diag else 0.0
 
-        for c in pending_external_funds:
-            fund_n = getattr(target_holdings[c], "fund_name", c) if c in target_holdings else c
-            alerts.append({
-                "fund1": c,
-                "fund2": "",
-                "overlap": 0.0,
-                "common_stocks": [],
-                "warning_msg": f"ℹ️ **待穿透外部主动基**：标的【{c} {fund_n}】暂未获取到最新前十大重仓股明细，已在重合度矩阵中独立隔离，杜绝假重合。"
-            })
-
+        # 外部未穿透基金统一由 pending_external_funds 字段返回，不再粗暴塞入 alerts 造成大面积黄色警告刷屏
         return {
             "funds": fund_labels,
             "matrix": matrix,
@@ -5567,6 +5724,8 @@ class PortfolioManager:
             "exempt_pairs": exempt_pairs,
             "common_stocks_details": common_stocks_details,
             "pending_external_funds": pending_external_funds,
+            "excluded_non_equity": excluded_non_equity,
+            "excluded_tail_fragments": excluded_tail_fragments,
             "max_non_diag_unexcused": max_non_diag_unexcused,
             "max_total_overlap": max_total_overlap
         }
@@ -6034,6 +6193,8 @@ class PortfolioManager:
           免疫 A 股财务造假与质押暴雷风险，穿透风险得分为 0.0，评级为 🟢 健康。
         """
         code = str(fund_code).strip().zfill(6)
+        if code in _MODULE_FUND_LOOK_THROUGH_RISK_CACHE:
+            return copy.deepcopy(_MODULE_FUND_LOOK_THROUGH_RISK_CACHE[code])
 
         # 1. 解析基金名称
         fund_name = None
@@ -6118,7 +6279,7 @@ class PortfolioManager:
                 })
 
             asset_desc = "纯债稳健固收" if any(k in fund_name for k in ["债", "固收"]) else ("黄金现货对冲" if "金" in fund_name else "海外全球QDII")
-            return {
+            res = {
                 "fund_code": code,
                 "fund_name": fund_name,
                 "is_ashare_equity": False,
@@ -6130,6 +6291,9 @@ class PortfolioManager:
                 "top_stocks_screen": top_screens,
                 "diagnosis_summary": f"该标的为非A股权益资产（{asset_desc}），底层资产免疫A股财务造假、股权质押平仓与限售股抛压风险，穿透排雷健康度 100% (🟢 健康)。"
             }
+            _MODULE_FUND_LOOK_THROUGH_RISK_CACHE[code] = copy.deepcopy(res)
+            _sync_fund_look_through_risk_to_disk()
+            return res
 
         # 3. 对 A 股权益基金逐股穿透扫描
         # 预先拉取未来 90 天限售股解禁日历
@@ -6388,7 +6552,7 @@ class PortfolioManager:
         else:
             summary = f"穿透排雷评级为【🟢 健康】(穿透风险分: {avg_risk:.1f})。前十大重仓股基本面财务稳健，无重大商誉爆雷、控股股东高比例质押或存贷双高造假异动。"
 
-        return {
+        res = {
             "fund_code": code,
             "fund_name": fund_name,
             "is_ashare_equity": True,
@@ -6400,6 +6564,9 @@ class PortfolioManager:
             "top_stocks_screen": top_stocks_screen,
             "diagnosis_summary": summary
         }
+        _MODULE_FUND_LOOK_THROUGH_RISK_CACHE[code] = copy.deepcopy(res)
+        _sync_fund_look_through_risk_to_disk()
+        return res
 
     def calculate_portfolio_penetration_risk(
         self,
