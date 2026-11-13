@@ -233,9 +233,16 @@ class MultiLedgerManager:
 
         holdings_list = []
         for code, name, s_cls, mv, pnl, cost_b, comp, is_core, tag in raw_items:
-            nav = 1.0000
-            sh = round(mv / nav, 4)
-            cp = round(cost_b / sh, 4) if sh > 0 else nav
+            try:
+                from portfolio_manager import fetch_realtime_fund_quote
+                q_nav = fetch_realtime_fund_quote(code)
+                nav = float(q_nav.dwjz) if (q_nav and float(q_nav.dwjz) > 0) else 1.0000
+            except Exception:
+                nav = 1.0000
+
+            # 保持真实市值不变反算份额，避免点击刷新市值翻倍
+            sh = round(mv / nav, 4) if nav > 0 else round(mv, 4)
+            cp = round(cost_b / sh, 6) if sh > 0 else nav
             pnl_pct = round((pnl / cost_b) * 100.0, 2) if cost_b > 0 else 0.0
 
             holdings_list.append({

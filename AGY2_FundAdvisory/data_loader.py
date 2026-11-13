@@ -524,11 +524,13 @@ class IndexValuationEngine:
 
         if not force_refresh and INDEX_VALUATION_CACHE_FILE.exists():
             try:
-                with open(INDEX_VALUATION_CACHE_FILE, "r", encoding="utf-8") as f:
-                    cached = json.load(f)
-                _INDEX_VAL_MEM_CACHE["ts"] = now_ts
-                _INDEX_VAL_MEM_CACHE["data"] = cached
-                return cached
+                file_age = now_ts - INDEX_VALUATION_CACHE_FILE.stat().st_mtime
+                if file_age < cache_ttl_hours * 3600.0:
+                    with open(INDEX_VALUATION_CACHE_FILE, "r", encoding="utf-8") as f:
+                        cached = json.load(f)
+                    _INDEX_VAL_MEM_CACHE["ts"] = now_ts
+                    _INDEX_VAL_MEM_CACHE["data"] = cached
+                    return cached
             except Exception:
                 pass
 
@@ -691,10 +693,7 @@ class IndexValuationEngine:
                             sample = hist_pes[-1250:] if len(hist_pes) >= 1250 else hist_pes
                             raw_pct = round(float(np.mean(sample <= pe_val) * 100.0), 1)
                             # 结合股息风险溢价 (DRP) 校准：低利率环境下高股息资产具备极佳安全边际，校准至合理低估/适中区间 (32%~45%)
-                            if c in ("000922", "H30269"):
-                                pct_val = round(min(raw_pct * 0.45 + 15.0, 42.0), 1)
-                            else:
-                                pct_val = raw_pct
+                            pct_val = raw_pct
                     except Exception:
                         pass
 
@@ -1741,7 +1740,7 @@ EXPANDED_INDEX_CATALOG: Dict[str, Dict[str, Any]] = {
     "399001": {"code": "399001", "name": "深证成指", "secid": "0.399001", "sym": "s_sz399001", "pinyin": "szcz", "sector": "宽基核心", "asset_type": "index", "fb_point": 11355.20, "fb_chg": -1.55},
     "510300": {"code": "510300", "name": "300ETF", "secid": "1.510300", "sym": "s_sh510300", "pinyin": "300etf", "sector": "宽基核心", "asset_type": "etf", "fb_point": 4.185, "fb_chg": 0.32},
     # 2. 红利高股息 (Rule 16: 中证红利必须且仅映射为 000922)
-    "000922": {"code": "000922", "name": "中证红利", "secid": "1.000922", "sym": "s_sh000922", "pinyin": "zzhl", "sector": "红利高股息", "asset_type": "index", "fb_point": 5518.95, "fb_chg": -1.29},
+    "000922": {"code": "000922", "name": "中证红利", "secid": "1.000922", "sym": "s_sh000922", "pinyin": "zzhl", "sector": "红利高股息", "asset_type": "index", "fb_point": 5510.92, "fb_chg": 0.34},
     "H30269": {"code": "H30269", "name": "红利低波", "secid": "0.H30269", "sym": "s_sh512890", "pinyin": "hldb", "sector": "红利高股息", "asset_type": "index", "fb_point": 8920.50, "fb_chg": -0.45},
     "000015": {"code": "000015", "name": "上证红利", "secid": "1.000015", "sym": "s_sh000015", "pinyin": "szhl", "sector": "红利高股息", "asset_type": "index", "fb_point": 3248.31, "fb_chg": 1.21},
     "512890": {"code": "512890", "name": "红利低波ETF", "secid": "1.512890", "sym": "s_sh512890", "pinyin": "hldbetf", "sector": "红利高股息", "asset_type": "etf", "fb_point": 1.219, "fb_chg": -1.06},
@@ -2025,7 +2024,7 @@ def calc_offline_2day_return(code: str) -> Optional[Tuple[float, float, float]]:
                     # Rule 16 铁律红线保护：000922 必须严格落入 [5000.0, 6500.0]
                     if code == "000922":
                         if off_pt is None or not (5000.0 <= off_pt <= 6500.0):
-                            off_pt = float(EXPANDED_INDEX_CATALOG.get("000922", {}).get("fb_point", 5518.95))
+                            off_pt = float(EXPANDED_INDEX_CATALOG.get("000922", {}).get("fb_point", 5510.92))
 
                     # 兜底
                     if off_pt is None:
@@ -2060,7 +2059,7 @@ def calc_offline_2day_return(code: str) -> Optional[Tuple[float, float, float]]:
                             raw_pct = ((p_curr - p_prev) / p_prev * 100.0) if p_prev > 0 else 0.0
                             off_pct = _format_offline_return_pct(raw_pct)
                             if code == "000922" and not (5000.0 <= p_curr <= 6500.0):
-                                p_curr = float(EXPANDED_INDEX_CATALOG.get("000922", {}).get("fb_point", 5518.95))
+                                p_curr = float(EXPANDED_INDEX_CATALOG.get("000922", {}).get("fb_point", 5510.92))
                             chg = round(p_curr * (off_pct / 100.0), 3 if (is_etf or p_curr < 100.0) else 2)
                             return round(p_curr, 3 if (is_etf or p_curr < 100.0) else 2), chg, off_pct
                 except Exception:
@@ -2072,7 +2071,7 @@ def calc_offline_2day_return(code: str) -> Optional[Tuple[float, float, float]]:
         if fpath.exists():
             try:
                 df = pd.read_parquet(fpath)
-                col_name = '收盘点位' if '收盘点位' in df.columns else ('close' if 'close' in df.columns else None)
+                col_name = next((c_name for c_name in ['收盘', '收盘点位', 'close', 'Close'] if c_name in df.columns), None)
                 if col_name:
                     s = df[col_name].dropna()
                     if len(s) >= 2:
@@ -2081,7 +2080,7 @@ def calc_offline_2day_return(code: str) -> Optional[Tuple[float, float, float]]:
                         raw_pct = ((p_curr - p_prev) / p_prev * 100.0) if p_prev > 0 else 0.0
                         off_pct = _format_offline_return_pct(raw_pct)
                         if code == "000922" and not (5000.0 <= p_curr <= 6500.0):
-                            p_curr = float(EXPANDED_INDEX_CATALOG.get("000922", {}).get("fb_point", 5518.95))
+                            p_curr = float(EXPANDED_INDEX_CATALOG.get("000922", {}).get("fb_point", 5510.92))
                         chg = round(p_curr * (off_pct / 100.0), 3 if (is_etf or p_curr < 100.0) else 2)
                         return round(p_curr, 3 if (is_etf or p_curr < 100.0) else 2), chg, off_pct
             except Exception:
@@ -2107,10 +2106,8 @@ def calc_offline_2day_return(code: str) -> Optional[Tuple[float, float, float]]:
     # 5. 内置目录 fallback
     if code in EXPANDED_INDEX_CATALOG:
         fb = EXPANDED_INDEX_CATALOG[code]
-        fb_pt = float(fb["fb_point"])
-        if code == "000922" and not (5000.0 <= fb_pt <= 6500.0):
-            fb_pt = 5518.95
-        fb_chg_pct = _format_offline_return_pct(fb["fb_chg"])
+        fb_pt = float(fb.get("fb_point", 1000.0))
+        fb_chg_pct = _format_offline_return_pct(fb.get("fb_chg", 0.0))
         fb_chg = round(fb_pt * (fb_chg_pct / 100.0), 3 if (is_etf or fb_pt < 100.0) else 2)
         return round(fb_pt, 3 if (is_etf or fb_pt < 100.0) else 2), fb_chg, fb_chg_pct
 
@@ -2166,20 +2163,19 @@ def get_index_corridor_metrics(code: str, latest_pt: Optional[float] = None) -> 
                 pass
 
     if s is not None and len(s) >= 20:
-        raw_ma20 = float(s.iloc[-20:].mean())
         s_last = float(s.iloc[-1])
         p_latest = float(latest_pt) if (latest_pt is not None and latest_pt > 0) else s_last
 
-        # 处理点位基准比例差异 (如 黄金ETF 8.44元 vs AU9999指数 1440点，或基期调整)
-        if s_last > 0 and abs(p_latest / s_last - 1.0) > 0.15:
-            scale_ratio = p_latest / s_last
-            ma20_val = raw_ma20 * scale_ratio
-        else:
-            ma20_val = raw_ma20
-
+        # 处理点位基准比例差异 (如 黄金ETF 8.44元 vs AU9999指数 1440点，或全收益指数与价格指数换算)
+        scale_ratio = (p_latest / s_last) if (s_last > 0 and abs(p_latest / s_last - 1.0) > 0.15) else 1.0
+        scaled_s = s.astype(float) * scale_ratio
+        
+        # 将最新点位作为最新截面计算 20 日真实均线与乖离率，彻底消除“跌 -6.3% 却站上 MA20 +3.3%”的矛盾
+        window_20 = scaled_s.tail(19).tolist() + [p_latest]
+        ma20_val = float(np.mean(window_20))
         bias_20 = ((p_latest - ma20_val) / ma20_val) * 100.0 if ma20_val > 0 else 0.0
-        p_20_ago = float(s.iloc[-21]) if len(s) >= 21 else float(s.iloc[0])
-        ret_20d = ((s_last - p_20_ago) / p_20_ago) * 100.0 if p_20_ago > 0 else 0.0
+        p_20_ago = float(scaled_s.iloc[-21]) if len(scaled_s) >= 21 else float(scaled_s.iloc[0])
+        ret_20d = ((p_latest - p_20_ago) / p_20_ago) * 100.0 if p_20_ago > 0 else 0.0
     else:
         # 降级基线估算
         fb = EXPANDED_INDEX_CATALOG.get(code, {})
@@ -2265,8 +2261,14 @@ def fetch_custom_realtime_indices(
 
         try:
             secids_str = ",".join(secid_to_code.keys())
-            em_url = f"https://push2.eastmoney.com/api/qt/ulist.np/get?secids={secids_str}&fields=f12,f14,f2,f3,f4"
-            req = urllib.request.Request(em_url, headers={"User-Agent": "Mozilla/5.0"})
+            em_url = f"https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&secids={secids_str}&fields=f12,f14,f2,f3,f4,f18"
+            req = urllib.request.Request(
+                em_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Referer": "https://quote.eastmoney.com/"
+                }
+            )
             with urllib.request.urlopen(req, timeout=2.5) as resp:
                 raw_json = json.loads(resp.read().decode("utf-8"))
             for it in raw_json.get("data", {}).get("diff", []):
@@ -2279,12 +2281,19 @@ def fetch_custom_realtime_indices(
                 f2 = float(raw_pt)
                 if f2 <= 0:
                     continue
-                is_etf = c.startswith(('5', '1'))
-                pt = round(f2 / 1000.0 if is_etf else f2 / 100.0, 3 if is_etf else 2)
-                raw_chg = float(it.get("f4", 0.0))
-                chg = round(raw_chg / 1000.0 if is_etf else raw_chg / 100.0, 3 if is_etf else 2)
-                raw_pct = float(it.get("f3", 0.0))
-                chg_pct = round(raw_pct / 100.0, 2)
+                is_etf = str(c).startswith(('5', '1')) or full_catalog.get(c, {}).get("asset_type") in ("etf", "commodity", "qdii", "bond")
+                pt = round(f2, 3 if (is_etf and f2 < 100.0) else 2)
+                chg = round(float(it.get("f4", 0.0)), 3 if (is_etf and f2 < 100.0) else 2)
+                chg_pct = round(float(it.get("f3", 0.0)), 2)
+                f18 = it.get("f18")
+                if abs(chg) < 1e-6 and abs(chg_pct) < 1e-6 and f18 not in (None, "-", ""):
+                    try:
+                        prev_c = float(f18)
+                        if prev_c > 0 and abs(pt - prev_c) > 1e-4:
+                            chg = round(pt - prev_c, 3 if (is_etf and f2 < 100.0) else 2)
+                            chg_pct = round((pt / prev_c - 1.0) * 100.0, 2)
+                    except Exception:
+                        pass
                 name = it.get("f14", "") or full_catalog.get(c, {}).get("name", c)
 
                 res_obj = {
@@ -2300,7 +2309,48 @@ def fetch_custom_realtime_indices(
         except Exception:
             pass
 
-    # 2. 新浪备用补充
+    # 2. 腾讯行情接口备用补充 (极速覆盖 000922、000300、399006 等)
+    still_missing = [c for c in codes if c not in results_map]
+    if still_missing:
+        try:
+            tx_syms = []
+            for c in still_missing:
+                mkt = "sh" if str(c).startswith(('5', '6')) or c in ('000300', '000001', '000016', '000905', '000852', '000922', '000688') else "sz"
+                tx_syms.append(f"{mkt}{c}")
+            tx_url = f"http://qt.gtimg.cn/q={','.join(tx_syms)}"
+            req = urllib.request.Request(tx_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                content = resp.read().decode("gbk", errors="ignore")
+            for line in content.strip().split(";"):
+                if not line.strip() or '="' not in line:
+                    continue
+                var_name, val_str = line.split('="', 1)
+                val_str = val_str.rstrip('"').strip()
+                if not val_str:
+                    continue
+                parts = val_str.split("~")
+                if len(parts) >= 33:
+                    t_name = parts[1]
+                    t_code = parts[2].zfill(6)
+                    t_pt = float(parts[3])
+                    t_chg = float(parts[31])
+                    t_pct = float(parts[32])
+                    if t_pt > 0 and t_code in still_missing:
+                        is_etf = str(t_code).startswith(('5', '1')) or full_catalog.get(t_code, {}).get("asset_type") in ("etf", "commodity", "qdii", "bond")
+                        res_obj = {
+                            "code": t_code,
+                            "name": t_name or full_catalog.get(t_code, {}).get("name", t_code),
+                            "point": round(t_pt, 3 if (is_etf and t_pt < 100.0) else 2),
+                            "change": round(t_chg, 3 if (is_etf and t_pt < 100.0) else 2),
+                            "change_pct": round(t_pct, 2),
+                            "time_str": datetime.now().strftime("%H:%M")
+                        }
+                        results_map[t_code] = res_obj
+                        _REALTIME_CORRIDOR_CACHE[t_code] = (now_ts, res_obj)
+        except Exception:
+            pass
+
+    # 3. 新浪备用补充
     still_missing = [c for c in codes if c not in results_map]
     if still_missing:
         try:
@@ -2308,7 +2358,7 @@ def fetch_custom_realtime_indices(
             for c in still_missing:
                 sym = full_catalog.get(c, {}).get("sym")
                 if not sym:
-                    mkt = "sh" if c.startswith(('5', '6')) or c in ('000300', '000001', '000016', '000905', '000852', '000922', '000688') else "sz"
+                    mkt = "sh" if str(c).startswith(('5', '6')) or c in ('000300', '000001', '000016', '000905', '000852', '000922', '000688') else "sz"
                     sym = f"s_{mkt}{c}"
                 sina_syms.append(sym)
             sina_url = f"https://hq.sinajs.cn/list={','.join(sina_syms)}"
@@ -2335,12 +2385,13 @@ def fetch_custom_realtime_indices(
                                 matched_code = c
                                 break
                         if matched_code:
+                            is_etf = str(matched_code).startswith(('5', '1')) or full_catalog.get(matched_code, {}).get("asset_type") in ("etf", "commodity", "qdii", "bond")
                             res_obj = {
                                 "code": matched_code,
                                 "name": s_name or full_catalog.get(matched_code, {}).get("name", matched_code),
-                                "point": s_pt,
-                                "change": s_chg,
-                                "change_pct": s_pct,
+                                "point": round(s_pt, 3 if (is_etf and s_pt < 100.0) else 2),
+                                "change": round(s_chg, 3 if (is_etf and s_pt < 100.0) else 2),
+                                "change_pct": round(s_pct, 2),
                                 "time_str": datetime.now().strftime("%H:%M")
                             }
                             results_map[matched_code] = res_obj
@@ -2348,7 +2399,7 @@ def fetch_custom_realtime_indices(
         except Exception:
             pass
 
-    # 3. 离线两交易日收盘价涨跌幅修复 (彻底消灭 0.00% 假平盘)
+    # 4. 离线两交易日收盘价涨跌幅修复 (彻底消灭 0.00% 假平盘)
     final_list = []
     for c in codes:
         item_meta = full_catalog.get(c, {})
@@ -2369,28 +2420,13 @@ def fetch_custom_realtime_indices(
                     pt = off_pt
                 if abs(off_pct) > 1e-6:
                     chg_pct = off_pct
-                    # 重新按当前实际点位精算涨跌额，物理杜绝跨量纲透传（例如黄金 ETF 8.43元被塞入现货黄金 40.33 元涨跌额）
                     chg = round(pt * (off_pct / 100.0), 3 if (is_etf or pt < 100.0) else 2)
                 elif pt <= 0.0 or abs(chg) < 1e-6:
                     chg = round(pt * (chg_pct / 100.0), 3 if (is_etf or pt < 100.0) else 2)
 
-            # 若离线双日依然算得 0.00% 或离线无数据，采用 catalog 历史基准涨跌幅，从数学上 100% 杜绝 0.00% 假平盘
-            if abs(chg_pct) < 1e-6:
-                fb_chg = item_meta.get("fb_chg", 0.18)
-                if abs(fb_chg) < 1e-6:
-                    fb_chg = 0.32 if int(str(c)[-1]) % 2 == 1 else -0.26
-                chg_pct = _format_offline_return_pct(fb_chg)
-                chg = round((pt if pt > 0.0 else 1000.0) * (chg_pct / 100.0), 3 if (is_etf or pt < 100.0) else 2)
-
             if pt <= 0.0:
-                pt = item_meta.get("fb_point", 1000.0)
+                pt = float(item_meta.get("fb_point", 1000.0))
                 chg = round(pt * (chg_pct / 100.0), 3 if (is_etf or pt < 100.0) else 2)
-
-        # Rule 16 铁律强校验：中证红利 000922 点位严格锁定在 [5000.0, 6500.0]
-        if c == "000922":
-            if not (5000.0 <= pt <= 6500.0):
-                pt = float(item_meta.get("fb_point", 5518.95))
-                chg = round(pt * (chg_pct / 100.0), 2)
 
         # 测算 MA20 与 20日收益率指标
         metrics = get_index_corridor_metrics(c, latest_pt=pt)
@@ -3033,6 +3069,16 @@ def fetch_macro_cross_market_indicators(
     gold_source = "华安黄金ETF (sh518880)"
     gold_date = treasury_date
     au9999_point = 1479.55
+
+    try:
+        from portfolio_manager import fetch_realtime_index_quote
+        q_g = fetch_realtime_index_quote("sh518880", use_cache=True)
+        if q_g and float(q_g.get("point", 0.0)) > 0:
+            gold_price = round(float(q_g["point"]), 3)
+            gold_chg = round(float(q_g.get("change_pct", 0.0)), 2)
+            gold_source = "华安黄金ETF实时盘口 (sh518880)"
+    except Exception:
+        pass
 
     # 读取本地湖仓 AU9999 现货基线
     try:

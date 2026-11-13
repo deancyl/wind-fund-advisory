@@ -5377,11 +5377,11 @@ class PortfolioManager:
                 f"🟡 差{30-min_days}天免赎" if (h.share_class == 'C' and min_days < 30) else "🟢 免/低赎回费"
             )
 
-            # 盘中实时估值与预估盈亏 (按场外基金95%标的仓位上限法规系数折算)
+            # 盘中实时估值与预估盈亏 (消除重复 0.95 双重折算)
             quote = fetch_realtime_fund_quote(h.fund_code)
             gszzl = quote.gszzl
-            est_pnl = round(float(h.market_value) * (gszzl / 100.0) * 0.95, 2)
-            est_pnl_pct = round(gszzl * 0.95, 2)
+            est_pnl = round(float(h.market_value) * (gszzl / 100.0), 2)
+            est_pnl_pct = round(gszzl, 2)
 
             table_rows.append({
                 "基金代码": h.fund_code,
@@ -5647,10 +5647,20 @@ class PortfolioManager:
                 pending_external_funds.append(c)
 
         if len(active_funds) < 2:
+            early_alerts = []
+            for c_p in pending_external_funds:
+                fn_p = getattr(target_holdings.get(c_p), "fund_name", c_p) or c_p
+                early_alerts.append({
+                    "fund1": c_p,
+                    "fund2": c_p,
+                    "overlap": 0.0,
+                    "level": "info",
+                    "warning_msg": f"ℹ️ **待穿透外部主动基**：标的【{c_p} {fn_p}】暂未获取到最新前十大重仓股明细，已在重合度矩阵中独立隔离，杜绝假重合。"
+                })
             return {
                 "funds": [f"{c} {getattr(target_holdings.get(c), 'fund_name', c)[:6]}" for c in active_funds] if active_funds else [],
                 "matrix": np.array([[1.0]]) if active_funds else np.zeros((0, 0)),
-                "alerts": [],
+                "alerts": early_alerts,
                 "exempt_pairs": [],
                 "common_stocks_details": [],
                 "pending_external_funds": pending_external_funds,
@@ -5806,7 +5816,17 @@ class PortfolioManager:
 
         max_total_overlap = round(float(max(all_off_diag)), 2) if all_off_diag else 0.0
 
-        # 外部未穿透基金统一由 pending_external_funds 字段返回，不再粗暴塞入 alerts 造成大面积黄色警告刷屏
+        # 注入待穿透外部主动基提示至 alerts (level='info'，供单测与前端隔离消费)
+        for c_pend in pending_external_funds:
+            fn_pend = getattr(target_holdings.get(c_pend), "fund_name", c_pend) or c_pend
+            alerts.append({
+                "fund1": c_pend,
+                "fund2": c_pend,
+                "overlap": 0.0,
+                "level": "info",
+                "warning_msg": f"ℹ️ **待穿透外部主动基**：标的【{c_pend} {fn_pend}】暂未获取到最新前十大重仓股明细，已在重合度矩阵中独立隔离，杜绝假重合。"
+            })
+
         return {
             "funds": fund_labels,
             "matrix": matrix,
@@ -8876,9 +8896,9 @@ class PortfolioManager:
                 gsz = h.current_nav
                 dwjz = h.current_nav
 
-            # 95% 仓位法规系数校准
-            est_pnl = round(h.market_value * (gszzl / 100.0) * 0.95, 2)
-            est_pnl_pct = round(gszzl * 0.95, 2)
+            # 真实盘中预估盈亏 (消除重复 0.95 双重折算)
+            est_pnl = round(h.market_value * (gszzl / 100.0), 2)
+            est_pnl_pct = round(gszzl, 2)
 
             fund_pnl[code] = {
                 "fund_name": h.fund_name,

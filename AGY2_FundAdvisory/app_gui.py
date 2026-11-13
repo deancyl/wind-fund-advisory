@@ -2957,7 +2957,6 @@ with st.sidebar:
     is_realtime_src = (
         mb_data.get("is_realtime", False)
         or any(k in str(mb_data.get("source", "")) for k in ["realtime", "eastmoney", "sina", "live"])
-        or (float(mb_data.get("total_turnover", 0.0)) > 1000.0)
     )
     if is_realtime_src:
         data_src_badge = "🟢 实时盘中源已连接"
@@ -3202,364 +3201,24 @@ with col_top_ledger:
     )
     if selected_lid != active_lid:
         switch_active_ledger(selected_lid)
+        try:
+            target_pm = mlm_inst.get_pm(selected_lid) if mlm_inst else None
+            if target_pm and len(target_pm.holdings) > 0:
+                st.session_state["sel_tab2_active_ledger"] = selected_lid
+                st.session_state["tab2_view_mode"] = "💼 持仓诊断与智能调仓 (主流程)"
+                st.session_state["pending_cross_tab_jump"] = {
+                    "tab_index": 1,
+                    "tab_name": "💼 持仓调仓",
+                    "action_name": "查看持仓",
+                    "target_title": selected_lid,
+                    "detail": "已切换至存量账本，自动聚焦持仓诊断与调仓工作区",
+                    "timestamp": datetime.now().strftime("%H:%M:%S")
+                }
+        except Exception:
+            pass
         st.rerun()
 
 st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
-
-# -------------------------------------------------------------
-# 📱 手机极简盯盘视图 (当切换为手机模式时，跳过宽屏大表，直接呈现 5 栏流式卡片)
-# -------------------------------------------------------------
-if st.session_state.get("app_view_layout_mode") == "📱 手机极简盯盘":
-    st.subheader("📱 手机极简盯盘")
-
-    # a) 卡片 1：今日总资产与预估盈亏大卡
-    pnl_sign = "+" if est_pnl >= 0 else ""
-    safe_markdown_html(f"""
-    <div class="decision-card" style="border-left: 4px solid var(--accent-primary); padding: 14px 16px; margin-bottom: 12px; border-radius: 10px;">
-        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 2px;">📱 账户总资产</div>
-        <div style="font-size: 28px; font-weight: 800; color: var(--text-primary); font-family: monospace;">¥{total_cur_equity:,.2f}</div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-subtle); font-size: 12.5px;">
-            <span>今日预估: <b style="color: {pnl_color}; font-size: 14px;">{pnl_sign}¥{est_pnl:,.2f} ({est_pnl_pct:+.2f}%)</b></span>
-            <span>累计浮盈: <b style="color: {tot_pnl_color};">¥{_t2_pnl:+,.2f}</b></span>
-        </div>
-        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-            可用现金 ¥{getattr(pm, 'available_cash', 0.0):,.2f} ｜ 在途现金 ¥{getattr(pm, 'in_transit_cash', 0.0):,.2f}
-        </div>
-    </div>
-    """)
-
-    # b) 卡片 2：🧭 首席投顾五维决策备忘录摘要
-    try:
-        from advisory_engine import generate_chief_advisor_memo
-        memo_mob = generate_chief_advisor_memo(
-            snapshot=snapshot,
-            holdings=pm.holdings,
-            sentry_rep=st.session_state.get("_sentry_cached_rep")
-        )
-    except Exception:
-        memo_mob = {}
-
-    if memo_mob:
-        m_macro = memo_mob.get("macro_policy", {})
-        m_val = memo_mob.get("industry_valuation", {})
-        m_path = memo_mob.get("portfolio_pathology", {})
-        m_act = memo_mob.get("action_directive", {})
-        
-        verdict_str = m_act.get("verdict", "维持底仓吃息")
-        deep_cnt = m_path.get("deep_loss_count", 0)
-        frag_cnt = m_path.get("frag_count", 0)
-        frag_sum = m_path.get("frag_amt", 0.0)
-
-        path_badge_txt = f"🚨 {deep_cnt}只深套" if deep_cnt > 0 else "🟢 健康良好"
-        frag_txt = f" ｜ 🧹 {frag_cnt}只碎片(¥{frag_sum:,.2f})" if frag_cnt > 0 else ""
-
-        safe_markdown_html(f"""
-        <div class="decision-card" style="border-left: 4px solid var(--accent-primary); padding: 14px 16px; margin-bottom: 12px; border-radius: 10px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <div style="font-size: 14px; font-weight: 700; color: var(--text-primary);">
-                    🧭 首席投顾五维决策备忘录
-                </div>
-                <span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgba(37,99,235,0.1); color: var(--accent-primary); font-weight: 600;">
-                    {m_act.get('badge', '⏱️ 14:30 决策')}
-                </span>
-            </div>
-            <!-- 4 维微型徽章胶囊 -->
-            <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
-                <span style="font-size: 11px; padding: 2px 7px; border-radius: 4px; background: rgba(16,185,129,0.1); color: var(--color-down); border: 1px solid rgba(16,185,129,0.2);">
-                    {m_macro.get('badge', '宏观充裕')}
-                </span>
-                <span style="font-size: 11px; padding: 2px 7px; border-radius: 4px; background: rgba(16,185,129,0.1); color: var(--color-down); border: 1px solid rgba(16,185,129,0.2);">
-                    {m_val.get('badge', '估值机会')}
-                </span>
-                <span style="font-size: 11px; padding: 2px 7px; border-radius: 4px; background: rgba(239,68,68,0.1); color: var(--color-up); border: 1px solid rgba(239,68,68,0.2);">
-                    {path_badge_txt}{frag_txt}
-                </span>
-            </div>
-            <!-- 投顾人话结论 -->
-            <div style="font-size: 12.5px; line-height: 1.6; color: var(--text-primary); background: var(--bg-hover, rgba(0,0,0,0.02)); padding: 8px 12px; border-radius: 6px; border-left: 3px solid var(--accent-primary);">
-                <b>投顾人话结论</b>：当前组合定调【<b style="color: {m_act.get('color', 'var(--accent-primary)')};">{verdict_str}</b>】。全组合底仓健康稳健，按时钟纪律严格执行。
-            </div>
-        </div>
-        """)
-
-    # c) 卡片 3：🧹 碎片尾仓一键清扫卡
-    # 动态扫描持仓中的免赎碎片尾仓（与 advisory_engine.py 及 ActiveRiskSentry 维度13 严格对齐）
-    tail_items = []
-    if pm.holdings:
-        for fc, h in pm.holdings.items():
-            mv_h = getattr(h, "shares", 0.0) * getattr(h, "current_nav", 1.0)
-            s_cls = getattr(h, "share_class", "A")
-            fname = getattr(h, "fund_name", fc)
-            min_d = min((getattr(b, "holding_days", 30) for b in getattr(h, "batches", [])), default=getattr(h, "holding_days", 30))
-            is_tail = (0 < mv_h < 100.0) or (100.0 <= mv_h < 200.0 and (s_cls == "C" or any(k in fname for k in ["联接", "ETF", "指数", "红包", "体验", "尾仓", "碎片"])))
-            is_fee_free = (s_cls == "C" and min_d >= 30) or (s_cls != "C" and min_d >= 365)
-            if is_tail and is_fee_free:
-                tail_items.append((fc, fname, mv_h, min_d))
-    
-    t_count = len(tail_items)
-    t_cash = sum(x[2] for x in tail_items)
-
-    if t_count > 0:
-        safe_markdown_html(f"""
-        <div class="decision-card" style="border-left: 4px solid var(--color-warning, #f59e0b); padding: 14px 16px; margin-bottom: 12px; background: rgba(245, 158, 11, 0.05); border-radius: 10px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <div style="font-size: 14px; font-weight: 700; color: #d97706;">
-                    🧹 碎片尾仓一键瘦身建议卡
-                </div>
-                <span style="font-size: 11px; background: rgba(245, 158, 11, 0.2); color: #d97706; padding: 2px 7px; border-radius: 4px; font-weight: 600;">
-                    零赎回费 · 极速瘦身
-                </span>
-            </div>
-            <div style="font-size: 12.5px; color: var(--text-primary); line-height: 1.5; margin-bottom: 8px;">
-                检测到当前账本含有 <b>{t_count}</b> 只免赎碎片尾仓（合计沉淀资金 <b>¥{t_cash:,.2f}</b>），持有天数均已满免赎期。微小零头分散精力，建议一键清扫归拢至核心纯债（<b>002351 易方达裕祥回报债券A</b>），净化账本、增厚安全垫！
-            </div>
-        </div>
-        """)
-        if st.button("🧹 一键模拟/清扫碎片尾仓归拢至纯债 (002351)", type="primary", use_container_width=True, key="btn_mob_sweep_tails"):
-            st.session_state.rad_tab2_scenario_mode = "🧹 尾部碎片与C类一键归拢 (清理<3%碎片与满期高费率C类至底仓)"
-            st.session_state.sel_sc_anchor = "002351 - 易方达裕祥回报债券A"
-            st.session_state.tab2_diagnosed = True
-            st.session_state.tab2_rebalanced = True
-            st.session_state.tab2_trigger_rebalance = True
-            st.session_state.tab2_rebal_cache = None
-            st.success(f"✅ 已成功启动清扫归拢预案：将 {t_count} 只免赎碎片 (¥{t_cash:,.2f}) 全额平移归集至 002351！可切回【桌面专业模式】查看调仓明细单。")
-    else:
-        safe_markdown_html("""
-        <div class="decision-card" style="border-left: 4px solid var(--color-down); padding: 10px 14px; margin-bottom: 12px; border-radius: 8px; font-size: 12px; color: var(--text-secondary);">
-            🟢 <b>碎片尾仓健康</b>：当前账本结构高度聚焦，无单只低于 ¥200 的碎片零头标的。
-        </div>
-        """)
-
-    # d) 卡片 4：⏱️ 14:30 尾盘关键操作指令与核心风险提醒
-    clock_title_mob = "14:30黄金窗口" if market_status.is_golden_window else ("盘后已关账" if market_status.is_after_market else "盘中观察期")
-    c_status = "🟢 14:30 黄金操作窗口（适合尾盘估值锚定下单）" if market_status.is_golden_window else ("🟡 盘中观察期（建议等待 14:30 趋势确认）" if not market_status.is_after_market else "🔴 盘后已关账（按明日 15:00 净值成交）")
-
-    orders_brief = []
-    locked_count = 0
-    if pm.holdings:
-        for fc, h in list(pm.holdings.items()):
-            min_days = min((getattr(b, "holding_days", 30) for b in getattr(h, "batches", [])), default=getattr(h, "holding_days", 30))
-            if int(min_days) < 7:
-                locked_count += 1
-                orders_brief.append(f"🔒 {getattr(h, 'fund_name', fc)} ({fc}): 未满7天锁仓保护（持有{min_days}天），严禁赎回")
-    if not orders_brief:
-        orders_brief.append("✅ 今日组合结构健康，维持底仓安心持仓吃息，无强制调仓要求")
-
-    # 构造可一键复制的下单口令小抄
-    cheat_lines = [f"【AGY2 智投量化 14:30 下单小抄】({datetime.now().strftime('%m-%d %H:%M')})"]
-    cheat_lines.append(f"当前状态: {clock_title_mob}")
-    if t_count > 0:
-        cheat_lines.append(f"• 碎片清扫: 建议赎回 {t_count} 只尾仓 (¥{t_cash:,.2f})，资金买入 002351 易方达裕祥纯债")
-    if locked_count > 0:
-        cheat_lines.append(f"• 锁仓防线: {locked_count} 只标的未满 7 天，严格禁止卖出")
-    else:
-        cheat_lines.append("• 核心纪律: 维持底仓不变，红利类设为红利再投资")
-    cheat_sheet_str = "\n".join(cheat_lines)
-
-    safe_markdown_html(f"""
-    <div class="decision-card" style="border-left: 4px solid var(--color-down); padding: 14px 16px; margin-bottom: 12px; border-radius: 10px;">
-        <div style="font-size: 13.5px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">
-            ⏱️ 14:30 尾盘操作指令
-        </div>
-        <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 8px;">
-            {c_status}
-        </div>
-        <div style="font-size: 12.5px; color: var(--text-primary); line-height: 1.6; background: rgba(37,99,235,0.06); padding: 8px 12px; border-radius: 6px; margin-bottom: 8px;">
-            {'<br>'.join(orders_brief)}
-        </div>
-        <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">
-            📋 14:30 下单口令小抄 (点击右上角图标一键复制)：
-        </div>
-    </div>
-    """)
-    st.code(cheat_sheet_str, language="text")
-
-    # 风控提醒
-    cur_tier_val = str(st.session_state.get("active_tier_val", "C3")).upper()
-    h_items_str = ";".join(
-        f"{c}:{getattr(h, 'shares', 0.0)}:{getattr(h, 'latest_nav', getattr(h, 'current_nav', 1.0))}:"
-        f"{min((getattr(b, 'holding_days', 30) for b in getattr(h, 'batches', [])), default=getattr(h, 'holding_days', 30))}"
-        for c, h in sorted(pm.holdings.items())
-    )
-    holdings_hash = hashlib.md5(f"{cur_tier_val}|{h_items_str}".encode("utf-8")).hexdigest()
-
-    sentry_rep = None
-    cached_h_hash = st.session_state.get("_sentry_cached_holdings_hash")
-    if cached_h_hash == holdings_hash and st.session_state.get("_sentry_cached_rep"):
-        sentry_rep = st.session_state.get("_sentry_cached_rep")
-    else:
-        try:
-            from AGY2_FundAdvisory.advisory_engine import ActiveRiskSentry
-            sentry_obj = ActiveRiskSentry()
-            fund_quotes_map = {
-                c: {"latest_nav": getattr(h, "latest_nav", getattr(h, "current_nav", 1.0)), "bias_20": getattr(h, "bias_20", 0.0), "gszzl": 0.0}
-                for c, h in pm.holdings.items()
-            }
-            sentry_rep = sentry_obj.inspect_portfolio(
-                holdings=pm.holdings,
-                investor_risk_tier=cur_tier_val,
-                fund_quotes=fund_quotes_map,
-                market_snapshot=snapshot
-            )
-            st.session_state["_sentry_cached_rep"] = sentry_rep
-            st.session_state["_sentry_cached_holdings_hash"] = holdings_hash
-        except Exception:
-            sentry_rep = {}
-
-    alerts_list = sentry_rep.get("alerts", []) if sentry_rep else []
-
-    def _sentry_alert_sorter_mob(a):
-        _lvl = str(a.get("level", "yellow")).lower()
-        _t = str(a.get("title", "")) + str(a.get("desc", ""))
-        is_scale_unknown = "规模待核验" in _t
-        if _lvl in ("red", "critical"):
-            return (0, 0)
-        elif _lvl in ("yellow", "warning"):
-            return (1, 1 if is_scale_unknown else 0)
-        elif "green" in _lvl or _lvl in ("info", "notice"):
-            return (3, 0)
-        return (2, 0)
-
-    if alerts_list:
-        safe_markdown_html("<div style='font-size: 13.5px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;'>🚨 核心风险提醒</div>")
-        for al in sorted(alerts_list, key=_sentry_alert_sorter_mob)[:3]:
-            _lvl = str(al.get("level", "yellow")).lower()
-            _col = "var(--color-up)" if _lvl in ("red", "critical") else "var(--accent-primary)"
-            _ic = "🔴" if _lvl in ("red", "critical") else "🟡"
-            _title = al.get("title") or al.get("message", "风控提醒")
-            _desc = al.get("desc") or al.get("detail", "")
-            _action = al.get("action") or al.get("suggested_action", "")
-            _act_html = f'<div style="font-size: 11px; color: var(--text-primary); font-weight: 600; margin-top: 2px;">💡 应对建议: {_action}</div>' if _action else ''
-            safe_markdown_html(f"""
-            <div class="decision-card" style="border-left: 3px solid {_col}; padding: 8px 12px; margin-bottom: 6px; border-radius: 6px;">
-                <div style="font-size: 12px; font-weight: 700; color: {_col};">{_ic} {_title}</div>
-                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">{_desc}</div>
-                {_act_html}
-            </div>
-            """)
-
-    # e) 卡片 5：📸 手机持仓长截图智能切片识别与平账入库闭环
-    safe_markdown_html("<div style='height: 8px;'></div>")
-    st.markdown("##### 📸 手机持仓长截图智能切片识别")
-    st.caption("支持上传天天基金、支付宝、招商银行等手机端长截图，采用 100% 原始宽度高清切片与 ONNX 本地 OCR 自动对齐基金主字典：")
-    mob_img = st.file_uploader("上传支付宝/天天基金/招行/且慢手机长截图", type=["png", "jpg", "jpeg", "webp"], key="mob_uploader_feed")
-    if mob_img is not None:
-        img_bytes = mob_img.getvalue()
-        cache_key = f"mob_ocr_parsed_{mob_img.name}_{len(img_bytes)}"
-        if cache_key not in st.session_state:
-            with st.spinner("🔍 正在执行高清切片 OCR 识别与基金字典智能对齐..."):
-                try:
-                    parsed_ocr = pm.parse_screenshot_ocr_holdings(img_bytes)
-                    st.session_state[cache_key] = parsed_ocr
-                    st.session_state["shared_ocr_parsed_items"] = parsed_ocr
-                except Exception as e_ocr:
-                    st.error(f"截图解析异常: {e_ocr}")
-                    st.session_state[cache_key] = []
-
-        parsed_items = st.session_state.get(cache_key) or []
-        if parsed_items:
-            tot_ocr_mv = sum(float(it.get("market_value", 0.0)) for it in parsed_items)
-            tot_ocr_pnl = sum(float(it.get("floating_pnl", 0.0)) for it in parsed_items)
-            tot_ocr_cost = sum(float(it.get("cost_basis", it.get("market_value", 0.0) - it.get("floating_pnl", 0.0))) for it in parsed_items)
-            st.success(f"✅ 成功识别 {len(parsed_items)} 只基金！合计市值 ¥{tot_ocr_mv:,.2f} ｜ 投入本金 ¥{tot_ocr_cost:,.2f} ｜ 累计盈亏 ¥{tot_ocr_pnl:+,.2f}")
-
-            import pandas as pd
-            df_preview = pd.DataFrame([
-                {
-                    "基金代码": it.get("fund_code", ""),
-                    "基金名称": it.get("fund_name", ""),
-                    "持有市值(元)": float(it.get("market_value", 0.0)),
-                    "持有收益(元)": float(it.get("floating_pnl", 0.0)),
-                    "投入成本(元)": float(it.get("cost_basis", it.get("market_value", 0.0) - it.get("floating_pnl", 0.0))),
-                    "份额类别": it.get("share_class", "A"),
-                    "持有天数": int(it.get("holding_days", 365)),
-                }
-                for it in parsed_items
-            ])
-            st.caption("📋 识别结果可编辑核对：")
-            edited_ocr_df = st.data_editor(
-                df_preview,
-                use_container_width=True,
-                num_rows="dynamic",
-                key="mob_ocr_data_editor"
-            )
-
-            c_mob_act1, c_mob_act2 = st.columns(2)
-            with c_mob_act1:
-                if st.button("✅ 确认无误，一键覆盖写入当前账本", type="primary", use_container_width=True, key="btn_mob_ocr_commit_replace"):
-                    orig_map = {it.get("fund_code"): it for it in parsed_items}
-                    rows_to_import = []
-                    for _, row in edited_ocr_df.iterrows():
-                        c = str(row["基金代码"]).strip()
-                        mv = float(row["持有市值(元)"])
-                        pnl = float(row["持有收益(元)"])
-                        cb = float(row["投入成本(元)"]) if "投入成本(元)" in row and float(row["投入成本(元)"]) > 0 else (mv - pnl)
-                        orig_it = orig_map.get(c, {})
-                        cur_nav = float(orig_it.get("current_nav", 1.0))
-                        shares = round(mv / cur_nav, 4) if cur_nav > 0 else mv
-                        cost_price = round(cb / shares, 4) if shares > 0 else cur_nav
-                        rows_to_import.append({
-                            "fund_code": c,
-                            "fund_name": str(row["基金名称"]).strip(),
-                            "market_value": mv,
-                            "floating_pnl": pnl,
-                            "cost_basis": cb,
-                            "current_nav": cur_nav,
-                            "cost_price": cost_price,
-                            "cost_nav": cost_price,
-                            "shares": shares,
-                            "share_class": str(row["份额类别"]).strip(),
-                            "holding_days": int(row["持有天数"]),
-                            "dividend_method": orig_it.get("dividend_method", "cash" if "A" in str(row["份额类别"]) else "reinvest")
-                        })
-                    pm.import_from_smart_text(rows_to_import, replace_existing=True)
-                    pm.save_state()
-                    st.session_state.tab2_diag_cache = None
-                    st.session_state.tab2_rebal_cache = None
-                    st.session_state.tab2_diagnosed = False
-                    st.session_state.tab2_rebalanced = False
-                    st.success(f"✅ 已成功覆盖写入当前账本【{active_lid}】！共 {len(rows_to_import)} 只基金持仓。")
-                    st.rerun()
-
-            with c_mob_act2:
-                if st.button("➕ 追加合并写入当前账本", use_container_width=True, key="btn_mob_ocr_commit_append"):
-                    orig_map = {it.get("fund_code"): it for it in parsed_items}
-                    rows_to_import = []
-                    for _, row in edited_ocr_df.iterrows():
-                        c = str(row["基金代码"]).strip()
-                        mv = float(row["持有市值(元)"])
-                        pnl = float(row["持有收益(元)"])
-                        cb = float(row["投入成本(元)"]) if "投入成本(元)" in row and float(row["投入成本(元)"]) > 0 else (mv - pnl)
-                        orig_it = orig_map.get(c, {})
-                        cur_nav = float(orig_it.get("current_nav", 1.0))
-                        shares = round(mv / cur_nav, 4) if cur_nav > 0 else mv
-                        cost_price = round(cb / shares, 4) if shares > 0 else cur_nav
-                        rows_to_import.append({
-                            "fund_code": c,
-                            "fund_name": str(row["基金名称"]).strip(),
-                            "market_value": mv,
-                            "floating_pnl": pnl,
-                            "cost_basis": cb,
-                            "current_nav": cur_nav,
-                            "cost_price": cost_price,
-                            "cost_nav": cost_price,
-                            "shares": shares,
-                            "share_class": str(row["份额类别"]).strip(),
-                            "holding_days": int(row["持有天数"]),
-                            "dividend_method": orig_it.get("dividend_method", "cash" if "A" in str(row["份额类别"]) else "reinvest")
-                        })
-                    pm.import_from_smart_text(rows_to_import, replace_existing=False)
-                    pm.save_state()
-                    st.session_state.tab2_diag_cache = None
-                    st.session_state.tab2_rebal_cache = None
-                    st.session_state.tab2_diagnosed = False
-                    st.session_state.tab2_rebalanced = False
-                    st.success(f"✅ 已成功追加合并至当前账本【{active_lid}】！")
-                    st.rerun()
-        else:
-            st.warning("未能从截图中解析出有效基金持仓，请检查截图是否清晰完整。")
-
-    st.stop()
 
 # -------------------------------------------------------------
 # 顶部全局看板：1 行 4 宽卡 + 1 个紧凑刷新按钮 (无下方重复行情条)
@@ -3726,11 +3385,16 @@ def _cached_generate_zero_start_blueprint_wrapper(
 
 @st.cache_resource(ttl=600, show_spinner=False)
 def _cached_fund_quote_and_screening(fcode: str):
-    pm_tmp = PortfolioManager()
-    q_it = fetch_realtime_fund_quote(fcode)
-    scr_it = pm_tmp.screen_fund_look_through_risk(fcode)
-    crd_it = pm_tmp.get_fund_smart_money_crowding(fcode)
-    return q_it, scr_it, crd_it
+    try:
+        pm_tmp = PortfolioManager()
+        q_it = fetch_realtime_fund_quote(fcode)
+        scr_raw = pm_tmp.screen_fund_look_through_risk(fcode)
+        scr_it = dict(scr_raw) if isinstance(scr_raw, dict) else (scr_raw.__dict__ if hasattr(scr_raw, "__dict__") else {})
+        crd_raw = pm_tmp.get_fund_smart_money_crowding(fcode)
+        crd_it = dict(crd_raw) if isinstance(crd_raw, dict) else (crd_raw.__dict__ if hasattr(crd_raw, "__dict__") else {})
+        return q_it, scr_it, crd_it
+    except Exception:
+        return None, {"risk_badge": "🟢 正常", "risk_level": "low"}, {"crowding_degree": "适中", "crowding_warning": False}
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _cached_time_machine_backtest(target_date: str, tier: str, capital: float, dynamic_rebalance: bool):
@@ -4730,11 +4394,18 @@ with tab_zero_start:
                         guide_action += "·票息久期底仓"
 
                     f_pcr = pcr_map.get(fcode, round(it.get("target_weight_pct", 0.0), 1))
+                    f_limit = it.get("daily_limit") or CORE_STRATEGY_POOL.get(fcode, {}).get("daily_limit") or EXTENDED_FUND_CATALOG.get(fcode, {}).get("daily_limit")
+                    if f_limit is not None and f_limit < 100000:
+                        limit_disp = f"¥{f_limit:,.0f}/日 (大额拆单)" if f_limit > 0 else "暂停申购"
+                    else:
+                        limit_disp = "不限 (正常申购)"
+
                     bp_rows.append({
                         "基金代码": fcode,
                         "基金名称": it["fund_name"],
                         "份额": f"{it.get('share_class', 'A')}类",
                         "目标占比(%)": it.get("target_weight_pct", 0.0),
+                        "单日限额": limit_disp,
                         "风险贡献(PCR %)": f"{f_pcr:.1f}%",
                         "精确买入金额(元)": it.get("allocated_amount", it.get("amount", 0.0)),
                         "最新净值": q_it.dwjz if q_it else 1.0,
@@ -4752,7 +4423,7 @@ with tab_zero_start:
                 cheat_sheet_text = "\n".join(cheat_sheet_lines)
 
                 cols_9 = [
-                    "基金代码", "基金名称", "精确买入金额(元)", "目标占比(%)",
+                    "基金代码", "基金名称", "精确买入金额(元)", "目标占比(%)", "单日限额",
                     "实操分红与限购指引", "份额", "最新净值", "实时估值涨跌(%)",
                     "风险贡献(PCR %)", "排雷与拥挤度"
                 ]
@@ -4859,6 +4530,7 @@ with tab_zero_start:
             df_display = df_bp.copy()
             dynamic_col_config = {
                 "目标占比(%)": st.column_config.ProgressColumn(min_value=0, max_value=60, format="%.1f%%"),
+                "单日限额": st.column_config.TextColumn("单日限额", help="公募基金官方单日大额申购限制"),
                 "精确买入金额(元)": st.column_config.NumberColumn(format="¥%.2f"),
                 "最新净值": st.column_config.NumberColumn(format="%.4f"),
                 "实时估值涨跌(%)": st.column_config.NumberColumn(format="%+.2f%%"),
@@ -8711,9 +8383,10 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
             alerts = overlap_res.get("alerts", [])
             common_details = overlap_res.get("common_stocks_details", [])
 
-            if max_unexcused >= 0.40 and len(alerts) > 0:
+            unexcused_alerts = [a for a in alerts if a.get("level") != "info" and "待穿透" not in a.get("warning_msg", "")]
+            if max_unexcused >= 0.40 and len(unexcused_alerts) > 0:
                 st.warning(f"⚠️ **检测到持仓间存在较高重仓股重叠（最高达 {max_unexcused*100:.1f}%）** 伪分散可能导致行业与个股风险过度集中。")
-                for a in alerts[:3]:
+                for a in unexcused_alerts[:3]:
                     st.warning(a["warning_msg"])
             elif max_unexcused > 0.0:
                 st.info(f"ℹ️ **持仓间重合度处于安全温和区间（最高非同系重叠 {max_unexcused*100:.1f}%）**，底层个股分散度良好。")

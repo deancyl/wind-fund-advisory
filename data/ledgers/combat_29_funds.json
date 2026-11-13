@@ -21,12 +21,12 @@
       "fund_code": "005561",
       "fund_name": "创金合信中证红利低波动指数A",
       "share_class": "A",
-      "shares": 5681.55,
-      "cost_price": 0.9801,
-      "current_nav": 1.0,
+      "shares": 2557.4136,
+      "cost_price": 2.177462,
+      "current_nav": 2.2216,
       "market_value": 5681.55,
-      "cost_basis": 5568.49,
-      "floating_pnl": 113.06,
+      "cost_basis": 5568.67,
+      "floating_pnl": 112.88,
       "floating_pnl_pct": 2.03,
       "first_buy_date": "2024-01-05",
       "dividend_method": "cash",
@@ -34,10 +34,10 @@
         {
           "batch_id": "B_COMBAT_005561_001",
           "buy_date": "2024-01-05",
-          "shares": 5681.55,
-          "cost_nav": 0.9801,
+          "shares": 2557.4136,
+          "cost_nav": 2.177462,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -46,29 +46,29 @@
       "is_core_strategy": true,
       "transition_tag": "核心策略底仓",
       "rebalance_intent": "normal",
-      "cost_nav": 0.9801
+      "cost_nav": 2.177462
     },
     {
       "fund_code": "110020",
       "fund_name": "易方达沪深300ETF联接A",
       "share_class": "A",
-      "shares": 5279.05,
-      "cost_price": 0.9739,
-      "current_nav": 1.0,
+      "shares": 3149.0396,
+      "cost_price": 1.63273,
+      "current_nav": 1.6764,
       "market_value": 5279.05,
-      "cost_basis": 5141.27,
-      "floating_pnl": 137.78,
-      "floating_pnl_pct": 2.68,
+      "cost_basis": 5141.53,
+      "floating_pnl": 137.52,
+      "floating_pnl_pct": 2.67,
       "first_buy_date": "2024-01-05",
       "dividend_method": "cash",
       "batches": [
         {
           "batch_id": "B_COMBAT_110020_001",
           "buy_date": "2024-01-05",
-          "shares": 5279.05,
-          "cost_nav": 0.9739,
+          "shares": 3149.0396,
+          "cost_nav": 1.63273,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -77,29 +77,29 @@
       "is_core_strategy": true,
       "transition_tag": "核心策略底仓",
       "rebalance_intent": "normal",
-      "cost_nav": 0.9739
+      "cost_nav": 1.63273
     },
     {
       "fund_code": "017436",
       "fund_name": "华安纳斯达克100ETF联接A",
       "share_class": "A",
-      "shares": 4536.85,
-      "cost_price": 0.9879,
-      "current_nav": 1.0,
+      "shares": 2191.3974,
+      "cost_price": 2.045243,
+      "current_nav": 2.0703,
       "market_value": 4536.85,
-      "cost_basis": 4481.95,
-      "floating_pnl": 54.9,
-      "floating_pnl_pct": 1.22,
+      "cost_basis": 4481.94,
+      "floating_pnl": 54.91,
+      "floating_pnl_pct": 1.23,
       "first_buy_date": "2024-01-05",
       "dividend_method": "cash",
       "batches": [
         {
           "batch_id": "B_COMBAT_017436_001",
           "buy_date": "2024-01-05",
-          "shares": 4536.85,
-          "cost_nav": 0.9879,
+          "shares": 2191.3974,
+          "cost_nav": 2.045243,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -108,18 +108,18 @@
       "is_core_strategy": true,
       "transition_tag": "核心策略底仓",
       "rebalance_intent": "normal",
-      "cost_nav": 0.9879
+      "cost_nav": 2.045243
     },
     {
       "fund_code": "002351",
       "fund_name": "易方达裕祥回报债券A",
       "share_class": "A",
-      "shares": 4101.71,
-      "cost_price": 1.0119,
-      "current_nav": 1.0,
+      "shares": 2578.0704,
+      "cost_price": 1.609964,
+      "current_nav": 1.591,
       "market_value": 4101.71,
-      "cost_basis": 4150.52,
-      "floating_pnl": -48.81,
+      "cost_basis": 4150.6,
+      "floating_pnl": -48.89,
       "floating_pnl_pct": -1.18,
       "first_buy_date": "2024-01-05",
       "dividend_method": "cash",
@@ -127,10 +127,10 @@
         {
           "batch_id": "B_COMBAT_002351_001",
           "buy_date": "2024-01-05",
-          "shares": 4101.71,
-          "cost_nav": 1.0119,
+          "shares": 2578.0704,
+          "cost_nav": 1.609964,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -139,29 +139,29 @@
       "is_core_strategy": true,
       "transition_tag": "纯债压舱石",
       "rebalance_intent": "normal",
-      "cost_nav": 1.0119
+      "cost_nav": 1.609964
     },
     {
       "fund_code": "100032",
       "fund_name": "富国中证红利指数增强A",
       "share_class": "A",
-      "shares": 2432.9,
-      "cost_price": 1.1367,
-      "current_nav": 1.0,
+      "shares": 2550.2096,
+      "cost_price": 1.084397,
+      "current_nav": 0.954,
       "market_value": 2432.9,
-      "cost_basis": 2765.48,
-      "floating_pnl": -332.58,
-      "floating_pnl_pct": -12.03,
+      "cost_basis": 2765.44,
+      "floating_pnl": -332.54,
+      "floating_pnl_pct": -12.02,
       "first_buy_date": "2024-01-05",
       "dividend_method": "cash",
       "batches": [
         {
           "batch_id": "B_COMBAT_100032_001",
           "buy_date": "2024-01-05",
-          "shares": 2432.9,
-          "cost_nav": 1.1367,
+          "shares": 2550.2096,
+          "cost_nav": 1.084397,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -170,18 +170,18 @@
       "is_core_strategy": true,
       "transition_tag": "红利增强龙头",
       "rebalance_intent": "normal",
-      "cost_nav": 1.1367
+      "cost_nav": 1.084397
     },
     {
       "fund_code": "011613",
       "fund_name": "华夏上证科创板50成份ETF联接C",
       "share_class": "C",
-      "shares": 2072.52,
-      "cost_price": 1.2067,
-      "current_nav": 1.0,
+      "shares": 1978.3505,
+      "cost_price": 1.264184,
+      "current_nav": 1.0476,
       "market_value": 2072.52,
-      "cost_basis": 2500.91,
-      "floating_pnl": -428.39,
+      "cost_basis": 2501.0,
+      "floating_pnl": -428.48,
       "floating_pnl_pct": -17.13,
       "first_buy_date": "2024-01-05",
       "dividend_method": "reinvest",
@@ -189,10 +189,10 @@
         {
           "batch_id": "B_COMBAT_011613_001",
           "buy_date": "2024-01-05",
-          "shares": 2072.52,
-          "cost_nav": 1.2067,
+          "shares": 1978.3505,
+          "cost_nav": 1.264184,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -201,15 +201,15 @@
       "is_core_strategy": true,
       "transition_tag": "科创成长进攻",
       "rebalance_intent": "normal",
-      "cost_nav": 1.2067
+      "cost_nav": 1.264184
     },
     {
       "fund_code": "000216",
       "fund_name": "华安黄金ETF联接A",
       "share_class": "A",
-      "shares": 1023.71,
-      "cost_price": 0.966,
-      "current_nav": 1.0,
+      "shares": 347.8812,
+      "cost_price": 2.842637,
+      "current_nav": 2.9427,
       "market_value": 1023.71,
       "cost_basis": 988.9,
       "floating_pnl": 34.81,
@@ -220,10 +220,10 @@
         {
           "batch_id": "B_COMBAT_000216_001",
           "buy_date": "2024-01-05",
-          "shares": 1023.71,
-          "cost_nav": 0.966,
+          "shares": 347.8812,
+          "cost_nav": 2.842637,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -232,18 +232,18 @@
       "is_core_strategy": true,
       "transition_tag": "黄金对冲底仓",
       "rebalance_intent": "normal",
-      "cost_nav": 0.966
+      "cost_nav": 2.842637
     },
     {
       "fund_code": "161725",
       "fund_name": "招商中证白酒指数(LOF)A",
       "share_class": "A",
-      "shares": 524.24,
-      "cost_price": 1.3353,
-      "current_nav": 1.0,
+      "shares": 922.7953,
+      "cost_price": 0.758565,
+      "current_nav": 0.5681,
       "market_value": 524.24,
-      "cost_basis": 700.02,
-      "floating_pnl": -175.78,
+      "cost_basis": 700.0,
+      "floating_pnl": -175.76,
       "floating_pnl_pct": -25.11,
       "first_buy_date": "2024-01-05",
       "dividend_method": "cash",
@@ -251,10 +251,10 @@
         {
           "batch_id": "B_COMBAT_161725_001",
           "buy_date": "2024-01-05",
-          "shares": 524.24,
-          "cost_nav": 1.3353,
+          "shares": 922.7953,
+          "cost_nav": 0.758565,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -263,18 +263,18 @@
       "is_core_strategy": false,
       "transition_tag": "消费行业主题",
       "rebalance_intent": "normal",
-      "cost_nav": 1.3353
+      "cost_nav": 0.758565
     },
     {
       "fund_code": "000217",
       "fund_name": "华安黄金ETF联接C",
       "share_class": "C",
-      "shares": 395.73,
-      "cost_price": 0.9572,
-      "current_nav": 1.0,
+      "shares": 138.4204,
+      "cost_price": 2.736591,
+      "current_nav": 2.8589,
       "market_value": 395.73,
-      "cost_basis": 378.79,
-      "floating_pnl": 16.94,
+      "cost_basis": 378.8,
+      "floating_pnl": 16.93,
       "floating_pnl_pct": 4.47,
       "first_buy_date": "2024-01-05",
       "dividend_method": "reinvest",
@@ -282,10 +282,10 @@
         {
           "batch_id": "B_COMBAT_000217_001",
           "buy_date": "2024-01-05",
-          "shares": 395.73,
-          "cost_nav": 0.9572,
+          "shares": 138.4204,
+          "cost_nav": 2.736591,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -294,15 +294,15 @@
       "is_core_strategy": false,
       "transition_tag": "黄金配置C类",
       "rebalance_intent": "normal",
-      "cost_nav": 0.9572
+      "cost_nav": 2.736591
     },
     {
       "fund_code": "005827",
       "fund_name": "易方达蓝筹精选混合",
       "share_class": "A",
-      "shares": 124.14,
-      "cost_price": 1.1922,
-      "current_nav": 1.0,
+      "shares": 89.6901,
+      "cost_price": 1.650126,
+      "current_nav": 1.3841,
       "market_value": 124.14,
       "cost_basis": 148.0,
       "floating_pnl": -23.86,
@@ -313,10 +313,10 @@
         {
           "batch_id": "B_COMBAT_005827_001",
           "buy_date": "2024-01-05",
-          "shares": 124.14,
-          "cost_nav": 1.1922,
+          "shares": 89.6901,
+          "cost_nav": 1.650126,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -325,15 +325,15 @@
       "is_core_strategy": false,
       "transition_tag": "主动偏股蓝筹",
       "rebalance_intent": "normal",
-      "cost_nav": 1.1922
+      "cost_nav": 1.650126
     },
     {
       "fund_code": "016634",
       "fund_name": "富国中证1000ETF联接C",
       "share_class": "C",
-      "shares": 89.6,
-      "cost_price": 1.1161,
-      "current_nav": 1.0,
+      "shares": 92.9653,
+      "cost_price": 1.07567,
+      "current_nav": 0.9638,
       "market_value": 89.6,
       "cost_basis": 100.0,
       "floating_pnl": -10.4,
@@ -344,10 +344,10 @@
         {
           "batch_id": "B_COMBAT_016634_001",
           "buy_date": "2024-01-05",
-          "shares": 89.6,
-          "cost_nav": 1.1161,
+          "shares": 92.9653,
+          "cost_nav": 1.07567,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -356,15 +356,15 @@
       "is_core_strategy": false,
       "transition_tag": "微盘宽基尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.1161
+      "cost_nav": 1.07567
     },
     {
       "fund_code": "001053",
       "fund_name": "华夏中证500ETF联接C",
       "share_class": "C",
-      "shares": 76.0,
-      "cost_price": 1.3158,
-      "current_nav": 1.0,
+      "shares": 31.9583,
+      "cost_price": 3.129078,
+      "current_nav": 2.3781,
       "market_value": 76.0,
       "cost_basis": 100.0,
       "floating_pnl": -24.0,
@@ -375,10 +375,10 @@
         {
           "batch_id": "B_COMBAT_001053_001",
           "buy_date": "2024-01-05",
-          "shares": 76.0,
-          "cost_nav": 1.3158,
+          "shares": 31.9583,
+          "cost_nav": 3.129078,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -387,15 +387,15 @@
       "is_core_strategy": false,
       "transition_tag": "中盘宽基尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.3158
+      "cost_nav": 3.129078
     },
     {
       "fund_code": "050025",
       "fund_name": "博时标普500ETF联接A",
       "share_class": "A",
-      "shares": 52.07,
-      "cost_price": 0.9602,
-      "current_nav": 1.0,
+      "shares": 9.478,
+      "cost_price": 5.275375,
+      "current_nav": 5.4938,
       "market_value": 52.07,
       "cost_basis": 50.0,
       "floating_pnl": 2.07,
@@ -406,10 +406,10 @@
         {
           "batch_id": "B_COMBAT_050025_001",
           "buy_date": "2024-01-05",
-          "shares": 52.07,
-          "cost_nav": 0.9602,
+          "shares": 9.478,
+          "cost_nav": 5.275375,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -418,7 +418,7 @@
       "is_core_strategy": false,
       "transition_tag": "海外美股尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 0.9602
+      "cost_nav": 5.275375
     },
     {
       "fund_code": "002352",
@@ -440,7 +440,7 @@
           "shares": 50.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -455,9 +455,9 @@
       "fund_code": "016441",
       "fund_name": "华夏中证红利质量ETF联接C",
       "share_class": "C",
-      "shares": 44.56,
-      "cost_price": 1.1221,
-      "current_nav": 1.0,
+      "shares": 38.4669,
+      "cost_price": 1.299819,
+      "current_nav": 1.1584,
       "market_value": 44.56,
       "cost_basis": 50.0,
       "floating_pnl": -5.44,
@@ -468,10 +468,10 @@
         {
           "batch_id": "B_COMBAT_016441_001",
           "buy_date": "2024-01-05",
-          "shares": 44.56,
-          "cost_nav": 1.1221,
+          "shares": 38.4669,
+          "cost_nav": 1.299819,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -480,15 +480,15 @@
       "is_core_strategy": false,
       "transition_tag": "红利质量尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.1221
+      "cost_nav": 1.299819
     },
     {
       "fund_code": "013841",
       "fund_name": "银华集成电路混合C",
       "share_class": "C",
-      "shares": 42.07,
-      "cost_price": 1.5764,
-      "current_nav": 1.0,
+      "shares": 18.606,
+      "cost_price": 3.564442,
+      "current_nav": 2.2611,
       "market_value": 42.07,
       "cost_basis": 66.32,
       "floating_pnl": -24.25,
@@ -499,10 +499,10 @@
         {
           "batch_id": "B_COMBAT_013841_001",
           "buy_date": "2024-01-05",
-          "shares": 42.07,
-          "cost_nav": 1.5764,
+          "shares": 18.606,
+          "cost_nav": 3.564442,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -511,15 +511,15 @@
       "is_core_strategy": false,
       "transition_tag": "芯片科技尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.5764
+      "cost_nav": 3.564442
     },
     {
       "fund_code": "012832",
       "fund_name": "南方中证新能源ETF联接C",
       "share_class": "C",
-      "shares": 34.5,
-      "cost_price": 1.4493,
-      "current_nav": 1.0,
+      "shares": 71.8152,
+      "cost_price": 0.696231,
+      "current_nav": 0.4804,
       "market_value": 34.5,
       "cost_basis": 50.0,
       "floating_pnl": -15.5,
@@ -530,10 +530,10 @@
         {
           "batch_id": "B_COMBAT_012832_001",
           "buy_date": "2024-01-05",
-          "shares": 34.5,
-          "cost_nav": 1.4493,
+          "shares": 71.8152,
+          "cost_nav": 0.696231,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -542,15 +542,15 @@
       "is_core_strategy": false,
       "transition_tag": "新能源主题尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.4493
+      "cost_nav": 0.696231
     },
     {
       "fund_code": "012769",
       "fund_name": "华夏中证动漫游戏ETF联接C",
       "share_class": "C",
-      "shares": 28.67,
-      "cost_price": 1.744,
-      "current_nav": 1.0,
+      "shares": 26.1779,
+      "cost_price": 1.910008,
+      "current_nav": 1.0952,
       "market_value": 28.67,
       "cost_basis": 50.0,
       "floating_pnl": -21.33,
@@ -561,10 +561,10 @@
         {
           "batch_id": "B_COMBAT_012769_001",
           "buy_date": "2024-01-05",
-          "shares": 28.67,
-          "cost_nav": 1.744,
+          "shares": 26.1779,
+          "cost_nav": 1.910008,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -573,15 +573,15 @@
       "is_core_strategy": false,
       "transition_tag": "动漫游戏主题尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.744
+      "cost_nav": 1.910008
     },
     {
       "fund_code": "008682",
       "fund_name": "富国中证红利指数增强C",
       "share_class": "C",
-      "shares": 8.98,
-      "cost_price": 1.1136,
-      "current_nav": 1.0,
+      "shares": 9.5228,
+      "cost_price": 1.050111,
+      "current_nav": 0.943,
       "market_value": 8.98,
       "cost_basis": 10.0,
       "floating_pnl": -1.02,
@@ -592,10 +592,10 @@
         {
           "batch_id": "B_COMBAT_008682_001",
           "buy_date": "2024-01-05",
-          "shares": 8.98,
-          "cost_nav": 1.1136,
+          "shares": 9.5228,
+          "cost_nav": 1.050111,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -604,15 +604,15 @@
       "is_core_strategy": false,
       "transition_tag": "红利增强C类尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.1136
+      "cost_nav": 1.050111
     },
     {
       "fund_code": "011612",
       "fund_name": "华夏上证科创板50成份ETF联接A",
       "share_class": "A",
-      "shares": 3.95,
-      "cost_price": 1.2658,
-      "current_nav": 1.0,
+      "shares": 3.7176,
+      "cost_price": 1.344954,
+      "current_nav": 1.0625,
       "market_value": 3.95,
       "cost_basis": 5.0,
       "floating_pnl": -1.05,
@@ -623,10 +623,10 @@
         {
           "batch_id": "B_COMBAT_011612_001",
           "buy_date": "2024-01-05",
-          "shares": 3.95,
-          "cost_nav": 1.2658,
+          "shares": 3.7176,
+          "cost_nav": 1.344954,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -635,15 +635,15 @@
       "is_core_strategy": false,
       "transition_tag": "科创50A类尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.2658
+      "cost_nav": 1.344954
     },
     {
       "fund_code": "002611",
       "fund_name": "博时黄金ETF联接C",
       "share_class": "C",
-      "shares": 2.1,
-      "cost_price": 0.9524,
-      "current_nav": 1.0,
+      "shares": 0.7871,
+      "cost_price": 2.540973,
+      "current_nav": 2.668,
       "market_value": 2.1,
       "cost_basis": 2.0,
       "floating_pnl": 0.1,
@@ -654,10 +654,10 @@
         {
           "batch_id": "B_COMBAT_002611_001",
           "buy_date": "2024-01-05",
-          "shares": 2.1,
-          "cost_nav": 0.9524,
+          "shares": 0.7871,
+          "cost_nav": 2.540973,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -666,15 +666,15 @@
       "is_core_strategy": false,
       "transition_tag": "黄金红包尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 0.9524
+      "cost_nav": 2.540973
     },
     {
       "fund_code": "019260",
       "fund_name": "富国周期优势混合A",
       "share_class": "A",
-      "shares": 1.85,
-      "cost_price": 1.0811,
-      "current_nav": 1.0,
+      "shares": 1.51,
+      "cost_price": 1.324503,
+      "current_nav": 1.2252,
       "market_value": 1.85,
       "cost_basis": 2.0,
       "floating_pnl": -0.15,
@@ -685,10 +685,10 @@
         {
           "batch_id": "B_COMBAT_019260_001",
           "buy_date": "2024-01-05",
-          "shares": 1.85,
-          "cost_nav": 1.0811,
+          "shares": 1.51,
+          "cost_nav": 1.324503,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -697,15 +697,15 @@
       "is_core_strategy": false,
       "transition_tag": "周期优势红包尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.0811
+      "cost_nav": 1.324503
     },
     {
       "fund_code": "000086",
       "fund_name": "华夏中小板ETF联接A",
       "share_class": "A",
-      "shares": 1.5,
-      "cost_price": 1.3333,
-      "current_nav": 1.0,
+      "shares": 1.2588,
+      "cost_price": 1.588815,
+      "current_nav": 1.1916,
       "market_value": 1.5,
       "cost_basis": 2.0,
       "floating_pnl": -0.5,
@@ -716,10 +716,10 @@
         {
           "batch_id": "B_COMBAT_000086_001",
           "buy_date": "2024-01-05",
-          "shares": 1.5,
-          "cost_nav": 1.3333,
+          "shares": 1.2588,
+          "cost_nav": 1.588815,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -728,15 +728,15 @@
       "is_core_strategy": false,
       "transition_tag": "中小板体验金尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.3333
+      "cost_nav": 1.588815
     },
     {
       "fund_code": "018757",
       "fund_name": "招商中证红利ETF联接C",
       "share_class": "C",
-      "shares": 1.35,
-      "cost_price": 1.4815,
-      "current_nav": 1.0,
+      "shares": 1.2347,
+      "cost_price": 1.619827,
+      "current_nav": 1.0934,
       "market_value": 1.35,
       "cost_basis": 2.0,
       "floating_pnl": -0.65,
@@ -747,10 +747,10 @@
         {
           "batch_id": "B_COMBAT_018757_001",
           "buy_date": "2024-01-05",
-          "shares": 1.35,
-          "cost_nav": 1.4815,
+          "shares": 1.2347,
+          "cost_nav": 1.619827,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -759,15 +759,15 @@
       "is_core_strategy": false,
       "transition_tag": "红利红包尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.4815
+      "cost_nav": 1.619827
     },
     {
       "fund_code": "001071",
       "fund_name": "摩根标普500指数A",
       "share_class": "A",
-      "shares": 1.25,
-      "cost_price": 0.8,
-      "current_nav": 1.0,
+      "shares": 0.3096,
+      "cost_price": 3.229974,
+      "current_nav": 4.037,
       "market_value": 1.25,
       "cost_basis": 1.0,
       "floating_pnl": 0.25,
@@ -778,10 +778,10 @@
         {
           "batch_id": "B_COMBAT_001071_001",
           "buy_date": "2024-01-05",
-          "shares": 1.25,
-          "cost_nav": 0.8,
+          "shares": 0.3096,
+          "cost_nav": 3.229974,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -790,15 +790,15 @@
       "is_core_strategy": false,
       "transition_tag": "美股红包尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 0.8
+      "cost_nav": 3.229974
     },
     {
       "fund_code": "006113",
       "fund_name": "汇添富中证红利低波动指数C",
       "share_class": "C",
-      "shares": 1.15,
-      "cost_price": 1.7391,
-      "current_nav": 1.0,
+      "shares": 0.7422,
+      "cost_price": 2.694691,
+      "current_nav": 1.5494,
       "market_value": 1.15,
       "cost_basis": 2.0,
       "floating_pnl": -0.85,
@@ -809,10 +809,10 @@
         {
           "batch_id": "B_COMBAT_006113_001",
           "buy_date": "2024-01-05",
-          "shares": 1.15,
-          "cost_nav": 1.7391,
+          "shares": 0.7422,
+          "cost_nav": 2.694691,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -821,15 +821,15 @@
       "is_core_strategy": false,
       "transition_tag": "红利低波红包尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.7391
+      "cost_nav": 2.694691
     },
     {
       "fund_code": "004854",
       "fund_name": "广发中证500ETF联接C",
       "share_class": "C",
-      "shares": 1.45,
-      "cost_price": 1.3793,
-      "current_nav": 1.0,
+      "shares": 1.2221,
+      "cost_price": 1.636527,
+      "current_nav": 1.1865,
       "market_value": 1.45,
       "cost_basis": 2.0,
       "floating_pnl": -0.55,
@@ -840,10 +840,10 @@
         {
           "batch_id": "B_COMBAT_004854_001",
           "buy_date": "2024-01-05",
-          "shares": 1.45,
-          "cost_nav": 1.3793,
+          "shares": 1.2221,
+          "cost_nav": 1.636527,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -852,15 +852,15 @@
       "is_core_strategy": false,
       "transition_tag": "中证500体验金尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.3793
+      "cost_nav": 1.636527
     },
     {
       "fund_code": "001595",
       "fund_name": "华安安顺灵活配置混合",
       "share_class": "A",
-      "shares": 1.06,
-      "cost_price": 1.8868,
-      "current_nav": 1.0,
+      "shares": 0.5626,
+      "cost_price": 3.554924,
+      "current_nav": 1.884,
       "market_value": 1.06,
       "cost_basis": 2.0,
       "floating_pnl": -0.94,
@@ -871,10 +871,10 @@
         {
           "batch_id": "B_COMBAT_001595_001",
           "buy_date": "2024-01-05",
-          "shares": 1.06,
-          "cost_nav": 1.8868,
+          "shares": 0.5626,
+          "cost_nav": 3.554924,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -883,15 +883,15 @@
       "is_core_strategy": false,
       "transition_tag": "混合基金红包尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.8868
+      "cost_nav": 3.554924
     },
     {
       "fund_code": "001551",
       "fund_name": "天弘中证500ETF联接C",
       "share_class": "C",
-      "shares": 0.59,
-      "cost_price": 1.6949,
-      "current_nav": 1.0,
+      "shares": 0.8099,
+      "cost_price": 1.23472,
+      "current_nav": 0.7285,
       "market_value": 0.59,
       "cost_basis": 1.0,
       "floating_pnl": -0.41,
@@ -902,10 +902,10 @@
         {
           "batch_id": "B_COMBAT_001551_001",
           "buy_date": "2024-01-05",
-          "shares": 0.59,
-          "cost_nav": 1.6949,
+          "shares": 0.8099,
+          "cost_nav": 1.23472,
           "fee": 0.0,
-          "holding_days": 1041,
+          "holding_days": 400,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -914,19 +914,9 @@
       "is_core_strategy": false,
       "transition_tag": "天弘体验金零头尾仓",
       "rebalance_intent": "normal",
-      "cost_nav": 1.6949
+      "cost_nav": 1.23472
     }
   ],
   "pending_orders": [],
-  "staged_batch_plans": [],
-  "nav_history": [
-    {
-      "date": "2026-11-11",
-      "total_equity": 27615.1,
-      "account_nav": 1.0,
-      "benchmark_nav": 1.0
-    }
-  ],
-  "initial_baseline_snapshot": {},
-  "updated_at": "2026-11-11 23:29:46"
+  "staged_batch_plans": []
 }

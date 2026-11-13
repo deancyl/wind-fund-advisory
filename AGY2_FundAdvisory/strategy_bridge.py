@@ -2289,8 +2289,10 @@ class StrategyBridge:
         clock = TradingClock()
         is_trade_day = clock.is_trade_day(today_date)
         is_trading_hours = is_trade_day and (t_open <= cur_time <= t_close)
+        is_after_market_pending = is_trade_day and (cur_time > t_close)
 
-        should_stitch = force_live or is_trading_hours
+        # 盘中实时拼接，或收盘后本地矩阵尚未落盘今日收盘数据时自动拼接收盘点位
+        should_stitch = force_live or is_trading_hours or is_after_market_pending
         if not should_stitch:
             return df, False
 
@@ -2779,26 +2781,14 @@ class StrategyBridge:
         from portfolio_manager import fetch_realtime_index_quote
         q_300 = fetch_realtime_index_quote("sh000300", use_cache=True)
         c300_price = float(q_300.get("point", 4053.0)) if q_300.get("point", 0) > 0 else 4053.0
-        scale_ratio = (c300_price / c300) if c300 > 0 else (4053.0 / 6100.0)
-        BASE_C300 = 4053.0
-        BASE_M20 = 4140.0
-        BASE_M60 = 3962.0
-        BASE_M120 = 3850.0
-        if 3200.0 <= c300_price <= 5200.0:
-            m20_price = round(BASE_M20 + (c300_price - BASE_C300) / 20.0, 1)
-            m60_price = round(BASE_M60 + (c300_price - BASE_C300) / 60.0, 1)
-            m120_price = round(BASE_M120 + (c300_price - BASE_C300) / 120.0, 1)
-            bias_20 = float((c300_price / m20_price - 1.0) * 100.0)
-            bias_60 = float((c300_price / m60_price - 1.0) * 100.0)
-            bias_120 = float((c300_price / m120_price - 1.0) * 100.0)
-        else:
-            scale_ratio = (c300_price / c300) if c300 > 0 else (4053.0 / 6100.0)
-            m20_price = m20 * scale_ratio
-            m60_price = m60 * scale_ratio
-            m120_price = m120 * scale_ratio
-            bias_20 = float((c300 / m20 - 1.0) * 100.0)
-            bias_60 = float((c300 / m60 - 1.0) * 100.0)
-            bias_120 = float((c300 / m120 - 1.0) * 100.0)
+        # 真实均线同比例折算：以最新价格点位 c300_price 与全收益最新点位 c300 对齐量纲 (彻底铲除假常数)
+        scale_ratio = (c300_price / c300) if c300 > 0 else 1.0
+        m20_price = round(m20 * scale_ratio, 2)
+        m60_price = round(m60 * scale_ratio, 2)
+        m120_price = round(m120 * scale_ratio, 2)
+        bias_20 = float((c300 / m20 - 1.0) * 100.0) if m20 > 0 else 0.0
+        bias_60 = float((c300 / m60 - 1.0) * 100.0) if m60 > 0 else 0.0
+        bias_120 = float((c300 / m120 - 1.0) * 100.0) if m120 > 0 else 0.0
 
         # 变盘临界点距离百分比与施密特双向变盘触发线
         trigger_lines = SchmidtHysteresisBuffer.get_hysteresis_trigger_lines(m20_price, c300_price)
@@ -5446,421 +5436,26 @@ class StrategyBridge:
                     w = target_weights_funds.pop(old_code)
                     target_weights_funds[new_code] = round(target_weights_funds.get(new_code, 0.0) + w, 4)
 
-        fund_rules = {
-            "090010": {
-                "name": "大成中证红利指数A",
-                "share_class": "A",
-                "role_desc": "高股息周期价值底仓 (自进化优选)",
-                "reason": "【自进化优选 A 类】：长期持有免赎回费，跟踪中证红利指数，低估值高股息防御特性显著。",
-                "require_cash_dividend": True,
-                "dividend_advice": "🔴【必须设为现金分红】：买入确认后，建议在基金 App 中将分红方式手动变更为【现金分红】以沉淀安全现金流。",
-                "quota_note": "流动性充沛，正常申购。"
-            },
-            "100032": {
-                "name": "富国中证红利指数增强A",
-                "share_class": "A",
-                "role_desc": "高股息周期价值底仓",
-                "reason": "【战略底仓首选 A 类】：长期持有（建议 >= 180 天）免赎回费，免除 C 类每日年化 0.40% 销售服务费，长期复利优势显著。",
-                "require_cash_dividend": True,
-                "dividend_advice": "🔴【必须设为现金分红】：买入确认后，请在基金 App 中将分红方式手动变更为【现金分红】，让高股息真金白银沉淀为安全现金流垫，杜绝红利再投资在波动中缩水！",
-                "quota_note": "流动性充足，无单日限购，可全额直接买入。"
-            },
-            "005561": {
-                "name": "创金合信中证红利低波动指数A",
-                "share_class": "A",
-                "role_desc": "低估值低波动防御中枢",
-                "reason": "【防御中枢首选 A 类】：与 100032 形成低波双核，作为永久底仓持有超半年免赎，费率最省。",
-                "require_cash_dividend": True,
-                "dividend_advice": "🔴【必须设为现金分红】：买入确认后，必须手动设为【现金分红】！以股息现金流沉淀增强防御垫。",
-                "quota_note": "流动性充足，无单日限购，可全额直接买入。"
-            },
-            "000216": {
-                "name": "华安黄金ETF联接A",
-                "share_class": "A",
-                "role_desc": "全天候抗通胀黄金对冲底仓",
-                "reason": "【战略对冲首选 A 类】：黄金资产具备全天候非相关避险属性，作为中长期对冲底仓持有，A 类无销售服务费磨损。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认红利再投资即可。",
-                "quota_note": "流动性充裕，无大额限购。"
-            },
-            "002351": {
-                "name": "易方达裕祥回报债券A",
-                "share_class": "A",
-                "role_desc": "纯债稳健避风港压舱石",
-                "reason": "【固收压舱石首选 A 类】：票息长期累积，持有满半年免赎回费，免去 C 类持续销售服务费。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认红利再投资，利滚利增厚底仓。",
-                "quota_note": "额度充足，正常申购。"
-            },
-            "090010": {
-                "name": "大成中证红利指数A",
-                "share_class": "A",
-                "role_desc": "老牌纯正高股息标杆",
-                "daily_limit": 1e11,
-                "reason": "【老牌纯正红利 A 类】：长期持有免赎回费，精准跟踪中证红利指数，高股息稳健。",
-                "require_cash_dividend": True,
-                "dividend_advice": "🔴【必须设为现金分红】：买入确认后手动变更为现金分红以沉淀现金垫。",
-                "quota_note": "流动性充足，无单日限购，可全额直接买入。"
-            },
-            "012643": {
-                "name": "博时中证红利ETF联接A",
-                "share_class": "A",
-                "role_desc": "极低费率中证红利纯跟踪",
-                "daily_limit": 1e11,
-                "reason": "【低费率红利 A 类】：综合管理费率业内领先，长期复利成本极低。",
-                "require_cash_dividend": True,
-                "dividend_advice": "🔴【必须设为现金分红】：买入确认后建议手动设为现金分红。",
-                "quota_note": "流动性充足，无单日限购，可全额直接买入。"
-            },
-            "050025": {
-                "name": "博时标普500ETF联接A",
-                "share_class": "A",
-                "role_desc": "海外跨市场多元对冲",
-                "daily_limit": 500.0,
-                "fallback_code": "001071",
-                "fallback_name": "摩根标普500A",
-                "reason": "【海外底仓首选 A 类】：分散单一 A 股系统性风险，作为中长期底仓持有时 A 类总体摩擦最小。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认红利再投资。",
-                "quota_note": "⚠️【单日限额 500 元应对】：博时标普500单日限额通常为 500 元。若本次建议买入额 > 500 元，已为您自动智能拆单。"
-            },
-            "011613": {
-                "name": "华夏上证科创板50成份ETF联接C",
-                "share_class": "C",
-                "role_desc": "硬科技主升浪弹性进攻仓",
-                "reason": "【波段进攻强制选 C 类】：0 申购费，持有满 30 天即免赎回费！主升浪进攻后随时离场，不承受 A 类阶梯赎回费惩罚！",
-                "require_cash_dividend": False,
-                "dividend_advice": "波段进攻标的，默认再投资，快进快出。",
-                "quota_note": "额度充足，无单日限购。"
-            },
-            "016634": {
-                "name": "富国中证1000ETF联接C",
-                "share_class": "C",
-                "role_desc": "小盘高弹性进攻波段仓",
-                "reason": "【波段进攻强制选 C 类】：0 申购费，持有满 30 天免赎回费，灵活捕捉小盘反弹弹性。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认再投资，波段获利随时落袋。",
-                "quota_note": "额度充足，无单日限购。"
-            },
-            "001053": {
-                "name": "华夏中证500ETF联接C",
-                "share_class": "C",
-                "role_desc": "中盘成长风格分化反弹仓",
-                "reason": "【波段进攻强制选 C 类】：0 申购费，持有满 30 天免赎回费，高效轮动。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认再投资。",
-                "quota_note": "额度充足，无单日限购。"
-            },
-            "007339": {
-                "name": "易方达沪深300ETF联接C",
-                "share_class": "C",
-                "role_desc": "大盘蓝筹顺势脉冲进攻仓",
-                "reason": "【波段进攻强制选 C 类】：0 申购费，持有满 30 天免赎回费，顺势波段利器。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认再投资。",
-                "quota_note": "额度充足，无单日限购。"
-            },
-            "001071": {
-                "name": "摩根标普500指数(QDII)人民币A",
-                "share_class": "A",
-                "role_desc": "海外跨市场多元对冲 (大额备选)",
-                "reason": "【标普大额备选 A 类】：完美规避博时标普单日 500 元限额，支持单日 1000 元以上大额申购。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认再投资。",
-                "quota_note": "大额通道顺畅，单日限额 1000 元。"
-            },
-            "016440": {
-                "name": "华夏中证红利质量ETF发起式联接A",
-                "share_class": "A",
-                "role_desc": "红利质量双因子优选底仓",
-                "reason": "【红利质量增强 A 类】：精选盈利质量与高股息双重龙头，消费与制造均衡。",
-                "require_cash_dividend": True,
-                "dividend_advice": "建议设为现金分红。",
-                "quota_note": "额度充足，正常申购。"
-            },
-            "000086": {
-                "name": "工银信用纯债债券A",
-                "share_class": "A",
-                "role_desc": "高信用等级债券避风港",
-                "reason": "【纯债备选 A 类】：全市场高等级信用纯债标杆，回撤控制稳健。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认再投资。",
-                "quota_note": "额度充足，正常申购。"
-            },
-            "002610": {
-                "name": "博时黄金ETF联接A",
-                "share_class": "A",
-                "role_desc": "黄金现货对冲避险底仓",
-                "reason": "【黄金备选 A 类】：紧密跟踪黄金现货，避险抗通胀流动性充裕。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认再投资。",
-                "quota_note": "正常申购。"
-            },
-            "018757": {
-                "name": "睿远稳益增强30天持有债券C",
-                "share_class": "C",
-                "role_desc": "稳健固收+增强",
-                "reason": "【固收增强 C 类】：睿远旗舰团队操刀，30天持有期满免赎回费。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认再投资。",
-                "quota_note": "稀缺额度控制。"
-            },
-            "008682": {
-                "name": "富国中证红利指数增强C",
-                "share_class": "C",
-                "role_desc": "红利高弹性波段仓",
-                "reason": "【红利短线 C 类】：0 申购费，持有满 30 天免赎回费，适合红利波段。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认再投资。",
-                "quota_note": "正常申购。"
-            },
-            "017436": {
-                "name": "华安纳斯达克100ETF联接A",
-                "share_class": "A",
-                "role_desc": "海外全球科技成长对冲",
-                "reason": "【海外科技 A 类】：聚焦美股纳斯达克全球科技龙头，非相关跨市场对冲。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认再投资。",
-                "quota_note": "单日限额 500 元。"
-            },
-            "000217": {
-                "name": "华安黄金ETF联接C",
-                "share_class": "C",
-                "role_desc": "短期黄金波段对冲",
-                "reason": "【黄金波段 C 类】：0 申购费，满 30 天免赎回费，避险波段利器。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认再投资。",
-                "quota_note": "正常申购。"
-            },
-            "013841": {
-                "name": "银华集成电路混合C",
-                "share_class": "C",
-                "role_desc": "半导体细分高弹性进攻仓",
-                "reason": "【细分半导体 C 类】：聚焦半导体芯片周期反转，超高弹性成长进攻。",
-                "require_cash_dividend": False,
-                "dividend_advice": "默认再投资，快进快出。",
-                "quota_note": "正常申购。"
-            }
-        }
-
-        items = []
-        allocated_sum = 0.0
-
-        for code, weight in target_weights_funds.items():
-            if weight <= 1e-4:
-                continue
-            amt = round(total_capital * weight, 2)
-            _u18_map = {it["code"]: it for it in UNIVERSE_18_CHAMPION_POOL}
-            _u18_it = _u18_map.get(code, {})
-            _f_name_default = _u18_it.get("name")
-            if not _f_name_default:
-                try:
-                    from portfolio_manager import EXTENDED_FUND_CATALOG, CORE_STRATEGY_POOL
-                    _f_name_default = (CORE_STRATEGY_POOL.get(code) or EXTENDED_FUND_CATALOG.get(code) or {}).get("name")
-                except Exception:
-                    pass
-            _f_name_default = _f_name_default or f"优选基金({code})"
-            _sc_default = _u18_it.get("share_class", "C" if _f_name_default.endswith("C") else "A")
-            _is_div = "红利" in _f_name_default or "现金流" in _f_name_default
-            rule = fund_rules.get(code, {
-                "name": _f_name_default,
-                "share_class": _sc_default,
-                "role_desc": f"{_u18_it.get('bucket', '核心配置')}·{_u18_it.get('tag', '优选标的')}",
-                "daily_limit": 1e11,
-                "reason": f"【模型优选 {_sc_default} 类】：入选多模型最优配置组合，兼具高夏普与低相关性。",
-                "require_cash_dividend": _is_div,
-                "dividend_advice": "🔴 建议设为现金分红沉淀现金流。" if _is_div else "默认红利再投资。",
-                "quota_note": "流动性充足，正常申购。"
-            })
-
-            daily_lim = float(rule.get("daily_limit", 1e11))
-            has_split = False
-            split_info = None
-            quota_fallback_display = rule["quota_note"]
-
-            # ── 🛡️ 实盘交易风控护栏：单日限购过滤自动替换 ──
-            _f_str = str(kwargs.get("purchase_limit_filter", ""))
-            _min_p_limit = kwargs.get("min_purchase_limit")
-            if _min_p_limit is None:
-                if "1,000" in _f_str or "1000" in _f_str:
-                    _min_p_limit = 1000.0
-                elif "5,000" in _f_str or "5000" in _f_str:
-                    _min_p_limit = 5000.0
-                else:
-                    _min_p_limit = 0.0
-            _min_p_limit = float(_min_p_limit or 0.0)
-
-            if _min_p_limit > 0 and daily_lim < _min_p_limit:
-                fb_code = rule.get("fallback_code", "001071")
-                fb_name = rule.get("fallback_name") or fund_rules.get(fb_code, {}).get("name", "摩根标普500指数(QDII)人民币A")
-                items.append({
-                    "fund_code": fb_code,
-                    "fund_name": fb_name,
-                    "share_class": "A",
-                    "target_weight_pct": round((amt / total_capital) * 100.0, 2),
-                    "allocated_amount": amt,
-                    "amount": amt,
-                    "role_desc": f"{rule['role_desc']} (限额过滤·同赛道备选)",
-                    "why_share_class": "大额通道顺畅，全额买入免拆单",
-                    "require_cash_dividend": False,
-                    "dividend_advice": "默认红利再投资",
-                    "quota_fallback": f"🛡️【风控限额替代】原标的 {code} 日限额 ¥{daily_lim:,.0f} < 门槛 ¥{_min_p_limit:,.0f}，已自动替换为同赛道备选",
-                    "action_guide": "不限购正常买",
-                    "has_split": False,
-                    "split_info": None
-                })
-                allocated_sum += amt
-                continue
-
-            if amt > daily_lim:
-                today_amt = daily_lim
-                excess_amt = round(amt - daily_lim, 2)
-                fb_code = rule.get("fallback_code", "001071")
-                fb_name = rule.get("fallback_name") or fund_rules.get(fb_code, {}).get("name", "摩根标普500指数(QDII)人民币A")
-                fb_rule = fund_rules.get(fb_code, {
-                    "name": fb_name,
-                    "share_class": "A",
-                    "role_desc": f"{rule['role_desc']} (大额拆单备选)",
-                    "daily_limit": 1e11,
-                    "reason": "【合规限购拆单备选】：承接超额资金，无单日大额限额制约。",
-                    "require_cash_dividend": False,
-                    "dividend_advice": "默认红利再投资。",
-                    "quota_note": "大额通道顺畅，可全额申购。"
-                })
-
-                days_dca = int(math.ceil(amt / daily_lim))
-
-                # 行 1: 原标的限额内买入 (例如 050025 买入 500 元)
-                items.append({
-                    "fund_code": code,
-                    "fund_name": rule["name"],
-                    "share_class": rule["share_class"],
-                    "target_weight_pct": round((today_amt / total_capital) * 100.0, 2),
-                    "allocated_amount": today_amt,
-                    "amount": today_amt,
-                    "role_desc": rule["role_desc"],
-                    "why_share_class": rule["reason"],
-                    "require_cash_dividend": rule["require_cash_dividend"],
-                    "dividend_advice": rule["dividend_advice"],
-                    "quota_fallback": f"⚠️【单日限额 ¥{daily_lim:,.0f}】今日顶格买入 ¥{today_amt:,.2f}，超额部分已自动拆单至备选【{fb_code} {fb_name}】",
-                    "has_split": True,
-                    "split_info": {
-                        "has_split": True,
-                        "daily_limit": daily_lim,
-                        "today_amount": today_amt,
-                        "excess_amount": excess_amt,
-                        "fallback_code": fb_code,
-                        "fallback_name": fb_name,
-                        "instruction": f"【智能拆单小抄】：今日先买 ¥{today_amt:,.2f}；剩余 ¥{excess_amt:,.2f} 直接买入不限购备选【{fb_code} {fb_name}】（或分{days_dca}天定投完成）"
-                    }
-                })
-
-                # 行 2: 拆单备选标的买入超额金额 (例如 001071 买入 5,500 元)
-                items.append({
-                    "fund_code": fb_code,
-                    "fund_name": fb_rule["name"],
-                    "share_class": fb_rule.get("share_class", "A"),
-                    "target_weight_pct": round((excess_amt / total_capital) * 100.0, 2),
-                    "allocated_amount": excess_amt,
-                    "amount": excess_amt,
-                    "role_desc": fb_rule.get("role_desc", "海外跨市场多元对冲 (大额备选)"),
-                    "why_share_class": fb_rule.get("reason", "【合规限购拆单备选】：承接超额资金，无单日限额制约。"),
-                    "require_cash_dividend": fb_rule.get("require_cash_dividend", False),
-                    "dividend_advice": fb_rule.get("dividend_advice", "默认再投资。"),
-                    "quota_fallback": f"✅【限购拆单伴生】承接 {code} 溢出额度 ¥{excess_amt:,.2f}，大额通道顺畅无阻",
-                    "has_split": True,
-                    "split_info": {
-                        "has_split": True,
-                        "daily_limit": 1e11,
-                        "today_amount": excess_amt,
-                        "excess_amount": 0.0,
-                        "primary_code": code,
-                        "primary_name": rule["name"]
-                    }
-                })
-                allocated_sum += amt
-            else:
-                items.append({
-                    "fund_code": code,
-                    "fund_name": rule["name"],
-                    "share_class": rule["share_class"],
-                    "target_weight_pct": round(weight * 100.0, 2),
-                    "allocated_amount": amt,
-                    "amount": amt,
-                    "role_desc": rule["role_desc"],
-                    "why_share_class": rule["reason"],
-                    "require_cash_dividend": rule["require_cash_dividend"],
-                    "dividend_advice": rule["dividend_advice"],
-                    "quota_fallback": rule["quota_note"],
-                    "has_split": False,
-                    "split_info": None
-                })
-                allocated_sum += amt
-
-        # 伴生承接基金去重与合并：若同一基金出现多次，合并其金额
-        merged_items = []
-        code_to_idx = {}
-        for it in items:
-            c = it["fund_code"]
-            if c in code_to_idx:
-                existing = merged_items[code_to_idx[c]]
-                existing["allocated_amount"] = round(existing["allocated_amount"] + it["allocated_amount"], 2)
-                existing["amount"] = existing["allocated_amount"]
-                if it.get("has_split"):
-                    existing["has_split"] = True
-                    existing["quota_fallback"] = f"{existing.get('quota_fallback', '')} ｜ {it.get('quota_fallback', '')}".strip(" ｜")
-            else:
-                code_to_idx[c] = len(merged_items)
-                merged_items.append(it)
-        items = merged_items
-
-        # 分厘平账与百分比严格闭合 (Penny Reconciliation & Percentage Closure)
-        cur_alloc = round(sum(it["allocated_amount"] for it in items), 2)
-        diff_cents = round(total_capital - cur_alloc, 2)
-        if abs(diff_cents) > 0.0 and items:
-            unlim = [it for it in items if not it.get("has_split") or it.get("quota_fallback", "").startswith("✅")]
-            target_item = max(unlim or items, key=lambda x: x["allocated_amount"])
-            target_item["allocated_amount"] = round(target_item["allocated_amount"] + diff_cents, 2)
-            target_item["amount"] = target_item["allocated_amount"]
-
-        for it in items:
-            it["target_weight_pct"] = round((it["allocated_amount"] / total_capital) * 100.0, 2)
-
-        sum_pct = round(sum(it["target_weight_pct"] for it in items), 2)
-        diff_pct = round(100.00 - sum_pct, 2)
-        if abs(diff_pct) > 0.0 and items:
-            target_item = max(items, key=lambda x: x["allocated_amount"])
-            target_item["target_weight_pct"] = round(target_item["target_weight_pct"] + diff_pct, 2)
-
-        # 按建议买入金额降序排列
-        items.sort(key=lambda x: x["allocated_amount"], reverse=True)
+        # 统一委托 PortfolioManager.generate_zero_start_blueprint 执行真实多级瀑布流限额拆单与实时额度核验
+        from portfolio_manager import PortfolioManager
+        blueprint = PortfolioManager.generate_zero_start_blueprint(
+            total_capital=total_capital,
+            target_weights_funds=target_weights_funds,
+            tier=tier,
+            custom_fund_overrides=custom_fund_overrides,
+            **kwargs
+        )
 
         # 联动宏观流动性双轨雷达：极端收紧防御 (R2)
         snapshot = cls.get_latest_market_snapshot()
         radar = snapshot.get("dual_track_radar", {})
         is_defensive = bool(radar.get("defensive_triggered", False))
         defensive_advice = "触发极端防御配置：压降高 Beta 权益，纯债与黄金配置上调至 65%~70%"
+        blueprint["defensive_triggered"] = is_defensive
+        blueprint["defensive_advice"] = defensive_advice if is_defensive else ""
+        blueprint["dual_track_radar"] = radar
 
-        has_any_split = any(it.get("has_split") for it in items)
-        split_note = "；已自动为单日限购标的完成智能拆单（博时标普500限额500元，超额部分自动转入不限购摩根标普500A或定投）" if has_any_split else ""
-        defensive_note = f"\n\n🛡️ **【资金面极端防御预警】**：{defensive_advice}！" if is_defensive else ""
-        summary_advice = (
-            f"🌱 **从 0 开始建仓指引**：今日总本金 ¥{total_capital:,.2f} 已精确分配至 {len(items)} 只核心配置标的。"
-            f"其中常驻底仓（红利、黄金、纯债、标普）建议全部选择 **A 类** 以规避长期销售服务费；"
-            f"**100032 富国红利** 与 **005561 创金红利低波** 买入确认后**务必设为现金分红**{split_note}。{defensive_note}"
-        )
-
-        return {
-            "tier": tier,
-            "total_capital": total_capital,
-            "allocated_sum": total_capital,
-            "remaining_cash": 0.0,
-            "items": items,
-            "summary_advice": summary_advice,
-            "defensive_triggered": is_defensive,
-            "defensive_advice": defensive_advice if is_defensive else "",
-            "dual_track_radar": radar
-        }
+        return blueprint
 
     # =====================================================================
     # 实战升级 2：14:30 尾盘变盘信号推演引擎 (Intraday Signal Evaluator)
@@ -5933,22 +5528,12 @@ class StrategyBridge:
         m120_prev_rt = float(c300_series.iloc[-140:-20].mean()) if len(df) >= 140 else m120_rt
         slope_rt = float((m120_rt / m120_prev_rt - 1.0) * 100.0) if m120_prev_rt > 0 else 0.0
 
-        # 同比例换算价格指数口径的均线 (与界面 4,053.0 口径完全统一)
-        BASE_C300 = 4053.0
-        BASE_M20 = 4140.0
-        BASE_M60 = 3962.0
-        BASE_M120 = 3850.0
-        if 3200.0 <= c300_price <= 5200.0:
-            m20_price = round(BASE_M20 + (c300_price - BASE_C300) / 20.0, 1)
-            m60_price = round(BASE_M60 + (c300_price - BASE_C300) / 60.0, 1)
-            m120_price = round(BASE_M120 + (c300_price - BASE_C300) / 120.0, 1)
-            bias_m20 = (c300_price / m20_price - 1.0) * 100.0
-        else:
-            scale_ratio = (c300_price / live_h300) if live_h300 > 0 else (4053.0 / 6100.0)
-            m20_price = m20_rt * scale_ratio
-            m60_price = m60_rt * scale_ratio
-            m120_price = m120_rt * scale_ratio
-            bias_m20 = (live_h300 / m20_rt - 1.0) * 100.0
+        # 真实均线同比例折算：以最新价格点位 c300_price 与全收益最新点位 live_h300 对齐量纲 (彻底铲除假常数)
+        scale_ratio = (c300_price / live_h300) if live_h300 > 0 else 1.0
+        m20_price = round(m20_rt * scale_ratio, 2)
+        m60_price = round(m60_rt * scale_ratio, 2)
+        m120_price = round(m120_rt * scale_ratio, 2)
+        bias_m20 = float((live_h300 / m20_rt - 1.0) * 100.0) if m20_rt > 0 else 0.0
 
         mom60_300_rt = float((live_h300 / df['H00300'].iloc[-60] - 1.0) * 100.0)
         mom20_300_rt = float((live_h300 / df['H00300'].iloc[-20] - 1.0) * 100.0)
@@ -7511,7 +7096,8 @@ class StrategyBridge:
             next_nav = daily_navs[-1] * (1.0 + eff_day_ret)
 
             # 若启用动态再平衡 (Point-in-Time 零未来数据泄漏)
-            if dynamic_rebalance:
+            # 实盘买方纪律：每 20 个交易日（月频）评估一次，且当权重偏离度 > 3% 时才执行调仓换手
+            if dynamic_rebalance and (t % 20 == 0):
                 tgt_weights = strategy_fn_for_tier(df.iloc[:start_idx + t], tier=tier)
                 next_asset_cols = [c for c in tgt_weights.keys() if c in fwd_slice.columns]
                 next_w = {c: float(tgt_weights[c]) for c in next_asset_cols}
@@ -7519,12 +7105,14 @@ class StrategyBridge:
                 if w_sum_dyn > 0:
                     next_w = {k: v / w_sum_dyn for k, v in next_w.items()}
 
-                # 真实换手与扣费 (T+1 确认，扣除 10 bps 换手摩擦)
+                # 只有当单项资产偏离度 > 3% (0.03) 时才触发调仓换手，避免微小噪点频繁摩擦
                 all_keys = set(norm_w.keys()) | set(next_w.keys())
-                turnover = sum(abs(next_w.get(k, 0.0) - norm_w.get(k, 0.0)) for k in all_keys) / 2.0
-                friction = turnover * 0.0010  # 10 bps
-                next_nav *= (1.0 - friction)
-                norm_w = next_w
+                max_drift = max(abs(next_w.get(k, 0.0) - norm_w.get(k, 0.0)) for k in all_keys) if all_keys else 0.0
+                if max_drift > 0.03:
+                    turnover = sum(abs(next_w.get(k, 0.0) - norm_w.get(k, 0.0)) for k in all_keys) / 2.0
+                    friction = turnover * 0.0010  # 10 bps
+                    next_nav *= (1.0 - friction)
+                    norm_w = next_w
 
             daily_navs.append(next_nav)
 

@@ -4509,11 +4509,27 @@ def generate_chief_advisor_memo(
         erp_stance = "中性平衡区"
         erp_advice = "股债比价均衡，维持攻防兼备的哑铃配置"
 
+    news_cache_file = Path(WORKSPACE_ROOT) / "data" / "cache" / "realtime_news.json"
+    flash_summary = ""
+    if news_cache_file.exists():
+        try:
+            with open(news_cache_file, "r", encoding="utf-8") as _fnf:
+                news_json = json.load(_fnf)
+                fl_list = news_json.get("flash_news", [])
+                if fl_list and isinstance(fl_list, list):
+                    first_item = fl_list[0]
+                    first_title = first_item.get("title", "") if isinstance(first_item, dict) else str(first_item)
+                    if first_title:
+                        clean_t = first_title.replace("<b>", "").replace("</b>", "").strip()
+                        flash_summary = f" ｜ ⚡ 权威快讯: {clean_t[:45]}..."
+        except Exception:
+            flash_summary = ""
+
     macro_text = (
         f"国内 10Y 国债收益率运行在 <b>{cgb_10y:.2f}%</b> 历史极低分位，表明全社会无风险收益率下行趋势未变；"
         f"DR007 处于 <b>{dr007:.3f}%</b> ({dr007_bp:+.1f} bp 逆回购利差)，{liq_desc}。"
         f"当前沪深300 ERP 股权风险溢价达 <b>{erp_val:.2f}%</b> (处于历史 <b>{erp_pct:.1f}%</b> 分位)，"
-        f"定性处于【<b>{erp_stance}</b>】。{erp_advice}。"
+        f"定性处于【<b>{erp_stance}</b>】。{erp_advice}。{flash_summary}"
     )
 
     # ── 2. 国际与汇率面 ──────────────────────────────────────────

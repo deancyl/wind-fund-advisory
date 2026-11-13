@@ -60,6 +60,102 @@ def _normalize_weights_strict(weights: Dict[str, float]) -> Dict[str, float]:
     return normed
 
 
+def apply_asset_class_constitutional_limits(
+    weights: Dict[str, float],
+    tier: str = "C3",
+    metrics_df: Optional[pd.DataFrame] = None
+) -> Dict[str, float]:
+    """
+    大类资产配置宪法硬约束投影 (Asset Allocation Constitutional Guardrails)：
+    严格约束各风险档位下海外 QDII、大宗商品(黄金)、纯债固收与 A 股权益的上下限比例，
+    彻底消除 HRP/CVaR 机构模型因低波相关性将美股算成 37%、黄金算成 40% 的严重失衡。
+    
+    C3 档位 (平衡进取):
+      - 海外 QDII <= 12% (0.12)
+      - 黄金/商品 <= 15% (0.15)
+      - 纯债固收 15% ~ 30% (0.15 ~ 0.30)
+      - A 股权益 50% ~ 65% (0.50 ~ 0.65)
+    """
+    if not weights:
+        return weights
+    tier_u = str(tier).upper().strip() if tier else "C3"
+    w_res = {k: float(v) for k, v in weights.items() if v > 1e-6}
+    if not w_res:
+        return weights
+
+    # 宪法上下限字典 (qdii_max, gold_max, bond_min, bond_max, eq_max)
+    caps = {
+        "C1": {"qdii_max": 0.05, "gold_max": 0.10, "bond_min": 0.60, "bond_max": 0.85, "eq_max": 0.25},
+        "C2": {"qdii_max": 0.08, "gold_max": 0.12, "bond_min": 0.35, "bond_max": 0.55, "eq_max": 0.50},
+        "C3": {"qdii_max": 0.12, "gold_max": 0.15, "bond_min": 0.15, "bond_max": 0.30, "eq_max": 0.65},
+        "C4": {"qdii_max": 0.15, "gold_max": 0.12, "bond_min": 0.05, "bond_max": 0.15, "eq_max": 0.78},
+        "C5": {"qdii_max": 0.15, "gold_max": 0.10, "bond_min": 0.00, "bond_max": 0.10, "eq_max": 0.90},
+    }.get(tier_u, {"qdii_max": 0.12, "gold_max": 0.15, "bond_min": 0.15, "bond_max": 0.30, "eq_max": 0.65})
+
+    # 分类资产
+    qdii_codes, gold_codes, bond_codes, eq_codes = [], [], [], []
+    for c in w_res.keys():
+        fn = ""
+        bkt = ""
+        if metrics_df is not None and not metrics_df.empty:
+            m_sub = metrics_df[metrics_df["fund_code"] == c]
+            if not m_sub.empty:
+                fn = str(m_sub.iloc[0].get("fund_name", ""))
+                bkt = str(m_sub.iloc[0].get("bucket", ""))
+        is_gold = any(k in fn for k in ["黄金", "AU9999", "上海金"]) or c in ["000216", "004253", "002610", "002611", "518880", "159937"] or bkt == "gold"
+        is_qdii = any(k in fn for k in ["标普", "纳斯达克", "纳指", "美股", "QDII", "海外", "全球"]) or c in ["050025", "001071", "017436", "513500", "513100", "270042"] or bkt in ["qdii", "global"]
+        is_bond = any(k in fn for k in ["债", "裕祥", "固收", "短融", "信用"]) or c in ["002351", "002352", "000086", "511010", "511260", "511360"] or bkt in ["pure_bond", "fixed_income_plus", "bond"]
+
+        if is_gold:
+            gold_codes.append(c)
+        elif is_qdii:
+            qdii_codes.append(c)
+        elif is_bond:
+            bond_codes.append(c)
+        else:
+            eq_codes.append(c)
+
+    # 1. 压降 QDII 上限
+    tot_qdii = sum(w_res[c] for c in qdii_codes)
+    if tot_qdii > caps["qdii_max"] and tot_qdii > 0:
+        ratio = caps["qdii_max"] / tot_qdii
+        for c in qdii_codes:
+            w_res[c] *= ratio
+
+    # 2. 压降 黄金 上限
+    tot_gold = sum(w_res[c] for c in gold_codes)
+    if tot_gold > caps["gold_max"] and tot_gold > 0:
+        ratio = caps["gold_max"] / tot_gold
+        for c in gold_codes:
+            w_res[c] *= ratio
+
+    # 3. 约束 纯债 范围
+    tot_bond = sum(w_res[c] for c in bond_codes)
+    if bond_codes:
+        if tot_bond > caps["bond_max"] and tot_bond > 0:
+            ratio = caps["bond_max"] / tot_bond
+            for c in bond_codes:
+                w_res[c] *= ratio
+        elif tot_bond < caps["bond_min"] and tot_bond > 0:
+            ratio = caps["bond_min"] / tot_bond
+            for c in bond_codes:
+                w_res[c] *= ratio
+
+    # 4. 重新严格归一化 (剩余权重由 A 股权益吸收，若无 A 股权益则全资产等比平分)
+    tot_non_eq = sum(w_res[c] for c in (qdii_codes + gold_codes + bond_codes))
+    rem_for_eq = max(0.0, 1.0 - tot_non_eq)
+    tot_eq = sum(w_res[c] for c in eq_codes)
+    if eq_codes and tot_eq > 0:
+        for c in eq_codes:
+            w_res[c] = (w_res[c] / tot_eq) * rem_for_eq
+    else:
+        s_all = sum(w_res.values())
+        if s_all > 0:
+            w_res = {k: v / s_all for k, v in w_res.items()}
+
+    return _normalize_weights_strict(w_res)
+
+
 # ─── 七大机构级量化定权模型目录（名称严格 ≤ 6 字） ────────────────────
 QUANT_MODELS_CATALOG: Dict[str, Dict[str, Any]] = {
     "hrp_robust": {
@@ -670,9 +766,30 @@ class WinRateOptimizer:
         buckets_used = set()
         max_sector = self.constraints["max_sector_exposure"]
 
+        # 同质化基准去重判定 (严禁同时选入两只黄金或两只标普500)
+        def _get_benchmark_family(f_code: str) -> str:
+            r_it = metrics[metrics["fund_code"] == f_code]
+            fn = str(r_it.iloc[0].get("fund_name", "")) if not r_it.empty else ""
+            if any(k in fn for k in ["黄金", "AU9999", "上海金"]) or f_code in ["000216", "004253", "002610", "002611", "518880", "159937"]:
+                return "BENCH_GOLD"
+            if any(k in fn for k in ["标普500", "标普", "S&P500"]) or f_code in ["050025", "001071", "513500", "161125"]:
+                return "BENCH_SP500"
+            if any(k in fn for k in ["纳斯达克", "纳指", "NDX", "QQQ"]) or f_code in ["017436", "270042", "513100"]:
+                return "BENCH_NASDAQ"
+            if any(k in fn for k in ["科创50", "STAR50"]) or f_code in ["011613", "011612", "588000"]:
+                return "BENCH_STAR50"
+            if any(k in fn for k in ["中证500"]) or f_code in ["001053", "004854", "001551", "510500"]:
+                return "BENCH_CSI500"
+            return f_code
+
         for _, row in sorted_by_wr.iterrows():
             code = row["fund_code"]
             bucket = row["bucket"]
+
+            # 防同质化：同一底层基准 (如黄金、标普500、纳指、科创50) 严禁选入两只同质化基金
+            f_fam = _get_benchmark_family(code)
+            if any(_get_benchmark_family(c) == f_fam for c in initial_codes):
+                continue
 
             # 同桶数量检查
             same_bucket_count = sum(
@@ -695,10 +812,13 @@ class WinRateOptimizer:
                 break
 
         if len(initial_codes) < n_funds:
-            # 放松约束补充
+            # 放松约束补充 (同样严守同质化基准去重防线)
             for _, row in sorted_by_wr.iterrows():
-                if row["fund_code"] not in initial_codes:
-                    initial_codes.append(row["fund_code"])
+                f_cand = row["fund_code"]
+                if f_cand not in initial_codes:
+                    if any(_get_benchmark_family(c) == _get_benchmark_family(f_cand) for c in initial_codes):
+                        continue
+                    initial_codes.append(f_cand)
                     if len(initial_codes) >= n_funds:
                         break
 
@@ -714,7 +834,11 @@ class WinRateOptimizer:
             # 等权回退
             eq_w = 1.0 / n_funds
             optimal_weights = {c: eq_w for c in selected_codes}
-        optimal_weights = _normalize_weights_strict(optimal_weights)
+        
+        # 施加大类资产配置宪法硬约束投影 (C3 档位: QDII<=12%, 黄金<=15%, 纯债15%~30%, 权益50%~65%)
+        optimal_weights = apply_asset_class_constitutional_limits(
+            optimal_weights, tier=self.tier, metrics_df=metrics
+        )
 
         # 计算组合胜率（接入当下 market_snapshot 条件胜率）
         wr = WinRateEngine.rolling_target_winrate(
@@ -1351,6 +1475,7 @@ class WinRateOptimizer:
                         # 用 SLSQP 优化权重
                         opt_w = self._slsqp_optimize(trial_codes, nav_df, quota_info)
                         if opt_w:
+                            opt_w = apply_asset_class_constitutional_limits(opt_w, tier=self.tier, metrics_df=self._individual_metrics)
                             opt_nav = self._build_portfolio_nav(nav_df, opt_w)
                             full_wr = WinRateEngine.rolling_target_winrate(
                                 opt_nav, self.holding_days, self.target_return,
