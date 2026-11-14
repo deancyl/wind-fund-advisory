@@ -1293,19 +1293,23 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
         if re.search(r'\b\d{6}\b', s):
             return True
         clean_s = re.sub(r'[\s\(\)（）:：¥元,，]', '', s)
-        if any(stop in clean_s for stop in ["持有金额", "持有收益", "昨日收益", "累计收益", "日收益", "持有天数", "持仓份额"]):
-            return False
-        # 优先使用 fuzzy_match_fund_by_name 判断是否为有效基金行
+        # 1. 优先使用 fuzzy_match_fund_by_name 或基金核心关键词判断是否为有效基金行 (防单行含'持有金额'字样被误杀)
         try:
             f_test = fuzzy_match_fund_by_name(clean_s)
             if f_test and f_test.get("score", 0) >= 0.45:
                 return True
         except Exception:
             pass
-        return any(w in clean_s for w in [
+        if any(w in clean_s for w in [
             "ETF", "联接", "混合", "债券", "指数", "基金", "价值", "成长", "回报",
             "精选", "优势", "红利", "低波", "蓝筹", "标普", "纳指", "白酒", "新能源", "芯片", "半导体", "黄金", "纯债"
-        ])
+        ]):
+            return True
+
+        # 2. 纯属性/表头行拦截
+        if any(stop in clean_s for stop in ["持有金额", "持有收益", "昨日收益", "累计收益", "日收益", "持有天数", "持仓份额"]):
+            return False
+        return False
 
     def _line_has_val(s: str) -> bool:
         rem = re.sub(r'\b\d{6}\b', '', s)
@@ -1704,9 +1708,11 @@ def fuzzy_match_fund_by_name(
     ALIAS_MAP = {
         "红利低波": "005561", "创金合信红利低波": "005561", "创金合信中证红利低波": "005561", "创金合信中证红利": "005561",
         "创金合信": "005561" if share_class != "C" else "005562", "创金合信红利": "005561" if share_class != "C" else "005562",
-        "华泰柏瑞低波": "005561", "华泰低波": "005561", "低波": "005561",
+        "华泰柏瑞中证红利低波": "007467" if share_class == "C" else "007466", "华泰柏瑞红利低波": "007467" if share_class == "C" else "007466",
+        "华泰柏瑞低波": "007467" if share_class == "C" else "007466", "华泰低波": "007467" if share_class == "C" else "007466", "低波": "005561",
         "沪深300": "110020" if share_class != "C" else "007339", "易方达沪深300": "110020" if share_class != "C" else "007339",
         "易方达300": "007339" if share_class == "C" else "110020", "300C": "007339",
+        "广发纳斯达克100ETF联接": "006479" if share_class == "C" else "006075", "广发纳斯达克100": "006479" if share_class == "C" else "006075", "广发纳指": "006479" if share_class == "C" else "006075",
         "纳斯达克100": "017436", "华安纳斯达克100": "017436", "纳指": "017436", "纳斯达克": "017436",
         "裕祥回报": "002351" if share_class != "C" else "002352", "易方达裕祥": "002351" if share_class != "C" else "002352",
         "纯债": "002351" if share_class != "C" else "002352", "裕祥": "002351" if share_class != "C" else "002352",
@@ -1714,6 +1720,7 @@ def fuzzy_match_fund_by_name(
         "富国红利": "100032" if share_class != "C" else "008682", "中证红利": "100032" if share_class != "C" else "008682",
         "科创50": "011613" if share_class == "C" else "011612", "华夏科创50": "011613" if share_class == "C" else "011612",
         "华夏上证科创板50": "011613" if share_class == "C" else "011612", "科创板50": "011613" if share_class == "C" else "011612",
+        "博时黄金ETF联接": "002611" if share_class == "C" else "002610", "博时黄金ETF": "002611" if share_class == "C" else "002610", "博时黄金": "002611" if share_class == "C" else "002610",
         "华安黄金": "000216" if share_class != "C" else "000217", "黄金ETF联接": "000216" if share_class != "C" else "000217",
         "黄金ETF": "000216" if share_class != "C" else "000217", "黄金": "000216" if share_class != "C" else "000217",
         "招商中证白酒": "161725", "招商白酒": "161725", "中证白酒": "161725", "白酒": "161725",
@@ -1726,15 +1733,17 @@ def fuzzy_match_fund_by_name(
         "华夏中证红利质量": "016441" if share_class == "C" else "016440", "红利质量": "016441" if share_class == "C" else "016440",
         "南方中证新能源": "012832" if share_class == "C" else "012831",
         "华夏中证动漫游戏": "012769" if share_class == "C" else "012768", "动漫游戏": "012769" if share_class == "C" else "012768",
-        "博时黄金": "002611" if share_class == "C" else "002610",
         "富国周期优势": "019260",
-        "华夏中小板": "000086",
-        "招商中证红利": "018757" if share_class == "C" else "018756", "稳益增强": "018757" if share_class == "C" else "018756",
+        "华夏中小企业100ETF联接": "006163" if share_class == "C" else "000058", "华夏中小板ETF联接": "006163" if share_class == "C" else "000058", "华夏中小板": "006163" if share_class == "C" else "000058",
+        "工银信用纯债": "002352" if share_class == "C" else "000086", "工银纯债": "002352" if share_class == "C" else "000086",
+        "招商中证红利ETF联接": "012644" if share_class == "C" else "012643", "招商中证红利": "012644" if share_class == "C" else "012643", "招商红利": "012644" if share_class == "C" else "012643",
+        "睿远稳益增强": "018757" if share_class == "C" else "018756", "稳益增强": "018757" if share_class == "C" else "018756",
         "摩根标普500": "001071", "摩根标普": "001071",
         "汇添富中证红利低波": "006113", "汇添富红利低波": "006113",
         "广发中证500": "004854",
         "华安安顺": "001595",
-        "天弘中证500": "001551", "天弘中证医药": "001551"
+        "天弘中证500": "001551",
+        "天弘国证生物医药": "011041" if share_class == "C" else "011040", "天弘中证医药": "011041" if share_class == "C" else "011040"
     }
 
     # 按别名长度降序优先匹配
@@ -2240,10 +2249,20 @@ FUND_LOOK_THROUGH_DATA: Dict[str, Dict[str, Any]] = {
         "top_stocks_weights": [9.5, 8.2, 7.1, 6.2, 5.4, 4.8, 4.2, 3.7, 3.2, 2.8],
         "top_stocks": ["中芯国际", "海光信息", "韦尔股份", "北方华创", "圣邦股份", "兆易创新", "卓胜微", "长电科技", "中微公司", "澜起科技"]
     },
-    "000086": {
+    "000058": {
         "industries": {"电子与先进制造": 35.0, "医药生物": 18.0, "新能源与汽车": 16.0, "计算机软件": 15.0, "现金与固收": 16.0},
         "top_stocks_weights": [6.5, 5.8, 5.2, 4.8, 4.2, 3.8, 3.5, 3.1, 2.8, 2.3],
         "top_stocks": ["立讯精密", "顺丰控股", "牧原股份", "海康威视", "比亚迪", "天齐锂业", "赣锋锂业", "科大讯飞", "亿纬锂能", "恩捷股份"]
+    },
+    "006163": {
+        "industries": {"电子与先进制造": 35.0, "医药生物": 18.0, "新能源与汽车": 16.0, "计算机软件": 15.0, "现金与固收": 16.0},
+        "top_stocks_weights": [6.5, 5.8, 5.2, 4.8, 4.2, 3.8, 3.5, 3.1, 2.8, 2.3],
+        "top_stocks": ["立讯精密", "顺丰控股", "牧原股份", "海康威视", "比亚迪", "天齐锂业", "赣锋锂业", "科大讯飞", "亿纬锂能", "恩捷股份"]
+    },
+    "000086": {
+        "industries": {"纯债与高等级信用债": 92.0, "国债与政金债": 5.0, "现金与银行存款": 3.0},
+        "top_stocks_weights": [],
+        "top_stocks": []
     },
     "012832": {
         "industries": {"电力设备与光伏": 65.0, "新能源汽车与电池": 25.0, "绿色电力与公用事业": 6.0, "现金": 4.0},

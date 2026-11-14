@@ -5,7 +5,7 @@
   "baseline_equity": 180945.0,
   "available_cash": 35800.0,
   "in_transit_cash": 10500.0,
-  "reserved_batch_cash": 0.0,
+  "reserved_batch_cash": 50000.0,
   "total_market_value": 145145.0,
   "total_equity": 191445.0,
   "peak_equity": 191445.0,
@@ -225,7 +225,98 @@
       "notes": "部分稳益债基赎回腾挪款在途"
     }
   ],
-  "staged_batch_plans": [],
+  "staged_batch_plans": [
+    {
+      "step": 2,
+      "title": "第二批 · 逢低网格补仓单 (30%)",
+      "amount": 30000.0,
+      "timing": "大盘回踩 4,034 支撑位触发",
+      "orders": [
+        {
+          "code": "002351",
+          "name": "易方达裕祥回报债券A",
+          "amount": 8700.0,
+          "trigger_condition": "沪深300回踩至 4,034 附近时分批补入"
+        },
+        {
+          "code": "100032",
+          "name": "富国中证红利指数增强A",
+          "amount": 6000.0,
+          "trigger_condition": "沪深300回踩至 4,034 附近时分批补入"
+        },
+        {
+          "code": "000086",
+          "name": "工银信用纯债债券A",
+          "amount": 4500.0,
+          "trigger_condition": "沪深300回踩至 4,034 附近时分批补入"
+        },
+        {
+          "code": "000216",
+          "name": "华安黄金ETF联接A",
+          "amount": 4500.0,
+          "trigger_condition": "沪深300回踩至 4,034 附近时分批补入"
+        },
+        {
+          "code": "005561",
+          "name": "创金合信中证红利低波动指数A",
+          "amount": 4500.0,
+          "trigger_condition": "沪深300回踩至 4,034 附近时分批补入"
+        },
+        {
+          "code": "001071",
+          "name": "摩根标普500指数(QDII)人民币A",
+          "amount": 1800.0,
+          "trigger_condition": "沪深300回踩至 4,034 附近时分批补入"
+        }
+      ],
+      "notes": "未触发前停泊于低波短债/货基赚取票息，回踩支撑线时挂单吸筹。"
+    },
+    {
+      "step": 3,
+      "title": "第三批 · 右侧趋势加仓单 (20%)",
+      "amount": 20000.0,
+      "timing": "大盘突破 4,192 进攻线触发",
+      "orders": [
+        {
+          "code": "002351",
+          "name": "易方达裕祥回报债券A",
+          "amount": 5800.0,
+          "trigger_condition": "沪深300放量站上 4,192 进攻线确认时加仓"
+        },
+        {
+          "code": "100032",
+          "name": "富国中证红利指数增强A",
+          "amount": 4000.0,
+          "trigger_condition": "沪深300放量站上 4,192 进攻线确认时加仓"
+        },
+        {
+          "code": "000086",
+          "name": "工银信用纯债债券A",
+          "amount": 3000.0,
+          "trigger_condition": "沪深300放量站上 4,192 进攻线确认时加仓"
+        },
+        {
+          "code": "000216",
+          "name": "华安黄金ETF联接A",
+          "amount": 3000.0,
+          "trigger_condition": "沪深300放量站上 4,192 进攻线确认时加仓"
+        },
+        {
+          "code": "005561",
+          "name": "创金合信中证红利低波动指数A",
+          "amount": 3000.0,
+          "trigger_condition": "沪深300放量站上 4,192 进攻线确认时加仓"
+        },
+        {
+          "code": "001071",
+          "name": "摩根标普500指数(QDII)人民币A",
+          "amount": 1200.0,
+          "trigger_condition": "沪深300放量站上 4,192 进攻线确认时加仓"
+        }
+      ],
+      "notes": "未突破前停泊吃息，放量站上进攻线右侧确认时全额进攻。"
+    }
+  ],
   "nav_history": [
     {
       "date": "2026-11-06",
@@ -285,5 +376,5 @@
     "baseline_equity": 171729.5,
     "date": "2026-11-06"
   },
-  "updated_at": "2026-11-14 08:14:51"
+  "updated_at": "2026-11-14 22:43:47"
 }

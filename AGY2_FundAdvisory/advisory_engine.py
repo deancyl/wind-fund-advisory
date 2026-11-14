@@ -4382,13 +4382,22 @@ def compute_ten_dimension_votes(
     total_score = round(sum(d["score"] for d in dimensions) / len(dimensions), 1)
 
     # 仓位推导因果传导公式
-    base_equity = 60.0
+    tier_u = str(kwargs.get("tier", "C3")).upper()
+    tier_base_map = {
+        "C1": (20.0, 10.0, 30.0),
+        "C2": (40.0, 20.0, 50.0),
+        "C3": (60.0, 40.0, 85.0),
+        "C4": (75.0, 55.0, 90.0),
+        "C5": (85.0, 65.0, 95.0)
+    }
+    base_equity, min_eq, max_eq = tier_base_map.get(tier_u, (60.0, 20.0, 85.0))
     tot_delta = sum(d["delta_pct"] for d in dimensions)
-    target_equity = int(round(max(20.0, min(85.0, base_equity + tot_delta))))
+    raw_target = int(round(base_equity + tot_delta))
+    target_equity = int(round(max(min_eq, min(max_eq, raw_target))))
     target_defensive = 100 - target_equity
 
     # 构造清晰人话因果链
-    causal_parts = ["基准权益中枢 60%"]
+    causal_parts = [f"基准权益中枢 {int(base_equity)}%"]
     if d3_delta != 0: causal_parts.append(f"ERP极低估溢价({d3_delta:+.0f}%)")
     if d2_delta != 0: causal_parts.append(f"货币宽松({d2_delta:+.0f}%)")
     if d6_delta != 0: causal_parts.append(f"结构性机会({d6_delta:+.0f}%)")
@@ -4400,11 +4409,17 @@ def compute_ten_dimension_votes(
     if d8_delta != 0: causal_parts.append(f"均线乖离约束({d8_delta:+.0f}%)")
     if d10_delta != 0: causal_parts.append(f"黑天鹅对冲({d10_delta:+.0f}%)")
 
-    causal_formula = " + ".join(causal_parts).replace("+ -", "- ") + f" = 当前建议权益仓位 {target_equity}% (防守固收 {target_defensive}%)"
+    formula_head = " + ".join(causal_parts).replace("+ -", "- ")
+    if raw_target > max_eq:
+        causal_formula = f"{formula_head} = {raw_target}% -> 触及风控上限锁定，当前建议权益仓位 {target_equity}% (防守固收 {target_defensive}%)"
+    elif raw_target < min_eq:
+        causal_formula = f"{formula_head} = {raw_target}% -> 触及风控下限锁定，当前建议权益仓位 {target_equity}% (防守固收 {target_defensive}%)"
+    else:
+        causal_formula = f"{formula_head} = 当前建议权益仓位 {target_equity}% (防守固收 {target_defensive}%)"
 
     verdict = "积极做多" if bull_count >= 6 else ("防守防御" if bear_count >= 5 else "稳健攻防")
 
-    equity_tilt = round((target_equity - 60) / 100.0, 4)
+    equity_tilt = round((target_equity - base_equity) / 100.0, 4)
     suggested_equity_ratio = round(target_equity / 100.0, 4)
     suggested_fixed_ratio = round(target_defensive / 100.0, 4)
 

@@ -437,3 +437,8 @@
 ## 85. 大额申购限额全景合规闭环与建仓单额度透明规范 (Daily Purchase Limit Visibility & Blueprint Compliance Standard)
 - **建仓与调仓单限额全景透出**：在 Tab 1 实盘建仓单与 Tab 2 调仓建议表中强制实装「单日限额」核心列，穿透展示标的官方每日申购上限（如 001071 标普500 标注 `¥1,000/日 (大额拆单)`，050025 标注 `不限 (正常申购)`）；
 - **算法模型大类宪法硬约束**：HRP/CVaR 等机构配置模型求解后强制执行资产大类宪法约束投影（C3 档位海外 QDII $\le 12\%$，黄金 $\le 15\%$，纯债 $15\% \sim 30\%$，A 股权益 $50\% \sim 65\%$），并结合同质化基准去重，杜绝单次建仓资金击穿单日限额或同时选入多只同质化标的。
+
+## 38. 十维宏观投票与定权优化器知行合一闭环及公募摩擦明细弹性兼容铁律 (Ten-Dimension Voting Alignment & Friction Bill Compatibility Invariant)
+- **宏观投票与宪法约束知行合一**：`compute_ten_dimension_votes` 算出的宏观风险偏好倾斜度 `equity_tilt_pct` 必须真实传入 `apply_asset_class_constitutional_limits` 与 `PortfolioOptimizer.optimize`，动态调节 A 股权益上限与纯债下限，算术截断必须在因果链末尾显式标注（如 `-> 触及风控上限锁定`），并在返回字典中携带 `ten_dim_adjusted_equity_pct` 与 `equity_tilt_pct`，杜绝参谋言行不一；
+- **公募摩擦明细全真精算与入参双向兼容**：`StrategyBridge.calculate_mutual_fund_friction_bill` 必须声明 `total_capital: float = 26615.10, capital: Optional[float] = None, **kwargs` 签名兼容性，杜绝抛出 `TypeError` 导致 Tab 3 崩溃；函数内部真实遍历 `weights` 统计 A/C 类比例、申购费、0.40%/年销售服务费与 QDII 限额拆单批次，并在返回字典中同时提供 `c_service_fee_yuan` / `sales_service_fee_yuan`、`in_transit_loss_yuan` / `in_transit_drag_yuan`、`quota_split_batches` / `qdii_split_batches`、`total_friction_bps` 双套字段；
+- **移动端容器高度自适应与纯债重仓穿透保真**：首屏裁决台 `.chief-memo-container` 必须保持自适应高度 `height: auto !important; min-height: 82px; overflow: visible !important;`，严禁硬编码限制导致窄屏下胶囊溢出外框遮挡下方组件；`FUND_LOOK_THROUGH_MAP` 中保持 `000086` 工银信用纯债为纯债底层资产，华夏中小板股票重仓独立归位至 `000058 / 006163`，并在 `ALIAS_MAP` 中确立带基金公司品牌词条的优先匹配，杜绝指鹿为马。

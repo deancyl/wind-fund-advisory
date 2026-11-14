@@ -5895,7 +5895,9 @@ class StrategyBridge:
         weights: Dict[str, float],
         total_capital: float = 26615.10,
         holding_days: int = 365,
-        is_combat_29: bool = False
+        is_combat_29: bool = False,
+        capital: Optional[float] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         全真精算中国公募基金交易摩擦明细账单：
@@ -5905,12 +5907,18 @@ class StrategyBridge:
         4. T+1/T+2 在途资金损耗 (活期与货币基金基准差额)
         5. 限购拆单批次 (QDII 华安纳斯达克 017436 单日 1000 元限购)
         """
+        tot_cap = float(capital if capital is not None else total_capital)
+        if tot_cap <= 0:
+            tot_cap = 26615.10
+
+        from portfolio_manager import CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG
+
         if is_combat_29 or (len(weights) >= 20 and "005561" in weights and "110020" in weights):
             c_class_count = 12
             c_class_ratio = 0.386
             fund_count = len(weights)
-            sub_fee = round(total_capital * (1.0 - c_class_ratio) * 0.0012, 2)
-            c_srv_fee = round(total_capital * c_class_ratio * 0.0040, 2)
+            sub_fee = round(tot_cap * (1.0 - c_class_ratio) * 0.0012, 2)
+            c_srv_fee = round(tot_cap * c_class_ratio * 0.0040, 2)
             redemp_fee = 0.00
             in_transit_loss = 0.16
             quota_batches = 5
@@ -5922,14 +5930,47 @@ class StrategyBridge:
             dividend_yield = 2.10
             is_29 = True
         else:
-            c_class_count = 0
-            c_class_ratio = 0.0
+            # 动态全真遍历 weights 中的每一只基金
             fund_count = len(weights)
-            sub_fee = round(total_capital * 0.0012, 2)
-            c_srv_fee = 0.00
-            redemp_fee = 0.00
-            in_transit_loss = 0.16
-            quota_batches = 5
+            c_class_count = 0
+            c_weight = 0.0
+            a_weight = 0.0
+            quota_batches = 1
+
+            w_sum = sum(weights.values()) if weights else 1.0
+            if w_sum <= 0:
+                w_sum = 1.0
+
+            for fcode, w in weights.items():
+                norm_w = float(w) / w_sum
+                meta = CORE_STRATEGY_POOL.get(fcode, {}) or EXTENDED_FUND_CATALOG.get(fcode, {})
+                s_cls = meta.get("share_class", "")
+                fname = meta.get("fund_name", "")
+                is_c = (s_cls == "C") or ("C" in fname) or fcode.endswith("3") or fcode.endswith("7")
+                if is_c:
+                    c_class_count += 1
+                    c_weight += norm_w
+                else:
+                    a_weight += norm_w
+
+                # QDII 限购拆单核验
+                d_limit = meta.get("daily_limit")
+                if d_limit is None and fcode in ["017436", "001071", "050025"]:
+                    d_limit = 1000.0
+                if d_limit and d_limit > 0:
+                    allocated_m = norm_w * tot_cap
+                    if allocated_m > d_limit:
+                        batches = math.ceil(allocated_m / d_limit)
+                        if batches > quota_batches:
+                            quota_batches = batches
+
+            c_class_ratio = round(c_weight, 3)
+            sub_fee = round(tot_cap * a_weight * 0.0012, 2)
+            c_srv_fee = round(tot_cap * c_weight * 0.0040, 2)
+            redemp_fee = 0.00 if holding_days >= 30 else round(tot_cap * 0.0050, 2)
+            in_transit_loss = round(tot_cap * 0.00001, 2) if tot_cap > 0 else 0.16
+            if in_transit_loss < 0.10:
+                in_transit_loss = 0.16
             total_friction = round(sub_fee + c_srv_fee + redemp_fee + in_transit_loss, 2)
             cagr_val = 16.85
             mdd_all = -16.76
@@ -5938,19 +5979,26 @@ class StrategyBridge:
             dividend_yield = 3.42
             is_29 = False
 
+        total_friction_bps = round(total_friction / max(tot_cap, 1.0) * 10000.0, 1)
+
         return {
             "is_combat_29": is_29,
             "fund_count": fund_count,
             "c_class_count": c_class_count,
+            "c_fund_count": c_class_count,
             "c_class_ratio_pct": round(c_class_ratio * 100.0, 1),
-            "total_capital": total_capital,
+            "total_capital": tot_cap,
             "subscription_fee_yuan": sub_fee,
             "subscription_rate_pct": 0.12,
             "redemption_fee_yuan": redemp_fee,
             "c_service_fee_yuan": c_srv_fee,
+            "sales_service_fee_yuan": c_srv_fee,
             "in_transit_loss_yuan": in_transit_loss,
+            "in_transit_drag_yuan": in_transit_loss,
             "quota_split_batches": quota_batches,
+            "qdii_split_batches": quota_batches,
             "total_friction_yuan": total_friction,
+            "total_friction_bps": total_friction_bps,
             "mdd_all_pct": mdd_all,
             "mdd_1y_pct": mdd_1y,
             "recovery_days": recovery_days,

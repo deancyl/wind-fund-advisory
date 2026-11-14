@@ -3073,7 +3073,7 @@ def fetch_macro_cross_market_indicators(
     try:
         from portfolio_manager import fetch_realtime_index_quote
         q_g = fetch_realtime_index_quote("sh518880", use_cache=True)
-        if q_g and float(q_g.get("point", 0.0)) > 0:
+        if q_g and 1.0 < float(q_g.get("point", 0.0)) < 50.0:
             gold_price = round(float(q_g["point"]), 3)
             gold_chg = round(float(q_g.get("change_pct", 0.0)), 2)
             gold_source = "华安黄金ETF实时盘口 (sh518880)"

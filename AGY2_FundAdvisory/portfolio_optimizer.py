@@ -63,7 +63,8 @@ def _normalize_weights_strict(weights: Dict[str, float]) -> Dict[str, float]:
 def apply_asset_class_constitutional_limits(
     weights: Dict[str, float],
     tier: str = "C3",
-    metrics_df: Optional[pd.DataFrame] = None
+    metrics_df: Optional[pd.DataFrame] = None,
+    equity_tilt_pct: float = 0.0
 ) -> Dict[str, float]:
     """
     大类资产配置宪法硬约束投影 (Asset Allocation Constitutional Guardrails)：
@@ -75,6 +76,7 @@ def apply_asset_class_constitutional_limits(
       - 黄金/商品 <= 15% (0.15)
       - 纯债固收 15% ~ 30% (0.15 ~ 0.30)
       - A 股权益 50% ~ 65% (0.50 ~ 0.65)
+    支持根据宏观十维投票结果动态调节权益中枢 (equity_tilt_pct) 实现知行合一。
     """
     if not weights:
         return weights
@@ -90,7 +92,13 @@ def apply_asset_class_constitutional_limits(
         "C3": {"qdii_max": 0.12, "gold_max": 0.15, "bond_min": 0.15, "bond_max": 0.30, "eq_max": 0.65},
         "C4": {"qdii_max": 0.15, "gold_max": 0.12, "bond_min": 0.05, "bond_max": 0.15, "eq_max": 0.78},
         "C5": {"qdii_max": 0.15, "gold_max": 0.10, "bond_min": 0.00, "bond_max": 0.10, "eq_max": 0.90},
-    }.get(tier_u, {"qdii_max": 0.12, "gold_max": 0.15, "bond_min": 0.15, "bond_max": 0.30, "eq_max": 0.65})
+    }.get(tier_u, {"qdii_max": 0.12, "gold_max": 0.15, "bond_min": 0.15, "bond_max": 0.30, "eq_max": 0.65}).copy()
+
+    # 宏观十维投票动态调节权益上限与固收下限 (知行合一闭环)
+    if equity_tilt_pct != 0.0:
+        caps["eq_max"] = min(0.95, max(0.15, caps["eq_max"] + equity_tilt_pct))
+        caps["bond_min"] = max(0.0, min(0.85, caps["bond_min"] - equity_tilt_pct))
+        caps["bond_max"] = max(caps["bond_min"], min(0.90, caps["bond_max"] - equity_tilt_pct))
 
     # 分类资产
     qdii_codes, gold_codes, bond_codes, eq_codes = [], [], [], []
@@ -836,8 +844,19 @@ class WinRateOptimizer:
             optimal_weights = {c: eq_w for c in selected_codes}
         
         # 施加大类资产配置宪法硬约束投影 (C3 档位: QDII<=12%, 黄金<=15%, 纯债15%~30%, 权益50%~65%)
+        # 接入宏观十维投票动态调节 (知行合一)
+        eq_tilt = 0.0
+        if hasattr(self, "market_snapshot") and self.market_snapshot:
+            eq_tilt = float(self.market_snapshot.get("equity_tilt_pct", 0.0))
+            if eq_tilt == 0.0:
+                try:
+                    from advisory_engine import compute_ten_dimension_votes
+                    tdv = compute_ten_dimension_votes(snapshot=self.market_snapshot, tier=self.tier)
+                    eq_tilt = float(tdv.get("equity_tilt_pct", 0.0))
+                except Exception:
+                    pass
         optimal_weights = apply_asset_class_constitutional_limits(
-            optimal_weights, tier=self.tier, metrics_df=metrics
+            optimal_weights, tier=self.tier, metrics_df=metrics, equity_tilt_pct=eq_tilt
         )
 
         # 计算组合胜率（接入当下 market_snapshot 条件胜率）
@@ -879,8 +898,13 @@ class WinRateOptimizer:
             ann_ret = (1 + total_ret) ** (1 / max(years, 0.1)) - 1.0 if total_ret > -1 else -1.0
             sharpe = (ann_ret - 0.02) / max(ann_vol, 1e-10)
 
+        norm_opt_w = _normalize_weights_strict(optimal_weights)
+        calc_eq_ratio = round(sum(v for k, v in norm_opt_w.items() if not any(b in k for b in ["002351", "002352", "000086", "000216", "518880"])) * 100.0, 1)
+
         return {
-            "optimal_weights": _normalize_weights_strict(optimal_weights),
+            "optimal_weights": norm_opt_w,
+            "ten_dim_adjusted_equity_pct": calc_eq_ratio,
+            "equity_tilt_pct": eq_tilt,
             "portfolio_metrics": {
                 "win_rate": float(min(1.0, max(0.0, float(wr.get("conditional_win_rate", wr["win_rate"]))))),
                 "conditional_win_rate": float(min(1.0, max(0.0, float(wr.get("conditional_win_rate", wr["win_rate"]))))),

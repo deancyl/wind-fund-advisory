@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-14 08:14:53",
+  "timestamp": "2026-11-14 22:43:47",
   "all_passed": false,
   "has_danger": true,
   "has_warning": true,
@@ -37,8 +37,8 @@
     "is_liquidity_shift_triggered": false,
     "is_mutation_alarm": false,
     "is_regime_shift_risk": false,
-    "current_correlation": 0.0493,
-    "downside_correlation": -0.2421,
+    "current_correlation": 0.0479,
+    "downside_correlation": -0.2376,
     "threshold": 0.75,
     "stress_threshold": 0.8,
     "status": "DECOUPLED_NORMAL",
@@ -54,8 +54,6 @@
     "cut_details": [],
     "total_cut_weight_pct": 0.0,
     "historical_correlation_tail": {
-      "2026-05-19": 0.4438,
-      "2026-05-20": 0.4417,
       "2026-05-21": 0.5289,
       "2026-05-22": 0.4839,
       "2026-05-25": 0.5079,
@@ -173,7 +171,9 @@
       "2026-11-06": 0.0485,
       "2026-11-09": 0.0485,
       "2026-11-10": 0.0496,
-      "2026-11-11": 0.0493
+      "2026-11-11": 0.0493,
+      "2026-11-12": 0.0486,
+      "2026-11-13": 0.0479
     },
     "alert_title": "【相关性健康】红利与周期权重相关系数正常 (0.05 < 0.75)",
     "alert_message": "红利类资产与周期权重股相关性保持在正常隔离区间，未发生突变共振。",

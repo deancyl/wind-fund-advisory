@@ -383,7 +383,7 @@ grid-template-columns: repeat(2, minmax(0, 1fr));
 }}
 }}
 </style>
-<div class="chief-memo-container" style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.03); max-height: 120px; box-sizing: border-box;">
+<div class="chief-memo-container" style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.03); height: auto !important; min-height: 82px; overflow: visible !important; box-sizing: border-box;">
 <!-- 第一行: 今日核心裁决 + 因果公式 + 截面时间 (Flex-wrap 防挤压) -->
 <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px; margin-bottom: 5px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px;">
 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
@@ -399,57 +399,56 @@ grid-template-columns: repeat(2, minmax(0, 1fr));
 <!-- 第二行: 5 紧凑胶囊 (桌面端 1行5列, 手机端 2列流式网格) -->
 <div class="chief-memo-grid">
 <!-- 1. 宏观与政策面 -->
-<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid var(--accent-primary); border-radius: 5px; padding: 3px 5px; box-sizing: border-box; overflow: hidden;">
+<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid var(--accent-primary); border-radius: 5px; padding: 4px 6px; box-sizing: border-box; overflow: hidden;">
 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; font-weight: 700; color: var(--accent-primary); white-space: nowrap;">
 <span>🏛️ 宏观与政策面</span>
 <span style="font-size: 9.5px; font-weight: 600;">{m_macro.get('badge', '🟢 货币宽松')}</span>
 </div>
-<div style="font-size: 10px; color: var(--text-secondary); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+<div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
 {macro_capsule_sub}
 </div>
 </div>
 
 <!-- 2. 国际与汇率面 -->
-<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid #8b5cf6; border-radius: 5px; padding: 3px 5px; box-sizing: border-box; overflow: hidden;">
+<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid #8b5cf6; border-radius: 5px; padding: 4px 6px; box-sizing: border-box; overflow: hidden;">
 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; font-weight: 700; color: #8b5cf6; white-space: nowrap;">
 <span>🌐 国际与汇率面</span>
 <span style="font-size: 9.5px; font-weight: 600;">{m_intl.get('badge', '🟢 汇率稳健')}</span>
 </div>
-<div style="font-size: 10px; color: var(--text-secondary); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+<div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
 {intl_capsule_sub}
 </div>
 </div>
 
 <!-- 3. 产业与估值面 -->
-<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid #0284c7; border-radius: 5px; padding: 3px 5px; box-sizing: border-box; overflow: hidden;">
+<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid #0284c7; border-radius: 5px; padding: 4px 6px; box-sizing: border-box; overflow: hidden;">
 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; font-weight: 700; color: #0284c7; white-space: nowrap;">
 <span>📈 产业与估值面</span>
 <span style="font-size: 9.5px; font-weight: 600;">🎯 机会击球</span>
 </div>
-<div style="font-size: 10px; color: var(--text-secondary); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+<div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
 {ind_capsule_sub}
 </div>
 </div>
 
 <!-- 4. 持仓病灶 / 拟建仓结构校验 -->
-<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid var(--color-up, #ef4444); border-radius: 5px; padding: 3px 5px; box-sizing: border-box; overflow: hidden;">
+<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid var(--color-up, #ef4444); border-radius: 5px; padding: 4px 6px; box-sizing: border-box; overflow: hidden;">
 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; font-weight: 700; color: var(--color-up, #ef4444); white-space: nowrap;">
 <span>{path_label}</span>
 <span style="font-size: 9.5px; font-weight: 600;">{path_badge_title}</span>
 </div>
-<div style="font-size: 10px; color: var(--text-secondary); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+<div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
 {path_capsule_sub}
 </div>
-<div style="display:none;" class="chief-memo-pathology-content">{path_content_full}</div>
 </div>
 
 <!-- 5. 今日行动准则 (14:30尾盘) -->
-<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid {act_color}; border-radius: 5px; padding: 3px 5px; box-sizing: border-box; overflow: hidden;">
+<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid {act_color}; border-radius: 5px; padding: 4px 6px; box-sizing: border-box; overflow: hidden;">
 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; font-weight: 700; color: {act_color}; white-space: nowrap;">
 <span>🎯 今日行动准则</span>
 <span style="font-size: 9.5px; font-weight: 600;">{act_verdict}</span>
 </div>
-<div style="font-size: 10px; color: var(--text-secondary); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+<div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
 {action_capsule_sub}
 </div>
 </div>
@@ -3250,6 +3249,24 @@ if active_lid not in avail_lids:
     active_lid = "main_live" if "main_live" in avail_lids else (avail_lids[0] if avail_lids else "main_live")
     st.session_state.active_ledger_id = active_lid
 
+# 首次加载智能自动路由：若当前激活账本为存量组合（如实战29基或持仓数>=8只），首次进入自动聚焦至 Tab 2 (💼 持仓调仓)
+if "_initial_ledger_routed" not in st.session_state:
+    st.session_state["_initial_ledger_routed"] = True
+    cur_pm_init = mlm_inst.get_pm(active_lid) if mlm_inst else pm
+    if cur_pm_init and len(cur_pm_init.holdings) >= 8:
+        st.session_state["sel_tab2_active_ledger"] = active_lid
+        st.session_state["tab2_view_mode"] = "💼 持仓诊断与智能调仓 (主流程)"
+        st.session_state["pending_cross_tab_jump"] = {
+            "tab_index": 1,
+            "tab_name": "💼 持仓调仓",
+            "action_name": "首次加载存量持仓",
+            "target_title": active_lid,
+            "detail": f"检测到【{active_lid}】包含 {len(cur_pm_init.holdings)} 只存量持仓，已自动聚焦持仓诊断与调仓工作区",
+            "timestamp": datetime.now().strftime("%H:%M:%S")
+        }
+        st.session_state.tab2_diagnosed = True
+        st.session_state.tab2_rebalanced = True
+
 col_top_brand, col_top_ledger = st.columns([4.2, 5.8])
 
 with col_top_brand:
@@ -3666,32 +3683,7 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                 with col_rad_head1:
                     safe_markdown_html("<div style='font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;'>🔭 全市场机会雷达 · Top 3 机会甄选</div>")
                 with col_rad_head2:
-                    with st.popover(f"🧬 因子进化: 估{w_factors[0]*100:.0f}% 动{w_factors[1]*100:.0f}% 噪{w_factors[2]*100:.0f}% 拥{w_factors[3]*100:.0f}%", use_container_width=True):
-                        st.markdown("##### 🧬 在线启发式因子基因自适应进化与突发黑天鹅 GP 规则树引擎")
-                        regime_mode_txt = evo_res.get("regime_mode", "平稳蓄势态 (STABLE_CONSOLIDATION)")
-                        regime_badge_txt = evo_res.get("regime_badge", "🟢 平稳蓄势")
-                        st.caption(f"当前识别市场模式：<b>{regime_badge_txt} {regime_mode_txt}</b>", unsafe_allow_html=True)
-                        c_m1, c_m2, c_m3 = st.columns(3)
-                        c_m1.metric("样本外 Alpha", f"{traj_data.get('alpha_pct', 0.0):+.2f}%")
-                        c_m2.metric("动态最大回撤", f"-{traj_data.get('mdd_dynamic_pct', 0.0):.2f}%")
-                        c_m3.metric("换手率惩罚", f"-{evo_res.get('turnover', 0.0):.1f}%")
-                        mom_w = float(evo_res.get("adaptive_momentum_window", 0.30))
-                        vol_p = float(evo_res.get("vol_pulse_penalty_coef", 1.20))
-                        safe_s = float(evo_res.get("panic_safe_haven_shift", 0.50))
-                        df_rule = pd.DataFrame([
-                            {"自适应进化机制": "动量感知窗口 (Mom_Win)", "参数设定": f"5日({mom_w*100:.0f}%) + 20日({(1.0-mom_w)*100:.0f}%)", "业务参谋意义": "平抑短线波动杂波，锁定中期主升赛道"},
-                            {"自适应进化机制": "波动率脉冲惩罚 (Vol_Pulse)", "参数设定": f"惩罚系数 {vol_p:.2f}", "业务参谋意义": "赛道短期波幅异动急剧放大时自动降权规避"},
-                            {"自适应进化机制": "恐慌避险增强 (Panic_Safe)", "参数设定": f"避险上浮 +{safe_s*100:.0f}%", "业务参谋意义": "大盘急跌错杀期优先上调红利低波与纯债权重"}
-                        ])
-                        st.dataframe(df_rule, use_container_width=True, hide_index=True)
-                        st.caption("💡 **进化结论**：模型根据当前波动与估值状态机自适应调节动量敏感度与波动惩罚，兼顾进攻弹性与回撤保护。")
-                        if traj_data.get("dates"):
-                            df_traj = pd.DataFrame({
-                                "日期": traj_data.get("dates", [])[-15:],
-                                "动态净值": traj_data.get("nav_dynamic", [])[-15:],
-                                "静态基准": traj_data.get("nav_static", [])[-15:],
-                            })
-                            st.line_chart(df_traj.set_index("日期"))
+                    safe_markdown_html("<div style='font-size: 11px; color: var(--text-muted); text-align: right; padding-top: 3px;'>🧬 GP 规则自适应进化 · 动量/估值状态机</div>")
                 with col_rad_btn:
                     if st.button("🔄 刷新", key="btn_refresh_radar_sentry", help="强制重算14赛道雷达与十二维主动风控"):
                         st.session_state["_sentry_cached_rep"] = None
@@ -3820,11 +3812,12 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                     def _sentry_alert_sorter(a):
                         _lvl = str(a.get("level", "yellow")).lower()
                         _t = str(a.get("title", "")) + str(a.get("desc", ""))
+                        is_tail_cleanup = a.get("dimension") == "碎片尾仓清理" or "碎片尾仓" in _t
                         is_scale_unknown = "规模待核验" in _t
                         if _lvl in ("red", "critical"):
                             return (0, 0)
                         elif _lvl in ("yellow", "warning"):
-                            return (1, 1 if is_scale_unknown else 0)
+                            return (1, -1 if is_tail_cleanup else (1 if is_scale_unknown else 0))
                         elif "green" in _lvl or _lvl in ("info", "notice"):
                             return (3, 0)
                         return (2, 0)
@@ -6702,6 +6695,12 @@ with tab_holdings_and_rebalance:
                         elif is_held and diff_amt <= 0 and ("30天" in safety or (7 <= holding_days < 30 and it.get("share_class") == "C") or "缓卖" in action_raw):
                             op_action = "⏳ 临近30天免赎期缓卖"
                             op_point = "缓卖·满30天免赎回费"
+                        elif is_held and it.get("target_weight_pct", 0.0) <= 1e-4 and holding_days >= (30 if it.get("share_class") == "C" else 7):
+                            op_action = "🧹 建议清仓归拢"
+                            op_point = f"清理尾仓¥{cur_mv:,.1f}·归拢核心"
+                        elif "维持" in action_raw or (abs(diff_amt) <= 100 and -0.03 <= (it.get("target_weight_pct", 0.0) - it.get("current_weight_pct", 0.0)) <= 0.03):
+                            op_action = "✅ 维持持有"
+                            op_point = "仓位均衡·在容差内"
                         elif diff_amt > 100 or "加仓" in action_raw:
                             op_action = "➕ 建议加仓"
                             op_point = f"增配¥{abs(diff_amt):,.0f}·现金分红"
