@@ -325,19 +325,65 @@ def render_chief_advisor_memo_card(memo_data: Dict[str, Any], title: str = "🧭
     path_content_full = m_path.get("content", "")
 
     html_code = f"""<style>
+.chief-memo-container {{
+container: memo-desk / inline-size;
+width: 100%;
+}}
 .chief-memo-grid {{
 display: grid;
-grid-template-columns: repeat(5, 1fr);
+grid-template-columns: repeat(5, minmax(0, 1fr));
 gap: 6px;
 width: 100%;
 }}
+.chief-memo-capsule {{
+background: var(--bg-elevated);
+border: 1px solid var(--border-subtle);
+border-radius: 5px;
+padding: 4px 6px;
+box-sizing: border-box;
+display: flex;
+flex-direction: column;
+justify-content: space-between;
+min-inline-size: 0;
+overflow: hidden;
+}}
+.chief-memo-capsule-title {{
+display: flex;
+justify-content: space-between;
+align-items: center;
+font-size: clamp(9.5px, 0.7cqi + 9px, 11px);
+font-weight: 700;
+white-space: nowrap;
+}}
+.chief-memo-capsule-sub {{
+font-size: clamp(9px, 0.6cqi + 8.5px, 10.5px);
+color: var(--text-secondary);
+margin-top: 2px;
+margin-block-start: auto;
+white-space: nowrap;
+overflow: hidden;
+text-overflow: ellipsis;
+}}
+/* 现代 Web 容器查询: 宿主卡片宽度 < 560px 时（侧边栏展开、分屏、手机）自动变 2 列网格 */
+@container memo-desk (inline-size < 560px) {{
+.chief-memo-grid {{
+grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+gap: 6px !important;
+}}
+}}
+@container memo-desk (inline-size < 340px) {{
+.chief-memo-grid {{
+grid-template-columns: 1fr !important;
+}}
+}}
+/* 同层级标准媒体查询双轨回退防御 (兼容无容器查询环境) */
 @media (max-width: 768px) {{
 .chief-memo-grid {{
-grid-template-columns: repeat(2, 1fr) !important;
+grid-template-columns: repeat(2, minmax(0, 1fr));
 }}
 }}
 </style>
-<div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.03); max-height: 120px; box-sizing: border-box;">
+<div class="chief-memo-container" style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.03); max-height: 120px; box-sizing: border-box;">
 <!-- 第一行: 今日核心裁决 + 因果公式 + 截面时间 (Flex-wrap 防挤压) -->
 <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px; margin-bottom: 5px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px;">
 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
@@ -351,7 +397,7 @@ grid-template-columns: repeat(2, 1fr) !important;
 </div>
 
 <!-- 第二行: 5 紧凑胶囊 (桌面端 1行5列, 手机端 2列流式网格) -->
-<div class="chief-memo-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; width: 100%;">
+<div class="chief-memo-grid">
 <!-- 1. 宏观与政策面 -->
 <div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid var(--accent-primary); border-radius: 5px; padding: 3px 5px; box-sizing: border-box; overflow: hidden;">
 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; font-weight: 700; color: var(--accent-primary); white-space: nowrap;">
@@ -874,6 +920,42 @@ safe_markdown_html(f"""
         padding-right: 2rem !important;
         box-sizing: border-box !important;
         overflow-x: hidden !important;
+    }}
+
+    /* 现代 Web 容器查询上下文：全局指标卡栏 */
+    div[data-testid="stHorizontalBlock"]:has(.main-metric-card) {{
+        container: kpi-bar / inline-size;
+        width: 100%;
+    }}
+
+    @container kpi-bar (inline-size < 680px) {{
+        div[data-testid="stHorizontalBlock"]:has(.main-metric-card) {{
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: wrap !important;
+            gap: 6px !important;
+        }}
+        div[data-testid="stHorizontalBlock"]:has(.main-metric-card) > div[data-testid="column"],
+        div[data-testid="stHorizontalBlock"]:has(.main-metric-card) > div[data-testid="stColumn"] {{
+            flex: 1 1 calc(50% - 6px) !important;
+            min-width: calc(50% - 6px) !important;
+            max-width: calc(50% - 6px) !important;
+            width: calc(50% - 6px) !important;
+            box-sizing: border-box !important;
+        }}
+        .main-metric-card .metric-value-huge {{
+            font-size: clamp(14px, 2.5cqi + 11px, 18px) !important;
+        }}
+    }}
+
+    @container kpi-bar (inline-size < 360px) {{
+        div[data-testid="stHorizontalBlock"]:has(.main-metric-card) > div[data-testid="column"],
+        div[data-testid="stHorizontalBlock"]:has(.main-metric-card) > div[data-testid="stColumn"] {{
+            flex: 1 1 100% !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
+            width: 100% !important;
+        }}
     }}
 
     /* 全局标准 KPI 卡片与衍生卡片统一模数 */
@@ -3300,7 +3382,7 @@ with top_c4:
             ¥{total_cur_equity:,.2f}
         </div>
         <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            盘中: <b style="color: {pnl_color};">¥{est_pnl:+,.2f}</b> ({est_pnl_pct:+.2f}%) ｜ 浮盈: <b style="color: {tot_pnl_color};">¥{_t2_pnl:+,.2f}</b>
+            盘中: <b style="color: {pnl_color};">{'▲' if est_pnl >= 0 else '▼'} ¥{est_pnl:+,.2f}</b> ({est_pnl_pct:+.2f}%) ｜ 浮盈: <b style="color: {tot_pnl_color};">{'▲' if _t2_pnl >= 0 else '▼'} ¥{_t2_pnl:+,.2f}</b>
         </div>
     </div>
     """)
