@@ -22,7 +22,7 @@
       "fund_name": "创金合信中证红利低波动指数A",
       "share_class": "A",
       "shares": 2557.4136,
-      "cost_price": 2.177462,
+      "cost_price": 2.1775,
       "current_nav": 2.2216,
       "market_value": 5681.55,
       "cost_basis": 5568.67,
@@ -37,7 +37,7 @@
           "shares": 2557.4136,
           "cost_nav": 2.177462,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -53,7 +53,7 @@
       "fund_name": "易方达沪深300ETF联接A",
       "share_class": "A",
       "shares": 3149.0396,
-      "cost_price": 1.63273,
+      "cost_price": 1.6327,
       "current_nav": 1.6764,
       "market_value": 5279.05,
       "cost_basis": 5141.53,
@@ -68,7 +68,7 @@
           "shares": 3149.0396,
           "cost_nav": 1.63273,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -84,7 +84,7 @@
       "fund_name": "华安纳斯达克100ETF联接A",
       "share_class": "A",
       "shares": 2191.3974,
-      "cost_price": 2.045243,
+      "cost_price": 2.0452,
       "current_nav": 2.0703,
       "market_value": 4536.85,
       "cost_basis": 4481.94,
@@ -99,7 +99,7 @@
           "shares": 2191.3974,
           "cost_nav": 2.045243,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -115,7 +115,7 @@
       "fund_name": "易方达裕祥回报债券A",
       "share_class": "A",
       "shares": 2578.0704,
-      "cost_price": 1.609964,
+      "cost_price": 1.61,
       "current_nav": 1.591,
       "market_value": 4101.71,
       "cost_basis": 4150.6,
@@ -130,7 +130,7 @@
           "shares": 2578.0704,
           "cost_nav": 1.609964,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -146,7 +146,7 @@
       "fund_name": "富国中证红利指数增强A",
       "share_class": "A",
       "shares": 2550.2096,
-      "cost_price": 1.084397,
+      "cost_price": 1.0844,
       "current_nav": 0.954,
       "market_value": 2432.9,
       "cost_basis": 2765.44,
@@ -161,7 +161,7 @@
           "shares": 2550.2096,
           "cost_nav": 1.084397,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -177,7 +177,7 @@
       "fund_name": "华夏上证科创板50成份ETF联接C",
       "share_class": "C",
       "shares": 1978.3505,
-      "cost_price": 1.264184,
+      "cost_price": 1.2642,
       "current_nav": 1.0476,
       "market_value": 2072.52,
       "cost_basis": 2501.0,
@@ -192,7 +192,7 @@
           "shares": 1978.3505,
           "cost_nav": 1.264184,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -208,7 +208,7 @@
       "fund_name": "华安黄金ETF联接A",
       "share_class": "A",
       "shares": 347.8812,
-      "cost_price": 2.842637,
+      "cost_price": 2.8426,
       "current_nav": 2.9427,
       "market_value": 1023.71,
       "cost_basis": 988.9,
@@ -223,7 +223,7 @@
           "shares": 347.8812,
           "cost_nav": 2.842637,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -239,7 +239,7 @@
       "fund_name": "招商中证白酒指数(LOF)A",
       "share_class": "A",
       "shares": 922.7953,
-      "cost_price": 0.758565,
+      "cost_price": 0.7586,
       "current_nav": 0.5681,
       "market_value": 524.24,
       "cost_basis": 700.0,
@@ -254,7 +254,7 @@
           "shares": 922.7953,
           "cost_nav": 0.758565,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -270,7 +270,7 @@
       "fund_name": "华安黄金ETF联接C",
       "share_class": "C",
       "shares": 138.4204,
-      "cost_price": 2.736591,
+      "cost_price": 2.7366,
       "current_nav": 2.8589,
       "market_value": 395.73,
       "cost_basis": 378.8,
@@ -285,7 +285,7 @@
           "shares": 138.4204,
           "cost_nav": 2.736591,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -301,7 +301,7 @@
       "fund_name": "易方达蓝筹精选混合",
       "share_class": "A",
       "shares": 89.6901,
-      "cost_price": 1.650126,
+      "cost_price": 1.6501,
       "current_nav": 1.3841,
       "market_value": 124.14,
       "cost_basis": 148.0,
@@ -316,7 +316,7 @@
           "shares": 89.6901,
           "cost_nav": 1.650126,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -332,7 +332,7 @@
       "fund_name": "富国中证1000ETF联接C",
       "share_class": "C",
       "shares": 92.9653,
-      "cost_price": 1.07567,
+      "cost_price": 1.0757,
       "current_nav": 0.9638,
       "market_value": 89.6,
       "cost_basis": 100.0,
@@ -347,7 +347,7 @@
           "shares": 92.9653,
           "cost_nav": 1.07567,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -363,7 +363,7 @@
       "fund_name": "华夏中证500ETF联接C",
       "share_class": "C",
       "shares": 31.9583,
-      "cost_price": 3.129078,
+      "cost_price": 3.1291,
       "current_nav": 2.3781,
       "market_value": 76.0,
       "cost_basis": 100.0,
@@ -378,7 +378,7 @@
           "shares": 31.9583,
           "cost_nav": 3.129078,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -394,7 +394,7 @@
       "fund_name": "博时标普500ETF联接A",
       "share_class": "A",
       "shares": 9.478,
-      "cost_price": 5.275375,
+      "cost_price": 5.2754,
       "current_nav": 5.4938,
       "market_value": 52.07,
       "cost_basis": 50.0,
@@ -409,7 +409,7 @@
           "shares": 9.478,
           "cost_nav": 5.275375,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -440,7 +440,7 @@
           "shares": 50.0,
           "cost_nav": 1.0,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -456,7 +456,7 @@
       "fund_name": "华夏中证红利质量ETF联接C",
       "share_class": "C",
       "shares": 38.4669,
-      "cost_price": 1.299819,
+      "cost_price": 1.2998,
       "current_nav": 1.1584,
       "market_value": 44.56,
       "cost_basis": 50.0,
@@ -471,7 +471,7 @@
           "shares": 38.4669,
           "cost_nav": 1.299819,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -487,7 +487,7 @@
       "fund_name": "银华集成电路混合C",
       "share_class": "C",
       "shares": 18.606,
-      "cost_price": 3.564442,
+      "cost_price": 3.5644,
       "current_nav": 2.2611,
       "market_value": 42.07,
       "cost_basis": 66.32,
@@ -502,7 +502,7 @@
           "shares": 18.606,
           "cost_nav": 3.564442,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -518,7 +518,7 @@
       "fund_name": "南方中证新能源ETF联接C",
       "share_class": "C",
       "shares": 71.8152,
-      "cost_price": 0.696231,
+      "cost_price": 0.6962,
       "current_nav": 0.4804,
       "market_value": 34.5,
       "cost_basis": 50.0,
@@ -533,7 +533,7 @@
           "shares": 71.8152,
           "cost_nav": 0.696231,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -549,7 +549,7 @@
       "fund_name": "华夏中证动漫游戏ETF联接C",
       "share_class": "C",
       "shares": 26.1779,
-      "cost_price": 1.910008,
+      "cost_price": 1.91,
       "current_nav": 1.0952,
       "market_value": 28.67,
       "cost_basis": 50.0,
@@ -564,7 +564,7 @@
           "shares": 26.1779,
           "cost_nav": 1.910008,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -580,7 +580,7 @@
       "fund_name": "富国中证红利指数增强C",
       "share_class": "C",
       "shares": 9.5228,
-      "cost_price": 1.050111,
+      "cost_price": 1.0501,
       "current_nav": 0.943,
       "market_value": 8.98,
       "cost_basis": 10.0,
@@ -595,7 +595,7 @@
           "shares": 9.5228,
           "cost_nav": 1.050111,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -611,7 +611,7 @@
       "fund_name": "华夏上证科创板50成份ETF联接A",
       "share_class": "A",
       "shares": 3.7176,
-      "cost_price": 1.344954,
+      "cost_price": 1.345,
       "current_nav": 1.0625,
       "market_value": 3.95,
       "cost_basis": 5.0,
@@ -626,7 +626,7 @@
           "shares": 3.7176,
           "cost_nav": 1.344954,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -642,7 +642,7 @@
       "fund_name": "博时黄金ETF联接C",
       "share_class": "C",
       "shares": 0.7871,
-      "cost_price": 2.540973,
+      "cost_price": 2.541,
       "current_nav": 2.668,
       "market_value": 2.1,
       "cost_basis": 2.0,
@@ -657,7 +657,7 @@
           "shares": 0.7871,
           "cost_nav": 2.540973,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -673,7 +673,7 @@
       "fund_name": "富国周期优势混合A",
       "share_class": "A",
       "shares": 1.51,
-      "cost_price": 1.324503,
+      "cost_price": 1.3245,
       "current_nav": 1.2252,
       "market_value": 1.85,
       "cost_basis": 2.0,
@@ -688,7 +688,7 @@
           "shares": 1.51,
           "cost_nav": 1.324503,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -704,7 +704,7 @@
       "fund_name": "华夏中小板ETF联接A",
       "share_class": "A",
       "shares": 1.2588,
-      "cost_price": 1.588815,
+      "cost_price": 1.5888,
       "current_nav": 1.1916,
       "market_value": 1.5,
       "cost_basis": 2.0,
@@ -719,7 +719,7 @@
           "shares": 1.2588,
           "cost_nav": 1.588815,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -735,7 +735,7 @@
       "fund_name": "招商中证红利ETF联接C",
       "share_class": "C",
       "shares": 1.2347,
-      "cost_price": 1.619827,
+      "cost_price": 1.6198,
       "current_nav": 1.0934,
       "market_value": 1.35,
       "cost_basis": 2.0,
@@ -750,7 +750,7 @@
           "shares": 1.2347,
           "cost_nav": 1.619827,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -766,7 +766,7 @@
       "fund_name": "摩根标普500指数A",
       "share_class": "A",
       "shares": 0.3096,
-      "cost_price": 3.229974,
+      "cost_price": 3.23,
       "current_nav": 4.037,
       "market_value": 1.25,
       "cost_basis": 1.0,
@@ -781,7 +781,7 @@
           "shares": 0.3096,
           "cost_nav": 3.229974,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -797,7 +797,7 @@
       "fund_name": "汇添富中证红利低波动指数C",
       "share_class": "C",
       "shares": 0.7422,
-      "cost_price": 2.694691,
+      "cost_price": 2.6947,
       "current_nav": 1.5494,
       "market_value": 1.15,
       "cost_basis": 2.0,
@@ -812,7 +812,7 @@
           "shares": 0.7422,
           "cost_nav": 2.694691,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -828,7 +828,7 @@
       "fund_name": "广发中证500ETF联接C",
       "share_class": "C",
       "shares": 1.2221,
-      "cost_price": 1.636527,
+      "cost_price": 1.6365,
       "current_nav": 1.1865,
       "market_value": 1.45,
       "cost_basis": 2.0,
@@ -843,7 +843,7 @@
           "shares": 1.2221,
           "cost_nav": 1.636527,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -859,7 +859,7 @@
       "fund_name": "华安安顺灵活配置混合",
       "share_class": "A",
       "shares": 0.5626,
-      "cost_price": 3.554924,
+      "cost_price": 3.5549,
       "current_nav": 1.884,
       "market_value": 1.06,
       "cost_basis": 2.0,
@@ -874,7 +874,7 @@
           "shares": 0.5626,
           "cost_nav": 3.554924,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -890,7 +890,7 @@
       "fund_name": "天弘中证500ETF联接C",
       "share_class": "C",
       "shares": 0.8099,
-      "cost_price": 1.23472,
+      "cost_price": 1.2347,
       "current_nav": 0.7285,
       "market_value": 0.59,
       "cost_basis": 1.0,
@@ -905,7 +905,7 @@
           "shares": 0.8099,
           "cost_nav": 1.23472,
           "fee": 0.0,
-          "holding_days": 400,
+          "holding_days": 1045,
           "safety_lock": false,
           "notes": "实战存量批次(满400天免赎)"
         }
@@ -918,5 +918,15 @@
     }
   ],
   "pending_orders": [],
-  "staged_batch_plans": []
+  "staged_batch_plans": [],
+  "nav_history": [
+    {
+      "date": "2026-11-15",
+      "total_equity": 27615.1,
+      "account_nav": 1.0,
+      "benchmark_nav": 1.0
+    }
+  ],
+  "initial_baseline_snapshot": {},
+  "updated_at": "2026-11-15 15:21:32"
 }
