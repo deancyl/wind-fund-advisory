@@ -10,6 +10,7 @@ AGY2 A股基金实盘组合接管与智能投顾图形化工作台 (app_gui.py)
 
 import os
 import sys
+import re
 import time
 import hashlib
 from pathlib import Path
@@ -310,7 +311,14 @@ def render_chief_advisor_memo_card(memo_data: Dict[str, Any], title: str = "🧭
         usdcnh_v = 7.2385
     intl_capsule_sub = f"USD/CNH {usdcnh_v:.4f} ｜ 利差深度倒挂"
 
-    ind_capsule_sub = "红利低波+硬科技 ｜ 谨防追高"
+    ind_capsule_sub = m_ind.get("capsule_sub") or ""
+    if not ind_capsule_sub:
+        raw_ind_c = str(m_ind.get("content", ""))
+        top_matches = re.findall(r'【([^】（\s]+)', raw_ind_c)
+        if top_matches:
+            ind_capsule_sub = f"优选 {'/'.join(top_matches[:2])} ｜ 低估击球"
+        else:
+            ind_capsule_sub = "红利低波+硬科技 ｜ 低估击球"
 
     d_loss = int(m_path.get("deep_loss_count", 0))
     f_cnt = int(m_path.get("frag_count", 0))
@@ -8616,21 +8624,27 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
             st.markdown("---")
             st.markdown("#### ⚠️ 重仓交叉热力与同质化诊断")
 
-            # Feature 13: 重仓交叉热力图前置人话解读卡片
-            safe_markdown_html("""
+            # Feature 13: 重仓交叉热力图前置人话解读卡片（动态点名版）
+            overlap_res = _cached_stock_overlap(_h_items)
+            max_total = float(overlap_res.get("max_total_overlap", 0.0))
+            max_unexcused = float(overlap_res.get("max_non_diag_unexcused", 0.0))
+            top_pair_str = overlap_res.get("max_pair_label") or ("当前持仓存在跨基金重仓股重叠" if max_unexcused >= 40.0 else "当前各基金底层重仓股隔离良好")
+            action_overlap_tip = (
+                f"🔴 <b>实盘点名预警</b>：检测到最大非同源重仓重叠度达 <b>{max_unexcused*100:.1f}%</b>（{top_pair_str}），构成隐性抱团冗余，建议在 Tab 2 调仓中二选一保留低费率核心标的。"
+                if max_unexcused >= 0.40 else
+                f"🟢 <b>实盘穿透结论</b>：当前组合非同源基金最大重仓股重叠度仅 <b>{max_unexcused*100:.1f}%</b>（&lt;40%安全线），底层个股分散度良好，无伪分散抱团风险。"
+            )
+            safe_markdown_html(f"""
             <div class="decision-card" style="padding: 10px 14px; border-left: 4px solid var(--accent-primary); background: var(--bg-surface); margin-bottom: 10px;">
                 <div style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">
                     💡 前置人话解读·重仓交叉与机构抱团排查
                 </div>
                 <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.5;">
-                    持有不同名字的基金不等于分散风险！如果不同基金前十大重仓股高度重叠（热力图深蓝区域），就构成了<b>伪分散</b>。<br>
-                    当非同系基金交叉重叠度 &ge; 40% 时，系统将自动预警防范机构抱团瓦解风险，并将重叠个股敞口合并纳入全组合行业上限监控。
+                    持有不同名字的基金不等于分散风险！不同基金前十大重仓股高度重叠（深蓝区）即构成<b>伪分散</b>。<br>
+                    {action_overlap_tip}
                 </div>
             </div>
             """)
-            overlap_res = _cached_stock_overlap(_h_items)
-            max_total = float(overlap_res.get("max_total_overlap", 0.0))
-            max_unexcused = float(overlap_res.get("max_non_diag_unexcused", 0.0))
             alerts = overlap_res.get("alerts", [])
             common_details = overlap_res.get("common_stocks_details", [])
 
@@ -8796,21 +8810,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
             st.markdown("---")
             st.markdown("#### 🧭 持仓标的趋势偏离 vs 拥挤度四象限分布")
 
-            # Feature 13: 四象限量价分布前置人话解读卡片
-            safe_markdown_html("""
-            <div class="decision-card" style="padding: 10px 14px; border-left: 4px solid var(--accent-primary); background: var(--bg-surface); margin-bottom: 10px;">
-                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">
-                    💡 前置人话解读·四象限量价结构与轮动指引
-                </div>
-                <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.5;">
-                    横轴为 <b>20日均线乖离率 Bias20</b>（衡量短期是否超买或超卖），纵轴为 <b>交易拥挤度热力 (0~100)</b>（衡量筹码扎堆程度）：<br>
-                    🎯 <b>低估击球区 (左下)</b>：低位超跌且筹码冷清，左侧逆向定投黄金坑；<br>
-                    🔥 <b>右侧主升区 (右上)</b>：顺势突破且热力充足，顺势吃主升浪但谨防高位急刹追高；<br>
-                    ⚠️ <b>放量分歧区 (左上)</b>：跌破均线但拥挤度仍处高位，资金踩踏风险大，建议阶梯减亏；<br>
-                    📈 <b>温和复苏区 (右下)</b>：站上均线且筹码沉淀健康，属于最舒适的稳健底仓长跑区间。
-                </div>
-            </div>
-            """)
+            # Feature 13: 四象限量价分布前置人话解读卡片（动态点名版，移至 crowd_data 构建之后）
             if len(active_examine_holdings) > 0:
                 crowd_data = []
                 cur_pm = st.session_state.get("pm") or pm
@@ -8834,6 +8834,24 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
                         "quadrant": c_info.get("quadrant_tag", "🎯 低估击球区"),
                         "tip": c_info.get("advisory_tip", "顺势持有")
                     })
+
+                # 动态提取低估蓄势区与高热区标的名称
+                low_opp_names = [d["name"] for d in crowd_data if d["bias_20"] <= 0.0 and d["crowd_score"] < 65.0]
+                high_risk_names = [d["name"] for d in crowd_data if d["crowd_score"] >= 70.0 or d["bias_20"] >= 4.0]
+                opp_str = "、".join(low_opp_names[:3]) if low_opp_names else "暂无明显超跌标的"
+                risk_str = "、".join(high_risk_names[:3]) if high_risk_names else "全持仓均未触发过热拥挤"
+                safe_markdown_html(f"""
+                <div class="decision-card" style="padding: 10px 14px; border-left: 4px solid var(--accent-primary); background: var(--bg-surface); margin-bottom: 10px;">
+                    <div style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">
+                        💡 前置人话解读·四象限量价结构与实盘点名指引
+                    </div>
+                    <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.5;">
+                        横轴为 <b>20日均线乖离率 Bias20</b>（衡量短期超买/超卖），纵轴为 <b>交易拥挤度热力 (0~100)</b>：<br>
+                        🎯 <b>当前持仓处于低估蓄势区（可定投/低吸）</b>：<b style="color:var(--color-down);">{opp_str}</b> ｜
+                        ⚠️ <b>处于高热/正乖离区（忌追高/宜锁利）</b>：<b style="color:var(--color-up);">{risk_str}</b>
+                    </div>
+                </div>
+                """)
 
                 if IS_MOBILE_VIEW:
                     col_q_fig = st.container()

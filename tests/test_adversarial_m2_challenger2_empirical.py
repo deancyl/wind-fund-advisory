@@ -172,7 +172,7 @@ class TestFeature10AdversarialFrictionBill:
         # 3. Combat 29
         mlm = MultiLedgerManager.get_instance()
         pm_combat = mlm.get_pm("combat_29_funds")
-        weights_combat = {h.fund_code: h.market_value for h in pm_combat.holdings}
+        weights_combat = {h.fund_code: h.market_value for h in pm_combat.holdings.values()}
         bill_combat = StrategyBridge.calculate_mutual_fund_friction_bill(weights_combat, is_combat_29=True)
 
         # Assert no old pseudo constants
@@ -258,8 +258,9 @@ class TestFeature10AdversarialFrictionBill:
 
     def test_ast_scan_no_hardcoded_pseudo_constants(self):
         """Static AST scan of calculate_mutual_fund_friction_bill to ensure no hardcoded fake return values."""
+        import textwrap
         fn_source = inspect.getsource(StrategyBridge.calculate_mutual_fund_friction_bill)
-        tree = ast.parse(fn_source)
+        tree = ast.parse(textwrap.dedent(fn_source))
 
         FORBIDDEN_NUMBERS = {16.85, -16.76, -4.52, 3.42}
         for node in ast.walk(tree):
@@ -368,7 +369,8 @@ class TestFeature11AdversarialParsing:
             def __call__(self, img):
                 return mock_ocr_boxes, 0.0
 
-        with patch("portfolio_manager.slice_long_screenshot_for_ocr", return_value=dummy_slice):
+        with patch("portfolio_manager.slice_long_screenshot_for_ocr", return_value=dummy_slice), \
+             patch("AGY2_FundAdvisory.portfolio_manager.slice_long_screenshot_for_ocr", return_value=dummy_slice, create=True):
             with patch("rapidocr_onnxruntime.RapidOCR", return_value=MockOCR()):
                 results = parse_screenshot_ocr_holdings(b"fake_png_data")
 

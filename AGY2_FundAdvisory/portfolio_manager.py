@@ -396,8 +396,8 @@ CORE_STRATEGY_POOL: Dict[str, Dict[str, Any]] = {
         "arrive_cycle": "T+2"
     },
     "012643": {
-        "fund_name": "博时中证红利ETF联接A",
-        "company": "博时基金",
+        "fund_name": "招商中证红利ETF联接A",
+        "company": "招商基金",
         "share_class": "A",
         "alt_code": "012644",
         "daily_limit": 1e11,
@@ -407,8 +407,8 @@ CORE_STRATEGY_POOL: Dict[str, Dict[str, Any]] = {
         "arrive_cycle": "T+2"
     },
     "012644": {
-        "fund_name": "博时中证红利ETF联接C",
-        "company": "博时基金",
+        "fund_name": "招商中证红利ETF联接C",
+        "company": "招商基金",
         "share_class": "C",
         "alt_code": "012643",
         "daily_limit": 1e11,
@@ -768,12 +768,12 @@ SECTOR_FUND_SELECTION: Dict[str, Dict[str, Any]] = {
         "alternatives": [
             {"code": "100032", "name": "富国中证红利指数增强A (冠军)", "share_class": "A", "tag": "红利增强龙头 / 长期首选"},
             {"code": "090010", "name": "大成中证红利指数A", "share_class": "A", "tag": "老牌纯正高股息代表"},
-            {"code": "012643", "name": "博时中证红利ETF联接A", "share_class": "A", "tag": "低费率中证红利纯跟踪"},
+            {"code": "012643", "name": "招商中证红利ETF联接A", "share_class": "A", "tag": "低费率中证红利纯跟踪"},
             {"code": "008682", "name": "富国中证红利指数增强C", "share_class": "C", "tag": "0申购满30天免赎波段"}
         ],
         "top_alternatives": [
             {"code": "090010", "name": "大成中证红利指数A", "share_class": "A", "tag": "老牌纯正高股息代表"},
-            {"code": "012643", "name": "博时中证红利ETF联接A", "share_class": "A", "tag": "低费率中证红利纯跟踪"},
+            {"code": "012643", "name": "招商中证红利ETF联接A", "share_class": "A", "tag": "低费率中证红利纯跟踪"},
             {"code": "008682", "name": "富国中证红利指数增强C", "share_class": "C", "tag": "0申购满30天免赎波段"}
         ]
     },
@@ -1913,16 +1913,35 @@ def parse_screenshot_ocr_holdings(image_bytes: bytes) -> List[Dict[str, Any]]:
     all_ocr_items.sort(key=lambda x: x[0])
 
     # 1. 通道一：以聚合成的完整多行文本直接送入 parse_smart_text_holdings 提取
-    raw_lines = [item[2] for item in all_ocr_items]
+    # 先将同一水平线 (abs(y1 - y2) <= 18px) 的左右多列 OCR 文本框按 x 坐标从左到右合并为同行
+    merged_rows = []
+    for y, x, text, conf in all_ocr_items:
+        if merged_rows and abs(y - merged_rows[-1][0]) <= 18:
+            prev_y, prev_x, prev_items, prev_confs = merged_rows[-1]
+            prev_items.append((x, text))
+            prev_confs.append(conf)
+            merged_rows[-1] = ((prev_y + y) / 2.0, min(prev_x, x), prev_items, prev_confs)
+        else:
+            merged_rows.append((y, x, [(x, text)], [conf]))
+
+    normalized_ocr_rows = []
+    for r_y, r_x, r_items, r_confs in merged_rows:
+        r_items.sort(key=lambda it: it[0])
+        row_str = " ".join(it[1] for it in r_items)
+        avg_c = sum(r_confs) / max(len(r_confs), 1)
+        normalized_ocr_rows.append((r_y, r_x, row_str, avg_c))
+
+    raw_lines = [item[2] for item in normalized_ocr_rows]
     aggregated_text = "\n".join(raw_lines)
     channel1_holdings = parse_smart_text_holdings(aggregated_text)
 
-    # 2. 通道二：空间块聚类提取分支（针对多栏布局排版，绝不早退）
+    # 2. 通道二：空间块聚类提取分支（基于合并后的视觉行 normalized_ocr_rows，绝不早退）
     blocks = []
     current_block = []
-    for y, x, text, conf in all_ocr_items:
-        m = fuzzy_match_fund_by_name(text)
-        is_header = (m.get("score", 0) >= 0.65 or bool(re.search(r'\b\d{6}\b', text)))
+    for y, x, text, conf in normalized_ocr_rows:
+        title_probe = re.sub(r'[+-]?\d+(?:,\d{3})*(?:\.\d+)?%?', ' ', text).strip()
+        m = fuzzy_match_fund_by_name(title_probe if len(title_probe) >= 3 else text)
+        is_header = (m.get("score", 0) >= 0.62 or bool(re.search(r'\b\d{6}\b', text)))
         if is_header and current_block:
             blocks.append(current_block)
             current_block = [(y, x, text, conf, m)]
@@ -2033,6 +2052,11 @@ def parse_screenshot_ocr_holdings(image_bytes: bytes) -> List[Dict[str, Any]]:
     for h in channel1_holdings:
         code = h.get("fund_code")
         if code:
+            # 修复持有天数覆盖 Bug: 通道一在截图未写出持有天数时默认赋值 30 天，
+            # 但存量长跑组合应默认 400 天（满 1 年），除非原始文本明确含有短期标识
+            if h.get("holding_days") == 30 and not any(k in str(h.get("raw_line", "")) for k in ["天", "日", "月", "刚买"]):
+                h["holding_days"] = 400
+                h["holding_tag"] = ">=30d"
             fused_map[code] = dict(h)
 
     for h in structured_holdings:
@@ -3246,7 +3270,7 @@ FUND_ALIAS_EXPLICIT_MAP: Dict[str, str] = {
     "001053": "华夏中证500C",
     "001071": "摩根标普500A",
     "050025": "博时标普500A",
-    "006075": "富国海外互联",
+    "006075": "广发纳斯达克100A",
     "518880": "华安黄金现货",
     "159919": "嘉实沪深300",
     "510300": "华泰柏瑞300",
@@ -5753,7 +5777,7 @@ class PortfolioManager:
             frozenset({"016633", "016634"}), # 富国1000 A/C 同源份额
             frozenset({"110020", "007339"}), # 易方达300 A/C 同源份额
             frozenset({"005561", "005562"}), # 创金红利低波 A/C 同源份额
-            frozenset({"012643", "012644"}), # 博时红利 A/C 同源份额
+            frozenset({"012643", "012644"}), # 招商红利 A/C 同源份额
             frozenset({"090010", "091010"}), # 大成红利 A/C 同源份额
             frozenset({"001052", "001053"}), # 华夏500 A/C 同源份额
             frozenset({"161017", "013035"}), # 富国500 A/C 同源份额

@@ -4585,11 +4585,19 @@ def generate_chief_advisor_memo(
                 news_json = json.load(_fnf)
                 fl_list = news_json.get("flash_news", [])
                 if fl_list and isinstance(fl_list, list):
-                    first_item = fl_list[0]
-                    first_title = first_item.get("title", "") if isinstance(first_item, dict) else str(first_item)
-                    if first_title:
-                        clean_t = first_title.replace("<b>", "").replace("</b>", "").strip()
-                        flash_summary = f" ｜ ⚡ 权威快讯: {clean_t[:45]}..."
+                    fin_kws = ["央行", "利率", "国债", "降准", "降息", "社融", "PMI", "汇率", "人民币", "美联储", "纳指", "标普", "黄金", "红利", "高股息", "科创", "半导体", "芯片", "ETF", "公募", "分红", "A股", "沪深300"]
+                    picked_title = ""
+                    for item in fl_list:
+                        t_cand = (item.get("title", "") or item.get("content", "")) if isinstance(item, dict) else str(item)
+                        t_cand = t_cand.replace("<b>", "").replace("</b>", "").strip()
+                        if any(k in t_cand for k in fin_kws):
+                            picked_title = t_cand
+                            break
+                    if not picked_title and fl_list:
+                        first_item = fl_list[0]
+                        picked_title = (first_item.get("title", "") if isinstance(first_item, dict) else str(first_item)).replace("<b>", "").replace("</b>", "").strip()
+                    if picked_title:
+                        flash_summary = f" ｜ ⚡ 投研快讯: {picked_title[:48]}..."
         except Exception:
             flash_summary = ""
 

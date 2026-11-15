@@ -5971,7 +5971,7 @@ class StrategyBridge:
 
             # QDII 限购拆单核验
             d_limit = meta.get("daily_limit")
-            if d_limit is None and fcode in ["017436", "001071", "050025"]:
+            if (d_limit is None or d_limit > 10000.0) and fcode in ["017436", "017437", "001071", "050025"]:
                 d_limit = 1000.0
             if d_limit and d_limit > 0:
                 if allocated_m > d_limit:
@@ -7258,7 +7258,9 @@ class StrategyBridge:
                 max_drift = max(abs(next_w.get(k, 0.0) - norm_w.get(k, 0.0)) for k in all_keys) if all_keys else 0.0
                 if max_drift > 0.03:
                     turnover = sum(abs(next_w.get(k, 0.0) - norm_w.get(k, 0.0)) for k in all_keys) / 2.0
-                    friction = turnover * 0.0010  # 10 bps
+                    hold_cal_days = (pd.to_datetime(fwd_slice['date'].iloc[t]) - dt_target).days
+                    red_rate = 0.0050 if hold_cal_days < 180 else (0.0015 if hold_cal_days < 365 else 0.0)
+                    friction = turnover * (0.5 * red_rate + 0.0012)  # 阶梯赎回费(1折申购费) + 申购费
                     next_nav *= (1.0 - friction)
                     norm_w = next_w
 
