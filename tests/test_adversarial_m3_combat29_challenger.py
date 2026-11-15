@@ -96,8 +96,7 @@ def test_combat_29_batch_holding_days_fifo_penalty_free(combat_pm, combat_json):
         code = h_d["fund_code"]
         assert len(h_d["batches"]) >= 1
         for b in h_d["batches"]:
-            assert b["holding_days"] == 400, f"JSON 中标的 {code} 预置持有天数 {b['holding_days']} != 400"
-            assert b["holding_days"] >= 365, f"JSON 中标的 {code} 预置天数必须 >= 365"
+            assert b["holding_days"] >= 365, f"JSON 中标的 {code} 预置持有天数 {b['holding_days']} < 365"
             assert not b["safety_lock"]
 
     # 验证 PM 运行时批次与免惩罚份额

@@ -378,9 +378,9 @@ class TestFeature2SentimentMultiDimensionalFusion:
             assert d10["vote"] == "BEAR"
 
     def test_t2_3_2_pairwise_sentiment_bear_vs_fx_normal(self):
-        """Tier 3: 正交组合 - 资金情绪空头 (50分) × 离岸汇率波动正常 (7.2385)"""
+        """Tier 3: 正交组合 - 资金情绪空头 (50分) × 离岸汇率波动正常 (6.6746)"""
         sectors = make_14_sectors(avg_crowd=50.0)
-        snap = {"spot_usdcnh": 7.2385, "usdcnh_change_pct": 0.05}
+        snap = {"spot_usdcnh": 6.6746, "usdcnh_change_pct": 0.05}
         with patch("AGY2_FundAdvisory.advisory_engine.OpportunityRadarEngine.get_cached_sectors_fast", return_value=sectors):
             res = compute_ten_dimension_votes(snapshot=snap, all_sectors=sectors)
             d7 = get_dimension_by_id(res, 7)
@@ -619,44 +619,45 @@ class TestFeature4CircuitBreakerVeto:
         assert "🚨 极值熔断防御" not in res["summary"]["verdict"]
 
 
-# ─── Feature 5: 拔除 6.6676/5.0000 及跨市场校验哨 ─────────────────────
+# ─── Feature 5: 拔除 7.2385/4.4200 假常数、真实数据同步与三段式因果链 ─────────────────────
 
 class TestFeature5PurgeLegacyConstantsAndSentinel:
-    """Feature 5: 彻底拔除 6.6676 和 5.0000 兜底常数，离岸汇率合理性区间为 [6.85, 7.60]"""
+    """Feature 5: 彻底拔除 7.2385 和 4.4200 假常数，实现数据底座真实同步与三段式信息决策链"""
 
     def test_t5_1_1_normal_valid_cross_market_data(self):
-        """Tier 1: 正常有效截面 - 汇率处于 [6.85, 7.60]，美债在合理区间，无 6.6676/5.0000"""
+        """Tier 1: 正常有效截面 - 汇率处于合理物理区间 [5.0, 9.0]，美债与中债利差为真实数学计算"""
         indicators = DataLoader.fetch_macro_cross_market_indicators(use_cache=False)
-        assert 6.85 <= indicators["usdcnh_rate"] <= 7.60, f"FX {indicators['usdcnh_rate']} outside [6.85, 7.60]"
-        assert abs(indicators["us_10y"] - 5.0000) > 0.01, "US 10Y should not equal legacy 5.0000"
-        assert abs(indicators["us_10y"] - 4.42) < 0.1, "US 10Y should be calibrated near 4.42%"
-        assert abs(indicators["cgb_us_spread_bp"] - (-278.2)) < 5.0, "Spread should be near -278.2 bp"
-        assert "6.6676" not in indicators.get("macro_summary", "")
-        assert "5.0000" not in indicators.get("macro_summary", "")
+        assert 5.0 <= indicators["usdcnh_rate"] <= 9.0, f"FX {indicators['usdcnh_rate']} outside [5.0, 9.0]"
+        assert indicators["us_10y"] > 0.0, "US 10Y should be positive"
+        assert indicators["cgb_10y"] > 0.0, "CGB 10Y should be positive"
+        assert abs(indicators["cgb_us_spread_bp"] - round((indicators["cgb_10y"] - indicators["us_10y"]) * 100.0, 1)) < 0.1, "Spread must match math formula"
+        assert "treasury_date" in indicators and len(indicators["treasury_date"]) == 10
+        assert "usdcnh_date" in indicators and len(indicators["usdcnh_date"]) == 10
 
-    def test_t5_1_2_historical_distorted_fx_intercepted(self):
-        """Tier 1: 历史旧常数清除 - 模拟外部传入失真汇率 6.6676 被校验哨拦截校准为 7.2385"""
-        with patch("AGY2_FundAdvisory.data_loader.fetch_realtime_usdcnh_fx", return_value={"rate": 6.6676, "change_pct": -0.02}):
+    def test_t5_1_2_real_fx_rates_preserved(self):
+        """Tier 1: 真实汇率保留 - 模拟汇率 6.6676 / 6.6746 原样保留，绝不被 7.2385 假常数覆写"""
+        with patch("AGY2_FundAdvisory.data_loader.fetch_realtime_usdcnh_fx", return_value={"rate": 6.6676, "change_pct": -0.02, "source": "test", "date": "2026-11-14"}):
             ind = DataLoader.fetch_macro_cross_market_indicators(use_cache=False)
-            assert ind["usdcnh_rate"] == 7.2385, "6.6676 must be calibrated to 7.2385"
+            assert ind["usdcnh_rate"] == 6.6676, "Authentic rate 6.6676 must NOT be overwritten by fake 7.2385"
 
     def test_t5_1_3_extreme_high_fx_intercepted(self):
-        """Tier 1: 上界失真校验 - 外部传入 8.20 (>7.60) 触发校验哨纠偏为 7.2385"""
-        with patch("AGY2_FundAdvisory.data_loader.fetch_realtime_usdcnh_fx", return_value={"rate": 8.20, "change_pct": 0.0}):
+        """Tier 1: 极端失真校验 - 外部传入 15.0 (>9.0) 或 2.0 (<5.0) 触发极端防御回退至基线"""
+        with patch("AGY2_FundAdvisory.data_loader.fetch_realtime_usdcnh_fx", return_value={"rate": 15.0, "change_pct": 0.0, "source": "test", "date": "2026-11-14"}):
             ind = DataLoader.fetch_macro_cross_market_indicators(use_cache=False)
-            assert ind["usdcnh_rate"] == 7.2385
+            assert 5.0 <= ind["usdcnh_rate"] <= 9.0
 
-    def test_t5_1_4_missing_or_nan_fallback_graceful(self):
-        """Tier 1: 缺失降级 - 网络超时或异常时优雅降级至真实近期截面 (7.2385, 4.42%)"""
-        with patch("urllib.request.urlopen", side_effect=TimeoutError("Network timeout")):
-            ind = DataLoader.fetch_macro_cross_market_indicators(use_cache=False)
-            assert 6.85 <= ind["usdcnh_rate"] <= 7.60
-            assert ind["us_10y"] != 5.0000
+    def test_t5_1_4_sync_macro_and_fx_parquet_if_stale(self):
+        """Tier 1: 数据底座自愈同步 - sync_macro_and_fx_parquet_if_stale 正常调用并返回真实截面报告"""
+        res = DataLoader.sync_macro_and_fx_parquet_if_stale(force=False)
+        assert isinstance(res, dict)
+        assert res.get("success") is True
+        assert "treasury_date" in res and len(res["treasury_date"]) == 10
+        assert "fx_date" in res and len(res["fx_date"]) == 10
 
     def test_t5_1_5_source_code_scan_zero_legacy_constants(self):
-        """Tier 1: 源码绝对纯化 - 扫描 data_loader.py, advisory_engine.py, app_gui.py 中禁止出现 6.6676 与 5.0000"""
-        banned = ["6.6676", "5.0000"]
-        target_files = ["data_loader.py", "advisory_engine.py", "app_gui.py", "strategy_bridge.py", "portfolio_manager.py"]
+        """Tier 1: 源码绝对纯化 - 扫描 data_loader.py, advisory_engine.py, strategy_bridge.py, portfolio_manager.py 中禁止出现 7.2385 与 4.4200"""
+        banned = ["7.2385", "4.4200"]
+        target_files = ["data_loader.py", "advisory_engine.py", "strategy_bridge.py", "portfolio_manager.py"]
         for fn in target_files:
             fp = os.path.join(AGY2_DIR, fn)
             if not os.path.exists(fp):
@@ -664,56 +665,47 @@ class TestFeature5PurgeLegacyConstantsAndSentinel:
             with open(fp, "r", encoding="utf-8") as f:
                 content = f.read()
             for b in banned:
-                assert b not in content, f"Found legacy banned constant '{b}' in {fn}"
+                assert b not in content, f"Found banned fake constant '{b}' in {fn}"
 
-    def test_t5_2_1_boundary_fx_6_8499_calibrated(self):
-        """Tier 2: 6.85 下界微元穿透 (6.8499) -> 触发校验哨纠偏"""
-        with patch("AGY2_FundAdvisory.data_loader.fetch_realtime_usdcnh_fx", return_value={"rate": 6.8499}):
+    def test_t5_2_1_boundary_fx_preserved_without_clamp(self):
+        """Tier 2: 边界汇率无损保留 - 6.8499 与 7.6001 均合法保留，不再受人为 [6.85, 7.60] 夹取"""
+        with patch("AGY2_FundAdvisory.data_loader.fetch_realtime_usdcnh_fx", return_value={"rate": 6.8499, "change_pct": 0.0, "source": "test", "date": "2026-11-14"}):
             ind = DataLoader.fetch_macro_cross_market_indicators(use_cache=False)
-            assert ind["usdcnh_rate"] == 7.2385
+            assert ind["usdcnh_rate"] == 6.8499
 
-    def test_t5_2_2_boundary_fx_6_8500_valid(self):
-        """Tier 2: 6.85 下界精确吻合 (6.8500) -> 认定合法原样保留"""
-        with patch("AGY2_FundAdvisory.data_loader.fetch_realtime_usdcnh_fx", return_value={"rate": 6.8500}):
-            ind = DataLoader.fetch_macro_cross_market_indicators(use_cache=False)
-            assert ind["usdcnh_rate"] == 6.8500
+        with patch("AGY2_FundAdvisory.data_loader.fetch_realtime_usdcnh_fx", return_value={"rate": 7.6001, "change_pct": 0.0, "source": "test", "date": "2026-11-14"}):
+            ind2 = DataLoader.fetch_macro_cross_market_indicators(use_cache=False)
+            assert ind2["usdcnh_rate"] == 7.6001
 
-    def test_t5_2_3_boundary_fx_7_6000_valid(self):
-        """Tier 2: 7.60 上界精确吻合 (7.6000) -> 认定合法原样保留"""
-        with patch("AGY2_FundAdvisory.data_loader.fetch_realtime_usdcnh_fx", return_value={"rate": 7.6000}):
-            ind = DataLoader.fetch_macro_cross_market_indicators(use_cache=False)
-            assert ind["usdcnh_rate"] == 7.6000
+    def test_t5_2_2_authentic_treasury_spread_calculation(self):
+        """Tier 2: 真实中美利差计算 - 利差为数学差值，无 -278.2 硬编码替换"""
+        ind = DataLoader.fetch_macro_cross_market_indicators(use_cache=False)
+        expected_spread = round((ind["cgb_10y"] - ind["us_10y"]) * 100.0, 1)
+        assert ind["cgb_us_spread_bp"] == expected_spread
 
-    def test_t5_2_4_boundary_fx_7_6001_calibrated(self):
-        """Tier 2: 7.60 上界微元穿透 (7.6001) -> 触发校验哨纠偏"""
-        with patch("AGY2_FundAdvisory.data_loader.fetch_realtime_usdcnh_fx", return_value={"rate": 7.6001}):
-            ind = DataLoader.fetch_macro_cross_market_indicators(use_cache=False)
-            assert ind["usdcnh_rate"] == 7.2385
+    def test_t5_3_1_key_information_insights_three_step_chain(self):
+        """Tier 3: 核心契约 - generate_chief_advisor_memo 返回结构化三段式因果链情报"""
+        memo = generate_chief_advisor_memo()
+        assert "key_information_insights" in memo, "memo must contain key_information_insights"
+        insights = memo["key_information_insights"]
+        assert isinstance(insights, list)
+        assert 3 <= len(insights) <= 5, f"Expected 3-5 intelligence insights, got {len(insights)}"
+        required_keys = ["category", "badge", "key_information", "deep_understanding", "action_taken"]
+        for idx, item in enumerate(insights):
+            for k in required_keys:
+                assert k in item, f"Insight #{idx} missing key '{k}'"
+                assert isinstance(item[k], str) and len(item[k].strip()) > 0, f"Insight #{idx} '{k}' must not be empty"
 
-    def test_t5_2_5_boundary_us_10y_5_0000_calibrated(self):
-        """Tier 2: 美债收益率 5.0000 假常量拦截边界 -> 自动校准为 4.42%"""
-        res = compute_ten_dimension_votes(snapshot={"us_treasury_10y": 5.0000})
-        d4 = get_dimension_by_id(res, 4)
-        assert "5.00%" not in d4["reason"]
-        assert "4.42" in d4["reason"] or "-278.2" in d4["reason"]
-
-    def test_t5_3_1_pairwise_fx_calibration_vs_memo_rendering(self):
-        """Tier 3: 正交组合 - 汇率触发校准哨 (7.2385) × 备忘录卡片渲染 HTML 绝无 6.6676"""
-        memo = generate_chief_advisor_memo(snapshot={"spot_usdcnh": 6.6676, "us_treasury_10y": 5.0000})
+    def test_t5_3_2_memo_rendering_with_authentic_data(self):
+        """Tier 3: 正交组合 - 备忘录卡片渲染 HTML 包含真实截面与汇率数据"""
+        memo = generate_chief_advisor_memo()
         with patch("streamlit.markdown") as mock_st_md:
             render_chief_advisor_memo_card(memo)
             assert mock_st_md.called, "render_chief_advisor_memo_card should call st.markdown"
             html = mock_st_md.call_args[0][0]
-            assert "6.6676" not in html
-            assert "5.0000" not in html
-            assert "7.2385" in html or "7.23" in html
-
-    def test_t5_3_2_pairwise_macro_summary_terminology_and_spread(self):
-        """Tier 3: 正交组合 - 金融术语统一与利差闭环 (-278.2 bp)"""
-        ind = DataLoader.fetch_macro_cross_market_indicators(use_cache=False)
-        assert ind["cgb_us_spread_bp"] == -278.2
-        summary = ind.get("macro_summary", "")
-        assert "10Y中债" in summary or "10Y国债" in summary
+            assert "7.2385" not in html
+            assert "4.4200" not in html
+            assert "USD/CNH" in html
 
 
 # ─── Feature 6: 胶囊4持仓病灶与胶囊5今日行动准则知行合一联动 ─────────────
@@ -909,7 +901,7 @@ class TestTier4RealWorldWorkloads:
     def test_scenario_3_real_data_bullish_confluence(self):
         """
         场景 3: 产业低估机会与资金情绪协同共振·真数据驱动多头进攻
-        - 宏观平稳 (汇率 7.2385, 美债 4.42%)
+        - 宏观平稳 (汇率 6.6746, 美债真实截面)
         - 维度6 Top3 均值 29.5% (<=35%) 判定 BULL (+5%)
         - 维度7 两市成交 1.4万亿, 均拥挤度 76.5 判定 BULL (+2%)
         - 维度10 隐波 19.5% (<22%), 贴水 12% 判定 BULL
@@ -917,7 +909,7 @@ class TestTier4RealWorldWorkloads:
         """
         sectors = make_14_sectors(top3_avg=29.5, median_val=54.0, avg_crowd=76.5)
         snap = {
-            "spot_usdcnh": 7.2385,
+            "spot_usdcnh": 6.6746,
             "usdcnh_change_pct": -0.05,
             "ivix_index": 19.5,
             "option_iv_pct": 19.5,

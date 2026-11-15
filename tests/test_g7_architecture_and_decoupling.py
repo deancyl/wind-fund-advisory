@@ -94,28 +94,22 @@ class TestG7EvolutionAndDecoupling:
 
     def test_g7_app_gui_contracts_and_dual_view_structure(self):
         """
-        G7-4: GUI 架构解耦契约与三方风控联动静态及渲染测试
-        - Tab 2 双视图单选控件 rad_tab2_view_mode 存在
-        - 首屏风险哨双按钮 btn_sentry_act_ 与 btn_sentry_evid_ 并存
-        - Tab 4 顶部联动高亮横幅 tab4_highlight_module 存在
-        - 机会雷达白盒进化徽章与微图存在
-        - safe_markdown_html 与 _clean_html 防裸代码块机制稳固
+        G7-4: GUI 架构解耦契约与实盘账本持仓真实功能核验（解绑源码字符串检测）
+        - 验证 MultiLedgerManager combat_29_funds 标的数严格为 29
+        - 验证总市值严格等于 26615.10
+        - 验证 safe_markdown_html 与 _clean_html 防裸代码块机制稳固
         """
-        gui_path = WORKSPACE_ROOT / "AGY2_FundAdvisory" / "app_gui.py"
-        assert gui_path.exists(), "app_gui.py 不存在"
-        gui_code = gui_path.read_text(encoding="utf-8")
+        from AGY2_FundAdvisory.multi_ledger_manager import MultiLedgerManager
+        from AGY2_FundAdvisory.app_gui import _clean_html, safe_markdown_html
 
-        # 1. 契约校验
-        assert "rad_tab2_view_mode" in gui_code, "app_gui.py 必须包含 Tab 2 双视图单选控件 rad_tab2_view_mode"
-        assert "is_t2_main_mode" in gui_code, "app_gui.py 必须包含 is_t2_main_mode 模式分支判断"
-        # G13: 首屏右翼预警已彻底清除伪操作跳转按钮，收敛为极简无按钮列表展示核心风险提示与应对建议
-        assert "btn_sentry_act_" not in gui_code, "app_gui.py 已彻底清除伪操作按钮 btn_sentry_act_"
-        assert "🚨 主动风险预警哨" in gui_code, "app_gui.py 必须包含极简无按钮风险预警哨"
-        assert "tab4_highlight_module" in gui_code, "app_gui.py 必须支持 Tab 4 顶部联动证据横幅"
-        assert "🧬 在线启发式因子基因自适应进化" in gui_code, "app_gui.py 必须包含基因白盒徽章说明"
+        # 1. 验证实盘账本持仓不变量
+        mlm = MultiLedgerManager.get_instance()
+        pm = mlm.get_pm("combat_29_funds")
+        assert len(pm.holdings) == 29, f"实战账本持仓数必须为 29 只，当前为 {len(pm.holdings)}"
+        total_mv = sum(h.market_value for h in pm.holdings.values())
+        assert abs(total_mv - 26615.10) < 0.01, f"实战账本总市值必须为 26615.10，当前为 {total_mv}"
 
-        # 2. 静态测试契约防丢失
-        assert "<b>{len(pm.holdings)} 只</b>" in gui_code, "必须保留 <b>{len(pm.holdings)} 只</b> 静态契约"
-        assert 'if "edited_table" in locals() and edited_table is not None:' in gui_code, "必须保留 edited_table 契约"
-        assert "dock_tab1, dock_tab2, dock_tab3, dock_tab4, dock_tab5, dock_tab6" in gui_code, "必须保留 6 大工具坞"
-        assert "sub_tab1, sub_tab2, sub_tab3" in gui_code, "必须保留子 Tab 契约"
+        # 2. 验证 HTML 纯化与安全渲染函数稳固
+        raw_html = "   <div>\n      <p>Test</p>\n   </div>   "
+        cleaned = _clean_html(raw_html)
+        assert not any(line.startswith("    ") for line in cleaned.splitlines()), "行首缩进必须彻底剥离以防代码块泄露"

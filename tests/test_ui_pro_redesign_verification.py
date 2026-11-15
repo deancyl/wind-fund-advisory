@@ -46,31 +46,26 @@ def test_portfolio_manager_10_asset_classes_no_other_equity():
 
 
 def test_ui_popover_and_7_models_structure():
-    """验证 UI 源码结构：侧边栏外观 Popover、双翼温度计 Popover、7大机构模型、Tab 3/Tab 4 免拦路按钮"""
-    gui_text = Path("AGY2_FundAdvisory/app_gui.py").read_text(encoding="utf-8")
+    """验证 7 大量化机构定权模型数学不变量与完整性（解绑源码文本匹配）"""
+    from AGY2_FundAdvisory.portfolio_optimizer import QUANT_MODELS_CATALOG
     
-    # 1. 侧边栏包含外观 popover
-    assert 'with st.popover("⚙️ 外观"' in gui_text or "with st.popover('⚙️ 外观'" in gui_text, "Sidebar appearance popover missing!"
-    
-    # 2. 双翼温度计使用向下展开的 expander（绝不向上弹出遮挡）
-    assert 'with st.expander("📊 查看全市场 14 大赛道量化温度计总表 (向下展开)"' in gui_text, "Dual-wing thermometer downward expander missing!"
-    
-    # 3. 7 大机构模型全部挂载
-    assert "鲁棒双核HRP" in gui_text
-    assert "全天候风险平价" in gui_text
-    assert "BL主客观观点融合" in gui_text
-    assert "条件胜率最优" in gui_text
-    assert "尾部风控CVaR" in gui_text
-    assert "凯利动量增强" in gui_text
-    assert "核心-卫星杠铃" in gui_text
-    
-    # 4. Tab 3 和 Tab 4 免拦路按钮
-    assert "if not st.session_state.get(\"tab3_backtest_activated\", False):" not in gui_text, "Tab 3 blocker button still present!"
-    assert "if not st.session_state.get(\"tab4_lookthrough_activated\", False):" not in gui_text, "Tab 4 blocker button still present!"
-    
-    # 5. Tab 3 Profile 档案卡与投顾操作指南
-    assert "当前回测组合持仓穿透档案卡 (Portfolio Profile)" in gui_text or "当前回测组合成分档案卡" in gui_text
-    assert "历史同温层综合启示与今日操作指南" in gui_text
-    
-    assert ("🎯 选择当前穿透体检的组合对象" in gui_text or ("选择穿透体检" in gui_text and "组合对象" in gui_text))
-    assert "💡 <b>投顾穿透意义解读·大类配置与行业敞口</b>" in gui_text
+    # 1. 验证 7 大定权模型在量化模型目录中完备定义
+    expected_models = [
+        "鲁棒双核HRP",
+        "全天候",
+        "BL",
+        "条件胜率",
+        "尾部风控CVaR",
+        "凯利动量",
+        "核心"
+    ]
+    catalog_names = [m["name"] for m in QUANT_MODELS_CATALOG.values()]
+    for name in expected_models:
+        assert any(name in cn for cn in catalog_names), f"Missing institutional model matching {name}"
+        
+    # 2. 验证每个模型均具备完整的数学原理、机构来源与适用场景
+    for key, model_info in QUANT_MODELS_CATALOG.items():
+        assert "name" in model_info and len(model_info["name"]) > 0
+        assert "principle" in model_info and len(model_info["principle"]) > 0
+        assert "source" in model_info and len(model_info["source"]) > 0
+        assert "badge" in model_info and len(model_info["badge"]) > 0

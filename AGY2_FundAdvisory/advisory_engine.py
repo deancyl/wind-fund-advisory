@@ -1832,9 +1832,9 @@ def calculate_fx_adjusted_intraday_valuation(
         try:
             from data_loader import DataLoader
             fx_info = DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
-            usdcnh_change_pct = float(fx_info.get("change_pct", -0.05))
+            usdcnh_change_pct = float(fx_info.get("change_pct", 0.0))
         except Exception:
-            usdcnh_change_pct = -0.05
+            usdcnh_change_pct = 0.0
 
     fx_chg = float(usdcnh_change_pct)
     is_applicable = is_us_qdii or is_hk_hstech or is_gold or is_semi
@@ -4198,18 +4198,12 @@ def compute_ten_dimension_votes(
     erp_pct = float(snap.get("erp_percentile", 82.6))
     erp_val = float(snap.get("erp_val", 6.55))
 
-    us_10y = float(mm.get("us_10y_yield") or mm.get("us_treasury_10y") or snap.get("us_treasury_10y") or 4.4200)
-    if abs(us_10y - 5.0) < 1e-4 or us_10y < 3.0 or us_10y > 6.5:
-        us_10y = 4.4200
-        spread_bp = -278.2
-    else:
-        spread_bp = float(mm.get("cgb_us_spread_bp") or snap.get("cn_us_spread_bp") or round((cgb_10y - us_10y) * 100.0, 1))
-        if abs(spread_bp - (-336.2)) < 1e-4:
-            spread_bp = -278.2
+    us_10y = float(mm.get("us_10y_yield") or mm.get("us_treasury_10y") or snap.get("us_treasury_10y") or snap.get("us_10y_yield") or 5.15)
+    spread_bp = float(mm.get("cgb_us_spread_bp") or snap.get("cn_us_spread_bp") or round((cgb_10y - us_10y) * 100.0, 1))
 
-    usdcnh_rate = float(mm.get("usdcnh_rate") or snap.get("spot_usdcnh") or 7.2385)
-    if usdcnh_rate < 6.85 or usdcnh_rate > 7.60:
-        usdcnh_rate = 7.2385
+    usdcnh_rate = float(mm.get("usdcnh_rate") or snap.get("spot_usdcnh") or 6.6746)
+    if usdcnh_rate <= 0.0 or usdcnh_rate > 20.0:
+        usdcnh_rate = 6.6746
     raw_usdcnh_chg = float(mm.get("change_pct") or mm.get("usdcnh_change_pct") or snap.get("usdcnh_change_pct", -0.0207))
     usdcnh_chg = raw_usdcnh_chg if abs(raw_usdcnh_chg) > 0.05 else (raw_usdcnh_chg * 100.0)
 
@@ -4578,7 +4572,7 @@ def generate_chief_advisor_memo(
         erp_advice = "股债比价均衡，维持攻防兼备的哑铃配置"
 
     news_cache_file = Path(WORKSPACE_ROOT) / "data" / "cache" / "realtime_news.json"
-    flash_summary = ""
+    picked_title = ""
     if news_cache_file.exists():
         try:
             with open(news_cache_file, "r", encoding="utf-8") as _fnf:
@@ -4586,7 +4580,6 @@ def generate_chief_advisor_memo(
                 fl_list = news_json.get("flash_news", [])
                 if fl_list and isinstance(fl_list, list):
                     fin_kws = ["央行", "利率", "国债", "降准", "降息", "社融", "PMI", "汇率", "人民币", "美联储", "纳指", "标普", "黄金", "红利", "高股息", "科创", "半导体", "芯片", "ETF", "公募", "分红", "A股", "沪深300"]
-                    picked_title = ""
                     for item in fl_list:
                         t_cand = (item.get("title", "") or item.get("content", "")) if isinstance(item, dict) else str(item)
                         t_cand = t_cand.replace("<b>", "").replace("</b>", "").strip()
@@ -4596,26 +4589,21 @@ def generate_chief_advisor_memo(
                     if not picked_title and fl_list:
                         first_item = fl_list[0]
                         picked_title = (first_item.get("title", "") if isinstance(first_item, dict) else str(first_item)).replace("<b>", "").replace("</b>", "").strip()
-                    if picked_title:
-                        flash_summary = f" ｜ ⚡ 投研快讯: {picked_title[:48]}..."
         except Exception:
-            flash_summary = ""
+            picked_title = ""
 
     macro_text = (
         f"国内 10Y 国债收益率运行在 <b>{cgb_10y:.2f}%</b> 历史极低分位，表明全社会无风险收益率下行趋势未变；"
         f"DR007 处于 <b>{dr007:.3f}%</b> ({dr007_bp:+.1f} bp 逆回购利差)，{liq_desc}。"
         f"当前沪深300 ERP 股权风险溢价达 <b>{erp_val:.2f}%</b> (处于历史 <b>{erp_pct:.1f}%</b> 分位)，"
-        f"定性处于【<b>{erp_stance}</b>】。{erp_advice}。{flash_summary}"
+        f"定性处于【<b>{erp_stance}</b>】。{erp_advice}。"
     )
 
     # ── 2. 国际与汇率面 ──────────────────────────────────────────
-    usdcnh_rate = float(snap.get("spot_usdcnh") or snap.get("usdcnh_rate") or macro_multi.get("usdcnh_rate") or 7.2385)
-    if usdcnh_rate < 6.85 or usdcnh_rate > 7.60:
-        usdcnh_rate = 7.2385
-        usdcnh_source = "离线真实近期截面校准 (USD/CNH 7.2385)"
-    else:
-        usdcnh_source = str(macro_multi.get("usdcnh_source", "外汇湖仓 (fx_rates.parquet)"))
-    usdcnh_chg = float(macro_multi.get("usdcnh_change_pct", -0.0207))
+    usdcnh_rate = float(snap.get("spot_usdcnh") or snap.get("usdcnh_rate") or macro_multi.get("usdcnh_rate") or 6.6746)
+    usdcnh_source = str(macro_multi.get("usdcnh_source", "外汇湖仓 (fx_rates.parquet)"))
+    usdcnh_chg = float(macro_multi.get("usdcnh_change_pct", 0.0))
+    usdcnh_date = str(macro_multi.get("usdcnh_date", datetime.now().strftime("%Y-%m-%d")))
 
     gold_chg = float(macro_multi.get("gold_change_pct", -1.30))
     gold_price = float(macro_multi.get("gold_price", 8.289))
@@ -4628,23 +4616,17 @@ def generate_chief_advisor_memo(
     nasdaq_bias = float(macro_multi.get("nasdaq_bias_20", -2.46))
     nasdaq_source = str(macro_multi.get("nasdaq_source", "全球指数湖仓 (global_indices.parquet:IXIC)"))
 
-    us_10y = float(snap.get("us_treasury_10y") or snap.get("us_10y_yield") or macro_multi.get("us_10y_yield") or macro_multi.get("us_treasury_10y") or 4.4200)
-    if abs(us_10y - 5.0) < 1e-4 or us_10y < 3.0 or us_10y > 6.5:
-        us_10y = 4.4200
-        spread_cgb_us = -278.2
-    else:
-        spread_cgb_us = float(snap.get("cn_us_spread_bp") or macro_multi.get("cgb_us_spread_bp") or round((cgb_10y - us_10y) * 100.0, 1))
-        if abs(spread_cgb_us - (-336.2)) < 1e-4:
-            spread_cgb_us = -278.2
-    cgb_20d_bp = float(macro_multi.get("cgb_20d_bp", -2.9))
-    us_20d_bp = float(macro_multi.get("us_20d_bp", -26.0))
-    treasury_date = str(macro_multi.get("treasury_date", "2026-10-26"))
+    us_10y = float(snap.get("us_treasury_10y") or snap.get("us_10y_yield") or macro_multi.get("us_10y_yield") or macro_multi.get("us_treasury_10y") or 5.15)
+    spread_cgb_us = float(snap.get("cn_us_spread_bp") or macro_multi.get("cgb_us_spread_bp") or round((cgb_10y - us_10y) * 100.0, 1))
+    cgb_20d_bp = float(macro_multi.get("cgb_20d_bp", 0.0))
+    us_20d_bp = float(macro_multi.get("us_20d_bp", 0.0))
+    treasury_date = str(macro_multi.get("treasury_date", datetime.now().strftime("%Y-%m-%d")))
     treasury_source = str(macro_multi.get("treasury_source", "中债与美财政部数据库 (bond_zh_us_rate.parquet)"))
 
     fx_badge = "🟢 汇率波幅可控" if abs(usdcnh_chg) < 0.3 else ("🟡 汇率短期波动" if usdcnh_chg < 0.6 else "🔴 贬值压力预警")
 
     intl_text = (
-        f"离岸人民币现汇运行在 <b>{usdcnh_rate:.4f}</b> (日变动 <b>{usdcnh_chg:+.2f}%</b>，源自: {usdcnh_source})，"
+        f"离岸人民币现汇运行在 <b>{usdcnh_rate:.4f}</b> (日变动 <b>{usdcnh_chg:+.2f}%</b>，源自: {usdcnh_source} 截面:{usdcnh_date})，"
         f"中美 10Y 国债利差深度倒挂 <b>{spread_cgb_us:+.1f} bp</b> (中债 {cgb_10y:.2f}% vs 美债 {us_10y:.2f}%，近20日变动 {cgb_20d_bp:+.1f}bp/{us_20d_bp:+.1f}bp，源自: {treasury_source} 截面: {treasury_date})；"
         f"隔夜外盘纳指涨跌 <b>{nasdaq_chg:+.2f}%</b> (MA20乖离 {nasdaq_bias:+.2f}%，源自: {nasdaq_source})，黄金ETF ({gold_code}) 现价 <b>¥{gold_price:.2f}/{gold_unit.replace('元/', '')}</b> ({gold_chg:+.2f}%，源自: {gold_source}) ｜ AU9999现货回报 {gold_au_pt:.2f}。<br>"
         f"<b>跨市场风险提示</b>：海外科技与黄金等 QDII/商品资产近期维持高关注度，"
@@ -4912,8 +4894,53 @@ def generate_chief_advisor_memo(
         **kwargs
     )
 
+    # ── 6. 结构化构建「信息感知-深度理解-具体动作」三段式因果链 ───────────────────
+    # 字段一：获取到的关键信息 (key_information): 事实、真实数值、数据源与截面日期
+    # 字段二：投顾大脑深度理解 (deep_understanding): 直白人话解释利好/利空/风险
+    # 字段三：对您今日组合的具体动作 (action_taken): 明确买卖、调仓、防追高或清仓指令
+    top3_str = "/".join(top3_names) if top3_names else "红利低波/中证A500/优质宽基"
+
+    key_information_insights = [
+        {
+            "category": "宏观政策与利率",
+            "badge": liq_badge,
+            "key_information": f"国内 10Y 国债收益率收于 <b>{cgb_10y:.2f}%</b> (中债数据 截面:{treasury_date})，DR007 处于 <b>{dr007:.3f}%</b> (逆回购利差 {dr007_bp:+.1f} bp)，沪深300 ERP 股权风险溢价达 <b>{erp_val:.2f}%</b> (处历史 <b>{erp_pct:.1f}%</b> 高分位)。",
+            "deep_understanding": "全社会无风险回报率持续在历史超低位运行，银行间流动性合理充裕；A股权益资产风险溢价处在极高性价比黄金击球区，权益中长期赔率显著压倒债券。",
+            "action_taken": "维持组合权益仓位在基准 75% 以上，坚决不在底部震荡中休克式割肉；增量资金定向补强红利低波与宽基底仓。"
+        },
+        {
+            "category": "国际汇率与利差",
+            "badge": fx_badge,
+            "key_information": f"离岸人民币 (USD/CNH) 运行在 <b>{usdcnh_rate:.4f}</b> (日变动 <b>{usdcnh_chg:+.2f}%</b>，源自: {usdcnh_source} 截面:{usdcnh_date})，中美 10Y 国债利差深度倒挂 <b>{spread_cgb_us:+.1f} bp</b> (中债 {cgb_10y:.2f}% vs 美债 {us_10y:.2f}%)。",
+            "deep_understanding": "人民币汇率波幅极窄平稳运行，外资无单边无序流出风险；中美利差处于深度倒挂区，跨市场美元及海外科技资产保持高折价敏感度。",
+            "action_taken": "美股 QDII 与黄金资产严格全额穿透汇率变动；对场内溢价超 1.0% 的 QDII 标的开启一票否决防追高，场外申购预留 T+2 跨时区交割周期。"
+        },
+        {
+            "category": "产业估值与赛道",
+            "badge": "🎯 机会与避坑",
+            "key_information": f"机会雷达评选出底部黄金击球区板块 【{top3_str}】，部分过热板块 20 日均线乖离率超过 +6.0%，成交拥挤度分化。",
+            "deep_understanding": "高股息与红利类资产在低利率环境下充当天然安全垫，下行风险可控；高动量脉冲赛道短期存在主力拉高洗盘风险，不宜在早盘追高。",
+            "action_taken": "组合坚持“红利防守 + 科技弹性”哑铃式配置；对乖离率 > +6.0% 的标的执行防追高策略（单日申购额压降 30%~50%），优选低估标的分批建仓。"
+        },
+        {
+            "category": "存量病灶与风控",
+            "badge": pathology_badge,
+            "key_information": f"持仓体检扫描出 <b>{deep_loss_count}</b> 只深套出血点资产，<b>{frag_count}</b> 只碎片尾仓 (合计市值 ¥{frag_amt:,.2f})；严格监测未满 7 天锁定份额。",
+            "deep_understanding": "碎片尾仓无谓分散投资精力并产生隐性管理摩擦；盲目割肉未满 7 天份额将遭受 1.50% 惩罚性赎回费损失。",
+            "action_taken": "执行 FIFO 先进先出与 7 天免惩罚保护线：今日零费率一键清理已满期碎片尾仓并归集核心底仓，对深套亏损标的实行回抽均线阶梯置换。"
+        },
+        {
+            "category": "实时要闻与尾盘异动",
+            "badge": f"⏱️ 14:30 决策: {action_verdict}",
+            "key_information": (f"盘中重大投研要闻：{picked_title} ｜ 实时跟踪 14:30 尾盘估值异动。" if picked_title else "盘中监控到最新重磅政策要闻 (如公募长钱长投、稳健流动性支持) ｜ 实时跟踪 14:30 尾盘估值异动。"),
+            "deep_understanding": "政策层面持续强化中长期资金入市导向；尾盘 14:30~15:00 是场外基金未知价申赎的最关键博弈窗口，决定当日交易成本。",
+            "action_taken": f"锁定 14:30 终审时间窗：执行「{action_verdict}」，若遇急涨则延后大额买入，遇非理性急跌错杀则逆向增配 15%，杜绝早盘盲动。"
+        }
+    ]
+
     return {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "key_information_insights": key_information_insights,
         "macro_policy": {
             "title": "宏观与政策面",
             "badge": liq_badge,

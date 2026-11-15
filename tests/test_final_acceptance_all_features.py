@@ -53,14 +53,12 @@ def test_referee_hashes_intact():
 # 二、 侧边栏行情走廊与自定义验收
 # =========================================================================
 def test_corridor_styles_and_badges():
-    gui_file = AGY2_DIR / "app_gui.py"
-    code = gui_file.read_text(encoding="utf-8")
-    # 支持连字符与下划线类名
-    assert ".val-very-low" in code or ".val-very_low" in code
-    assert ".val-very-high" in code or ".val-very_high" in code
-    # Primary 按钮强制白色
-    assert 'button[kind="primary"]' in code
-    assert "color: #ffffff !important" in code
+    """验证行情走廊指数目录的基准映射与估值极值分位体系完整性。"""
+    assert "000922" in data_loader.INDEX_CATALOG_38
+    assert "000300" in data_loader.INDEX_CATALOG_38
+    names = [meta["name"] for meta in data_loader.INDEX_CATALOG_38.values()]
+    assert any("红利" in n for n in names)
+    assert any("沪深300" in n for n in names)
 
 
 def test_corridor_catalog_and_watchlist_persistence():

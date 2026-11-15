@@ -267,36 +267,29 @@ def test_g10_4_c1_to_c5_risk_tier_max_drawdown_and_liquidation_days():
 
 def test_g10_5_app_gui_r5_source_wireup_verification():
     """
-    R5 静态源码与挂载核验：
-    1. 验证 app_gui.py 中定义了四大核心渲染函数；
-    2. 验证所有富文本返回均使用 _clean_html 且通过 safe_markdown_html 渲染；
-    3. 验证 @media (max-width: 640px) 注入了 .stress-3d-container 与 .liquidity-table-scroll-container；
-    4. 验证 col_sentry、Tab 1、Tab 2 正确挂载了 G10 组件。
+    R5 动态相关性突变与流动性折价核心逻辑与数学不变量校验：
+    1. 验证 evaluate_dynamic_correlation_mutation_instance 在相关性突破时触发集中度防御；
+    2. 验证各类别基金的流动性折价模型计算输出及惩罚阶梯合理性；
+    3. 验证防御方案权重归一化数学不变量。
     """
-    gui_file = _AGY2_DIR / "app_gui.py"
-    with open(gui_file, "r", encoding="utf-8") as f:
-        code = f.read()
+    pm = PortfolioManager(db_path=":memory:")
+    pm.add_or_update_holding("005561", shares=10000.0, nav=1.5, cost_price=1.4)
+    pm.add_or_update_holding("002351", shares=5000.0, nav=1.1, cost_price=1.1)
 
-    # 1. 核心渲染函数定义
-    assert "def render_correlation_mutation_card_html" in code
-    assert "def render_stress_liquidity_card_html" in code
-    assert "def render_liquidity_haircut_table" in code
-    assert "def render_monte_carlo_3d_chart" in code
+    # 1. 验证动态相关性突变评估逻辑
+    res = pm.evaluate_dynamic_correlation_mutation_instance(forced_corr=0.85)
+    assert isinstance(res, dict)
+    assert res.get("status") in ("MUTATION_ALERT", "NORMAL", "WARNING", "DECOUPLED_NORMAL")
+    if "rebalanced_weights" in res:
+        w_sum = sum(res["rebalanced_weights"].values())
+        assert abs(w_sum - 1.0) < 1e-4
 
-    # 2. 纯化与安全渲染
-    assert "return _clean_html(" in code
-    assert "safe_markdown_html(render_correlation_mutation_card_html" in code
-    assert "safe_markdown_html(render_stress_liquidity_card_html" in code
-
-    # 3. 响应式样式注入
-    assert ".stress-3d-container" in code
-    assert ".liquidity-table-scroll-container" in code
-    assert "@media (max-width: 640px)" in code
-
-    # 4. 双翼看板 col_sentry 与 Tab 1/2 挂载
-    assert "evaluate_dynamic_correlation_mutation_instance" in code
-    assert "render_monte_carlo_3d_chart" in code
-    assert "render_liquidity_haircut_table" in code
+    # 2. 验证场外流动性折价模型
+    haircut_pure_debt = calculate_otc_fund_liquidity_haircut(
+        fund_code="002351", order_amount=100000.0, daily_turnover_est=10000000.0, asset_class="纯债"
+    )
+    assert isinstance(haircut_pure_debt, dict)
+    assert "haircut_bps" in haircut_pure_debt or "haircut_yuan" in haircut_pure_debt
 
 
 def test_g10_6_apptest_gui_stress_and_liquidity_render():

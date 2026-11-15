@@ -3410,9 +3410,14 @@ class PortfolioManager:
 
         self.ledger_json_path = Path(ledger_json_path)
 
-        # 账本标识绑定
+        # 账本标识绑定与自动沙盒隔离：若显式指定了非 main_live 的 ledger_id，绝不覆写主实盘
         if ledger_id is not None:
             self.ledger_id = str(ledger_id)
+            if self.ledger_id != "main_live":
+                if storage_file is None and ledger_file is None and str(ledger_json_path) == "portfolio_ledger.json":
+                    self.ledger_json_path = WORKSPACE_ROOT / "data" / "ledgers" / f"{self.ledger_id}.json"
+                    if db_path is None or str(db_path) == "portfolio_state.db":
+                        db_path = WORKSPACE_ROOT / "data" / "ledgers" / f"{self.ledger_id}.db"
         elif self.ledger_json_path.name == "portfolio_ledger.json":
             self.ledger_id = "main_live"
         else:
@@ -4146,6 +4151,21 @@ class PortfolioManager:
 
         # 2. 写入 JSON 镜像
         if not getattr(self, '_is_memory', False):
+            is_root_live_ledger = False
+            try:
+                is_root_live_ledger = (self.ledger_json_path.resolve() == (WORKSPACE_ROOT / "portfolio_ledger.json").resolve())
+            except Exception:
+                is_root_live_ledger = (self.ledger_json_path.name == "portfolio_ledger.json")
+
+            # 核心防护 1：ledger_id 与主实盘不一致时，坚决禁止篡改主实盘文件
+            if is_root_live_ledger and getattr(self, "ledger_id", "main_live") != "main_live":
+                return
+
+            # 核心防护 2：宪法第五条第3款——测试环境下严禁脏写根目录主实盘
+            is_in_test_env = ("PYTEST_CURRENT_TEST" in os.environ or "pytest" in sys.modules)
+            if is_root_live_ledger and is_in_test_env and not getattr(self, "_allow_live_write_in_test", False):
+                return
+
             try:
                 with open(self.ledger_json_path, "w", encoding="utf-8") as f:
                     json.dump(state_dict, f, ensure_ascii=False, indent=2)
@@ -7790,11 +7810,9 @@ class PortfolioManager:
             try:
                 from data_loader import DataLoader
                 fx_data = DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
-                spot_usdcnh = float(fx_data.get("rate", 7.2385))
+                spot_usdcnh = float(fx_data.get("rate", 6.6746))
             except Exception:
-                spot_usdcnh = 7.2385
-        if spot_usdcnh < 6.85 or spot_usdcnh > 7.60:
-            spot_usdcnh = 7.2385
+                spot_usdcnh = 6.6746
 
         results = []
         for c in codes:

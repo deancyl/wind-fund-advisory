@@ -22,7 +22,7 @@ def test_pcr_mathematical_sum_and_risk_guard():
 
 def test_pending_order_t_plus_1_reconciliation():
     """验证在途订单 T+1 对账入库与资金回补"""
-    pm = PortfolioManager()
+    pm = PortfolioManager(db_path=":memory:")
     pm.load_demo_portfolio()
     initial_cash = pm.available_cash
     
@@ -62,7 +62,7 @@ def test_pending_order_t_plus_1_reconciliation():
 
 def test_rebalance_net_utility_interception():
     """验证调仓净效用 Delta U 门禁与摩擦精算"""
-    pm = PortfolioManager()
+    pm = PortfolioManager(db_path=":memory:")
     pm.load_demo_portfolio()
     
     # 跨公司调仓小金额（摩擦大、预期超额低，应触发拦截）

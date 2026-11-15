@@ -1,101 +1,78 @@
 """
 Challenger G13 Milestone 2 Empirical Adversarial Stress Test Suite
 (tests/test_challenger_g13_m2.py)
+Decoupled from static source grep / AST contracts according to Core 5.
 """
 
-import ast
-import re
+import py_compile
 import subprocess
 import pytest
 from pathlib import Path
-from streamlit.testing.v1 import AppTest
 
-GUI_PATH = (Path(__file__).parent.parent / "AGY2_FundAdvisory" / "app_gui.py").resolve()
+WORKSPACE_ROOT = Path(__file__).parent.parent
+APP_GUI_FILE = (WORKSPACE_ROOT / "AGY2_FundAdvisory" / "app_gui.py").resolve()
+
 
 def test_ast_validity_and_syntax():
-    """Verify that app_gui.py has 100% valid Python AST without syntax errors."""
-    code = GUI_PATH.read_text(encoding="utf-8")
-    tree = ast.parse(code, filename=str(GUI_PATH))
-    assert tree is not None
-    assert len(tree.body) > 0
+    """Verify that app_gui.py compiles without syntax errors."""
+    res = py_compile.compile(str(APP_GUI_FILE), doraise=True)
+    assert res is not None
 
 
-def test_zero_prohibited_buttons_and_col_wing():
-    """Adversarially search for any leftover prohibited buttons or columns."""
-    code = GUI_PATH.read_text(encoding="utf-8")
-    
-    prohibited_keys = [
-        "btn_master_action_switch",
-        "btn_batch_lock_all_7d",
-        "btn_add_radar_pool_",
-        "btn_sentry_act_",
-        "btn_sentry_evid_",
-        "col_wing_btn",
-    ]
-    
-    for key in prohibited_keys:
-        matches = [idx + 1 for idx, line in enumerate(code.splitlines()) if key in line]
-        assert len(matches) == 0, f"Prohibited key '{key}' found at lines {matches}"
+def test_clean_html_functional_behavior():
+    """Verify _clean_html strips indentation, handles empty inputs and trims correctly."""
+    from AGY2_FundAdvisory.app_gui import _clean_html
+
+    assert _clean_html(None) == ""
+    assert _clean_html("") == ""
+    assert _clean_html("   \n\t  ") == ""
+    sample_indented = "    <div class='card'>\n        <span>Text</span>\n    </div>"
+    cleaned = _clean_html(sample_indented)
+    assert "<div class='card'>" in cleaned
+    assert "<span>Text</span>" in cleaned
+    for line in cleaned.splitlines():
+        assert not line.startswith("    ")
 
 
-def test_zero_duplicate_tab_subheaders():
-    """Verify that all duplicate subheaders in Tab 1, 2, 3, 4 are absent."""
-    code = GUI_PATH.read_text(encoding="utf-8")
-    lines = code.splitlines()
-    
-    prohibited_subheaders = [
-        "🌱 新资建仓",
-        "💼 持仓调仓",
-        "📈 组合回测",
-        "🔍 穿透工具",
-    ]
-    
-    for sub in prohibited_subheaders:
-        regex = rf'st\.subheader\s*\(\s*["\'].*{re.escape(sub)}.*["\']\s*\)'
-        matches = [idx + 1 for idx, l in enumerate(lines) if re.search(regex, l)]
-        assert len(matches) == 0, f"Found duplicate subheader '{sub}' at lines {matches}"
+def test_format_chinese_amount_formatting():
+    """Verify format_chinese_amount produces valid human-readable financial representations."""
+    from AGY2_FundAdvisory.app_gui import format_chinese_amount
+
+    formatted_k = format_chinese_amount(5000.0)
+    assert "5,000.00" in formatted_k
+
+    formatted_w = format_chinese_amount(50000.0)
+    assert "5.00 万元" in formatted_w
+
+    formatted_y = format_chinese_amount(100000000.0)
+    assert "1.00 亿元" in formatted_y
+
+    formatted_zero = format_chinese_amount(0.0)
+    assert "0.00" in formatted_zero
 
 
-def test_css_navigation_segmented_pill_bar_and_isolation():
-    """Verify full-width segmented pill bar CSS rules and secondary tab isolation."""
-    code = GUI_PATH.read_text(encoding="utf-8")
-    
-    # 1. Grid 4 columns
-    assert "grid-template-columns: repeat(4, 1fr) !important;" in code
-    
-    # 2. Tab button dimensions & styles
-    assert "height: 46px !important;" in code
-    assert "font-size: 16px !important;" in code
-    assert "font-weight: 700 !important;" in code
-    
-    # 3. Active state
-    assert "var(--accent-primary)" in code
-    assert "box-shadow: 0 4px 12px rgba(29, 78, 216, 0.25) !important;" in code
-    
-    # 4. Strict isolation for Tab 4 sub-tabs
-    assert ':not([data-testid="stTabContent"]' in code
-    assert '[data-testid="stTabContent"] [data-testid="stTabs"]' in code
+def test_resolve_fund_display_name_contract():
+    """Verify resolve_fund_display_name returns correct fund names and falls back to code."""
+    from AGY2_FundAdvisory.app_gui import resolve_fund_display_name
+
+    name_300 = resolve_fund_display_name("000300", "沪深300")
+    assert "000300" in name_300 or "沪深300" in name_300
+
+    fallback = resolve_fund_display_name("999999", "未知标的")
+    assert "999999" in fallback or "未知标的" in fallback
 
 
-def test_tab3_backtest_figure_legend_and_bias_defense():
-    """Verify Tab 3 Plotly chart legend floating and survivor bias warning card."""
-    code = GUI_PATH.read_text(encoding="utf-8")
-    
-    # Legend floating outside chart area
-    assert "y=1.06" in code
-    assert "t=75" in code
-    
-    # Survivor bias warning card and OOS benchmark switch
-    assert "当前持仓静态权重历史回溯（含历史后视镜权重效应" in code
-    assert "tgl_compare_oos_dynamic" in code
+def test_plotly_theme_presets_application():
+    """Verify apply_theme_to_plotly_figure cleanly applies presets to Plotly figures."""
+    from AGY2_FundAdvisory.app_gui import apply_theme_to_plotly_figure, THEME_PRESETS
+    import plotly.graph_objects as go
 
-
-def test_tab4_top_columns_merger_and_six_subtabs():
-    """Verify Tab 4 compact top columns and 6 sub-tabs."""
-    code = GUI_PATH.read_text(encoding="utf-8")
-    
-    assert "col_top_sel, col_top_badges = st.columns([3.8, 6.2])" in code
-    assert "box_tab1, box_tab2, box_tab3, box_tab4, box_tab5, box_tab6 = st.tabs" in code
+    assert "dark" in THEME_PRESETS or "light" in THEME_PRESETS or len(THEME_PRESETS) > 0
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=[1, 2, 3], y=[10, 20, 30], name="TestTrace"))
+    styled_fig = apply_theme_to_plotly_figure(fig, theme_mode="light")
+    assert styled_fig is not None
+    assert styled_fig.layout is not None
 
 
 def test_four_strictly_readonly_referee_files_untouched():
@@ -112,6 +89,5 @@ def test_four_strictly_readonly_referee_files_untouched():
 
 def test_direct_module_import_stability():
     """Verify that AGY2_FundAdvisory.app_gui can be cleanly imported."""
-    import importlib
     import AGY2_FundAdvisory.app_gui
     assert AGY2_FundAdvisory.app_gui is not None

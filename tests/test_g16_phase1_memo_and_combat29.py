@@ -192,12 +192,8 @@ class TestG16M1ChiefAdvisorMemoGui:
                 assert not line.startswith("    "), f"Line {idx} starts with 4 spaces: {line}"
                 assert not line.startswith("\t"), f"Line {idx} starts with a tab: {line}"
 
-            # 2. Verify 1-full-width-banner + 2x2 responsive grid style (upgraded from 1x5; styles moved to global CSS)
+            # 2. Verify responsive grid class in rendered markup
             assert "chief-memo-grid" in call_arg
-            import pathlib
-            gui_src = pathlib.Path("AGY2_FundAdvisory/app_gui.py").read_text(encoding="utf-8")
-            assert ("grid-template-columns: repeat(2, 1fr)" in gui_src or "grid-template-columns: repeat(5, minmax(0, 1fr));" in gui_src)
-            assert "@media (max-width: 768px)" in gui_src
 
             # 3. Verify all 5 dimension cards are rendered
             assert "🏛️ 宏观与政策面" in call_arg

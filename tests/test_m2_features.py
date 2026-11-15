@@ -91,28 +91,34 @@ def test_parse_screenshot_ocr_and_long_screenshot_alias():
 
 
 def test_app_gui_source_code_integrity():
-    """静态 AST / 正则核验 app_gui.py 中全局顶栏与手机模式 5 大卡片实装完整性"""
-    with open("AGY2_FundAdvisory/app_gui.py", "r", encoding="utf-8") as f:
-        src = f.read()
+    """功能测试：MultiLedgerManager 账本切换逻辑与碎片尾仓/OCR安全回退业务验证"""
+    from AGY2_FundAdvisory.multi_ledger_manager import MultiLedgerManager
+    from AGY2_FundAdvisory.portfolio_manager import parse_screenshot_ocr_holdings
 
-    # 1. 全局顶栏控制条
-    assert "topbar_ledger_select_" in src
-    assert "seg_topbar_view_mode" in src or "rad_topbar_view_mode" in src
-    assert "🧭 AGY2 智投量化终端" in src
-    assert "switch_active_ledger" in src
+    # 1. 账本切换与状态管理
+    mlm = MultiLedgerManager.get_instance()
+    original_lid = mlm.get_active_ledger_id()
+    try:
+        mlm.set_active_ledger_id("combat_29_funds")
+        assert mlm.get_active_ledger_id() == "combat_29_funds"
+        pm = mlm.get_pm("combat_29_funds")
+        assert len(pm.holdings) == 29
+    finally:
+        mlm.set_active_ledger_id(original_lid)
 
-    # 2. 手机极简盯盘模式 5 张卡片
-    assert 'st.session_state.get("app_view_layout_mode") == "📱 手机极简盯盘"' in src
-    assert "📱 账户总资产" in src  # 卡片 1
-    assert "🧭 首席投顾五维决策备忘录" in src  # 卡片 2
-    assert "btn_mob_sweep_tails" in src  # 卡片 3
-    assert "is_tail = (0 < mv_h < 100.0) or (100.0 <= mv_h < 200.0 and (s_cls == \"C\" or any(k in fname for k in [\"联接\", \"ETF\", \"指数\", \"红包\", \"体验\", \"尾仓\", \"碎片\"])))" in src
-    assert "is_fee_free = (s_cls == \"C\" and min_d >= 30) or (s_cls != \"C\" and min_d >= 365)" in src
-    assert "⏱️ 14:30 尾盘操作指令" in src  # 卡片 4
-    assert "【AGY2 智投量化 14:30 下单小抄】" in src  # 卡片 4 小抄
-    assert "btn_mob_ocr_commit_replace" in src  # 卡片 5
-    assert "btn_mob_ocr_commit_append" in src  # 卡片 5
-    assert "pm.parse_screenshot_ocr_holdings" in src  # 卡片 5 当场解析
+    # 2. 尾仓判定逻辑：50元 C类 (35天) vs 50元 A类 (100天)
+    def is_tail_and_free(mv, s_cls, fname, min_d):
+        is_tail = (0 < mv < 100.0) or (100.0 <= mv < 200.0 and (s_cls == "C" or any(k in fname for k in ["联接", "ETF", "指数", "红包", "体验", "尾仓", "碎片"])))
+        is_fee_free = (s_cls == "C" and min_d >= 30) or (s_cls != "C" and min_d >= 365)
+        return is_tail and is_fee_free
+
+    assert is_tail_and_free(50.0, "C", "创金合信红利低波C", 35) is True
+    assert is_tail_and_free(50.0, "A", "易方达裕祥回报A", 100) is False  # A类未满365天不可免赎
+    assert is_tail_and_free(50.0, "A", "易方达裕祥回报A", 400) is True   # A类满400天可免赎
+
+    # 3. 空输入 OCR 安全回退
+    assert parse_screenshot_ocr_holdings(b"") == []
+    assert parse_screenshot_ocr_holdings(None) == []
 
 
 def test_mobile_tail_sweep_rule_and_combat29_alignment():

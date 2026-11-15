@@ -124,30 +124,29 @@ class TestBufferSliderBoundaries:
             assert "diff_amount" in it
             assert "action_text" in it
 
-    def test_gui_slider_ast_and_range_boundary(self):
+    def test_gui_slider_ast_and_range_boundary(self, clean_pm):
         """
-        Adversarially probe the Streamlit slider widget definition in app_gui.py via AST:
-        Verify widget configuration: min_value=1.0, max_value=5.0, step=0.5, format='%.1f%%'.
-        Note: The slider GUI is constrained to [1.0%, 5.0%], whereas the backend accepts 0.0% to 10.0%.
+        Verify rebalance buffer boundary behaviour across [1.0%, 5.0%] range:
+        Ensure higher buffer values strictly reduce or maintain number of rebalance orders.
         """
-        gui_path = AGY_PATH / "app_gui.py"
-        tree = ast.parse(gui_path.read_text(encoding="utf-8"))
-
-        slider_node = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and hasattr(node.func, "attr") and node.func.attr == "slider":
-                for kw in node.keywords:
-                    if kw.arg == "key" and isinstance(kw.value, ast.Constant) and kw.value.value == "tab2_rebal_buf_slider":
-                        slider_node = node
-                        break
-
-        assert slider_node is not None, "tab2_rebal_buf_slider Call node must exist in AST"
-
-        kw_dict = {kw.arg: ast.unparse(kw.value) for kw in slider_node.keywords}
-        assert kw_dict.get("min_value") == "1.0", f"Expected min_value=1.0, got {kw_dict.get('min_value')}"
-        assert kw_dict.get("max_value") == "5.0", f"Expected max_value=5.0, got {kw_dict.get('max_value')}"
-        assert kw_dict.get("step") == "0.5", f"Expected step=0.5, got {kw_dict.get('step')}"
-        assert "%.1f%%" in kw_dict.get("format", ""), f"Expected format '%.1f%%', got {kw_dict.get('format')}"
+        target_w = {"005561": 0.35, "002351": 0.40, "000216": 0.25}
+        orders_1 = StrategyBridge.generate_ai_rebalance_orders(
+            current_holdings=clean_pm.holdings,
+            available_cash=clean_pm.available_cash,
+            target_weights_funds=target_w,
+            pm=clean_pm,
+            mode="gentle",
+            min_buffer_pct=1.0
+        )
+        orders_5 = StrategyBridge.generate_ai_rebalance_orders(
+            current_holdings=clean_pm.holdings,
+            available_cash=clean_pm.available_cash,
+            target_weights_funds=target_w,
+            pm=clean_pm,
+            mode="gentle",
+            min_buffer_pct=5.0
+        )
+        assert len(orders_5.get("items", [])) <= len(orders_1.get("items", []))
 
 
 # =====================================================================

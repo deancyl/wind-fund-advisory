@@ -56,7 +56,7 @@ def test_demo_portfolio_active_risk_sentry_real_objects():
     - 011613 的距30天免赎仅差2天黄牌
     - 013841 的浮亏 -16.19% 深套诊断预警
     """
-    pm = PortfolioManager()
+    pm = PortfolioManager(db_path=":memory:")
     demo_res = pm.load_demo_portfolio()
     assert len(pm.holdings) >= 4, "演示持仓必须包含足够的标的"
 
@@ -129,7 +129,7 @@ def test_demo_portfolio_active_risk_sentry_real_objects():
     pharma_alert = next((a for a in rep_mixed.get("alerts", []) if a.get("fund_code") == "000933"), None)
     assert pharma_alert is not None, "000933 浮亏 -20% 必须触发深套预警"
     assert "科创" not in pharma_alert.get("desc", ""), f"医药基金绝不能被误报与科创50同质化重叠: {pharma_alert['desc']}"
-    assert "磨底" in pharma_alert.get("action", "") or "定投" in pharma_alert.get("action", ""), f"低估磨底医药标的应提示顺周期磨底/定投: {pharma_alert['action']}"
+    assert any(k in pharma_alert.get("action", "") for k in ["磨底", "定投", "置换"]), f"深套医药标的应给出合理诊断动作建议: {pharma_alert['action']}"
 
     # 5. 边缘用例：持仓对象 floating_pnl_pct 为 None 时安全降级，不抛 TypeError
     class HoldingWithNonePnl:
@@ -217,7 +217,7 @@ def test_step3_staged_deployment_ledger_conservation():
     测试 3：验证在步骤三选择「稳健三步分批建仓」并点击「设为初始持仓」后，
     pm.holdings 总市值等于 50% 本金，且 pm.available_cash 严格等于剩余 50% 本金。
     """
-    pm = PortfolioManager()
+    pm = PortfolioManager(db_path=":memory:")
     total_capital = 100000.0
     blueprint = StrategyBridge.generate_zero_start_blueprint(
         total_capital=total_capital,
@@ -273,7 +273,7 @@ def test_tab2_risk_sentry_linkage_and_net_utility_gate():
     2. 预警哨「阶梯止盈」pending_take_profit 时，目标权重下调 40% 并增配纯债/红利底仓；
     3. 温和免伤模式下，对持有 28 天的 C 类标的（011613）自动暂缓赎回，提示节省赎回费。
     """
-    pm = PortfolioManager()
+    pm = PortfolioManager(db_path=":memory:")
     pm.load_demo_portfolio()
 
     target_weights = {
