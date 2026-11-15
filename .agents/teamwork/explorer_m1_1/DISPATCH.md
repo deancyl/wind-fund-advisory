@@ -1,50 +1,25 @@
-# Task Assignment: Explorer M1-1 (Market Breadth & Index Valuation)
+## 2026-11-15T08:00:19Z
+[Message] timestamp=2026-11-15T08:00:19Z sender=a29ecba0-a4ab-4a58-a8c7-4276082800c0 priority=MESSAGE_PRIORITY_HIGH content=You are Explorer 1 for Milestone 1 (M1: 十维真实投票与汇率校验及胶囊联动).
+Working directory: d:\Google\Workspace\Wind
+Your state folder: d:\Google\Workspace\Wind\.agents\teamwork\explorer_m1_1
+Authoritative user request: d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+Project plan: d:\Google\Workspace\Wind\PROJECT.md
+Scope definition: d:\Google\Workspace\Wind\.agents\teamwork\sub_orch_m1\SCOPE.md
 
-## Authoritative Request File
-`d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md` (MUST read completely before proceeding)
-`d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md` (Master Architecture & Milestone Contracts)
-`d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_r7_2\report.md` (Survey findings for R2)
+You are READ-ONLY. Do not modify source code or tests.
+Read ORIGINAL_REQUEST.md and PROJECT.md and SCOPE.md first.
 
-## Scope & Objective
-You are Explorer M1-1 for Milestone 1 (Features 1 & 2):
-1. **东财两市真实成交额与涨跌家数**:
-   - In `AGY2_FundAdvisory/data_loader.py` and `app_gui.py`:
-   - Replace any remaining hardcoded `3210 / 1780` constants.
-   - Implement `fetch_market_turnover_and_sentiment()` to call `https://push2.eastmoney.com/api/qt/ulist.np/get?secids=1.000001,0.399001&fields=f12,f14,f2,f3,f4,f6,f104,f105,f106`.
-   - Calculate total turnover (sum of f6 in 亿元), up_count (sum of f104), down_count (sum of f105), flat_count (sum of f106), up_pct = up / (up+down+flat)*100.
-   - Implement persistent caching to `data/cache/market_breadth.json` with 60s TTL and offline fallback.
-2. **真实指数与行业估值分位数引擎**:
-   - Implement `fetch_or_calc_index_valuations()` in `data_loader.py` / `cache_manager.py`.
-   - Use `ak.stock_index_pe_lg()` / `ak.stock_zh_index_value_csindex()` combined with local series.
-   - For core indices (000300, 000905, 000852, 000922, H30269, 000688, etc.), compute latest PE-TTM, 10-year percentile (%), label (e.g. "PE 12.7 (33%低估)"), status ("low"|"mid"|"high").
-   - Persist to `data/cache/index_valuation.json`.
-   - Completely purge and replace `INDEX_PE_METAS` static dictionary across the codebase.
-   - Provide fallback to local historical series or `data/storage.duckdb:v_index_valuations` when offline.
+Your specific exploration focus is Features 1, 2, 3, 4:
+1. 维度6产业估值真数据驱动：在 `advisory_engine.py` 的 `compute_ten_dimension_votes` 中，严禁使用列表长度恒真判断。读取全市场 14 大赛道的真实估值分位数列表，计算前 3 大机会赛道的平均估值分位与全市场估值中位数。当前 3 大赛道平均估值分位 <= 35% 时判定为 BULL 并上调 5% 仓位；当全市场估值中位数 > 70% 时判定为 BEAR 并下调 5% 仓位；其余为 NEUTRAL，并在 reason 中报出真实数值。
+2. 维度7资金情绪多维融合：融合两市真实成交额、多方上涨家数占比以及 14 赛道真实平均拥挤度评分。当平均拥挤度 < 55 或存在动量衰竭预警时判定为 BEAR 并下调 5% 仓位；当拥挤度 >= 72 且未过热时判定为 BULL 并上调 2% 仓位；在 reason 中报出真实拥挤度均值与多方占比。
+3. 维度10期权衍生品与避险：接入真实 option_iv_pct、ic_annualized_basis_rate 与动态相关性预警。当期权隐波 > 28% 或触发相关性突变预警时，强制判定为 BEAR 并下调 8% 仓位；当期权隐波 < 22% 且期指贴水提供充足安全垫且无相关性突变时判定为 BULL，在 reason 中报出真实数值。
+4. 黑天鹅/灰犀牛一票否决熔断门禁：在十维投票汇总处，当 ivix >= 32.0 或 dyn_corr >= 0.80 或 usdcnh_chg > 0.60% 时，冻结低估加仓项并标注触发熔断。
 
-## Working Directory
-`d:\Google\Workspace\Wind\.agents\teamwork\explorer_m1_1/`
-
-## Output Requirements
-Produce a concrete, line-by-line implementation strategy and precise code diffs in:
-`d:\Google\Workspace\Wind\.agents\teamwork\explorer_m1_1\report.md`
-And a 5-component handoff report in:
-`d:\Google\Workspace\Wind\.agents\teamwork\explorer_m1_1\handoff.md`
-When done, notify parent via `send_message`. You are read-only; DO NOT modify any source code files.
-
-## 2026-11-04T09:44:26Z
-[Message] timestamp=2026-11-04T09:44:26Z sender=c98181d5-8d61-4839-8d62-5dbcef7c85af priority=MESSAGE_PRIORITY_HIGH content=You are Explorer M1-1 for Milestone 1 (Features 1 & 2: Real Market Breadth & Index Valuation Engine).
-Working directory: d:\Google\Workspace\Wind\.agents\teamwork\explorer_m1_1/
-Read your task dispatch file: d:\Google\Workspace\Wind\.agents\teamwork\explorer_m1_1\DISPATCH.md
-Read the authoritative request file: d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
-Read master architecture: d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
-Read survey report: d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_r7_2\report.md
-Read d:\Google\Workspace\Wind\GEMINI.md for workspace rules.
-
-Your task:
-1. Formulate exact code modifications in AGY2_FundAdvisory/data_loader.py and app_gui.py to fetch real market turnover and up/down/flat counts from EastMoney push2 API (f6, f104, f105, f106), eliminating hardcoded 3210/1780, with data/cache/market_breadth.json persistent cache and fallback.
-2. Formulate exact code modifications to compute real PE-TTM and 10-year percentiles using akshare/CSI interfaces for core indices (000300, 000905, 000852, 000922, H30269, 000688, etc.), caching to data/cache/index_valuation.json, and replacing INDEX_PE_METAS.
-3. Write your report with concrete line numbers and code diffs to:
-d:\Google\Workspace\Wind\.agents\teamwork\explorer_m1_1\report.md
-and handoff to:
-d:\Google\Workspace\Wind\.agents\teamwork\explorer_m1_1\handoff.md
-Notify parent when done via send_message. You are read-only; DO NOT modify any source code files.
+Please investigate:
+- How `compute_ten_dimension_votes` is currently implemented in `advisory_engine.py`.
+- Where `snap`, `alerts`, `radar_top3`, 14 sectors valuation percentiles, 14 sectors crowding score, turnover, advancing count, option IV, basis rate, and dynamic correlation come from, and how they are structured.
+- How callers (e.g. in `app_gui.py` or tests) call `compute_ten_dimension_votes`.
+- Physical security baseline: DO NOT modify judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py. DO NOT modify DataLoader.simulate_execution default signature & default fee logic.
+- Propose the exact, concrete implementation design and code modifications for the Worker.
+Write your complete report to `d:\Google\Workspace\Wind\.agents\teamwork\explorer_m1_1\handoff.md`.
+Send a message when finished.

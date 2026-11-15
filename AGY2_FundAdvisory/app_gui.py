@@ -8,6 +8,7 @@ AGY2 A股基金实盘组合接管与智能投顾图形化工作台 (app_gui.py)
 5. Tab 4：【🔍 穿透工具】大类资产穿透缺口、加权行业暴露、重仓股交叉热力图、底层穿透排雷、A/C算费、场内ETF溢价监控。
 """
 
+import os
 import sys
 import time
 import hashlib
@@ -265,6 +266,12 @@ def _is_mobile_viewport() -> bool:
     return False
 
 
+# 全局响应式视口激活标记 (Feature 12)
+IS_MOBILE_VIEW: bool = _is_mobile_viewport()
+if "is_mobile_view" not in st.session_state:
+    st.session_state["is_mobile_view"] = IS_MOBILE_VIEW
+
+
 def render_chief_advisor_memo_card(memo_data: Dict[str, Any], title: str = "🧭 首席投顾今日裁决台"):
     """
     渲染首席投顾今日裁决台直显面板（严格控制总高度 <= 110px，无文字墙，高信息密度）
@@ -280,12 +287,12 @@ def render_chief_advisor_memo_card(memo_data: Dict[str, Any], title: str = "🧭
     m_path = memo_data.get("portfolio_pathology", {}) or {}
     m_act = memo_data.get("action_directive", {}) or {}
     tdv = memo_data.get("ten_dimension_votes", {}) or {}
-    ts = memo_data.get("timestamp", "")
+    ts = memo_data.get("timestamp") or ""
     act_verdict = m_act.get("verdict", "维持底仓吃息")
     act_color = m_act.get("color", "var(--color-down, #10b981)")
 
     # 规范化更新时间
-    clean_ts = ts.split("｜")[0].replace("研判截面：", "").strip() if "｜" in ts else ts.replace("研判截面：", "").strip()
+    clean_ts = (ts.split("｜")[0].replace("研判截面：", "").strip() if "｜" in ts else ts.replace("研判截面：", "").strip()) if ts else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # 仓位因果链
     causal_formula = tdv.get("causal_formula", "基准权益 60% + ERP极低估(+10%) + 货币宽松(+5%) = 建议 75%")
@@ -298,92 +305,46 @@ def render_chief_advisor_memo_card(memo_data: Dict[str, Any], title: str = "🧭
     cgb_10y_v = float(m_macro.get("cgb_10y", 1.64))
     macro_capsule_sub = f"10Y国债 {cgb_10y_v:.2f}% ｜ 资金合理充沛"
 
-    usdcnh_v = float(m_intl.get("usdcnh_rate", 6.6676))
+    usdcnh_v = float(m_intl.get("usdcnh_rate", 7.2385))
+    if usdcnh_v < 6.85 or usdcnh_v > 7.60:
+        usdcnh_v = 7.2385
     intl_capsule_sub = f"USD/CNH {usdcnh_v:.4f} ｜ 利差深度倒挂"
 
     ind_capsule_sub = "红利低波+硬科技 ｜ 谨防追高"
 
     d_loss = int(m_path.get("deep_loss_count", 0))
     f_cnt = int(m_path.get("frag_count", 0))
-    if d_loss > 0 or f_cnt > 0:
-        path_capsule_sub = f"{d_loss}深套出血点 ｜ {f_cnt}碎片尾仓"
-        path_badge = "🩺 诊断排雷"
-    else:
-        path_capsule_sub = "0深套 ｜ 结构优良"
-        path_badge = m_path.get("badge", "🟢 健康良好")
-
-    action_capsule_sub = f"{act_verdict} ｜ 未满7天禁卖"
 
     path_title = m_path.get("title", "")
     if "建仓" in path_title or "结构校验" in path_title:
         path_label = "📐 拟建仓组合结构校验"
         path_badge_title = "🟢 结构均衡"
+        path_capsule_sub = "建仓标的分散 ｜ 结构优良"
+    elif d_loss > 0 or f_cnt > 0:
+        path_label = "🩺 存量持仓病灶"
+        path_badge_title = "🩺 诊断排雷"
+        path_capsule_sub = f"{d_loss}深套出血点 ｜ {f_cnt}碎片尾仓"
     else:
         path_label = "🩺 存量持仓病灶"
-        path_badge_title = path_badge
+        path_badge_title = m_path.get("badge", "🟢 健康良好")
+        path_capsule_sub = "0深套 ｜ 结构优良"
+
+    action_capsule_sub = m_act.get("capsule_sub", "")
+    if not action_capsule_sub:
+        if d_loss > 0 and f_cnt > 0:
+            action_capsule_sub = f"清扫{f_cnt}只尾仓 ｜ 置换{d_loss}只深套"
+        elif f_cnt > 0:
+            action_capsule_sub = f"清扫{f_cnt}只尾仓 ｜ 归集核心底仓"
+        elif d_loss > 0:
+            action_capsule_sub = f"置换{d_loss}只深套 ｜ 止血控险"
+        elif "建仓" in path_title or "结构校验" in path_title:
+            action_capsule_sub = f"{act_verdict} ｜ 按计划分批建仓"
+        else:
+            action_capsule_sub = f"{act_verdict} ｜ 未满7天禁卖"
 
     path_content_full = m_path.get("content", "")
 
-    html_code = f"""<style>
-.chief-memo-container {{
-container: memo-desk / inline-size;
-width: 100%;
-}}
-.chief-memo-grid {{
-display: grid;
-grid-template-columns: repeat(5, minmax(0, 1fr));
-gap: 6px;
-width: 100%;
-}}
-.chief-memo-capsule {{
-background: var(--bg-elevated);
-border: 1px solid var(--border-subtle);
-border-radius: 5px;
-padding: 4px 6px;
-box-sizing: border-box;
-display: flex;
-flex-direction: column;
-justify-content: space-between;
-min-inline-size: 0;
-overflow: hidden;
-}}
-.chief-memo-capsule-title {{
-display: flex;
-justify-content: space-between;
-align-items: center;
-font-size: clamp(9.5px, 0.7cqi + 9px, 11px);
-font-weight: 700;
-white-space: nowrap;
-}}
-.chief-memo-capsule-sub {{
-font-size: clamp(9px, 0.6cqi + 8.5px, 10.5px);
-color: var(--text-secondary);
-margin-top: 2px;
-margin-block-start: auto;
-white-space: nowrap;
-overflow: hidden;
-text-overflow: ellipsis;
-}}
-/* 现代 Web 容器查询: 宿主卡片宽度 < 560px 时（侧边栏展开、分屏、手机）自动变 2 列网格 */
-@container memo-desk (inline-size < 560px) {{
-.chief-memo-grid {{
-grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-gap: 6px !important;
-}}
-}}
-@container memo-desk (inline-size < 340px) {{
-.chief-memo-grid {{
-grid-template-columns: 1fr !important;
-}}
-}}
-/* 同层级标准媒体查询双轨回退防御 (兼容无容器查询环境) */
-@media (max-width: 768px) {{
-.chief-memo-grid {{
-grid-template-columns: repeat(2, minmax(0, 1fr));
-}}
-}}
-</style>
-<div class="chief-memo-container" style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.03); height: auto !important; min-height: 82px; overflow: visible !important; box-sizing: border-box;">
+    html_code = f"""<div class="chief-memo-container" style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.03); height: auto !important; min-height: 82px; overflow: visible !important; box-sizing: border-box;">
 <!-- 第一行: 今日核心裁决 + 因果公式 + 截面时间 (Flex-wrap 防挤压) -->
 <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px; margin-bottom: 5px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px;">
 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
@@ -455,6 +416,7 @@ grid-template-columns: repeat(2, minmax(0, 1fr));
 </div>
 </div>"""
     safe_markdown_html(html_code)
+    return html_code
 
 
 def render_chief_advisor_memo_expanded_details(memo_data: Dict[str, Any]):
@@ -1040,6 +1002,63 @@ safe_markdown_html(f"""
         color: var(--text-secondary) !important;
         line-height: 1.4;
         margin-top: 4px;
+    }}
+
+    /* 首席投顾裁决卡与 5 胶囊栅格系统 (Feature 8 集中化合并) */
+    .chief-memo-container {{
+        container: memo-desk / inline-size;
+        width: 100%;
+    }}
+    .chief-memo-grid {{
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 6px;
+        width: 100%;
+    }}
+    .chief-memo-capsule {{
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        border-radius: 5px;
+        padding: 4px 6px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        min-inline-size: 0;
+        overflow: hidden;
+    }}
+    .chief-memo-capsule-title {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: clamp(9.5px, 0.7cqi + 9px, 11px);
+        font-weight: 700;
+        white-space: nowrap;
+    }}
+    .chief-memo-capsule-sub {{
+        font-size: clamp(9px, 0.6cqi + 8.5px, 10.5px);
+        color: var(--text-secondary);
+        margin-top: 2px;
+        margin-block-start: auto;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }}
+    @container memo-desk (inline-size < 560px) {{
+        .chief-memo-grid {{
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 6px !important;
+        }}
+    }}
+    @container memo-desk (inline-size < 340px) {{
+        .chief-memo-grid {{
+            grid-template-columns: 1fr !important;
+        }}
+    }}
+    @media (max-width: 768px) {{
+        .chief-memo-grid {{
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }}
     }}
 
     /* 决策卡与后果账单卡 */
@@ -1901,15 +1920,17 @@ safe_markdown_html(f"""
             text-overflow: ellipsis !important;
         }}
 
-        /* 表格底部按钮组在手机端 2x2 网格流 */
-        div[data-testid="stHorizontalBlock"]:has(button):not(:has(.main-metric-card)),
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) {{
+        /* 表格底部按钮组在手机端 2x2 网格流 (Feature 8: 精准排除数字输入框并补齐 stColumn) */
+        div[data-testid="stHorizontalBlock"]:has(button:not([data-testid*="stNumberInput"])):not(:has(.main-metric-card)):not(:has([data-testid="stNumberInput"])),
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]):not(:has([data-testid="stNumberInput"])) {{
             display: flex !important;
             flex-wrap: wrap !important;
             gap: 6px !important;
         }}
-        div[data-testid="stHorizontalBlock"]:has(button):not(:has(.main-metric-card)) > div[data-testid="column"],
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) > div[data-testid="column"] {{
+        div[data-testid="stHorizontalBlock"]:has(button:not([data-testid*="stNumberInput"])):not(:has(.main-metric-card)):not(:has([data-testid="stNumberInput"])) > div[data-testid="column"],
+        div[data-testid="stHorizontalBlock"]:has(button:not([data-testid*="stNumberInput"])):not(:has(.main-metric-card)):not(:has([data-testid="stNumberInput"])) > div[data-testid="stColumn"],
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]):not(:has([data-testid="stNumberInput"])) > div[data-testid="column"],
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]):not(:has([data-testid="stNumberInput"])) > div[data-testid="stColumn"] {{
             flex: 1 1 calc(50% - 6px) !important;
             min-width: calc(50% - 6px) !important;
         }}
@@ -2716,6 +2737,28 @@ pm: PortfolioManager = st.session_state.pm
 clock = pm.clock
 calc = pm.calculator
 
+# =============================================================================
+# G19 Feature 7: 首次加载存量持仓账本自动路由闭环 (持仓标的数 >= 10 只)
+# =============================================================================
+if "_initial_ledger_routed" not in st.session_state:
+    st.session_state["_initial_ledger_routed"] = True
+    if pm and len(pm.holdings) >= 10:
+        st.session_state["sel_tab2_active_ledger"] = _cur_lid
+        st.session_state["tab2_view_mode"] = "💼 持仓诊断与智能调仓 (主流程)"
+        st.session_state["pending_cross_tab_jump"] = {
+            "tab_index": 1,
+            "tab_name": "💼 持仓调仓",
+            "action_name": "首次加载存量持仓",
+            "target_title": _cur_lid,
+            "detail": f"检测到【{_cur_lid}】包含 {len(pm.holdings)} 只存量持仓，已自动聚焦持仓诊断与调仓工作区",
+            "timestamp": datetime.now().strftime("%H:%M:%S")
+        }
+        st.session_state["last_cross_tab_action"] = dict(st.session_state["pending_cross_tab_jump"])
+        st.session_state.tab2_diagnosed = True
+        st.session_state.tab2_rebalanced = True
+        st.session_state.tab2_trigger_diagnose = True
+        st.session_state.tab2_trigger_rebalance = True
+
 # 风险策略档位 -> 期望年化收益率基准映射表（双向映射绝对自洽，严禁 C2 设为 10.0 防漂移）
 TIER_TARGET_RETURN_MAP = {
     "C1": 6.5,
@@ -3249,11 +3292,11 @@ if active_lid not in avail_lids:
     active_lid = "main_live" if "main_live" in avail_lids else (avail_lids[0] if avail_lids else "main_live")
     st.session_state.active_ledger_id = active_lid
 
-# 首次加载智能自动路由：若当前激活账本为存量组合（如实战29基或持仓数>=8只），首次进入自动聚焦至 Tab 2 (💼 持仓调仓)
+# 首次加载智能自动路由安全兜底 (持仓数 >= 10 只)
 if "_initial_ledger_routed" not in st.session_state:
     st.session_state["_initial_ledger_routed"] = True
     cur_pm_init = mlm_inst.get_pm(active_lid) if mlm_inst else pm
-    if cur_pm_init and len(cur_pm_init.holdings) >= 8:
+    if cur_pm_init and len(cur_pm_init.holdings) >= 10:
         st.session_state["sel_tab2_active_ledger"] = active_lid
         st.session_state["tab2_view_mode"] = "💼 持仓诊断与智能调仓 (主流程)"
         st.session_state["pending_cross_tab_jump"] = {
@@ -3264,8 +3307,11 @@ if "_initial_ledger_routed" not in st.session_state:
             "detail": f"检测到【{active_lid}】包含 {len(cur_pm_init.holdings)} 只存量持仓，已自动聚焦持仓诊断与调仓工作区",
             "timestamp": datetime.now().strftime("%H:%M:%S")
         }
+        st.session_state["last_cross_tab_action"] = dict(st.session_state["pending_cross_tab_jump"])
         st.session_state.tab2_diagnosed = True
         st.session_state.tab2_rebalanced = True
+        st.session_state.tab2_trigger_diagnose = True
+        st.session_state.tab2_trigger_rebalance = True
 
 col_top_brand, col_top_ledger = st.columns([4.2, 5.8])
 
@@ -3503,6 +3549,10 @@ def _cached_time_machine_backtest(target_date: str, tier: str, capital: float, d
         capital=capital,
         dynamic_rebalance=dynamic_rebalance
     )
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_rolling_dca_3y_backtest(frequency: str, tier: str = "C3") -> Dict[str, Any]:
+    return StrategyBridge.calculate_rolling_dca_3y_backtest(frequency=frequency, tier=tier)
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def _cached_build_custom_portfolio_backtest(
@@ -3879,7 +3929,7 @@ if "pending_cross_tab_jump" in st.session_state and st.session_state["pending_cr
     <script>
     (function() {{
         let attempts = 0;
-        const maxAttempts = 18;
+        const maxAttempts = 50;
         function executeTabSwitch() {{
             try {{
                 const parentDoc = window.parent.document;
@@ -3887,7 +3937,7 @@ if "pending_cross_tab_jump" in st.session_state and st.session_state["pending_cr
                 const tabLists = parentDoc.querySelectorAll('div[data-baseweb="tab-list"], div[role="tablist"]');
                 if (tabLists && tabLists.length > 0) {{
                     const mainTabList = tabLists[0];
-                    const tabs = Array.from(mainTabList.querySelectorAll('button[role="tab"], button[data-baseweb="tab"]'));
+                    const tabs = Array.from(mainTabList.querySelectorAll('[role="tab"], [data-testid="stTab"], button[role="tab"], button[data-baseweb="tab"]'));
                     let targetTab = null;
                     if (tabs[{t_idx}]) {{
                         targetTab = tabs[{t_idx}];
@@ -3907,10 +3957,10 @@ if "pending_cross_tab_jump" in st.session_state and st.session_state["pending_cr
                 console.warn("[Cross-Tab Routing] Error:", err);
             }}
             if (attempts++ < maxAttempts) {{
-                setTimeout(executeTabSwitch, 40);
+                setTimeout(executeTabSwitch, 50);
             }}
         }}
-        setTimeout(executeTabSwitch, 20);
+        setTimeout(executeTabSwitch, 30);
     }})();
     </script>
     """
@@ -3989,7 +4039,12 @@ with tab_zero_start:
         # ---------------------------------------------------------
         # 模块 1：单行参数控制栏 (本金 + 档位 + 节奏 + 机构微调 + 单主按钮)
         # ---------------------------------------------------------
-        col_l1_cap, col_l1_tier, col_l1_rhythm, col_l1_adv, col_l1_btn = st.columns([2.5, 2.0, 2.0, 1.3, 2.2])
+        if IS_MOBILE_VIEW:
+            col_l1_cap, col_l1_tier = st.columns(2)
+            col_l1_rhythm, col_l1_adv = st.columns([7, 3])
+            col_l1_btn = st.container()
+        else:
+            col_l1_cap, col_l1_tier, col_l1_rhythm, col_l1_adv, col_l1_btn = st.columns([2.5, 2.0, 2.0, 1.3, 2.2])
 
         with col_l1_cap:
             plan_capital = st.number_input(
@@ -5472,7 +5527,11 @@ with tab_holdings_and_rebalance:
                     eq = 0.0
                 return f"{tag} {m.get('name', lid)} (¥{eq:,.0f})"
 
-            col_tb_led, col_tb_mode = st.columns([3.8, 6.2])
+            if IS_MOBILE_VIEW:
+                col_tb_led = st.container()
+                col_tb_mode = st.container()
+            else:
+                col_tb_led, col_tb_mode = st.columns([3.8, 6.2])
             with col_tb_led:
                 selected_lid = st.selectbox(
                     "切换账本",
@@ -5500,7 +5559,11 @@ with tab_holdings_and_rebalance:
                 is_t2_main_mode = "持仓诊断与智能调仓" in tab2_view_mode
 
             # 顶部 6 键操作工具栏（极速录基、批量导入、截图导入、撤销修改、同步估值、账本管理）
-            col_act_quick, col_act_batch, col_act_ocr, col_act_undo, col_act_sync, col_act_mgr = st.columns(6)
+            if IS_MOBILE_VIEW:
+                col_act_quick, col_act_batch, col_act_ocr = st.columns(3)
+                col_act_undo, col_act_sync, col_act_mgr = st.columns(3)
+            else:
+                col_act_quick, col_act_batch, col_act_ocr, col_act_undo, col_act_sync, col_act_mgr = st.columns(6)
             with col_act_quick:
                 with st.popover("➕ 极速录基", use_container_width=True):
                     st.markdown("##### ⚡ 极速录基（自动联网拉取净值并平账反算成本与份额）")
@@ -6907,13 +6970,15 @@ with tab_holdings_and_rebalance:
                 "💰 宏观估值自适应分红"
             ])
             with dock_tab1:
-                # 文本粘贴 / 搜索 / 表格导入
-                sub_tab1, sub_tab2, sub_tab3 = st.tabs([
-                    "📋 文本粘贴导入",
-                    "🔍 搜索添加标的",
-                    "📥 表格模板导入"
-                ])
-                with sub_tab1:
+                # Feature 13: 扁平化单层模式选择器（彻底消除 3 级 tabs 嵌套）
+                sel_import_tool = st.radio(
+                    "导入模式选择",
+                    ["📋 文本粘贴导入", "🔍 搜索添加标的", "📥 表格模板导入"],
+                    horizontal=True,
+                    key="rad_tab2_sub_import_tool",
+                    label_visibility="collapsed"
+                )
+                if sel_import_tool == "📋 文本粘贴导入":
                     sample_smart_text = """华泰柏瑞低波\n005561\n持有金额 30,000.00\n持有收益 +1,200.00\n昨日收益 +120.00\n持有天数 45天\n\n易方达裕祥\n002351\n持有金额 20000\n收益: 亏500\n持有天数: 180天\n\n华夏科创50C 20000 收益率-8.5% 3天"""
                     smart_text_in = st.text_area("📝 在此粘贴持仓文字（支持手机截图 OCR 多行块状或单行紧凑文本）：", value=sample_smart_text, height=120, key="txt_smart_holdings")
                     col_st_c, col_st_b = st.columns([4, 6])
@@ -6980,7 +7045,7 @@ with tab_holdings_and_rebalance:
                         else:
                             st.warning("未能识别出有效持仓文本，请检查输入或格式。")
 
-                with sub_tab2:
+                elif sel_import_tool == "🔍 搜索添加标的":
                     col_kw, col_amt = st.columns([6, 4])
                     with col_kw:
                         search_kw = st.text_input("🔍 搜索基金代码 / 中文简称 / 拼音首字母", value="低波", key="kw_search_catalog")
@@ -7000,7 +7065,7 @@ with tab_holdings_and_rebalance:
                             st.success(f"已添加 {sel_c}。")
                             st.rerun()
 
-                with sub_tab3:
+                else:  # "📥 表格模板导入"
                     up_file = st.file_uploader("上传持仓 CSV / Excel 文件", type=["csv", "xlsx"], key="tab2_uploader_std")
                     if up_file:
                         df_u = pd.read_csv(up_file) if up_file.name.endswith(".csv") else pd.read_excel(up_file)
@@ -7138,6 +7203,21 @@ with tab_holdings_and_rebalance:
                 fric_pct = brinson_attr.get("friction_saving_pct", 0.0)
                 c_alloc = "var(--color-up)" if alloc_yuan >= 0 else "var(--color-down)"
                 c_select = "var(--color-up)" if select_yuan >= 0 else "var(--color-down)"
+
+                # Feature 13: Brinson-Fachler 前置人话解读卡片
+                safe_markdown_html(f"""
+                <div class="decision-card" style="padding: 10px 14px; border-left: 4px solid var(--accent-primary); background: var(--bg-surface); margin-bottom: 8px;">
+                    <div style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">
+                        💡 前置人话解读·Brinson 归因三维拆解
+                    </div>
+                    <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.5;">
+                        为什么我的组合调仓后能跑赢或跑输基准？Brinson 模型将超额收益拆解为三笔明白账：<br>
+                        ① <b>大类资产配置效应 ({alloc_yuan:+,.2f} 元)</b>：大类资产与赛道轮动超配/低配带来的行业择时贡献；<br>
+                        ② <b>优选基金超额效应 ({select_yuan:+,.2f} 元)</b>：在同一赛道内部挑选优质基金经理带来的选基超额收益；<br>
+                        ③ <b>交易摩擦防御贡献 (¥{fric_yuan:,.2f})</b>：AI 风控严防死守未满 7 天 1.50% 惩罚性赎回费为您节省的真金白银。
+                    </div>
+                </div>
+                """)
 
                 st.markdown("###### 🏛️ Brinson-Fachler 经典三维超额收益归因 (Allocation vs Selection)")
                 st.caption("买方投顾穿透归因：将主动调仓净增厚严格拆解为大类资产配置效应、优选基金超额效应与交易摩擦防御贡献。")
@@ -7477,6 +7557,79 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
                 tm_fb = StrategyBridge.calculate_mutual_fund_friction_bill(tm_weights, capital=tm_cap, holding_days=365)
                 safe_markdown_html(render_trading_friction_deduction_bill_html(tm_fb, title="🧾 时光机盲测全真交易摩擦扣减明细账单（1折申购 / 满期免赎 / T+1在途）"))
             except Exception as _e_tmfb:
+                pass
+
+            # G19 Feature 9: 近 3 年滚动发车盲测胜率实证表与双期指标卡
+            try:
+                st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+                st.markdown("##### 🚀 近 3 年滚动发车盲测胜率实证表 (Point-in-Time 零未来函数·全真交易摩擦)")
+                st.caption("统计过去 3 年所有历史截面按双月 (18期) 或季度 (12期) 滚动发车，持有满 180天、365天的真实到手净收益、正收益胜率与相对沪深300超额收益（全额扣除申购费0.12%、管理托管费0.75%/250与阶梯赎回费）。")
+
+                c_rf_ctrl1, c_rf_ctrl2 = st.columns([3, 7])
+                with c_rf_ctrl1:
+                    sel_dca_freq = st.radio(
+                        "发车采样频率",
+                        ["双月发车 (18期)", "季度发车 (12期)"],
+                        horizontal=True,
+                        key="rad_rolling_dca_freq"
+                    )
+                dca_freq_param = "quarterly" if "季度" in sel_dca_freq else "bi-monthly"
+                dca_res = _cached_rolling_dca_3y_backtest(frequency=dca_freq_param, tier=st.session_state.get("active_tier_val", "C3"))
+
+                if dca_res:
+                    # 1. 双期胜率与超额卡片
+                    c_dca_1, c_dca_2 = st.columns(2)
+                    with c_dca_1:
+                        w180_col = "var(--color-down)" if dca_res["win_rate_180d_pct"] >= 70.0 else "#f59e0b"
+                        safe_markdown_html(f"""
+                        <div class="decision-card" style="padding: 10px 14px; border-left: 3px solid {w180_col}; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px;">
+                            <div style="font-size: 12px; font-weight: 700; color: var(--text-primary);">📅 滚动发车 · 持有 180 天 (半年期)</div>
+                            <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 4px 0;">
+                                <div style="font-size: 20px; font-weight: 800; color: {w180_col};">胜率 {dca_res['win_rate_180d_pct']:.1f}%</div>
+                                <div style="font-size: 13px; font-weight: 700; color: {'var(--color-down)' if dca_res['avg_net_return_180d_pct'] >= 0 else 'var(--color-up)'};">平均到手净收益: {dca_res['avg_net_return_180d_pct']:+.2f}%</div>
+                            </div>
+                            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">
+                                同期沪深300平均: <b>{dca_res['avg_h300_return_180d_pct']:+.2f}%</b> | 
+                                相对超额 Alpha: <b style="color: {'var(--color-down)' if dca_res['alpha_vs_csi300_180d'] >= 0 else 'var(--color-up)'};">{dca_res['alpha_vs_csi300_180d']:+.2f}%</b> | 
+                                平均最大回撤: <b>{dca_res['mdd_180d_avg_pct']:.2f}%</b>
+                            </div>
+                        </div>
+                        """)
+                    with c_dca_2:
+                        w365_col = "var(--color-down)" if dca_res["win_rate_365d_pct"] >= 70.0 else "#f59e0b"
+                        safe_markdown_html(f"""
+                        <div class="decision-card" style="padding: 10px 14px; border-left: 3px solid {w365_col}; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px;">
+                            <div style="font-size: 12px; font-weight: 700; color: var(--text-primary);">🏆 滚动发车 · 持有 365 天 (一年期)</div>
+                            <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 4px 0;">
+                                <div style="font-size: 20px; font-weight: 800; color: {w365_col};">胜率 {dca_res['win_rate_365d_pct']:.1f}%</div>
+                                <div style="font-size: 13px; font-weight: 700; color: {'var(--color-down)' if dca_res['avg_net_return_365d_pct'] >= 0 else 'var(--color-up)'};">平均到手净收益: {dca_res['avg_net_return_365d_pct']:+.2f}%</div>
+                            </div>
+                            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">
+                                同期沪深300平均: <b>{dca_res['avg_h300_return_365d_pct']:+.2f}%</b> | 
+                                相对超额 Alpha: <b style="color: {'var(--color-down)' if dca_res['alpha_vs_csi300_365d'] >= 0 else 'var(--color-up)'};">{dca_res['alpha_vs_csi300_365d']:+.2f}%</b> | 
+                                平均最大回撤: <b>{dca_res['mdd_365d_avg_pct']:.2f}%</b>
+                            </div>
+                        </div>
+                        """)
+
+                    # 2. 详细实证期次表格
+                    rows_dca = []
+                    for r in dca_res.get("periods", []):
+                        rows_dca.append({
+                            "发车期数": f"第 {r['period_idx']} 期",
+                            "发车时刻 T": r["launch_date"],
+                            "180天到手净收益": f"{r['return_180d_pct']:+.2f}%" if r["return_180d_pct"] is not None else "--",
+                            "180天沪深300": f"{r['h300_return_180d_pct']:+.2f}%" if r["h300_return_180d_pct"] is not None else "--",
+                            "180天超额Alpha": f"{r['alpha_180d_pct']:+.2f}%" if r["alpha_180d_pct"] is not None else "--",
+                            "365天到手净收益": f"{r['return_365d_pct']:+.2f}%" if r["return_365d_pct"] is not None else "--",
+                            "365天沪深300": f"{r['h300_return_365d_pct']:+.2f}%" if r["h300_return_365d_pct"] is not None else "--",
+                            "365天超额Alpha": f"{r['alpha_365d_pct']:+.2f}%" if r["alpha_365d_pct"] is not None else "--",
+                            "评定": f"{r['verdict_180d']} / {r['verdict_365d']}"
+                        })
+                    if rows_dca:
+                        df_dca_table = pd.DataFrame(rows_dca)
+                        st.dataframe(df_dca_table, use_container_width=True, hide_index=True)
+            except Exception as _e_dca:
                 pass
 
         except Exception as e_tm:
@@ -8263,7 +8416,11 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
             all_cats = sorted(list(set(list(cur_cats.keys()) + [pm.classify_fund_asset_class(k) for k in target_funds.keys()])))
 
             # 并排渲染：左侧大类条形图，右侧行业暴露图 (height=320，彻底解决图 4 挤压不协调)
-            col_chart_left, col_chart_right = st.columns([5, 5])
+            if IS_MOBILE_VIEW:
+                col_chart_left = st.container()
+                col_chart_right = st.container()
+            else:
+                col_chart_left, col_chart_right = st.columns([5, 5])
             with col_chart_left:
                 st.markdown("##### 📊 资产大类配比")
                 bar_data = []
@@ -8458,6 +8615,19 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
             # 重仓股交叉重合度检测 (左 5.2 紧凑热力图 + 右 4.8 共同重仓股清单与配置指引)
             st.markdown("---")
             st.markdown("#### ⚠️ 重仓交叉热力与同质化诊断")
+
+            # Feature 13: 重仓交叉热力图前置人话解读卡片
+            safe_markdown_html("""
+            <div class="decision-card" style="padding: 10px 14px; border-left: 4px solid var(--accent-primary); background: var(--bg-surface); margin-bottom: 10px;">
+                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">
+                    💡 前置人话解读·重仓交叉与机构抱团排查
+                </div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.5;">
+                    持有不同名字的基金不等于分散风险！如果不同基金前十大重仓股高度重叠（热力图深蓝区域），就构成了<b>伪分散</b>。<br>
+                    当非同系基金交叉重叠度 &ge; 40% 时，系统将自动预警防范机构抱团瓦解风险，并将重叠个股敞口合并纳入全组合行业上限监控。
+                </div>
+            </div>
+            """)
             overlap_res = _cached_stock_overlap(_h_items)
             max_total = float(overlap_res.get("max_total_overlap", 0.0))
             max_unexcused = float(overlap_res.get("max_non_diag_unexcused", 0.0))
@@ -8491,7 +8661,11 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
             if notes:
                 st.caption(f"ℹ️ 注：{'，'.join(notes)}，聚焦核心权益持仓穿透比对。")
 
-            col_heat, col_diag = st.columns([5.5, 4.5])
+            if IS_MOBILE_VIEW:
+                col_heat = st.container()
+                col_diag = st.container()
+            else:
+                col_heat, col_diag = st.columns([5.5, 4.5])
             with col_heat:
                 if len(overlap_res.get("funds", [])) >= 2:
                     n_funds = len(overlap_res["funds"])
@@ -8621,6 +8795,22 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
             # 聪明钱与机构抱团监控 (升级为左 4.5 四象限散点图 + 右 5.5 持仓量价微观结构表)
             st.markdown("---")
             st.markdown("#### 🧭 持仓标的趋势偏离 vs 拥挤度四象限分布")
+
+            # Feature 13: 四象限量价分布前置人话解读卡片
+            safe_markdown_html("""
+            <div class="decision-card" style="padding: 10px 14px; border-left: 4px solid var(--accent-primary); background: var(--bg-surface); margin-bottom: 10px;">
+                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">
+                    💡 前置人话解读·四象限量价结构与轮动指引
+                </div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.5;">
+                    横轴为 <b>20日均线乖离率 Bias20</b>（衡量短期是否超买或超卖），纵轴为 <b>交易拥挤度热力 (0~100)</b>（衡量筹码扎堆程度）：<br>
+                    🎯 <b>低估击球区 (左下)</b>：低位超跌且筹码冷清，左侧逆向定投黄金坑；<br>
+                    🔥 <b>右侧主升区 (右上)</b>：顺势突破且热力充足，顺势吃主升浪但谨防高位急刹追高；<br>
+                    ⚠️ <b>放量分歧区 (左上)</b>：跌破均线但拥挤度仍处高位，资金踩踏风险大，建议阶梯减亏；<br>
+                    📈 <b>温和复苏区 (右下)</b>：站上均线且筹码沉淀健康，属于最舒适的稳健底仓长跑区间。
+                </div>
+            </div>
+            """)
             if len(active_examine_holdings) > 0:
                 crowd_data = []
                 cur_pm = st.session_state.get("pm") or pm
@@ -8645,7 +8835,11 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
                         "tip": c_info.get("advisory_tip", "顺势持有")
                     })
 
-                col_q_fig, col_q_tbl = st.columns([4.5, 5.5])
+                if IS_MOBILE_VIEW:
+                    col_q_fig = st.container()
+                    col_q_tbl = st.container()
+                else:
+                    col_q_fig, col_q_tbl = st.columns([4.5, 5.5])
                 with col_q_fig:
                     # 散点文字防重叠错位放置算法 (Anti-Collision Label Placement)
                     pos_pool = ["top right", "bottom left", "top left", "bottom right", "top center", "bottom center"]

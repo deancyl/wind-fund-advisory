@@ -442,3 +442,9 @@
 - **宏观投票与宪法约束知行合一**：`compute_ten_dimension_votes` 算出的宏观风险偏好倾斜度 `equity_tilt_pct` 必须真实传入 `apply_asset_class_constitutional_limits` 与 `PortfolioOptimizer.optimize`，动态调节 A 股权益上限与纯债下限，算术截断必须在因果链末尾显式标注（如 `-> 触及风控上限锁定`），并在返回字典中携带 `ten_dim_adjusted_equity_pct` 与 `equity_tilt_pct`，杜绝参谋言行不一；
 - **公募摩擦明细全真精算与入参双向兼容**：`StrategyBridge.calculate_mutual_fund_friction_bill` 必须声明 `total_capital: float = 26615.10, capital: Optional[float] = None, **kwargs` 签名兼容性，杜绝抛出 `TypeError` 导致 Tab 3 崩溃；函数内部真实遍历 `weights` 统计 A/C 类比例、申购费、0.40%/年销售服务费与 QDII 限额拆单批次，并在返回字典中同时提供 `c_service_fee_yuan` / `sales_service_fee_yuan`、`in_transit_loss_yuan` / `in_transit_drag_yuan`、`quota_split_batches` / `qdii_split_batches`、`total_friction_bps` 双套字段；
 - **移动端容器高度自适应与纯债重仓穿透保真**：首屏裁决台 `.chief-memo-container` 必须保持自适应高度 `height: auto !important; min-height: 82px; overflow: visible !important;`，严禁硬编码限制导致窄屏下胶囊溢出外框遮挡下方组件；`FUND_LOOK_THROUGH_MAP` 中保持 `000086` 工银信用纯债为纯债底层资产，华夏中小板股票重仓独立归位至 `000058 / 006163`，并在 `ALIAS_MAP` 中确立带基金公司品牌词条的优先匹配，杜绝指鹿为马。
+
+## 39. 十维投顾投票真数据驱动、陈旧汇率校验哨与存量账本首屏路由闭环铁律 (Real-Data Ten-Dimension Voting & Initial Load Routing Invariant)
+- **严禁维度六/七/十恒真假逻辑**：维度六（产业估值）严禁通过列表长度恒真判断，必须读取全市场十四大赛道估值分位并精算前三大赛道均值（$\le 35\%$ 看多 $+5\%$ 仓位）与全市场中位数（$> 70\%$ 看空 $-5\%$ 仓位）；维度七（资金情绪）必须融合两市成交额、多方占比与十四赛道拥挤度均值（$< 55$ 或动量衰竭看空 $-5\%$，$\ge 72$ 且未过热看多 $+2\%$）；维度十（期权与黑天鹅）必须接入期权隐波、期指贴水与动态相关性，并在隐波 $> 28\%$ 或触发相关性突变时强制判定空方并下调 $8\%$ 仓位紧急避险，同时植入非线性一票否决熔断门禁（Circuit Breaker Veto，在 IVIX $\ge 32$ 或相关性 $\ge 0.80$ 或贬值突变时物理冻结低估加仓项）；
+- **动态汇率校验哨与假常数绝对清零**：离岸人民币汇率与美债收益率严禁使用 6.6676 / 5.0000 兜底，必须在数据加载层增加合理性上下界校验哨（USD/CNH 在 6.85~7.60 区间），若越界优先调用实时接口获取最新行情或采用校准近期截面；
+- **首屏胶囊知行合一指令联动**：第四颗胶囊（🩺 存量持仓病灶）与第五颗胶囊（🎯 今日行动准则）严禁各说各话，当存量持仓检出碎片尾仓或深套出血点时，第五颗胶囊必须优先输出账户级实战清扫与置换指令（如“清扫19只尾仓·置换深套”）；
+- **首次加载存量账本自动路由闭环**：当当前激活账本持仓标的数 $\ge 10$ 时，页面首次打开必须通过适配现代 Streamlit DOM 的广谱选择器（包含 `[role="tab"]`、`[data-testid="stTab"]` 与最大 50 次自适应轮询探针）自动路由聚焦至 Tab 2 持仓调仓工作区，并自动标记体检与调仓方案就绪，确保用户一打开网页即可直接看到存量基金体检与尾仓清扫方案。

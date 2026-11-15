@@ -1,15 +1,11 @@
-# Progress — Explorer M1-1
+# Progress Log - Explorer 1 (Milestone 1)
 
-Last visited: 2026-11-04T09:59:00Z
-Status: Completed - Report and Handoff written
+Last visited: 2026-11-15T16:08:10Z
 
-## Completed Steps
-- [x] Received dispatch for Milestone 1 (Features 1 & 2)
 - [x] Initialized DISPATCH.md and BRIEFING.md
-- [x] Read context: ORIGINAL_REQUEST.md, PROJECT.md, survey report, GEMINI.md
-- [x] Tested EastMoney push2 API (f6, f104, f105, f106) and akshare/CSI valuation interfaces
-- [x] Tested DuckDB v_index_valuations and local csindex parquet historical distributions
-- [x] Formulated exact code modifications and diffs for data_loader.py and app_gui.py
-- [x] Wrote detailed investigation report to `report.md`
-- [x] Wrote 5-component handoff report to `handoff.md`
-- [x] Ready to notify parent orchestrator
+- [x] Read ORIGINAL_REQUEST.md, PROJECT.md, and sub_orch_m1/SCOPE.md
+- [x] Investigate `advisory_engine.py` around `compute_ten_dimension_votes` (lines 4170-4458)
+- [x] Investigate data sources: `snap`, `alerts`, `radar_top3`, 14 sectors valuation percentiles, crowding score, turnover, advancing count, option IV, basis rate, dynamic correlation
+- [x] Investigate callers in `app_gui.py`, `portfolio_optimizer.py`, and existing tests (`test_g17_advisory_real_data_and_ten_dimension.py`)
+- [x] Design concrete implementation plan for Features 1-4 for the Worker
+- [ ] Write `handoff.md` and send message to caller

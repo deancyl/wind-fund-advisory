@@ -1,48 +1,42 @@
-# Milestone 2 Forensic Auditor Dispatch
+# Auditor M2-1 Dispatch
+Assigned task: Perform exhaustive forensic audit of Milestone 2 implementations against cheating, hardcoding, dummy/facade logic, test bypasses, and physical security violations.
+Target files:
+- AGY2_FundAdvisory/app_gui.py
+- AGY2_FundAdvisory/strategy_bridge.py
+- AGY2_FundAdvisory/portfolio_manager.py
+- tests/test_g19_m2_routing_and_rolling_dca.py
+Verify:
+1. Physical security baseline: judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py must be untouched.
+2. Genuine calculation: Verify no hardcoded test outputs or fake constants in calculate_mutual_fund_friction_bill, calculate_rolling_dca_3y_backtest, etc.
+3. Genuine OCR & UI: Verify actual dual-channel union and actual session routing logic.
+Output: handoff report at .agents/teamwork/auditor_m2_1/handoff.md with binary verdict CLEAN or INTEGRITY VIOLATION.
 
-## Mission
-Perform comprehensive forensic integrity audit on Milestone 2 implementation:
-1. Physical Referee File Integrity Check:
-   - Check git status and git diff on `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`, `AGY2_FundAdvisory/data_loader.py`.
-   - Verify SHA256 hashes match baseline.
-2. Anti-Cheating & Implementation Integrity:
-   - Verify `generate_chief_advisor_memo` performs genuine dynamic calculation based on macro indicators, holdings, and sentry alerts.
-   - Verify `run_historical_time_machine_backtest` strictly enforces Point-in-Time slicing (zero future data leakage).
-   - Verify fee deductions are genuine mathematical calculations, not hardcoded mock constants.
-   - Scan for dummy facades, test shortcuts, or uncalled implementations.
-3. Run test suites and verify verdicts.
-4. Issue final qualitative verdict: CLEAN or INTEGRITY VIOLATION.
 
-## 2026-11-09T18:08:52Z
-You are `auditor_m2_1` for G15 Generation Milestone 2 (Phase 2): "破除唯算法论：实装五维投顾首席备忘录与历史任意时点盲测时光机".
+## 2026-11-15T09:23:20Z
+You are the Forensic Integrity Auditor for Milestone 2.
+Your working directory: d:\Google\Workspace\Wind
+Your state folder: d:\Google\Workspace\Wind\.agents\teamwork\auditor_m2_1
 
-Your working directory is:
-`d:\Google\Workspace\Wind\.agents\teamwork\auditor_m2_1\`
-Write your progress.md and handoff.md inside this directory.
+Authoritative user request: d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+Project plan: d:\Google\Workspace\Wind\PROJECT.md
+Scope document: d:\Google\Workspace\Wind\.agents\teamwork\sub_orch_m2\SCOPE.md
+Worker handoff report: d:\Google\Workspace\Wind\.agents\teamwork\worker_m2_1\handoff.md
 
-Review the authoritative project files before starting:
-- `d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md` (lines 169-204)
-- `d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_18\PROJECT.md`
-- `d:\Google\Workspace\Wind\.agents\teamwork\auditor_m2_1\DISPATCH.md`
-- Worker Handoff: `d:\Google\Workspace\Wind\.agents\teamwork\worker_m2\handoff.md`
+Your role is to perform an exhaustive, independent forensic integrity verification on all work products for Milestone 2 (Features 7 to 13).
+Verify:
+1. Physical Security Baseline:
+   - Check git status / diff to ensure `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, and `tests/test_infra.py` have NOT been modified or touched in any way.
+   - Verify `DataLoader.simulate_execution` default signature & default fee logic is intact.
+2. Genuine Calculation & Zero Cheating:
+   - Perform static AST analysis on `AGY2_FundAdvisory/strategy_bridge.py`:
+     * Verify that `calculate_mutual_fund_friction_bill` contains NO hardcoded constants (16.85, -16.76, 394, 3.42, etc.) and performs genuine calculation using `cls.load_matrix()`.
+     * Verify that `calculate_rolling_dca_3y_backtest` performs genuine rolling backtesting, zero lookahead bias, genuine daily compounding fee deduction, and returns genuine calculated metrics.
+3. Genuine OCR & UI Implementation:
+   - In `AGY2_FundAdvisory/portfolio_manager.py`: verify genuine dual-channel union fusion without early returns, genuine stopword expansion, genuine holding days regex pre-parsing.
+   - In `AGY2_FundAdvisory/app_gui.py`: verify genuine initial routing check (>=10 funds threshold), genuine responsive container switches using `IS_MOBILE_VIEW`, genuine CSS consolidation into master stylesheet, and genuine lead narrative cards.
+4. Test Integrity:
+   - Verify test suite `tests/test_g19_m2_routing_and_rolling_dca.py` passes legitimately and has not been neutered or bypassed.
 
-PHYSICAL SAFETY REDLINES (ZERO TOLERANCE):
-- Verify the 4 read-only referee files are 100% untouched: `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`. Run `git diff HEAD -- judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py AGY2_FundAdvisory/data_loader.py` and inspect SHA256 hashes.
-- Verify `DataLoader.simulate_execution` default signature and default fee logic are untouched.
-
-AUDIT TASKS:
-1. Static Analysis & Code Authenticity Audit:
-   - Check `AGY2_FundAdvisory/advisory_engine.py`: confirm `generate_chief_advisor_memo` performs authentic, dynamic mathematical calculations and conditions based on macro indicators and holdings. Zero hardcoding of memo content.
-   - Check `AGY2_FundAdvisory/strategy_bridge.py`: confirm `run_historical_time_machine_backtest` authentically enforces Point-in-Time slicing (`df[df['date'] <= dt_target]`) with zero look-ahead bias, and that fee calculations (0.12% sub, daily sales fee, step-down redemption fees) are genuine mathematical calculations. Zero mock returns or hardcoded curve values.
-   - Check `AGY2_FundAdvisory/app_gui.py`: verify `render_chief_advisor_memo_card` and Tab 3 UI are authentically wired and rendered.
-2. Anti-Cheating & Regression Test Execution:
-   - Run tests:
-     `py -3 -m pytest tests/test_infra.py`
-     `py -3 -m pytest tests/test_adv_final_closure.py`
-     `py -3 -m pytest tests/test_delta_m1_guardrails.py`
-     `py -3 -m pytest tests/test_g15_phase2_memo_and_timemachine.py`
-3. Deliver a self-contained handoff.md with a definitive binary audit verdict:
-   - `CLEAN` (No integrity violations detected)
-   OR
-   - `INTEGRITY VIOLATION` (with detailed evidence).
-   Send a message to parent when done.
+Deliver your detailed forensic audit report to `d:\Google\Workspace\Wind\.agents\teamwork\auditor_m2_1\handoff.md`.
+End with a strict binary verdict: CLEAN or INTEGRITY VIOLATION.
+Send a message back when complete.

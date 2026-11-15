@@ -1,18 +1,18 @@
-# Milestone 2 Empirical Challenger Progress
+# Progress — Challenger M2-1
 
-Last visited: 2026-11-11T02:06:00Z
+- **Role**: Empirical Challenger (critic, specialist)
+- **Target**: Features 7, 8, 12, 13 (Milestone 2)
+- **Last visited**: 2026-11-15T09:25:00Z
+- **Status**: Starting investigation and drafting test harness
 
-## Status
-- [x] Phase 0: 收到调度指令，完成态势感知、只读裁判文件审计 (git status 0 修改)
-- [x] Phase 1: 走查 Worker M2 交付报告及代码实现 (portfolio_manager.py, app_gui.py)
-- [x] Phase 2: 验证 baseline 功能 (运行 tests/test_m2_features.py，5/5 passed)
-- [x] Phase 3: 编写专属实证对抗测试套件 `tests/test_challenger_g16_m2_1_adversarial.py`，共 31 项高烈度用例：
-  - 场景 1: 昨日收益干扰与高位截断对抗 (7/7 passed)
-  - 场景 2: 多份额（A/C/E/其他）及同名同源同别名精准区分对抗 (15/15 passed)
-  - 场景 3: 畸形非标准格式对抗（大额千分位、多负号、跨行破碎、纯数字行、特殊标点） (5/5 passed)
-  - 场景 4: 方法别名与类属性挂载完整性对抗 (2/2 passed)
-  - 场景 5: 会计恒等式与入库一致性端到端校验 (1/1 passed)
-  - 场景 6: 4 只读裁判文件物理红线法证审计 (1/1 passed)
-- [x] Phase 4: 执行对抗测试套件，31/31 PASSED，并深入分析 3 项 Caveats 边界行为
-- [ ] Phase 5: 撰写 5-Component `handoff.md` 并出具定性裁决结论 (APPROVE)
-- [ ] Phase 6: 通过 send_message 通知 Parent
+## Steps
+- [x] Step 1: Initialize DISPATCH.md, BRIEFING.md, progress.md
+- [ ] Step 2: Investigate code implementation of Features 7, 8, 12, 13 in `AGY2_FundAdvisory/app_gui.py` and existing tests in `tests/test_g19_m2_routing_and_rolling_dca.py`
+- [ ] Step 3: Design adversarial attack scenarios:
+  - Feature 7: Initial ledger routing boundaries (0 funds, 9 funds, 10 funds, 29 funds, already routed flag set, manual navigation retention)
+  - Feature 8: CSS consolidation (chief-memo-container style block extraction, mobile button grid selector `:not(:has([data-testid="stNumberInput"]))` and `button:not([data-testid*="stNumberInput"])` vs regular buttons)
+  - Feature 12: `IS_MOBILE_VIEW` detection under query params `?view=mobile`, mobile headers, user-agents, and responsive container behavior
+  - Feature 13: Tab 2 tool dock radio flattening (all 3 options selectable, state preserved), Brinson / Heatmap / 4-Quadrant narrative cards present and correct
+- [ ] Step 4: Write and run standalone stress test / verification scripts
+- [ ] Step 5: Run existing Milestone 2 and Milestone 1 test suites to check regressions
+- [ ] Step 6: Produce comprehensive handoff report with binary verdict and send message

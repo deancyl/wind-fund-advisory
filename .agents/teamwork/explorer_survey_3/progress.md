@@ -1,16 +1,11 @@
 # Progress Heartbeat
 
-- Current Status: Task Complete. Report delivered in handoff.md.
-- Last visited: 2026-11-11T00:52:30Z
-
-## Roadmap
-1. [x] Setup state folder, DISPATCH.md, BRIEFING.md, progress.md
-2. [x] Read `ORIGINAL_REQUEST.md` and `agy2_ui_ux_audit_and_fix_plan (4).md` for complete background
-3. [x] Investigate `multi_ledger_manager.py` (combat_29_funds, data consistency, holding days, idempotent mounting)
-4. [x] Investigate `strategy_bridge.py` & `app_gui.py` (Tab 2 瘦身面板, Tab 3 时光机盲测, 静态权重踏空问题)
-5. [x] Investigate referee files protection & hashes (`judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`)
-6. [x] Investigate test files & test execution (`tests/test_infra.py`, `tests/test_adv_final_closure.py`, etc.)
-7. [x] Investigate `generate_chief_advisor_memo` deep loss test placement & G17 evolution command format
-8. [x] Write `handoff.md` with 5 components
-9. [x] Update BRIEFING.md
-10. [x] Send message to parent
+- Last visited: 2026-11-15T07:55:00Z
+- Status: Investigation completed. Writing final handoff report.
+- Completed:
+  - Task 1: Physical security baseline check (judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py, DataLoader.simulate_execution). All read-only attributes, AST hash, 4 gates, Holdout Vault (max 3), and simulate_execution fee logic fully mapped.
+  - Task 2: Current test suite status (90 test files in tests/). Identified 2 specific test failures in non-read-only files (test_g16_phase1_memo_and_combat29.py and test_g15_phase2_memo_and_timemachine.py) needing maintenance. Verified py -3 -m pytest -q execution and fixture/mock impacts.
+  - Task 3: App layout & responsive / UX audit. Analyzed IS_MOBILE_VIEW dormant state in app_gui.py, Tab 2 tool dock 3-tier nesting ("套娃"), Tab 2 Brinson attribution, Tab 4 cross-holding heatmap, and Tab 4 trend vs crowding scatter plot human-readable intro cards.
+  - Task 4: G20 instruction blocker gate requirements mapped (no colons in command tags, no backticks, no code block nesting, strictly plain text).
+- In Progress:
+  - Drafting handoff.md.

@@ -24,3 +24,32 @@
 
 【交付要求】
 请将探查到的确切代码行号、现有实现逻辑、数据结构差异、修改点方案及潜在风险，写入你的 handoff.md，并在完成后通过 send_message 通知父智能体（conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8）。
+
+
+## 2026-11-15T07:43:52Z
+【Survey Mission: Voting & Macro Explorer】
+You are a read-only exploration agent. Your working directory is: d:\Google\Workspace\Wind
+Your state folder is: d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1
+Read the authoritative user request first at: d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+
+Investigate and map the technical requirements for Phase 1:
+1. `compute_ten_dimension_votes` in `advisory_engine.py`:
+   - Inspect dimensions 6 (industry valuation), 7 (fund sentiment/crowding), 10 (options/black swan).
+   - Find where `radar_top3`, `crowding_score`, `option_iv_pct`, `ic_annualized_basis_rate`, dynamic correlation warning are used or available.
+   - Trace how the real 14-sector valuation percentiles, top 3 sector average valuation percentile, whole market median valuation percentile can be accessed.
+   - Trace market turnover, advancing shares ratio, and 14-sector average crowding score.
+   - Trace option IV, IC basis rate, and dynamic correlation alert.
+2. Removal of 6.6676 (USD/CNH) and 5.0000 (US 10Y Treasury yield) and cross-market rationality check:
+   - Search across `data_loader.py`, `advisory_engine.py`, `app_gui.py` (specifically `render_chief_advisor_memo_card` and `fetch_macro_cross_market_indicators`).
+   - Check how real-time FX or calibrated cross-sectional fallback data should be wired.
+3. Coherence between Capsule 4 (portfolio pathology) and Capsule 5 (today's action guidelines):
+   - Inspect `generate_chief_advisor_memo` and `render_chief_advisor_memo_card`.
+   - See how 15 deep-loss bleeders and 20 penalty-free fragment tail holdings trigger actionable account-level sweeping and replacement instructions in Capsule 5 instead of generic macro advice.
+4. Input audit items (Task 3 from agy2 (3).md):
+   - Inspect advisory_engine.py dimension 6 dynamic industry reasoning, and circuit breaker gate (ivix >= 32.0 or dyn_corr >= 0.80 or usdcnh_chg > 0.60%).
+
+Strict Constraints:
+- DO NOT modify any source code files. You are strictly read-only.
+- Write your complete survey report to: d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\handoff.md
+- Include code citations (file path, line numbers) and specific implementation proposals for the Worker.
+- Send a message to parent when done.

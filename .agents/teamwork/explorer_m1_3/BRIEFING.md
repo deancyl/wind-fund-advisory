@@ -1,48 +1,48 @@
-# BRIEFING — 2026-11-04T09:58:30Z
+# BRIEFING — 2026-11-15T08:10:00Z
 
 ## Mission
-Investigate Milestone 1 (Feature 5 & M1 Integration: Screener Inception Bug & Test Verification). Formulate exact code modifications in market_screener.py, verify integration contracts (cold start < 0.5s), and verify existing tests in tests/.
+Investigate Feature 6 (Capsule 4 and Capsule 5 unified coordination in `generate_chief_advisor_memo` & `render_chief_advisor_memo_card`) and Test Coverage / Compatibility for Milestone 1 (Features 1-6). Formulate exact implementation design and comprehensive test suite `tests/test_g19_m1_ten_dimension_and_memo.py`.
 
 ## 🔒 My Identity
 - Archetype: explorer
 - Roles: investigation, synthesis
-- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\explorer_m1_3\
-- Original parent: c98181d5-8d61-4839-8d62-5dbcef7c85af
-- Milestone: Milestone 1 (Feature 5 & M1 Integration: Screener Inception Bug & Test Verification)
+- Working directory: d:\Google\Workspace\Wind
+- State folder: d:\Google\Workspace\Wind\.agents\teamwork\explorer_m1_3
+- Original parent: a29ecba0-a4ab-4a58-a8c7-4276082800c0
+- Milestone: Milestone 1 (M1: 十维真实投票与汇率校验及胶囊联动)
 
 ## 🔒 Key Constraints
 - Read-only investigation — do NOT implement
-- Do NOT edit source files
+- Do NOT edit source files or existing tests
 - Adhere to GEMINI.md rules (Chinese response, no hardcoded limits, safe UI/layout invariants, etc.)
 - Referee files are read-only: judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py
+- DataLoader.simulate_execution default signature & default fee logic strictly preserved
 
 ## Current Parent
-- Conversation ID: c98181d5-8d61-4839-8d62-5dbcef7c85af
-- Updated: 2026-11-04T09:58:30Z
+- Conversation ID: a29ecba0-a4ab-4a58-a8c7-4276082800c0
+- Updated: 2026-11-15T08:10:00Z
 
 ## Investigation State
 - **Explored paths**:
-  - `AGY2_FundAdvisory/market_screener.py`: lines 140-180 (filtering), 208-270 (_fetch_fund_info_batch), 272-296 (_fetch_aum_data)
-  - `AGY2_FundAdvisory/cache_manager.py`: lines 70-110 (candidate pool caching & empty df protection)
-  - `AGY2_FundAdvisory/data_loader.py`: matrix alignment and benchmark (40.20 ms)
-  - `data/master/` & `data/mart/`: `fund_catalog.parquet`, `fund_managers.parquet`, `fund_performance_snapshot.parquet`, `fund_trading_rules.parquet`
-  - `AGY2_FundAdvisory/tests/`: `test_deep_remodel_final.py` (45 passed), `test_design_system_v19.py` (5 passed), `test_infra.py` (29 passed), `test_phase3_market_optimizer.py` (16 passed)
+  - `AGY2_FundAdvisory/advisory_engine.py`: lines 4460-4835 (`generate_chief_advisor_memo`), lines 2131-2570 (`ActiveRiskSentry`)
+  - `AGY2_FundAdvisory/app_gui.py`: lines 268-458 (`render_chief_advisor_memo_card`), line 301 (6.6676 fallback), line 288 (None timestamp split bug), lines 3645-3657 (`generate_chief_advisor_memo` caller in GUI)
+  - `AGY2_FundAdvisory/data_loader.py`: line 1436 (`DataLoader.simulate_execution` signature)
+  - Referee files verified: `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py` (SHA256 intact, 14/14 tests pass)
+  - Real combat 29-fund inspection: `deep_loss_count: 18, frag_count: 19, frag_amt: 442.7` confirmed live while Capsule 5 was producing disconnected `维持底仓吃息`
+  - Existing test audit: `test_g17_advisory_real_data_and_ten_dimension.py` (5/5 passed), `test_g16_phase1_memo_and_combat29.py` (10 passed, 1 line 219 fails due to `建仓标的` missing from compact capsule sub), `test_challenger_m1_adv_memo.py` (adversarial None timestamp crash in line 288)
 - **Key findings**:
-  - `ak.fund_name_em()` only returns 5 columns, missing `成立日期`. Line 258 threw KeyError, fallback gave all NaT, and line 166 filtered all rows to 0.
-  - Also `ak.fund_aum_em()` is company-level, returning 215 fund companies without fund code, so AUM was always NaN.
-  - Formulated 3-tier data sourcing: local base cache (<5ms) -> Sina scale open API (7,184 funds) -> local Master lake fallback (27,850 funds with AUM, 13,568 with 3Y return).
-  - Prototype verified: pool restored to 7,362 funds (6,023 deduplicated). Fully resilient offline.
-  - Cold start benchmark: DataLoader (40ms), CacheManager (41ms), base cache (4.27ms). Well within 0.5s limit.
-  - Read-only referee files verified by SHA256 hashes.
-- **Unexplored areas**: None for M1-3 scope.
+  - Live reproduction confirmed: For `combat_29_funds`, Capsule 4 reports 18 deep loss funds and 19 tail fragments, while Capsule 5 blindly reports "维持底仓吃息" based solely on macro ERP/Bias, creating a complete disconnect.
+  - Fix design: When `frag_count > 0` or `deep_loss_count > 0` or stop-profit red alerts exist, Capsule 5 prioritizes account-level actionable directives: e.g. `清扫19只尾仓·置换深套` with subtitle `清扫19只尾仓 ｜ 置换18只深套`.
+  - GUI alignment: `render_chief_advisor_memo_card` top banner `今日裁决` automatically aligns with Capsule 5 verdict, Card 4 renders `建仓标的分散 ｜ 结构优良` in construction mode (fixing G16 test), and `ts` handles None safely.
+  - Comprehensive M1 test suite designed for `tests/test_g19_m1_ten_dimension_and_memo.py` covering Features 1 through 6.
+- **Unexplored areas**: None for M1 Feature 6 & Test Coverage scope.
 
 ## Key Decisions Made
-- Formulated exact line numbers and drop-in code diffs in `report.md`.
-- Authored standard 5-component handoff report in `handoff.md`.
+- Fully documented 5-component handoff report with exact line-by-line diff proposals for the Worker.
+- Complete test suite architecture designed covering Features 1-6.
 
 ## Artifact Index
 - DISPATCH.md — Task dispatch
 - BRIEFING.md — Persistent context
 - progress.md — Liveness heartbeat
-- report.md — Detailed investigation report and code diffs
 - handoff.md — 5-component handoff report

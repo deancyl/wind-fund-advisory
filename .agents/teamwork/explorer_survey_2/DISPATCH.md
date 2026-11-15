@@ -59,3 +59,34 @@ Deliverables:
 
 【交付要求】
 请将探查到的确切代码行号、现有实现逻辑、函数签名、重构设计及边界考虑，写入你的 handoff.md，并在完成后通过 send_message 通知父智能体（conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8）。
+
+
+## 2026-11-15T07:43:58Z
+【Survey Mission: Routing & Backtest Explorer】
+You are a read-only exploration agent. Your working directory is: d:\Google\Workspace\Wind
+Your state folder is: d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_2
+Read the authoritative user request first at: d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+
+Investigate and map the technical requirements for Phase 2:
+1. First-time load routing to Tab 2 for portfolio with >=10 funds:
+   - Inspect `app_gui.py` around portfolio manager initialization (`pm = ...`).
+   - Identify how `st.session_state` tracks initial routing, `tab2_view_mode`, `pending_cross_tab_jump`, `tab2_diagnosed`, `tab2_rebalanced`.
+   - Verify how the 29-fund portfolio behaves on first launch.
+2. Chief memo styles consolidation and mobile column selector fix:
+   - Inspect `render_chief_advisor_memo_card` in `app_gui.py` where `.chief-memo-container` styles are injected.
+   - Inspect the global CSS in `app_gui.py` to see where to merge these styles.
+   - Inspect the mobile CSS rules for button groups to add `stColumn` selector while excluding numeric input increment/decrement buttons.
+3. Rolling 3-year DCA test table with transaction friction:
+   - Inspect `strategy_bridge.py` and `app_gui.py` in the historical backtest module.
+   - Trace how bimonthly or quarterly rolling start DCA over the past 3 years holding 180d, 365d can be calculated with zero future lookahead, deducting purchase fees, tiered redemption fees, sales service fees, and purchase limits.
+   - Calculate win rate, net return, and excess return vs CSI 300.
+4. Input audit items (Task 1 & 2 from agy2 (3).md):
+   - Inspect `strategy_bridge.py` `calculate_mutual_fund_friction_bill` where `cagr_val=16.85, mdd_all=-16.76, mdd_1y=-4.52, recovery_days=22, dividend_yield=3.42` are hardcoded, and trace how to calculate dynamically from weights.
+   - Inspect `run_historical_time_machine_backtest` for daily management/custody fees (0.75%/250), <180d Class A redemption fees and subscription fees.
+   - Inspect `portfolio_manager.py` screenshot OCR for early return when `len(clean_res) >= 1` and dual-channel spatial block union fusion, fund name cleaning wordlist.
+
+Strict Constraints:
+- DO NOT modify any source code files. You are strictly read-only.
+- Write your complete survey report to: d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_2\handoff.md
+- Include code citations (file path, line numbers) and specific implementation proposals for the Worker.
+- Send a message to parent when done.

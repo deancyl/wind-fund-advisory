@@ -1,65 +1,62 @@
-# BRIEFING — 2026-11-11T01:30:00Z
+# BRIEFING — 2026-11-15T08:43:00Z
 
 ## Mission
-Adversarial challenge and empirical verification of G16 Milestone 1 (M1) implementations: `generate_chief_advisor_memo` in `AGY2_FundAdvisory/advisory_engine.py` and `render_chief_advisor_memo_card` in `AGY2_FundAdvisory/app_gui.py`.
+对 Milestone 1 (十维真实投票与汇率校验及胶囊联动) 进行经验主义对抗性验证 (Empirical Adversarial Testing)，重点测试临界极限值、一票否决熔断阻断性、异常/缺失字段容错，产出结论与独立验证报告。
 
 ## 🔒 My Identity
-- Archetype: empirical challenger
+- Archetype: challenger (critic, specialist)
 - Roles: critic, specialist
-- Working directory: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1
-- Original parent: 9a123e21-7525-4c57-9715-710c2a94c199
-- Milestone: milestone_1
+- Working directory: d:\Google\Workspace\Wind
+- State folder: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1
+- Original parent: a29ecba0-a4ab-4a58-a8c7-4276082800c0
+- Milestone: M1 (十维真实投票与汇率校验及胶囊联动)
 - Instance: 1 of 1
-- Current Parent (G16): a4d409c2-aeca-47df-a18c-528d9465a6c8
-- Updated Milestone: g16_milestone_1
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code
-- Empirical verification required: must write and execute tests, run generators and oracles
-- No unverified claims: if a bug cannot be reproduced empirically, it does not count
-- Defend against vanity tests and surface-level passes
+- Review-only & Test-only — do NOT modify implementation code directly
+- Physical security baseline: 绝不修改 judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py, DataLoader.simulate_execution
+- All tests must be executed empirically; no unverified claims
+- Report path: d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\handoff.md
+- Explicit verdict required: APPROVE or REJECT
 
 ## Current Parent
-- Conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8
-- Updated: 2026-11-11T01:30:00Z
+- Conversation ID: a29ecba0-a4ab-4a58-a8c7-4276082800c0
+- Updated: not yet
 
 ## Review Scope
 - **Files to review**:
-  - `AGY2_FundAdvisory/advisory_engine.py` (`generate_chief_advisor_memo`)
-  - `AGY2_FundAdvisory/app_gui.py` (`render_chief_advisor_memo_card`)
-  - `tests/test_g16_phase1_memo_and_combat29.py`
-  - `tests/test_challenger_g16_m1_adversarial.py`
+  - `AGY2_FundAdvisory/advisory_engine.py` (ten dimension voting, memo generator)
+  - `AGY2_FundAdvisory/data_loader.py` (macro indicators, turnover/sentiment)
+  - `tests/test_g19_m1_ten_dimension_and_memo.py`
   - `tests/test_infra.py`
-- **Interface contracts**: `d:\Google\Workspace\Wind\.agents\teamwork\orchestrator_g16_gen2\SCOPE.md`, `d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md`
-- **Review criteria**: Multi-field cost basis & deep loss identification, Tab 1 target weights dictionary protection, 19-fund fragment ¥442.70 balance, zero crash on malformed/boundary inputs, GUI 1-row-5-col responsive grid and CommonMark 4-space markdown safety.
+- **Interface contracts**:
+  - `d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md`
+  - `d:\Google\Workspace\Wind\PROJECT.md`
+  - `d:\Google\Workspace\Wind\.agents\teamwork\sub_orch_m1\SCOPE.md`
+  - `d:\Google\Workspace\Wind\.agents\teamwork\worker_m1_1\handoff.md`
+- **Review criteria**:
+  - 临界极限值与一票否决绝对阻断力
+  - 鲁棒性与异常输入容错
+  - 物理安全红线零破坏与全量回归零损伤
 
 ## Attack Surface
 - **Hypotheses tested**:
-  1. `combat_29_funds` deep loss detection: Asserted `deep_loss_count >= 3` (actual: 18). Confirmed top 3 bleeding points explicitly name `011613` (华夏上证科创板50成份ETF联接C), `100032` (富国中证红利指数增强A), `161725` (招商中证白酒指数(LOF)A). PASSED.
-  2. Tab 1 target weights dict: Tested 6-fund, 10-fund, 0.999 sum, 1.001 sum, 0.96 and 1.04 bounds. Confirmed `deep_loss_count == 0`, `frag_count == 0`, `frag_amt == 0.0`, zero "¥1.00" or "合计 ¥1.00" anomalies, zero "长尾碎片尾仓" bullets. PASSED.
-  3. Extreme & boundary inputs: Tested `None`, `[]`, `{}`, string `"invalid"`, int `123456`, `[None]`. Zero crashes, graceful fallback to "持仓结构优良". PASSED.
-  4. Deformed holding items: Tested `cost_basis = 0`, `shares = 0`, negative `mv = -50.0`, zero `mv = 0.0`, extreme drawdown `-99.9%`, extreme gain `+500.0%`, reverse-engineered cost. Zero crashes, correct deep loss attribution. PASSED.
-  5. Hybrid object & dict list: Tested simultaneous mix of `HoldingItem`, `MockLegacyCostValueHolding` (with `cost_value` only), plain dicts, batched holdings, locked C-class (<30d) vs fee-free C-class (>=30d), locked A-class (<365d) vs fee-free A-class (>=365d). Verified fee-free locks are strictly respected. PASSED.
-  6. Fragment boundary & balance: Verified #10 `005827 易方达蓝筹精选混合` (¥124.14, A class) is cleanly excluded; verified remaining 19 funds (all < ¥100) sum strictly to ¥442.70. PASSED.
-  7. Ten-dimensional macro/international: Tested high DR007 spread (tightness), high ERP (gold strike zone), low ERP (overbought caution), Sino-US spread calculation (-280 bp). PASSED.
-  8. GUI & CommonMark safety: Verified 0 lines start with 4 spaces or tabs across combat and construction HTML; verified 1-row-5-col responsive grid css and mobile breakpoint. PASSED.
+  1. 熔断微元临界性：ivix 31.99 vs 32.00, dyn_corr 0.799 vs 0.800, usdcnh_chg 0.599% vs 0.601%
+  2. 极值多头共振下的阻断性：9 维多头 (+37%) 遭遇熔断，所有 delta_pct > 0 强制归零，总权益目标严格封顶于基准权益 (<= 60%)
+  3. 维度 6 边界：Top3 35.0% (BULL) vs 35.01% (NEUTRAL), Median 70.0% (NEUTRAL) vs 70.01% (BEAR)
+  4. 维度 7 边界与多层兜底：54.9 vs 55.0 vs 71.9 vs 72.0，动量衰竭覆盖高拥挤，过热压制多头
+  5. 维度 10 边界：期权隐波 28.01% (BEAR) vs 27.99% (NEUTRAL)，隐波 21.99% & 基差 8.01% (BULL)，相关性突变一票否决
+  6. 跨市场哨兵与全库常数零残留：[6.85, 7.60] 边界、美债 ~4.42%、6.6676/5.0000 零出现
+  7. 胶囊 4/5 知行合一：实盘 29 基金 19 尾仓 + 18 深套置换，Mock 独立病灶指令与 None 安全性
 - **Vulnerabilities found**:
-  - Found that `pathology_text` in construction mode includes the phrase `"符合 ≤35% 分散铁律，无碎片尾仓风险。"`. While this is semantically correct (informing the user there is no risk of fragments), a naive substring check like `assert "碎片尾仓" not in content` will match this positive explanation and fail. The proper check is `assert "长尾碎片尾仓" not in content` or `assert "合计 ¥1.00" not in content`.
-- **Untested angles**: None within M1 scope.
-
-## Loaded Skills
-- None requested by orchestrator.
+  - 无破坏性功能缺陷；所有临界点均按金融数学与风控契约精确触发。
+  - 针对 `advisory_engine.py` 的双层 Fallback（Cache -> Scan -> Snap）与汇率变化率乘数逻辑，已形成对抗用例固化保护。
+- **Untested angles**: 无遗留角度（全部 7 大类别 24 项对抗用例与 89 项基准用例全部跑通）。
 
 ## Key Decisions Made
-- Authored new dedicated adversarial test suite `tests/test_challenger_g16_m1_adversarial.py` containing 8 comprehensive stress test methods.
-- Executed `tests/test_challenger_g16_m1_adversarial.py` (8/8 passed).
-- Executed `tests/test_g16_phase1_memo_and_combat29.py` (6/6 passed) and `tests/test_infra.py` (14/14 passed).
-- Total empirical verification: 28/28 tests passed.
-- Final verdict: APPROVE.
+- 建立独立对抗测试套件 `scratch/test_adv_m1_challenger1.py`（24 项深度测试）。
+- 验证通过，给出明确合规裁决：**APPROVE**。
 
 ## Artifact Index
-- `DISPATCH.md` — Dispatch record
-- `BRIEFING.md` — Situational awareness
-- `progress.md` — Liveness & progress tracking
-- `handoff.md` — Final verdict report
-- `tests/test_challenger_g16_m1_adversarial.py` — Adversarial test suite
+- `scratch/test_adv_m1_challenger1.py` — 24 项全维度对抗测试脚本
+- `d:\Google\Workspace\Wind\.agents\teamwork\challenger_m1_1\handoff.md` — 5-Component 对抗挑战交付报告

@@ -1,12 +1,17 @@
-# Progress — reviewer_m2_1
+# Progress — Reviewer M2-1
 
-Last visited: 2026-11-11T02:00:00Z
-Status: COMPLETED_REVIEW
+Last visited: 2026-11-15T09:25:30Z
+Status: In Progress
 
-- [x] Initialized DISPATCH.md and BRIEFING.md
-- [x] Read worker_m2 handoff and SCOPE.md
-- [x] Inspect app_gui.py and test_m2_features.py
-- [x] Run test suite independently (test_m2_features.py 5/5, test_infra.py 14/14, test_adv_final_closure.py 14/14)
-- [x] Adversarial stress test & integrity check
-- [x] Identify critical inconsistency in Card 3/4 tail fragments calculation
-- [x] Write handoff.md and report to orchestrator
+## Current Task
+Starting independent review and verification of Milestone 2 (Features 7 to 13).
+
+## Verification Steps Plan
+1. Run authoritative M2 test suite: `pytest tests/test_g19_m2_routing_and_rolling_dca.py -v` (88 tests).
+2. Run M1 regression test suite: `pytest tests/test_g19_m1_ten_dimension_and_memo.py -q` (75 tests).
+3. Code Inspection & Integrity Scan:
+   - Check `AGY2_FundAdvisory/strategy_bridge.py` for `calculate_rolling_dca_3y_backtest` & `calculate_mutual_fund_friction_bill`. Look for hardcoded test fixtures, shortcuts, fake logic.
+   - Check `AGY2_FundAdvisory/portfolio_manager.py` for OCR union fusion, stopwords, day-pattern extraction, deduplication.
+   - Check `AGY2_FundAdvisory/app_gui.py` for initial routing, style consolidation, mobile selector CSS, IS_MOBILE_VIEW integration, tool dock flattening, and lead cards.
+4. Adversarial stress-testing of algorithms and edge cases.
+5. Produce detailed review and challenge report in `handoff.md` with binary verdict.

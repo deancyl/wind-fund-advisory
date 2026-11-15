@@ -1397,16 +1397,39 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
         if not share_class:
             share_class = meta.get("share_class", "C" if fund_code.endswith("3") or fund_code.endswith("7") or "C" in fund_name else "A")
 
-        # 将已识别的中文名与大盘缩写从 remain_line 中清理，避免基金名中的数字（如科创50的50、中证1000的1000）被误识别为金额
+        # 将已识别的中文名与大盘缩写从 remain_line 中清理，避免基金名中的数字（如科创50的50、中证A500的500）被误识别为金额
         if fund_name in remain_line:
             remain_line = remain_line.replace(fund_name, " ")
+        # 宽基指数代码与持有期数字扩充词表 (长词优先，彻底阻断数字污染)
         for alias_kw in [
-            "科创50", "中证1000", "中证500", "沪深300", "标普500", "30天",
-            "红利低波", "中证红利", "裕祥回报", "华安黄金", "黄金ETF", "白酒",
-            "集成电路", "动漫游戏", "新能源", "半导体", "纳斯达克100", "纳指",
-            "ETF联接", "ETF", "联接", "A类", "C类"
+            "中证2000", "中证1000", "中证800", "中证500", "沪深300", "中证A500", "A500", "A50",
+            "科创100", "科创50", "创业板50", "标普500", "富时100", "富时A50", "日经225", "纳斯达克100", "纳指100", "纳指",
+            "红利低波100", "红利低波", "中证红利", "裕祥回报", "华安黄金", "黄金ETF", "白酒",
+            "集成电路", "动漫游戏", "新能源", "半导体", "人工智能", "芯片", "恒生科技", "恒生指数",
+            "30天持有", "60天持有", "90天持有", "180天持有", "360天持有", "365天持有",
+            "1年持有", "2年持有", "3年持有", "6个月持有", "3个月持有", "12个月持有",
+            "ETF联接", "ETF", "联接", "A类", "C类", "E类"
         ]:
             remain_line = remain_line.replace(alias_kw, " ")
+
+        # ── 提前解析并剥离持有天数与锁定天数 (彻底杜绝持有期天数误充当持仓金额) ──
+        h_days = 30
+        lock_match = re.search(r'[\(（]?(?:锁定|持有|已持|持仓|买了|买入|历时)?\s*(\d+)\s*(?:天|日)(?:持有)?[\)）]?', remain_line)
+        if lock_match:
+            h_days = int(lock_match.group(1))
+            remain_line = remain_line.replace(lock_match.group(0), " ")
+        elif re.search(r'[\(（]?(\d+)\s*(?:个)?月(?:持有)?[\)）]?', remain_line):
+            m_m = re.search(r'[\(（]?(\d+)\s*(?:个)?月(?:持有)?[\)）]?', remain_line)
+            h_days = int(m_m.group(1)) * 30
+            remain_line = remain_line.replace(m_m.group(0), " ")
+        elif re.search(r'[\(（]?(\d+)\s*年(?:持有)?[\)）]?', remain_line):
+            y_m = re.search(r'[\(（]?(\d+)\s*年(?:持有)?[\)）]?', remain_line)
+            h_days = int(y_m.group(1)) * 365
+            remain_line = remain_line.replace(y_m.group(0), " ")
+        elif any(k in cleaned_line for k in ["已持满", "满30天", "免赎回费", "免赎"]):
+            h_days = 45
+        elif any(k in cleaned_line for k in ["刚买", "未满7天", "不满7天", "新买"]):
+            h_days = 3
 
         amount = 0.0
         shares = 0.0
@@ -1466,6 +1489,13 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
             shares = float(shares_match.group(1).replace(',', ''))
             remain_line = remain_line.replace(shares_match.group(0), " ")
 
+        # 显式优先匹配带“元”或“¥”的金额数字 (如 15,200.00元, 35000元)
+        if amount <= 0:
+            yuan_match = re.search(r'(?:¥|￥)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)\s*元', remain_line)
+            if yuan_match:
+                amount = float(yuan_match.group(1).replace(',', ''))
+                remain_line = remain_line.replace(yuan_match.group(0), " ")
+
         # 检查金额数字：提取剩余所有数字并取首个合理金额 (杜绝 >=100 过滤以精准识别百元以下尾仓零头)
         if amount <= 0:
             remaining_numbers = re.findall(r'([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)', remain_line)
@@ -1515,23 +1545,6 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
             cost_price = round(cost_basis / shares, 4) if shares > 0 else current_nav
             pnl_pct = round((market_value / cost_basis - 1.0) * 100.0, 2) if cost_basis > 0 else 0.0
 
-        # 检查持有天数与持有期标签 (支持“持有X天/日”、“X个月”、“X年”、“已持满/满30天/免赎”、“刚买/不满7天”等)
-        h_days = 30
-        day_match = re.search(r'(?:持有|已持|持仓|买了|买入|历时)?\s*(\d+)\s*(?:天|日)', remain_line)
-        if day_match:
-            h_days = int(day_match.group(1))
-            remain_line = remain_line.replace(day_match.group(0), " ")
-        elif "年" in remain_line:
-            year_match = re.search(r'(\d+)\s*年', remain_line)
-            h_days = int(year_match.group(1)) * 365 if year_match else 365
-        elif "月" in remain_line:
-            month_match = re.search(r'(\d+)\s*(?:个)?月', remain_line)
-            h_days = int(month_match.group(1)) * 30 if month_match else 30
-        elif any(k in cleaned_line for k in ["已持满", "满30天", "免赎回费", "免赎"]):
-            h_days = 45
-        elif any(k in cleaned_line for k in ["刚买", "未满7天", "不满7天", "新买"]):
-            h_days = 3
-
         if h_days < 7:
             h_tag = "<7d"
         elif h_days < 30:
@@ -1559,7 +1572,15 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
             "raw_line": cleaned_line
         })
 
-    return parsed_results
+    # 双通道单标的去重保护：按 fund_code 顺序去重
+    seen_dedup = set()
+    clean_dedup_results = []
+    for item in parsed_results:
+        fc = item.get("fund_code")
+        if fc and fc not in seen_dedup:
+            seen_dedup.add(fc)
+            clean_dedup_results.append(item)
+    return clean_dedup_results
 
 
 parse_batch_fund_text_input = parse_smart_text_holdings
@@ -1891,22 +1912,12 @@ def parse_screenshot_ocr_holdings(image_bytes: bytes) -> List[Dict[str, Any]]:
     # 按纵向全局 y 坐标排序
     all_ocr_items.sort(key=lambda x: x[0])
 
-    # 1. 尝试以聚合成的完整多行文本直接送入 parse_smart_text_holdings 提取
+    # 1. 通道一：以聚合成的完整多行文本直接送入 parse_smart_text_holdings 提取
     raw_lines = [item[2] for item in all_ocr_items]
     aggregated_text = "\n".join(raw_lines)
-    parsed_candidates = parse_smart_text_holdings(aggregated_text)
-    if parsed_candidates:
-        seen = set()
-        clean_res = []
-        for p in parsed_candidates:
-            c = p.get("fund_code")
-            if c and c not in seen:
-                seen.add(c)
-                clean_res.append(p)
-        if len(clean_res) >= 1:
-            return clean_res
+    channel1_holdings = parse_smart_text_holdings(aggregated_text)
 
-    # 2. 空间块聚类提取分支（针对多栏布局排版）
+    # 2. 通道二：空间块聚类提取分支（针对多栏布局排版，绝不早退）
     blocks = []
     current_block = []
     for y, x, text, conf in all_ocr_items:
@@ -2016,7 +2027,30 @@ def parse_screenshot_ocr_holdings(image_bytes: bytes) -> List[Dict[str, Any]]:
             "raw_line": blk_text
         })
 
-    return structured_holdings
+    # 3. ── 双通道并集融合与信息补全 (Dual-Channel Union Fusion) ──
+    # 以 fund_code 为主键合并两路通道，互补空间块字段与文本流字段
+    fused_map: Dict[str, Dict[str, Any]] = {}
+    for h in channel1_holdings:
+        code = h.get("fund_code")
+        if code:
+            fused_map[code] = dict(h)
+
+    for h in structured_holdings:
+        code = h.get("fund_code")
+        if not code:
+            continue
+        if code not in fused_map:
+            fused_map[code] = dict(h)
+        else:
+            # 融合：优先保留或增强空间块特有的昨日收益、收益率、校验标记
+            existing = fused_map[code]
+            for k, v in h.items():
+                if k not in existing or existing[k] is None or (existing[k] == 0.0 and v not in (0.0, None)):
+                    existing[k] = v
+                elif k in ("yesterday_pnl", "yesterday_return", "cross_check_verified") and v is not None:
+                    existing[k] = v
+
+    return list(fused_map.values())
 
 
 parse_long_screenshot_holdings = parse_screenshot_ocr_holdings
@@ -7732,9 +7766,11 @@ class PortfolioManager:
             try:
                 from data_loader import DataLoader
                 fx_data = DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
-                spot_usdcnh = float(fx_data.get("rate", 6.6676))
+                spot_usdcnh = float(fx_data.get("rate", 7.2385))
             except Exception:
-                spot_usdcnh = 6.6676
+                spot_usdcnh = 7.2385
+        if spot_usdcnh < 6.85 or spot_usdcnh > 7.60:
+            spot_usdcnh = 7.2385
 
         results = []
         for c in codes:

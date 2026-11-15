@@ -35,3 +35,30 @@ Read the authoritative request file: d:\Google\Workspace\Wind\.agents\teamwork\O
 Read master architecture: d:\Google\Workspace\Wind\.agents\teamwork\orchestrator\PROJECT.md
 Read survey report: d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_r7_2\report.md
 Read d:\Google\Workspace\Wind\GEMINI.md for workspace rules.
+
+
+## 2026-11-15T08:00:43Z
+[Message] timestamp=2026-11-15T08:00:43Z sender=a29ecba0-a4ab-4a58-a8c7-4276082800c0 priority=MESSAGE_PRIORITY_HIGH content=You are Explorer 3 for Milestone 1 (M1: 十维真实投票与汇率校验及胶囊联动).
+Working directory: d:\Google\Workspace\Wind
+Your state folder: d:\Google\Workspace\Wind\.agents\teamwork\explorer_m1_3
+Authoritative user request: d:\Google\Workspace\Wind\.agents\teamwork\ORIGINAL_REQUEST.md
+Project plan: d:\Google\Workspace\Wind\PROJECT.md
+Scope definition: d:\Google\Workspace\Wind\.agents\teamwork\sub_orch_m1\SCOPE.md
+
+You are READ-ONLY. Do not modify source code or tests.
+Read ORIGINAL_REQUEST.md and PROJECT.md and SCOPE.md first.
+
+Your specific exploration focus is Feature 6 and Test Coverage / Compatibility:
+6. 胶囊4（持仓病灶）与胶囊5（今日行动准则）知行合一联动：在 `generate_chief_advisor_memo` 与 `render_chief_advisor_memo_card` 中，当检测到当前账本存在免赎碎片尾仓或深套出血点或红牌止盈预警时，第五颗胶囊今日行动准则的主结论与副标题优先输出账户级实战指令（如清扫尾仓并置换深套出血点），消除割裂。
+
+Please investigate:
+- In `advisory_engine.py`, examine `generate_chief_advisor_memo` and `render_chief_advisor_memo_card`. How are the 5 capsules currently constructed and rendered?
+- How does `generate_chief_advisor_memo` receive portfolio pathology? Does it currently take `portfolio_pathology` dict, or `pm` (PortfolioManager), or `alerts`?
+- How are `frag_count`, `deep_loss_count`, and `red_alert` defined and passed in `app_gui.py` and `advisory_engine.py`?
+- How should Capsule 5's main conclusion, subtitle, and badge/color adapt when pathologies are present vs when the portfolio is clean?
+- Investigate all existing tests in `tests/` that test advisory engine, ten dimension votes, memo capsules, and data loader.
+- Design a comprehensive test suite for Milestone 1 to be placed in `tests/test_g19_m1_ten_dimension_and_memo.py` that covers Features 1-6 thoroughly.
+- Physical security baseline: DO NOT modify judge_engine.py, holdout_vault.py, AGENT_SPEC.md, tests/test_infra.py. DO NOT modify DataLoader.simulate_execution default signature & default fee logic.
+- Propose the exact, concrete implementation design and code modifications for the Worker.
+Write your complete report to `d:\Google\Workspace\Wind\.agents\teamwork\explorer_m1_3\handoff.md`.
+Send a message when finished.

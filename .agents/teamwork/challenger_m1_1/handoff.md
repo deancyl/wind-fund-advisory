@@ -1,163 +1,136 @@
-# G16 Milestone 1 (M1) 对抗性质询与压力测试审查报告
+# Milestone 1 核心特性经验对抗验证与挑战报告 (Hard Handoff)
 
-- **审查智能体**: `challenger_m1_1` (empirical challenger / critic & specialist)
-- **挑战目标**: `AGY2_FundAdvisory/advisory_engine.py` (`generate_chief_advisor_memo`) 及 `AGY2_FundAdvisory/app_gui.py` (`render_chief_advisor_memo_card`)
-- **最终结论**: **`APPROVE` (全项通过)**
-
----
-
-## 1. Observation (客观观测与实证数据)
-
-本智能体遵循实证挑战者铁律（“不轻信任何声称，必须亲自编写生成器、断言与压力测试用例并实操运行”），针对 Worker 交付的代码构建了包含 8 大对抗性场景的专项测试套件 `tests/test_challenger_g16_m1_adversarial.py`，直接观测并记录到以下事实：
-
-### 1.1 实操 29 基真实账本 (`combat_29_funds`) 深套与碎片检测
-- **调用命令与输出**:
-  ```powershell
-  py -3 -m pytest tests/test_challenger_g16_m1_adversarial.py -k test_01_combat_29_funds_deep_loss_and_fragments -v
-  ```
-- **直接观测事实**:
-  - `pm.holdings` 包含 29 只基金，总资产 ¥26,615.10；
-  - `deep_loss_count = 18 >= 3`，浮亏超 10% 标的达 18 只；
-  - 输出文本正文明确点名三大核心出血点：
-    - `【华夏上证科创板50成份ETF联接C】(浮亏 -17.1%)`（代码 `011613`，浮亏 -¥428.39）；
-    - `【富国中证红利指数增强A】(浮亏 -12.0%)`（代码 `100032`，浮亏 -¥332.58）；
-    - `【招商中证白酒指数(LOF)A】(浮亏 -25.1%)`（代码 `161725`，浮亏 -¥175.78）；
-  - `frag_count = 19`，`frag_amt = 442.70`，精准锁定 19 只免赎碎片；
-  - 核心腰部标的 `#10 005827 易方达蓝筹精选混合`（市值 ¥124.14，A 类份额，主动偏股型）被**精准排除出碎片**，未被错误计入。
-
-### 1.2 Tab 1 目标权重字典对抗性变异检验
-- **测试场景**:
-  - 6 基常规组合：`{"005561": 0.35, "002351": 0.20, "110020": 0.15, "011613": 0.15, "017436": 0.10, "000216": 0.05}`；
-  - 10 基等权组合：`{f"00000{i}": 0.10 for i in range(10)}`；
-  - 浮点精度截断下界：`sum = 0.999` (`{"001": 0.333, "002": 0.333, "003": 0.333}`)；
-  - 浮点精度溢出上界：`sum = 1.001` (`{"001": 0.334, "002": 0.334, "003": 0.333}`)；
-  - 容差边界极限：`sum = 0.96` 与 `sum = 1.04`（`abs(sum - 1.0) < 0.05` 边界）。
-- **观测结果**:
-  - 全部品类全部自动命中 `is_weight_dict = True`；
-  - `deep_loss_count == 0`，`frag_count == 0`，`frag_amt == 0.0`；
-  - 标题切换为 `📐 拟建仓组合结构校验`，标签为 `🟢 结构均衡`；
-  - 正文中 100% 绝迹 `¥1.00`、`合计 ¥1.00`、`长尾碎片尾仓`、`碎片/羊毛基` 等荒谬误报文案；
-  - 正文包含建仓规划本金（默认 ¥100,000.00）、稳健底仓 vs 弹性进攻配比、最大单标分散度。
-
-### 1.3 极端异常、空值与边界输入防御
-- **测试输入**:
-  - `holdings = None`、`holdings = []`、`holdings = {}`、`holdings = "invalid_string"`、`holdings = 123456`、`holdings = [None]`；
-- **观测结果**:
-  - 0 抛出异常，0 崩溃；
-  - 统一返回 `deep_loss_count = 0`、`frag_count = 0`、`frag_amt = 0.0`、状态标签 `🟢 健康良好`、文本提示“持仓结构优良”。
-
-### 1.4 畸形与极限持仓数值防御
-- **测试输入**:
-  - `cost_basis = 0.0`（零成本）
-  - `shares = 0.0`（零份额）
-  - `market_value = -50.0`（负市值）
-  - `market_value = 0.0`（零市值）
-  - `floating_pnl_pct = -99.9%`（极限深度亏损）
-  - `floating_pnl_pct = +500.0%`（极限超额暴利）
-  - 成本缺失仅有浮亏率：`cost_basis = 0, mv = 800, floating_pnl_pct = -20.0%`
-- **观测结果**:
-  - 0 处除零异常（`ZeroDivisionError`）；
-  - 极限暴利标的（+500%）未被误入亏损列表；
-  - 浮亏标的（-99.9% 与 -20.0%）被精准捕获；
-  - 缺失成本时通过 `cost_v = mv / (1.0 + pl_ratio)` 准确反推成本为 ¥1,000.00。
-
-### 1.5 对象与字典混合列表及免赎持有期硬约束
-- **测试输入**: 在单次 `holdings` 列表中同时混杂传入：
-  - `HoldingItem` 标准实例；
-  - `MockLegacyCostValueHolding`（仅含老旧 `cost_value` 属性，向下兼容）；
-  - 普通 Python 字典（含 `cost_price` 与 `shares`）；
-  - 依赖批次 `batches` 计算持有天数的对象；
-  - 持有天数未满期标的（C 类 15 天 < 30 天，A 类 200 天 < 365 天）；
-  - 持有天数已满期标的（C 类 35 天 >= 30 天，A 类 400 天 >= 365 天）。
-- **观测结果**:
-  - 多类型对象在统一遍历循环中无缝兼容解析；
-  - 未满期标的（C 类 15 天、A 类 200 天）被硬性拦截，未被计入免赎碎片；
-  - 已满期碎片（¥20、¥40、¥50、¥60）合计准确输出 4 只、金额 ¥170.00；
-  - 老式 `cost_value` 深套标的（浮亏 -50%）成功被检出并报警。
-
-### 1.6 GUI 渲染与 CommonMark 4 空格泄露防御
-- **实测验证**:
-  - `render_chief_advisor_memo_card` 针对实盘备忘录与建仓备忘录分别执行渲染；
-  - 逐行校验渲染输出的 HTML 字符串：**0 行以 4 个空格开头，0 行以制表符 `\t` 开头**；
-  - 1 行 5 列横向网格样式 `grid-template-columns: repeat(5, minmax(0, 1fr));` 及移动端响应式折行规则 `@media (max-width: 768px)` 100% 存在且语法合法。
-
-### 1.7 测试套件回归执行记录
-```
-tests/test_challenger_g16_m1_adversarial.py::TestChallengerG16M1Adversarial::test_01_combat_29_funds_deep_loss_and_fragments PASSED [ 12%]
-tests/test_challenger_g16_m1_adversarial.py::TestChallengerG16M1Adversarial::test_02_tab1_target_weights_dict_adversarial_suite PASSED [ 25%]
-tests/test_challenger_g16_m1_adversarial.py::TestChallengerG16M1Adversarial::test_03_empty_and_null_boundary_inputs PASSED [ 37%]
-tests/test_challenger_g16_m1_adversarial.py::TestChallengerG16M1Adversarial::test_04_deformed_holding_values_resilience PASSED [ 50%]
-tests/test_challenger_g16_m1_adversarial.py::TestChallengerG16M1Adversarial::test_05_hybrid_object_and_dict_holdings_list PASSED [ 62%]
-tests/test_challenger_g16_m1_adversarial.py::TestChallengerG16M1Adversarial::test_06_fragment_exclusion_rules_boundary_matrix PASSED [ 75%]
-tests/test_challenger_g16_m1_adversarial.py::TestChallengerG16M1Adversarial::test_07_macro_intl_action_dimensions_and_us_spread PASSED [ 87%]
-tests/test_challenger_g16_m1_adversarial.py::TestChallengerG16M1Adversarial::test_08_gui_rendering_and_commonmark_safety_stress PASSED [100%]
-============================= 8 passed in 23.07s ==============================
-
-tests\test_g16_phase1_memo_and_combat29.py ......                        [ 30%]
-tests\test_infra.py ..............                                       [100%]
-============================= 20 passed in 30.96s =============================
-```
-合计 28 项针对性与基线测试 100% 绿灯。
+**任务代号**: Milestone 1 对抗挑战 (Challenger 1: 十维真实投票与汇率校验及胶囊联动)  
+**执笔人**: Challenger 1 (critic, specialist)  
+**交付时间**: 2026-11-15T08:44:00Z  
+**最终裁决**: **APPROVE (完全合规通过)**  
 
 ---
 
-## 2. Logic Chain (推理链条与论证推导)
+## 1. Observation (客观对抗法证观察)
 
-1. **深套标的检出链条**:
-   - 观测到 `FundHolding` / `HoldingItem` 在业务系统中以 `cost_basis` 存储总成本，以 `cost_price` 存储单价，以 `floating_pnl_pct` 存储盈亏率；
-   - 旧代码只读取不存在的 `cost_value` 属性，导致 `pl_ratio` 恒为 0；
-   - 现行实现采用 `cost_basis -> cost_price * shares -> cost_value -> floating_pnl_pct` 四阶降级链；
-   - 在真实 29 基账本中，代码成功计算出各标的真实盈亏率，并按浮亏金额由深至浅排序，精准抓出最大拖累 `011613` (-17.1%)、`100032` (-12.0%)、`161725` (-25.1%)，逻辑闭环。
+### 1.1 独立对抗测试套件设计与执行观察
+针对 Worker M1-1 提交的实现代码 (`AGY2_FundAdvisory/advisory_engine.py`, `AGY2_FundAdvisory/data_loader.py` 等)，编写了独立对抗验证测试套件 `scratch/test_adv_m1_challenger1.py`，涵盖 7 大类、共 24 项极限对抗用例：
+- 命令: `py -3 -m pytest scratch/test_adv_m1_challenger1.py -v`
+- 运行结果: **24 passed in 2.90s (100% 绿灯通过)**。
 
-2. **Tab 1 拟建仓字典识别链条**:
-   - 观测到 Tab 1 传入的 `opt_weights` 是形如 `{"005561": 0.35, "002351": 0.20}` 的字典；
-   - 旧代码直接将其值 `0.35` 当成市值 ¥0.35 处理，命中 `< 200.0` 逻辑被全部判为碎片，合计出 ¥1.00；
-   - 现行代码在前置增加 `is_weight_dict` 判定（字典、数值介于 0~1、权重和接近 1.0），命中后自动分流至“拟建仓组合结构校验”，直接将 `frag_count = 0`、`deep_loss_count = 0`、`frag_amt = 0.0`，从根本上消灭了假碎片与假亏损，逻辑完备。
+### 1.2 极限临界点测试实测法证
+1. **期权隐波 IVIX 临界点 (31.99 vs 32.00)**:
+   - `ivix = 31.99`: `circuit_breaker_triggered = False`, `verdict != "🚨 极值熔断防御"`;
+   - `ivix = 32.00`: `circuit_breaker_triggered = True`, `verdict == "🚨 极值熔断防御"`, `circuit_breaker_reason` 精确包含 `"期权隐波IVIX(32.0>=32.0)"`。
+2. **动态相关性突变临界点 (0.799 vs 0.800)**:
+   - `dyn_corr = 0.799`: `circuit_breaker_triggered = False`;
+   - `dyn_corr = 0.800`: `circuit_breaker_triggered = True`, `circuit_breaker_reason` 精确包含 `"动态相关性(0.80>=0.80)"`。
+3. **离岸汇率单日贬值异动临界点 (0.599% vs 0.601%)**:
+   - `usdcnh_chg = 0.599%`: `circuit_breaker_triggered = False`;
+   - `usdcnh_chg = 0.601%`: `circuit_breaker_triggered = True`, `circuit_breaker_reason` 精确包含 `"人民币贬值波动(+0.60%>+0.60%)"`。
+4. **多重极值三重并发击穿**:
+   - `ivix = 35.5`, `dyn_corr = 0.85`, `usdcnh_chg = 0.75%` 时，`len(circuit_breaker_triggers) == 3`，三个风控标记完整并联展现。
 
-3. **碎片 19 只与 ¥442.70 严格对齐链条**:
-   - 规则与 `ActiveRiskSentry` 第 13 维度完全统一：`< 100` 元无条件计入，`100 ~ 200` 元限 C 类或指数/联接/ETF 关键词；
-   - `005827 易方达蓝筹精选混合` 市值 ¥124.14，份额为 A 类，非指数/联接，被合法排除；
-   - 其余 19 只碎片（市值 89.60 元至 0.59 元）全部为 `< 100` 元且持有天数 > 365 天（均已免赎），求和为精确的 ¥442.70，与账本完全平账。
+### 1.3 一票否决与仓位硬锁物理阻断法证
+1. **九维极限多头强压下的熔断物理阻断**:
+   - 构造宏观低利率 (+3%)、货币极宽 (+5%)、ERP极高估值 (+10%)、国际收窄 (+2%)、汇率升值 (+3%)、产业极低估 (+5%)、情绪多头 (+2%)、技术站稳 (+2%)、历史同温层底部 (+5%) 共 +37.0% 多头增量；
+   - 注入 `ivix = 32.50` 触发熔断后：
+     - **维度 1~9 全部正向 delta 被强制归零 (0.0%)**，并在 reason 中追加 `【🚨 触发风控熔断(...)，+X%低估加仓项物理冻结】`；
+     - `dimension_details` 字典内所有正向加仓项同步归零；
+     - 仓位推导公式 `target_equity_pct` 严格封顶于基准权益 `base_equity` (C3为 60%)；实测最终权益建议仓位为 `52%` (扣除维度10避险 -8%)，绝无上冲突破；
+     - 首屏与汇总定调裁决 `summary["verdict"]` 锁死为 `"🚨 极值熔断防御"`。
+2. **维度 10 自身多头受汇率熔断截断反转**:
+   - 构造低隐波 (20%) 与高贴水 (15%) 原本判定为 BULL (+2.0%)，当汇率突发贬值 0.65% 触发熔断时，维度 10 自身的 +2.0% 同样被物理归零至 0.0%，证实门禁逻辑单向全域收敛。
 
-4. **异常抗性与稳健性链条**:
-   - 面对 `None`、空列表、空字典、非字典对象，代码均通过类型防御和空安全回退，返回规范的零指标结构；
-   - 面对除零风险点（`cost_v = 0` 或 `1.0 + pl_ratio = 0`），代码具有严格的前提保护条件，杜绝了运行时崩溃；
-   - 面对老旧测试桩（只含 `cost_value`），代码降级兼容，未造成历史测试集回归破坏。
+### 1.4 维度 6/7/10 边界与异常容错法证
+1. **维度 6 产业估值**:
+   - Top 3 估值均值 `35.00%` -> `BULL (+5.0%, 85.0分)`; `35.01%` -> `NEUTRAL (0.0%, 65.0分)`;
+   - 全市场估值中位数 `70.00%` -> `NEUTRAL (0.0%, 65.0分)`; `70.01%` -> `BEAR (-5.0%, 40.0分)`;
+   - 当 Top3 <= 35% 且中位数 > 70% 冲突时，Top3 机会估值优先级高，正确判定为 BULL;
+   - 赛道列表为空 `[]` 或存在 `None` 字段时，优雅回退至 `41.1%` 与 `50.5%` 中性均值，零异常抛出。
+2. **维度 7 资金情绪**:
+   - 14 赛道平均拥挤度 `54.9` -> `BEAR (-5.0%, 40.0分)`; `55.0` -> `NEUTRAL`; `71.9` -> `NEUTRAL`; `72.0` -> `BULL (+2.0%, 80.0分)`;
+   - 动量衰竭警报 `momentum_exhaustion_warning = True` 时，即刻覆写超高拥挤度 (90分)，强制判定为 `BEAR (-5.0%)`;
+   - 成交多方占比 `up_pct >= 85.0%` 或 20日乖离率 `bias_20 > 6.0%` 时，过热防御机制将多头强制压制为 `NEUTRAL` (0.0%)，防范盲目追高。
+3. **维度 10 期权与避险**:
+   - 期权隐波 `27.99%` -> `NEUTRAL`; `28.01%` -> `BEAR (-8.0%, 30.0分)` 紧急避险;
+   - 隐波 `21.99%` 且 IC 年化贴水 `8.01%` -> `BULL (+2.0%, 80.0分)`; 基差 `7.99%` 或隐波 `22.01%` 均落入常态中性;
+   - 动态相关性 `dyn_corr >= 0.75` 或 alerts 包含相关性突变预警时，即便隐波极低 (15%) 且贴水极高 (20%)，一票触发 `BEAR (-8.0%)` 避险。
+
+### 1.5 跨市场汇率校验哨与常数纯化法证
+1. **离岸汇率合理性校验区间 [6.85, 7.60]**:
+   - `6.8499` 触发纠偏至 `7.2385`;
+   - `6.8500` 与 `7.6000` 边界合法原样保留;
+   - `7.6001` 触发纠偏至 `7.2385`。
+2. **美债收益率合理性校验哨**:
+   - 旧版常数 `5.0000`、过低值 `2.99%`、过高值 `6.51%` 均被强制纠偏至近期真实截面 `4.4200%`，利差锁死为 `-278.2 bp`。
+3. **全库常数纯化正则扫描**:
+   - 对全工作区全部 `.py` 源文件（排除 git/cache/scratch）执行 `6.6676|5.0000` 正则匹配，确认 **0 违规残留**。
+
+### 1.6 联合全量回归测试套件验证
+- 联合运行命令:
+  `py -3 -m pytest tests/test_infra.py tests/test_g19_m1_ten_dimension_and_memo.py scratch/test_adv_m1_challenger1.py -v`
+- 运行结果: **113 passed in 25.31s (100% 绿灯通过)**:
+  - `test_infra.py`: 14 项四大神圣裁判用例 100% 通过；
+  - `test_g19_m1_ten_dimension_and_memo.py`: 75 项 M1 核心功能用例 100% 通过；
+  - `scratch/test_adv_m1_challenger1.py`: 24 项对抗极限用例 100% 通过。
+
+### 1.7 物理安全红线未触碰法证
+- 通过 `git status --porcelain` 核验：
+  - `judge_engine.py`: **未修改**；
+  - `holdout_vault.py`: **未修改**；
+  - `AGENT_SPEC.md`: **未修改**；
+  - `tests/test_infra.py`: **未修改**；
+  - `DataLoader.simulate_execution`: **默认签名与费率扣除逻辑完好未动**。
 
 ---
 
-## 3. Caveats (风险边界与审查发现)
+## 2. Logic Chain (严谨推导逻辑链)
 
-1. **审查发现：Tab 1 拟建仓文案包含“无碎片尾仓风险”字样**:
-   - **现象**: 在 Tab 1 拟建仓校验模式中，`pathology_text` 包含文字：`"符合 ≤35% 分散铁律，无碎片尾仓风险。"`。
-   - **风险**: 若外部自动化测试或审查脚本使用粗糙的子串断言 `assert "碎片尾仓" not in content`，会因为命中“无碎片尾仓风险”中的子串而误报失败。
-   - **结论与建议**: 现行逻辑本身完全正确（没有报出任何碎片尾仓条目，`frag_count=0`），建议后续断言精准锚定 `assert "长尾碎片尾仓" not in content`、`assert "合计 ¥1.00" not in content` 或 `assert "碎片/羊毛基" not in content`。
-
-2. **只读裁判文件与既有架构**:
-   - 本智能体在审查过程中严格遵守 Review-only 铁律，未改动任何生产业务代码；
-   - 所有测试脚本严格遵守工作区布局规范放置于 `tests/test_challenger_g16_m1_adversarial.py`，未在 `.agents/teamwork/` 写入任何非元数据文件。
-
----
-
-## 4. Conclusion (裁决结论)
-
-### **裁决结果**: **`APPROVE`**
-
-`advisory_engine.py` 的 `generate_chief_advisor_memo` 以及 `app_gui.py` 的 `render_chief_advisor_memo_card` 在真实 29 基账本、Tab 1 权重字典、边界空值、畸形数值、多类型混杂以及 CommonMark 格式安全等全部 8 个对抗性质询维度中表现优异，全部断言通过，无崩溃、无内存泄漏、无数据失真。满足 Milestone 1 验收标准，准予放行进入 Milestone 2。
+1. **临界值判断数学完备性 (由 1.2 支持)**:
+   - 观察证明，系统在 `ivix=32.0`、`dyn_corr=0.80` 与 `usdcnh_chg=0.60%` 微元阶跃点上实现了严密的开闭区间划分与布尔裁决，未发生任何浮点数精度漂移导致的迟滞或误杀。
+2. **一票否决权物理闭环 (由 1.3 支持)**:
+   - 观察证明，在多头因素高度亢奋的情景下，熔断机制通过直接遍历重写 `d["delta_pct"] = 0.0`，不仅切断了底层因果链向总仓位的累加通道，更将最高权益仓位严格限制在基准中枢之下（防守减仓保持有效），彻底杜绝了黑天鹅下逆势追高加仓的金融致命隐患。
+3. **维度异构数据与多维穿透真实有效 (由 1.4 支持)**:
+   - 产业估值穿透 14 赛道克服了既往恒真伪逻辑；资金情绪成功结合成交量、涨跌比与拥挤度；期权衍生品精确联动 IV 与 IC 贴水及相关性警报。所有边界和异常（None/空列表）均具备防御性兜底。
+4. **历史假常数根除与跨市场自洽 (由 1.5 支持)**:
+   - 全库彻底清除 6.6676 与 5.0000 兜底常数，在异常汇率下平滑回落至合规近期截面 (7.2385)，美债及中美利差 (-278.2 bp) 物理闭环，消除了跨市场数据失真引起的模型误判。
+5. **系统整体无破坏回归与红线安全 (由 1.6 与 1.7 支持)**:
+   - 113 项基准与对抗测试全量通过，四大神圣只读文件未被触碰，物理安全红线 100% 保持纯洁。
 
 ---
 
-## 5. Verification Method (独立复核指令)
+## 3. Caveats (说明与边界)
 
-后续仲裁或母智能体可直接运行以下命令复核本报告结论：
+1. **外部无网降级与截面时效**:
+   - 在无互联网外联且本地缓存不可用时，系统平滑降级至固化近期截面（USD/CNH 7.2385，US 10Y 4.42%，两市成交 16,763 亿）；该机制确保了极端离线环境下的可用性与确定性，不属于静态常数残留。
+2. **测试脚本边界**:
+   - 对抗测试脚本置于 `scratch/test_adv_m1_challenger1.py`，不侵入项目正式代码库或正式测试目录，便于后续审计回溯。
+
+---
+
+## 4. Conclusion (交付结论与裁决)
+
+基于上述 24 项极限对抗测试、89 项既有回归测试以及全库常数静态扫描法证：
+- **Milestone 1 的 6 项核心特性均具备严密的金融数学逻辑、边界防御力与异常鲁棒性**；
+- 一票否决熔断门禁在极端黑天鹅下具备物理级阻断能力；
+- 绝无任何破坏回归，物理安全基线 100% 遵守。
+
+**正式裁决**: **APPROVE (完全合规通过)**。
+
+---
+
+## 5. Verification Method (独立可复现核验方法)
+
+任何后续流水线或审计人员均可通过执行以下命令直接独立复现全部验证结果：
 
 ```powershell
-# 1. 运行本审查者编写的专属对抗性压力测试套件 (8 项全通过)
-py -3 -m pytest tests/test_challenger_g16_m1_adversarial.py -v
+# 1. 运行 Challenger 独立对抗测试套件 (24 项)
+py -3 -m pytest scratch/test_adv_m1_challenger1.py -v
 
-# 2. 运行 Worker 交付的专项单测与基础架构物理红线 (20 项全通过)
-py -3 -m pytest tests/test_g16_phase1_memo_and_combat29.py tests/test_infra.py -v
+# 2. 运行全量联合回归套件 (113 项)
+py -3 -m pytest tests/test_infra.py tests/test_g19_m1_ten_dimension_and_memo.py scratch/test_adv_m1_challenger1.py -v
 
-# 3. 独立 Python 探针单行验证
-py -3 -c "from AGY2_FundAdvisory.multi_ledger_manager import MultiLedgerManager; from AGY2_FundAdvisory.advisory_engine import generate_chief_advisor_memo; pm = MultiLedgerManager().get_pm('combat_29_funds'); m = generate_chief_advisor_memo(holdings=pm.holdings)['portfolio_pathology']; assert m['deep_loss_count'] >= 3; assert m['frag_count'] == 19; assert abs(m['frag_amt'] - 442.70) < 0.01; print('CHALLENGER VERIFICATION PASSED')"
+# 3. 验证全库 0 假常数残留
+Get-ChildItem -Recurse -Filter *.py | Select-String -Pattern "6\.6676|5\.0000"
+
+# 4. 验证神圣只读红线未被修改
+git status --porcelain judge_engine.py holdout_vault.py AGENT_SPEC.md tests/test_infra.py
 ```
+**预期结果**: 113 项测试 100% PASSED，常数匹配 0，红线文件状态为空（未变动）。

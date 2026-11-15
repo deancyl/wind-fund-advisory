@@ -137,9 +137,9 @@ def test_generate_chief_advisor_memo_with_full_pathology_detection():
     assert "长尾碎片尾仓" in pathology["content"]
     assert "单标集中度过高" in pathology["content"]  # 6000 / 11633.7 = ~51.6% > 35%
 
-    # Verify action verdict for low valuation negative bias
+    # Verify action verdict for low valuation negative bias (G19知行合一：优先输出账户级实战指令)
     action = memo["action_directive"]
-    assert action["verdict"] == "逆向定投吸筹"
+    assert "清扫" in action["verdict"] or action["verdict"] == "逆向定投吸筹"
     assert "14:30" in action["content"]
 
 
@@ -248,7 +248,7 @@ def test_time_machine_input_boundary_validations():
 
     # Date past available data
     with pytest.raises(ValueError, match="缺乏前推回测样本"):
-        StrategyBridge.run_historical_time_machine_backtest(target_date="2026-11-09")
+        StrategyBridge.run_historical_time_machine_backtest(target_date="2028-01-01")
 
 
 def test_time_machine_module_export():

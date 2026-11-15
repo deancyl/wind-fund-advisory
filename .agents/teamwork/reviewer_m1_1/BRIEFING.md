@@ -1,7 +1,7 @@
-# BRIEFING — 2026-11-11T01:27:00Z
+# BRIEFING — 2026-11-15T08:43:00Z
 
 ## Mission
-审查并对抗性测试 Milestone 1 (worker_m1 交付代码)：`advisory_engine.py` 中 `generate_chief_advisor_memo` 的持仓成本属性修复与多字段兼容性、Tab 1 目标权重字典防护、19 只免赎碎片 ¥442.70 平账，以及业务逻辑完备性。
+独立审查与对抗性挑战 Milestone 1 (M1: 十维真实投票与汇率校验及胶囊联动)，重点审查 Features 1, 2, 3, 4、物理安全红线零改动及新测试套件 `tests/test_g19_m1_ten_dimension_and_memo.py` 与 `tests/test_infra.py`。
 
 ## 🔒 My Identity
 - Archetype: reviewer & critic
@@ -11,6 +11,7 @@
 - Milestone: Milestone 1
 - Instance: 1 of 1
 - Current Parent (2026-11-11): a4d409c2-aeca-47df-a18c-528d9465a6c8 (orchestrator_g16_gen2)
+- Current Parent (2026-11-15): a29ecba0-a4ab-4a58-a8c7-4276082800c0 (sub_orch_m1)
 
 ## 🔒 Key Constraints
 - Review-only — do NOT modify implementation code
@@ -18,45 +19,54 @@
 - Adversarial critic: actively check for integrity violations (hardcoded test outputs, dummy implementations, shortcuts, fabricated verification, self-certifying work)
 - Response language: Chinese
 - Review scope: `advisory_engine.py` (重点 4170~4375 行) 以及相关测试
+- M1 G19 Scope: `advisory_engine.py`, `app_gui.py`, `tests/test_g19_m1_ten_dimension_and_memo.py`
 
 ## Current Parent
-- Conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8
-- Updated: 2026-11-11T01:17:33Z
+- Conversation ID: a29ecba0-a4ab-4a58-a8c7-4276082800c0
+- Updated: 2026-11-15T08:33:20Z
 
 ## Review Scope
-- **Files to review**: `d:\Google\Workspace\Wind\AGY2_FundAdvisory\advisory_engine.py` (lines 4170~4492), `AGY2_FundAdvisory/app_gui.py` (lines 249~350, 3182~3225, 4075~4088)
+- **Files to review**:
+  - `AGY2_FundAdvisory/advisory_engine.py` (重点 `compute_ten_dimension_votes`, `generate_chief_advisor_memo`)
+  - `AGY2_FundAdvisory/app_gui.py` (离岸人民币联动、大屏汇率胶囊等)
+  - `tests/test_g19_m1_ten_dimension_and_memo.py`
 - **Interface contracts**:
   - `ORIGINAL_REQUEST.md`
-  - `orchestrator_g16_gen2/SCOPE.md`
-  - `worker_m1/handoff.md`
+  - `PROJECT.md`
+  - `.agents/teamwork/sub_orch_m1/SCOPE.md`
+  - `.agents/teamwork/worker_m1_1/handoff.md`
+
+## Key Decisions Made
+- 经过独立审查与对抗性法证，确认 Milestone 1 的 Features 1~6 均真实落地，无假逻辑或硬编码作弊。
+- 四大神圣只读裁判文件及底座核心签名 100% 未触碰。
+- 自动化测试 89/89 及联合测试 108/108 全量绿灯。
+- 最终裁决：**APPROVE**。
+- 对抗性审查挖掘并归档 1 处潜在边缘缺陷（汇率单位微幅缩放二义性导致在 [0.006%, 0.05%] 区间可能产生假阳性熔断），提出防御建议。
+
+## Artifact Index
+- `.agents/teamwork/reviewer_m1_1/DISPATCH.md`
+- `.agents/teamwork/reviewer_m1_1/BRIEFING.md`
+- `.agents/teamwork/reviewer_m1_1/progress.md`
+- `.agents/teamwork/reviewer_m1_1/handoff.md`
 
 ## Review Checklist
 - **Items reviewed**:
-  1. `generate_chief_advisor_memo` 成本属性修复与多字段兼容性 (`cost_basis`, `cost_price*shares`, `cost_value`, `floating_pnl_pct`, `pnl_pct`) -> VERIFIED (9/9 异构输入通过)
-  2. 真实 29 基账本深套超 10% 标的检出 (`deep_loss_count=18 >= 3`)，点名 011613 (-17.1%)、100032 (-12.0%)、161725 (-25.1%) -> VERIFIED
-  3. Tab 1 目标权重字典自适应切换为“拟建仓资产组合结构校验”，跳过碎片尾仓和深套检查（`deep_loss_count=0`, `frag_count=0`），消除 ¥1.00 乌龙 -> VERIFIED
-  4. 碎片尾仓判定与 `ActiveRiskSentry` 对齐，排除 #10 005827 易方达蓝筹，锁定 19 只免赎碎片合计平账为 ¥442.70 -> VERIFIED
-  5. 首屏 1 行 5 列横向等高情报矩阵网格移出折叠框直显，规则 27 CommonMark 防御达标 -> VERIFIED
-  6. 自动化测试套件全量通过 (共 80/80 passed: test_g16_phase1, test_adversarial_m2, test_infra, test_challenger_m2, test_adv_final_closure, test_gui_multi_ledger_stress) -> VERIFIED
-  7. 物理安全红线零改动 -> VERIFIED
+  1. 维度6产业估值真数据驱动 (Top3 均值 <= 35% BULL, 中位数 > 70% BEAR) -> PASS
+  2. 维度7资金情绪多维融合 (成交额 + 上涨占比 + 14赛道均拥挤度) -> PASS
+  3. 维度10期权衍生品与避险 (隐波 > 28% 或突变 BEAR -8%, 隐波 < 22% 且有垫 BULL +2%) -> PASS
+  4. 黑天鹅/灰犀牛一票否决熔断门禁 (IVIX>=32, dyn_corr>=0.80, usdcnh_chg>0.60% 物理归零加仓) -> PASS
+  5. 拔除 6.6676 与 5.0000 兜底常数并设合理性哨 -> PASS
+  6. 胶囊4与胶囊5知行合一联动 (29基实操输出清扫尾仓与置换深套) -> PASS
+  7. 四大只读裁判文件未修改 -> PASS
+  8. 测试套件 89/89 与联合回归 108/108 全部通过 -> PASS
 - **Verdict**: APPROVE
-- **Unverified claims**: None.
+- **Unverified claims**: 0
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - 9 种成本/盈亏率异构对象与字典结构 -> 全部成功识别深套
-  - 空、None、全零、负市值等极限输入 -> 全部安全兜底无异常
-  - Tab 1 浮点权重字典 vs 真实持仓字典的模式切换边界 -> 鲁棒隔离无混淆
-  - 完整性审计：无硬编码、无假常数、无作弊绕过
-- **Vulnerabilities found**: 0
-- **Untested angles**: M2/M3 功能将在后续里程碑继续审查
-
-## Key Decisions Made
-- 确认 M1 交付代码完整性与准确性，测试 100% 绿灯，红线 100% 保持未触碰。
-- 裁决结论：APPROVE。
-
-## Artifact Index
-- `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\DISPATCH.md`
-- `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\BRIEFING.md`
-- `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\progress.md`
-- `d:\Google\Workspace\Wind\.agents\teamwork\reviewer_m1_1\handoff.md`
+  - 恒真条件清零与真数据源穿透测试 -> PASS
+  - 熔断门禁一票否决物理归零单向性与因果链说明 -> PASS
+  - 源码与静态扫描零 6.6676/5.0000 残留 -> PASS
+  - 汇率单日变动单位二义性攻击测试 -> 发现 [0.006%, 0.05%] 微幅正向变动误判黑天鹅边界瑕疵
+- **Vulnerabilities found**: 1 (汇率微幅日变动 [0.006%, 0.05%] 因启发式缩放判定为黑天鹅假阳性，已建议收口)
+- **Untested angles**: Milestone 2 的 Tab 2 自动路由与滚动发车

@@ -1,53 +1,61 @@
-# BRIEFING — 2026-11-11T00:36:00Z
+# BRIEFING — 2026-11-15T07:54:30Z
 
 ## Mission
-只读深度走查 G16 世代第一阶段涉及的代码（advisory_engine.py 与 app_gui.py），产出详尽的调查与分析报告 handoff.md。
+【Survey Mission: Voting & Macro Explorer】
+只读深入走查 G19 世代 Phase 1 需求：
+1. `compute_ten_dimension_votes` in `advisory_engine.py` (维度6、7、10真数据驱动与输入审计熔断门禁)；
+2. 拔除 6.6676 (USD/CNH) 与 5.0000 (US 10Y) 兜底常数与跨市场合理性校验；
+3. 首屏第四颗胶囊（存量持仓病灶）与第五颗胶囊（今日行动准则）强联动与实战清扫指令；
+4. 结合 agy2 (3).md Task 3 输入审计项（维度6动态产业理由，熔断门禁 ivix>=32.0 或 dyn_corr>=0.80 或 usdcnh_chg>0.60%）。
+产出包含确切代码行号、真实数据流溯源与具体 Worker 修改方案的 handoff.md 交付报告。
 
 ## 🔒 My Identity
 - Archetype: explorer
 - Roles: investigation, synthesis
 - Working directory: d:\Google\Workspace\Wind
 - State folder: d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1
-- Original parent: a4d409c2-aeca-47df-a18c-528d9465a6c8
-- Milestone: G16 Phase 1 Codebase Survey & Analysis
+- Original parent: 2b4a5c42-da01-49e9-b9b9-7a42b49250ea
+- Milestone: G19 Phase 1 Technical Survey & Mapping Completed
 
 ## 🔒 Key Constraints
 - Read-only investigation — do NOT implement
 - 严禁修改任何业务代码（只在自己的 state folder 中写入报告与状态文件）
+- 严禁修改四个只读裁判文件 judge_engine.py、holdout_vault.py、AGENT_SPEC.md、tests/test_infra.py
+- 严禁修改 DataLoader.simulate_execution 的默认函数签名与默认扣费逻辑
 - 严禁修改全局 GEMINI.md
 - 输出遵守中文规则与 5-Component Handoff Protocol
 
 ## Current Parent
-- Conversation ID: a4d409c2-aeca-47df-a18c-528d9465a6c8
-- Updated: not yet
+- Conversation ID: 2b4a5c42-da01-49e9-b9b9-7a42b49250ea
+- Updated: 2026-11-15T07:54:30Z
 
 ## Investigation State
 - **Explored paths**:
-  - `AGY2_FundAdvisory\advisory_engine.py`: 行 4170~4375 (`generate_chief_advisor_memo`)、行 1545~1705 (`evaluate_opportunity` 动量与信噪比)、行 2190~2230 (`ActiveRiskSentry` 成本读取)、行 3100~3135 (维度 13 碎片尾仓规则)
-  - `AGY2_FundAdvisory\app_gui.py`: 行 249~329 (`render_chief_advisor_memo_card`)、行 2948~3028 (顶部 4 张全局指标卡)、行 3072~3205 (`render_dual_wing_advisory_dashboard` 与 `wing_expander`)、行 4055~4066 (Tab 1 建仓备忘录调用)
-  - `AGY2_FundAdvisory\portfolio_manager.py`: 行 261~305 (`FundHolding` 属性定义)、行 322~323 (`HoldingItem = FundHolding`)
-  - `AGY2_FundAdvisory\multi_ledger_manager.py`: 行 189~265 (`_init_preset_combat_29_ledger` 数据结构)
-  - `AGY2_FundAdvisory\data_loader.py`: 行 2938~3030 (`fetch_macro_cross_market_indicators`)
-  - `tests\test_adversarial_m2_challenger2_timemachine_and_memo.py`: 行 46~61 (`MockFundHolding` 仅有 `cost_value` 的历史原因)
+  - `AGY2_FundAdvisory\advisory_engine.py`: 行 4170–4458 (`compute_ten_dimension_votes`), 行 4460–4850 (`generate_chief_advisor_memo`), 行 46–100 (`RADAR_SECTOR_CATALOG`), 行 1690–1740 (`scan_all_sectors`), 行 2730–2760 (`evaluate_dynamic_correlation_mutation`)
+  - `AGY2_FundAdvisory\app_gui.py`: 行 268–459 (`render_chief_advisor_memo_card`), 行 2715 (`pm` 初始化), 行 3252–3269 (旧初始路由), 行 3300–3388 (顶部指标卡与两市成交/多方占比展示), 行 3620–3665 (雷达扫描与首屏裁决台调用)
+  - `AGY2_FundAdvisory\data_loader.py`: 行 62–195 (`fetch_market_turnover_and_sentiment`), 行 2590–2665 (`fetch_realtime_usdcnh_fx`), 行 3020–3200 (`fetch_macro_cross_market_indicators`)
+  - `AGY2_FundAdvisory\strategy_bridge.py`: 行 2565–2715 (`_refresh_derivatives_data`), 行 2724–3275 (`get_latest_market_snapshot`), 行 2864, 2888 (5.0000 / 6.6676 兜底)
+  - `AGY2_FundAdvisory\multi_ledger_manager.py`: 行 198–275 (`_init_preset_combat_29_ledger`)
+  - `tests\test_g17_advisory_real_data_and_ten_dimension.py`: 行 28–46 (违禁常量静态扫描), 行 79–121 (`compute_ten_dimension_votes` 测试)
+  - `tests\test_adversarial_m3_combat29_challenger.py`: 行 87–113 (持仓天数与免赎核验)
+  - `tests\test_g16_phase1_memo_and_combat29.py`: 行 207–220 (`test_memo_card_with_tab1_construction_mode` 断言缺陷剖析)
+  - `data\cache\radar_sectors_cache.json`: 实测包含 14 赛道完整估值分位与拥挤度数据
 - **Key findings**:
-  1. `generate_chief_advisor_memo` 实际位于 `advisory_engine.py` 第 4170~4375 行；第 1545~1705 行为赛道评估算子。
-  2. `pl_ratio` 漏检深套标的根因：第 4284 行读取了不存在的 `cost_value`，而 `FundHolding`/`HoldingItem` 与账本 JSON 字段为 `cost_basis`、`cost_price`、`floating_pnl_pct`。需做多层降级兼容。
-  3. Tab 1 误报“6只碎片合计¥1.00”根因：传入的 `opt_weights` 为浮点权重字典，若直接将 value 视作市值，0.35 会触发 `0 < mv < 200`；且 Tab 1 属于拟建仓方案校验，应展示建仓结构校验而非存量病灶。
-  4. 碎片尾仓计数对齐：`generate_chief_advisor_memo` 原先按 `mv < 200` 统计会误将 `005827 易方达蓝筹` (¥124.14, A类偏股腰部仓) 计入变成 20 只；对齐 `ActiveRiskSentry`（不足100元，或100~200元且为C类/联接/尾仓）后精确匹配 19 只、¥442.70。
-  5. `render_chief_advisor_memo_card` 提权位置：从 `render_dual_wing_advisory_dashboard` 的 `with wing_expander:`（第 3168 行）移至 `wing_expander = st.expander(...)`（第 3166 行）正上方，即指标卡正下方、折叠框正上方。
-  6. CSS 重构方案：从纵向 `grid-template-columns: 1fr` 重构为 1 行 5 列横向等高网格 `grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px;`，高约 115px，顶置鲜明色标与结论胶囊。
-- **Unexplored areas**: None (全量调研完毕)
+  1. 维度 6 恒真 Bug 确凿：`n_radar = len(radar_top3) if radar_top3 else 3`，`n_radar >= 2` 恒真，始终投多头。
+  2. 维度 7 数据脱靶 Bug 确凿：读取单基 `snap.get("crowding_score", 85.0)`，脱离 14 赛道真实平均拥挤度，且未接入成交额与多方占比。
+  3. 维度 10 衍生品失真 Bug 确凿：完全未读取 `option_iv_pct` 与 `ic_annualized_basis_rate`，仅判断相关性预警。
+  4. 汇率 6.6676 与美债 5.0000 残留点全量排查完毕，合理性哨机制（低于 6.85 或高于 7.60 拦截并校准）已设计。
+  5. 胶囊 4 与胶囊 5 左右互搏根因：`generate_chief_advisor_memo` 胶囊 5 仅看大盘乖离与 ERP，完全无视深套与尾仓。
+  6. Task 3 熔断门禁（ivix>=32.0 或 dyn_corr>=0.80 或 usdcnh_chg>0.60%）接入位置确立。
+- **Unexplored areas**: None (调研 100% 闭环)
 
 ## Key Decisions Made
-- 实地运行 probe 脚本验证了 `combat_29_funds` 与 `opt_weights` 的行为与输出。
+- 汇率校准截面建议使用 `7.2385`（避开 `test_g17` 禁用的 `7.2450`）。
+- 美债十年期校准截面建议使用 `4.42`（合规处于 `[3.5, 6.5]` 区间）。
 - 梳理出精确修改代码行号、数据结构兼容链与测试方案，输出最终 handoff.md。
 
 ## Artifact Index
 - d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\DISPATCH.md — 任务派发记录
 - d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\BRIEFING.md — 运行记忆与状态
 - d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\progress.md — 进度与存活心跳
-- d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\probe_combat29.py — 实盘29基走查脚本
-- d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\probe_tab1.py — Tab 1 opt_weights 走查脚本
-- d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\probe_fixed_logic.py — 修复后盈亏识别模拟验证脚本
-- d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\test_tail_rule.py — 19基碎片尾仓规则精确平账验证脚本
 - d:\Google\Workspace\Wind\.agents\teamwork\explorer_survey_1\handoff.md — 最终调查报告
