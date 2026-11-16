@@ -53,7 +53,13 @@ def run_browser_verification():
         page_dt.goto(APP_URL, wait_until="networkidle", timeout=60000)
         page_dt.wait_for_timeout(4000)
 
-        # 1. Fact 1 Check in Tab 1
+        # 1. Fact 1 Check in Tab 1 (ensure Tab 1 is clicked in case of auto-routing)
+        try:
+            page_dt.get_by_text('🌱 新资建仓').click()
+            page_dt.wait_for_timeout(2000)
+        except Exception:
+            pass
+
         t1_expander = page_dt.locator('div[data-testid="stExpander"]').filter(has_text="今日关键信息感知与建仓裁决卡").first
         t1_causal_collapsed = False
         if t1_expander.count() > 0:

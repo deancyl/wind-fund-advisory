@@ -4063,10 +4063,12 @@ class StrategyBridge:
                 realtime_gszzl = q.gszzl
                 realtime_est_pnl = round(mv * (q.gszzl / 100.0), 2)
                 realtime_gztime = q.gztime
+                is_official_nav = getattr(q, 'is_official_nav', False)
             except Exception:
                 realtime_gszzl = 0.0
                 realtime_est_pnl = 0.0
                 realtime_gztime = ""
+                is_official_nav = False
 
             items.append({
                 "fund_code": code,
@@ -4091,6 +4093,7 @@ class StrategyBridge:
                 "realtime_gszzl": realtime_gszzl,
                 "realtime_est_pnl": realtime_est_pnl,
                 "realtime_gztime": realtime_gztime,
+                "is_official_nav": is_official_nav,
                 "crowding_warning": crowding_warning,
                 "crowding_degree": crowding_degree,
                 "crowding_tip": crowding_tip,

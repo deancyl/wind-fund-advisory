@@ -6349,9 +6349,9 @@ with tab_holdings_and_rebalance:
             # 诚实展示当日涨跌/收盘净值判断（区分收盘官方公布净值与盘中实时估值）
             try:
                 m_stat = clock.get_market_window_status(datetime.now())
-                is_market_closed = bool(m_stat.is_after_market or not m_stat.is_trade_day)
+                is_market_closed = bool(m_stat.is_after_market or not m_stat.is_trade_day or getattr(m_stat, "window_type", "") == "CLOSED_PREMARKET")
             except Exception:
-                is_market_closed = bool(datetime.now().time() >= datetime.strptime("15:00", "%H:%M").time() or datetime.now().weekday() >= 5)
+                is_market_closed = bool(datetime.now().time() >= datetime.strptime("15:00", "%H:%M").time() or datetime.now().weekday() >= 5 or datetime.now().time() < datetime.strptime("09:30", "%H:%M").time())
 
             is_official_nav_holdings = False
             if not df_disp.empty:
