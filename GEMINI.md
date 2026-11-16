@@ -43,6 +43,13 @@
 
 ---
 
+## 核心第六条（AST 静态调用图与跨模块反射契约准则 · AST Call Graph & Reflection Invariant）
+1. **跨模块调用零属性幻觉**：前端展示层（如 `app_gui.py`）对核心业务引擎（如 `PortfolioManager`、`MultiLedgerManager`、`StrategyBridge`、`SmartExecutionDCAEngine` 等）的方法调用与属性访问，必须通过 AST 静态遍历并在对应模块真实类上反射校验（`hasattr` 为真），严禁凭空臆造不存在的 API 签名或属性名。
+2. **严禁空壳占位与静态常量偷懒**：前端严禁把未完成的业务逻辑用简陋的 `st.info` / 逗号切分 / `1.2 bps` 静态硬编码占位；必须真实接线后端核心管线（如切片 OCR 识别 `parse_screenshot_ocr_holdings`、智能文本解析 `parse_smart_text_holdings`、多源净值同步 `sync_holdings_live_nav`、动态微观滑点 `calculate_vwap_execution_slippage` 等）。
+3. **闭环门禁自动化静态审计**：重大功能交付必须通过 AST 静态调用图门禁（全部核心 Python 文件 `ast.parse` 静态编译零语法错误、所有跨模块属性调用 100% 反射存在、禁用符号与硬编码 0 命中、必选调用真实实装、文字墙默认折叠抽屉 `st.expander(expanded=False)` 静态核验），否则一票否决禁止发布。
+
+---
+
 ## 工作区经验沉淀闭环与全局规则隔离铁律 (Workspace Learn Isolation & Self-Containment)
 1. **规则沉淀 100% 局域化**：凡在 Wind 投顾量化工作区内执行 `/learn`、复盘总结或纠偏所得出的所有经验规范与防御机制，强制 100% 写入本工作区根目录的 `GEMINI.md` 或沉淀于 `PROGRESS_LOG.md`。
 2. **严禁向全局溢出**：严禁将本工作区的量化业务、前端框架或特定测试逻辑写入全局 `c:\Users\deanc\.gemini\GEMINI.md`。

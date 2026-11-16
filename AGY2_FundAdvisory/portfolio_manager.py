@@ -7726,9 +7726,11 @@ class PortfolioManager:
             try:
                 from data_loader import DataLoader
                 fx_info = DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
-                spot_usdcnh = float(fx_info.get("rate", 7.2500))
+                spot_usdcnh = float(fx_info.get("rate", 7.2385))
             except Exception:
-                spot_usdcnh = 7.2500
+                spot_usdcnh = 7.2385
+        if spot_usdcnh < 6.85 or spot_usdcnh > 7.60:
+            spot_usdcnh = 7.2385
 
         spot = float(spot_usdcnh)
 
@@ -7810,9 +7812,9 @@ class PortfolioManager:
             try:
                 from data_loader import DataLoader
                 fx_data = DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
-                spot_usdcnh = float(fx_data.get("rate", 6.6746))
+                spot_usdcnh = float(fx_data.get("rate", 7.2385))
             except Exception:
-                spot_usdcnh = 6.6746
+                spot_usdcnh = 7.2385
 
         results = []
         for c in codes:

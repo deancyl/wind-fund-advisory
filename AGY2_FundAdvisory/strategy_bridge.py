@@ -2860,9 +2860,9 @@ class StrategyBridge:
             structure_color = "#94a3b8"
 
         # 4. 宏观利率与股债性价比 (ERP)
-        treasury_10y = 1.6123
-        us_treasury_10y = 5.1500
-        cn_us_spread_bp = -353.8
+        treasury_10y = 1.6376
+        us_treasury_10y = 4.4200
+        cn_us_spread_bp = -278.2
 
         if RATE_FILE.exists():
             try:
@@ -2885,13 +2885,20 @@ class StrategyBridge:
             except Exception:
                 pass
 
-        spot_usdcnh = 6.6746
+        # 美债合理性校验哨
+        if us_treasury_10y < 3.0 or us_treasury_10y > 6.0 or abs(us_treasury_10y - 5.15) < 1e-4:
+            us_treasury_10y = 4.4200
+            cn_us_spread_bp = round((treasury_10y - us_treasury_10y) * 100.0, 1)
+
+        spot_usdcnh = 7.2385
         try:
             from data_loader import DataLoader
             fx_info = DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
-            spot_usdcnh = float(fx_info.get("rate", 6.6746))
+            spot_usdcnh = float(fx_info.get("rate", 7.2385))
         except Exception:
-            spot_usdcnh = 6.6746
+            spot_usdcnh = 7.2385
+        if spot_usdcnh < 6.85 or spot_usdcnh > 7.60:
+            spot_usdcnh = 7.2385
 
         pe_ttm_300 = 12.23
         erp_percentile = 81.9

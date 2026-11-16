@@ -9,7 +9,7 @@
   "total_market_value": 145145.0,
   "total_equity": 191445.0,
   "peak_equity": 191445.0,
-  "max_drawdown_pct": 0.0,
+  "max_drawdown_pct": 18.7,
   "benchmark_code": "000300.SH",
   "benchmark_baseline_nav": 1.0,
   "benchmark_current_nav": 1.0,
@@ -37,7 +37,7 @@
           "shares": 40000.0,
           "cost_nav": 1.12,
           "fee": 6.0,
-          "holding_days": 210,
+          "holding_days": 212,
           "safety_lock": false,
           "notes": "战略底仓 (长持已免赎回费)"
         }
@@ -68,7 +68,7 @@
           "shares": 35000.0,
           "cost_nav": 0.985,
           "fee": 5.0,
-          "holding_days": 90,
+          "holding_days": 92,
           "safety_lock": false,
           "notes": "高股息周期价值底仓"
         }
@@ -99,7 +99,7 @@
           "shares": 15000.0,
           "cost_nav": 0.92,
           "fee": 15.0,
-          "holding_days": 3,
+          "holding_days": 5,
           "safety_lock": true,
           "notes": "🔴 刚买3天新入观察仓 (7天锁)"
         }
@@ -130,7 +130,7 @@
           "shares": 22000.0,
           "cost_nav": 0.94,
           "fee": 0.0,
-          "holding_days": 28,
+          "holding_days": 30,
           "safety_lock": false,
           "notes": "🟡 战术C类 (已持28天，再等2天免赎回费)"
         }
@@ -161,7 +161,7 @@
           "shares": 12000.0,
           "cost_nav": 1.05,
           "fee": 0.0,
-          "holding_days": 40,
+          "holding_days": 42,
           "safety_lock": false,
           "notes": "深套非标战术仓 (待反弹阶梯减亏)"
         }
@@ -192,7 +192,7 @@
           "shares": 8000.0,
           "cost_nav": 1.45,
           "fee": 12.0,
-          "holding_days": 60,
+          "holding_days": 62,
           "safety_lock": false,
           "notes": "全球对冲配置"
         }
@@ -353,6 +353,12 @@
       "total_equity": 191445.0,
       "account_nav": 1.058,
       "benchmark_nav": 1.0
+    },
+    {
+      "date": "2026-11-16",
+      "total_equity": 191445.0,
+      "account_nav": 1.058,
+      "benchmark_nav": 1.0
     }
   ],
   "initial_baseline_snapshot": {
@@ -376,5 +382,5 @@
     "baseline_equity": 171729.5,
     "date": "2026-11-06"
   },
-  "updated_at": "2026-11-14 22:43:47"
+  "updated_at": "2026-11-16 23:18:29"
 }

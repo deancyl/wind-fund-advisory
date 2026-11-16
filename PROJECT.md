@@ -1,66 +1,78 @@
-# Project: Wind G19 投顾引擎与交易风控闭环进化
+# Project: Wind G22 世代外科手术式精准修复与 AST 静态调用图门禁闭环
 
 ## Architecture
-- **核心数据层 (`data_loader.py`)**: 宏观跨市场数据抓取、离岸人民币与美债收益率合理性校验哨、14 大赛道真实估值与拥挤度湖仓接入、`DataLoader.simulate_execution` 物理锁死防作弊扣费。
-- **投顾决策与裁决层 (`advisory_engine.py`)**: 十维投顾投票引擎重构（维度 6 产业估值真数据、维度 7 资金情绪与拥挤度融合、维度 10 期权隐波/期指贴水/动态相关性接入）、黑天鹅/灰犀牛一票否决熔断门禁、首席投顾备忘录胶囊 4（持仓病灶）与胶囊 5（今日行动准则）知行合一指令联动。
-- **策略回测与资产组合层 (`strategy_bridge.py`, `portfolio_manager.py`)**: 动态持仓真实摩擦账单计算（彻底清除静态假常数）、历史时点盲测全额扣费、近三年双月/季度滚动发车定投盲测胜率实证表（零未来函数 Point-in-Time 推演）、OCR 双通道并集融合与中证 A500/持有期干扰词过滤。
-- **人机交互与大屏展示层 (`app_gui.py`)**: 首次打开存量持仓账本自动路由至 Tab 2、首席备忘录样式集中合入全局主样式、移动端按钮组与列容器选择器修复（排除数字输入框加减按钮）、`IS_MOBILE_VIEW` 响应式视口激活、Tab 2 运维工具坞扁平化、Tab 2 Brinson 归因/Tab 4 交叉热力图/四象限散点图前置人话解读卡片。
-- **全量测试与安全防线 (`tests/`, `judge_engine.py`, `holdout_vault.py`, `AGENT_SPEC.md`, `tests/test_infra.py`)**: 物理只读裁判文件绝不改动、维护非只读测试确保全量 pytest 100% 绿灯、G20 指令无冒号无嵌套严格格式门禁。
+- **展示与交互层 (`app_gui.py`)**:
+  - Tab 2 六大快捷操作功能完整真实后端接线（截图导入 OCR、极速录基、批量导入、撤销修改、同步估值、账本管理）。
+  - Tab 2 五处断链与属性幻觉精准修复（深套判定 `floating_pnl_pct`、备忘录方法 `generate_chief_advisor_memo`、动态目标权重 `compute_dynamic_tier_weights`、场景模式 `rad_tab2_scenario_mode`、微观滑点 `calculate_vwap_execution_slippage` 与 8 维锁仓判断）。
+  - 十五段文字墙收拢折叠抽屉 `st.expander(..., expanded=False)` 与胶囊副标题自然折行样式。
+  - 修复第 6470 行隐蔽属性幻觉：`pm.evaluate_rebalance_audit()`。
+- **数据与决策层 (`data_loader.py`, `advisory_engine.py`, `strategy_bridge.py`, `portfolio_manager.py`)**:
+  - USD/CNH 汇率合理区间 `[6.85, 7.60]` 与校准基线 `7.2385`。
+  - 10 年期美债收益率合理区间 `[3.0, 6.0]` 与校准基线 `4.4200`（中美利差 `-278.2 bp`）。
+  - 宏观、国际、病灶三段式因果链根据 ERP 分位、利差倒挂深度、风险档位 tier 与持仓病灶数动态分支生成。
+- **测试与门禁层 (`tests/`, `scripts/verify_g22_ast_gate.py`)**:
+  - 14 个核心 Python 文件 `ast.parse` 静态编译零语法错误。
+  - AST 静态调用图与属性反射契约门禁：`pm` 与 `mlm_inst` 零属性幻觉，6 大禁用词彻底清除，7 大必选调用全部实装。
+  - 修复 `tests/test_g19_m1_ten_dimension_and_memo.py` 中过期断言为区间断言。
+  - 桌面与手机端双视口浏览器实盘验收。
+  - Git 打标 `v5.2-G22` 推送与严格无冒号、无嵌套代码块 G23 交付指令。
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | 维度6产业估值真数据驱动 | 废除列表长度恒真，读取 14 赛道真实估值分位，计算 Top3 均值与中位数定多空 | M1 | ORIGINAL_REQUEST §二.1 |
-| 2 | 维度7资金情绪多维融合 | 废除单基/默认 85 分，融合两市成交额、上涨家数占比与 14 赛道真实平均拥挤度 | M1 | ORIGINAL_REQUEST §二.1 |
-| 3 | 维度10期权衍生品与避险 | 接入真实 option_iv_pct、ic_annualized_basis_rate 与动态相关性突变预警 | M1 | ORIGINAL_REQUEST §二.1 |
-| 4 | 黑天鹅/灰犀牛一票否决熔断门禁 | ivix >= 32.0 或 dyn_corr >= 0.80 或 usdcnh_chg > 0.60% 时冻结低估加仓项并报出熔断 | M1 | agy2 Task 3 / Survey |
-| 5 | 拔除 6.6676/5.0000 及校验哨 | 清除所有失真兜底常数，离岸汇率低于 6.85 或高于 7.60 触发校准机制与真实截面 | M1 | ORIGINAL_REQUEST §二.2 |
-| 6 | 胶囊4与胶囊5知行合一联动 | 当检出深套或碎片尾仓时，胶囊5优先输出账户级清扫尾仓与置换止血实战指令 | M1 | ORIGINAL_REQUEST §二.3 |
-| 7 | 首次加载存量账本自动路由 | 账本管理器 pm 初始化后立即检查持仓数 >= 10，自动跳转 Tab 2 激活诊断与调仓 | M2 | ORIGINAL_REQUEST §三.1 |
-| 8 | 样式集中合并与手机端列选择器 | 将 chief-memo 样式移入全局主样式表，移动端补齐 stColumn 并排除数字输入框加减钮 | M2 | ORIGINAL_REQUEST §三.2 |
-| 9 | 近3年滚动发车盲测胜率实证表 | 零未来函数推演 180d/365d，全额扣除申购/赎回/托管/销售服务费，统计胜率与超额 | M2 | ORIGINAL_REQUEST §三.3 |
-| 10 | 摩擦账单动态精算与回测全额扣费 | strategy_bridge.py 清除 cagr/mdd/yield 假常数，回测计提 0.75%/250 托管管理费 | M2 | agy2 Task 1 / Survey |
-| 11 | OCR 识别双通道并集与词表扩充 | 修复 OCR 只要 >= 1 即提前 return 缺陷，并集融合空间块聚类，扩充 A500/持有期词表 | M2 | agy2 Task 2 / Survey |
-| 12 | IS_MOBILE_VIEW 激活与响应式布局 | 激活顶层 IS_MOBILE_VIEW 变量，Tab 关键分栏自适应切换单列容器 | M2 | agy2 Task 4 / Survey |
-| 13 | Tab 2 工具坞扁平化与前置人话解读卡片 | 扁平化三层录入套娃为 st.radio，为 Brinson、交叉热力图、四象限散点图注入前置人话卡片 | M2 | agy2 Task 4 / Survey |
-| 14 | 物理裁判底线保护与非只读测试修复 | 保护四大只读文件与 simulate_execution 签名扣费，修复 g16 建仓断言与 g15 湖仓未来日期 | M3 | ORIGINAL_REQUEST §一.2, 四.2 |
-| 15 | 服务平滑重启与桌面/手机双视口核验 | 彻底终止 8501 端口，启动最新服务，桌面与手机双视口截图核验三大关键事实 | M3 | ORIGINAL_REQUEST §四.1 |
-| 16 | Git 标签推送与无冒号 G20 指令门禁 | 跑通全量测试，执行 git 提交打标 v4.9-G19 推送，按严格纯字符序列输出 G20 指令 | M3 | ORIGINAL_REQUEST §四.2, 四.3 |
+| 1 | Tab 2 截图导入弹窗真实接线 | 支持 png/jpg/jpeg/webp，调用 pm.parse_screenshot_ocr_holdings 切片 OCR，展示可编辑预览表，提供覆盖与追加按钮 | M1 | ORIGINAL_REQUEST §二.1 |
+| 2 | Tab 2 极速录基弹窗真实接线 | 模糊匹配与目录检索，fetch_realtime_fund_quote 拉取净值反算份额成本，五档持有期映射，调用 pm.add_or_update_holding | M1 | ORIGINAL_REQUEST §二.2 |
+| 3 | Tab 2 批量导入弹窗真实接线 | 调用 pm.parse_smart_text_holdings 智能解析，调用 pm.import_from_smart_text 与 save_state | M1 | ORIGINAL_REQUEST §二.3 |
+| 4 | Tab 2 撤销修改按钮真实接线 | 调用 pm.undo() 与 pm.save_state() 回退至上一快照状态 | M1 | ORIGINAL_REQUEST §二.4 |
+| 5 | Tab 2 同步估值按钮真实接线 | 调用 pm.sync_holdings_live_nav(use_intraday_gsz=True) 同步全部持仓最新估值 | M1 | ORIGINAL_REQUEST §二.5 |
+| 6 | Tab 2 账本管理新建参数修复 | 使用 mlm_inst.create_ledger 真实参数 default_tier 与 base_cash | M1 | ORIGINAL_REQUEST §二.6 |
+| 7 | Tab 2 顶栏深套出血点属性修复 | 使用 floating_pnl_pct 判定 < -10.0，使 29 真实持仓准确显示 18 只深套 | M1 | ORIGINAL_REQUEST §三.1 |
+| 8 | 首席投顾备忘录兜底函数修复 | 修正为 advisory_engine.generate_chief_advisor_memo | M1 | ORIGINAL_REQUEST §三.2 |
+| 9 | 动态大类目标权重非空修复 | 调用 StrategyBridge.compute_dynamic_tier_weights 获取真实目标权重 | M1 | ORIGINAL_REQUEST §三.3 |
+| 10 | 一键清扫尾仓 session_state 键名一致 | 统一读取 rad_tab2_scenario_mode | M1 | ORIGINAL_REQUEST §三.4 |
+| 11 | 微观滑点精算与锁仓分支恢复 | 彻底删除 1.2 bps，调用 calculate_vwap_execution_slippage 精算，实装 8 维锁仓分支 | M1 | ORIGINAL_REQUEST §三.5 |
+| 12 | 第 6470 行隐蔽属性幻觉修复 | 修正 pm.audit_rebalance_vs_shadow_baseline 为 pm.evaluate_rebalance_audit | M1 | Survey 1 & 3 发现 |
+| 13 | 十五段文字墙收拢折叠抽屉 | render_causal_intelligence_card 使用 st.expander 默认收起 (expanded=False) | M1 | ORIGINAL_REQUEST §四.1 |
+| 14 | 胶囊副标题样式优化 | .chief-memo-capsule-sub 允许最多两行自然折行展示 | M1 | ORIGINAL_REQUEST §四.2 |
+| 15 | 汇率与美债校准值恢复 | data_loader, advisory_engine, strategy_bridge, portfolio_manager 恢复 7.2385 与 4.4200，动态因果链 | M1 | ORIGINAL_REQUEST §五.1 |
+| 16 | tests 目录下过期断言更新 | 更新 test_g19_m1_ten_dimension_and_memo.py 为区间断言 [6.85, 7.60] 与 [3.0, 6.0] | M1 | ORIGINAL_REQUEST §五.2 |
+| 17 | AST 静态调用图与契约门禁验证 | 编写并运行 scripts/verify_g22_ast_gate.py，14 文件语法、属性、禁用词、必选调用 100% 通过 | M2 | ORIGINAL_REQUEST §六.1 |
+| 18 | 8501 重启与双视口实盘验收 | 重启服务，/browser 桌面与手机端截图核验四大核心事实 | M2 | ORIGINAL_REQUEST §六.2 |
+| 19 | 文档沉淀、Git 打标推送与 G23 输出 | 更新 GEMINI.md, PROGRESS_LOG.md，git tag -a v5.2-G22 并 push，无冒号无嵌套严格输出 G23 指令 | M2 | ORIGINAL_REQUEST §六.3, 六.4 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | 十维真实投票与汇率校验及胶囊联动 | Features 1-6 (advisory_engine.py, data_loader.py, app_gui.py, strategy_bridge.py) | none | DONE (conv: a29ecba0; 113/113 passed, Auditor CLEAN) |
-| M2 | 首次自动路由、滚动发车盲测与交互精修 | Features 7-13 (app_gui.py, strategy_bridge.py, portfolio_manager.py) | M1 | IN_PROGRESS |
-| M3 | 测试回归、双视口验收与 G20 严格交付 | Features 14-16 (tests/, app restart, browser verification, git tag, G20 output) | M1, M2 | PLANNED |
+| M1 | 前端接线、数据断链修复与汇率校准 | Features 1-16 (app_gui.py, data_loader.py, advisory_engine.py, strategy_bridge.py, portfolio_manager.py, tests/) | none | DONE |
+| M2 | AST 门禁核验、双视口实盘验收与 G22 发布交付 | Features 17-19 (verify_g22_ast_gate.py, app restart, browser tests, docs, git tag, G23 output) | M1 | IN_PROGRESS |
 
 ## Interface Contracts
-### advisory_engine.py ↔ app_gui.py / data_loader.py
-- `compute_ten_dimension_votes(snap: dict, alerts: list = None, radar_top3: list = None) -> dict`:
-  - 必须返回包含 10 个维度的列表，每个维度为 `{"name": str, "dimension": str, "score": float, "vote": str ("BULL"|"BEAR"|"NEUTRAL"), "delta_pct": float, "reason": str}`。
-  - 新增熔断门禁逻辑：当 `ivix >= 32.0` 或 `dyn_corr >= 0.80` 或 `usdcnh_chg > 0.60%` 时，触发熔断冻结低估加仓项并打上 `🚨 黑天鹅/灰犀牛熔断` 标记。
-  - 必须真实计算维度 6（14 赛道 Top3 估值分位均值与全市场中位数）、维度 7（两市成交额、上涨占比、14 赛道平均拥挤度）、维度 10（option_iv_pct、ic_annualized_basis_rate、动态相关性突变）。
-- `generate_chief_advisor_memo(radar_top3=..., portfolio_pathology=..., ...) -> dict`:
-  - 接收持仓病灶信息；当 `deep_loss_count > 0` 或 `frag_count > 0` 或存在红牌止盈时，第 5 颗胶囊主结论优先输出账户级实战指令（如“清扫X只免赎尾仓·置换深套止血”），副标题优先输出账户级处置细则。
-- `DataLoader.fetch_macro_cross_market_indicators()`:
-  - 严格校验 `usdcnh_rate` 在 `[6.85, 7.60]` 区间内；若超出或读取失败，校准为真实近期截面数据（如 `7.2385`），美债收益率校准为 `4.42%`，绝不出现 `6.6676` 或 `5.0000`。
+### app_gui.py ↔ portfolio_manager.py
+- `pm.parse_screenshot_ocr_holdings(image_bytes: bytes) -> List[Dict[str, Any]]`: OCR 解析返回持仓字典列表。
+- `pm.import_from_smart_text(text: list, replace_existing: bool) -> Dict[str, Any]`: 批量/OCR 持仓入库，支持覆盖与追加。
+- `pm.add_or_update_holding(fund_code: str, shares: float, nav: float, cost_price: float, holding_days: int, notes: str)`: 极速录基录入。
+- `pm.parse_smart_text_holdings(text: str) -> List[Dict[str, Any]]`: 智能解析文本持仓。
+- `pm.undo() -> bool`: 回退至上一持仓快照。
+- `pm.sync_holdings_live_nav(use_intraday_gsz: bool = True) -> Dict[str, Any]`: 同步全量基金最新净值与估值。
+- `pm.evaluate_rebalance_audit() -> Dict[str, Any]`: 调仓 Brinson 归因审计。
 
-### strategy_bridge.py ↔ app_gui.py
-- `calculate_rolling_dca_3y_backtest(...) -> dict`:
-  - 统计过去 3 年按双月/季度滚动发车持有满 180 天、365 天的正收益胜率、平均净收益率、超额收益率（相对沪深 300）。
-  - 全额扣除申购费、赎回费、公募管理托管费（0.75%/250）、销售服务费。
-- `calculate_mutual_fund_friction_bill(weights: dict, ...) -> dict`:
-  - 基于真实 `weights` 动态测算 CAGR、最大回撤、股息率与回本天数，严禁返回假常数。
+### app_gui.py ↔ multi_ledger_manager.py
+- `mlm_inst.create_ledger(name: str, base_cash: float, ledger_type: str, default_tier: str) -> str`: 创建新账本。
+
+### app_gui.py ↔ advisory_engine.py & strategy_bridge.py
+- `advisory_engine.generate_chief_advisor_memo(...) -> dict`: 首席投顾备忘录。
+- `StrategyBridge.compute_dynamic_tier_weights(tier: str, market_snapshot: dict) -> dict`: 动态大类目标权重字典。
+- `SmartExecutionDCAEngine.calculate_vwap_execution_slippage(...) -> dict`: 动态微观滑点精算。
 
 ## Code Layout
-- `AGY2_FundAdvisory/` (以及根目录对应包)
-  - `data_loader.py`: 数据湖加载器、宏观跨市场数据、真实执行模拟器
-  - `advisory_engine.py`: 十维投票引擎、熔断门禁、首席备忘录五大胶囊
-  - `strategy_bridge.py`: 策略桥接层、摩擦账单精算、滚动盲测、动态相关性
-  - `portfolio_manager.py`: 账本管理器、OCR 空间块与文本双通道并集提取
-  - `app_gui.py`: Streamlit 交互大屏、首次加载自动路由、全局样式与响应式视口
-- `tests/`: 自动化测试用例
-  - `tests/test_infra.py` [只读神圣]
-  - `tests/test_g19_m1_ten_dimension_and_memo.py` [新建/补充针对性测试]
-  - `tests/test_g19_m2_routing_and_rolling_dca.py` [新建/补充针对性测试]
-  - 既有回归测试用例 (维持 100% 绿灯)
+- `AGY2_FundAdvisory/`
+  - `app_gui.py`: Streamlit 交互大屏、Tab 2 操作栏与调仓建议单、折叠抽屉与全局样式
+  - `data_loader.py`: 数据加载器、离岸汇率与美债基线校准
+  - `advisory_engine.py`: 投顾决策、动态因果链、SmartExecutionDCAEngine
+  - `strategy_bridge.py`: 策略桥接、动态大类权重测算
+  - `portfolio_manager.py`: 账本管理器、持仓数据结构与快照
+- `tests/`
+  - `test_infra.py` [只读神圣]
+  - `test_g19_m1_ten_dimension_and_memo.py` [更新区间断言]
+- `scripts/`
+  - `verify_g22_ast_gate.py` [AST 静态调用图与反射契约终极门禁脚本]
