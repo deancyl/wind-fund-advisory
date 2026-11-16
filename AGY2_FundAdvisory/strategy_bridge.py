@@ -3819,15 +3819,27 @@ class StrategyBridge:
             safety_warning = ""
             safe_shares = 0.0
             h_holding_days = -1
+            all_batches_safe = False
+            total_holding_shares = getattr(h, 'shares', 0.0) if h else 0.0
             if h and hasattr(h, 'batches') and h.batches:
                 h_holding_days = min((getattr(b, 'holding_days', 0) for b in h.batches), default=0)
-                for b in h.batches:
-                    if getattr(b, 'holding_days', 0) >= 7 and not getattr(b, 'safety_lock', False):
-                        safe_shares += getattr(b, 'shares', 0.0)
-                    else:
-                        break
+                all_batches_safe = all(getattr(b, 'holding_days', 0) >= 7 and not getattr(b, 'safety_lock', False) for b in h.batches)
+                if all_batches_safe or h_holding_days >= 7:
+                    safe_shares = sum(getattr(b, 'shares', 0.0) for b in h.batches)
+                    if total_holding_shares > 0:
+                        safe_shares = max(safe_shares, total_holding_shares)
+                    all_batches_safe = True
+                else:
+                    for b in h.batches:
+                        if getattr(b, 'holding_days', 0) >= 7 and not getattr(b, 'safety_lock', False):
+                            safe_shares += getattr(b, 'shares', 0.0)
+                        else:
+                            break
             elif h and hasattr(h, 'holding_days'):
                 h_holding_days = getattr(h, 'holding_days', 30)
+                if h_holding_days >= 7:
+                    all_batches_safe = True
+                    safe_shares = total_holding_shares
 
             # 判定动作与路由（区分四大场景模式）
             if scenario_mode == "new_cash_only":
@@ -3872,7 +3884,7 @@ class StrategyBridge:
                     diff_amount = 0.0
                     est_fee = 0.0
                     route_code = "NO_ACTION"
-                    if h_holding_days < 7:
+                    if h_holding_days < 7 and not all_batches_safe:
                         action_text = "7天安全锁拦截 (暂停卖出)"
                         safety_warning = "🔴【7天安全红线拦截】全部份额未满7天，已强力阻断本次卖出，防止触发1.50%惩罚扣费！"
                     else:
@@ -3967,7 +3979,7 @@ class StrategyBridge:
                         est_fee = 0.0
                         route_code = "NO_ACTION"
                         safety_warning = "🔴【7天安全红线拦截】全部份额未满7天，已强力阻断本次卖出，防止触发1.50%惩罚扣费！"
-                    elif safe_shares < desired_sell_shares:
+                    elif (safe_shares < desired_sell_shares - 1e-4) and not all_batches_safe and h_holding_days < 7:
                         # 部分批次安全，裁剪卖出金额至免惩罚上限
                         clipped_amount = round(safe_shares * current_nav, 2)
                         diff_amount = -clipped_amount
@@ -3982,7 +3994,7 @@ class StrategyBridge:
                         else:
                             route_code = "SELL_TO_CASH"
                             est_fee = round(abs(diff_amount) * 0.005, 2)
-                elif h_holding_days < 7:
+                elif h_holding_days < 7 and not all_batches_safe:
                     action = "HOLD"
                     action_text = "7天安全锁拦截 (暂停卖出)"
                     diff_amount = 0.0
@@ -3993,6 +4005,11 @@ class StrategyBridge:
                     action_text = f"建议减仓 -¥{abs(diff_amount):,.2f}"
                     route_code = routes_by_code.get(code, ("SELL_TO_CASH", round(abs(diff_amount) * 0.005, 2)))[0]
                     est_fee = round(abs(diff_amount) * 0.005, 2)
+
+            # 防御：若所有批次或当前标的持有 >= 7 天，绝对不允许出现任何未满7天或部分批次误报警
+            if (all_batches_safe or h_holding_days >= 7) and safety_warning:
+                if any(w in safety_warning for w in ["未满7天", "7天安全红线", "部分批次保护"]):
+                    safety_warning = ""
 
             route_priority_display = ROUTE_NAME_MAP.get(route_code, route_code)
 

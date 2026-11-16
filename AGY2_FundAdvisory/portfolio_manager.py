@@ -2783,7 +2783,7 @@ class FundQuote(dict):
     兼容字典访问 (quote['gszzl'])、对象属性访问 (quote.gszzl)
     及序列直接解构 [name, dwjz, gsz, gszzl, gztime] = quote
     """
-    def __init__(self, name: str, dwjz: float, gsz: float, gszzl: float, gztime: str, fund_code: str = "", valuation_corrected: bool = False):
+    def __init__(self, name: str, dwjz: float, gsz: float, gszzl: float, gztime: str, fund_code: str = "", valuation_corrected: bool = False, is_official_nav: bool = False):
         super().__init__(
             name=name,
             dwjz=float(dwjz),
@@ -2791,7 +2791,8 @@ class FundQuote(dict):
             gszzl=float(gszzl),
             gztime=str(gztime),
             fund_code=str(fund_code),
-            valuation_corrected=bool(valuation_corrected)
+            valuation_corrected=bool(valuation_corrected),
+            is_official_nav=bool(is_official_nav)
         )
 
     @property
@@ -2808,6 +2809,8 @@ class FundQuote(dict):
     def fund_code(self) -> str: return str(self.get("fund_code", ""))
     @property
     def valuation_corrected(self) -> bool: return bool(self.get("valuation_corrected", False))
+    @property
+    def is_official_nav(self) -> bool: return bool(self.get("is_official_nav", False))
 
     def __iter__(self):
         return iter([self.name, self.dwjz, self.gsz, self.gszzl, self.gztime])
@@ -2870,6 +2873,10 @@ def _apply_fund_valuation_calibration(q: FundQuote) -> FundQuote:
     对于 A 股宽基与行业指数/联接基金，若存在绝对偏差 (>0.1% 或当前为0.0)，结合基准实时涨跌幅纠偏校准。
     """
     if q.valuation_corrected:
+        return q
+
+    # 官方公布净值是最终事实真理，严禁被盘中指数估值覆盖！
+    if getattr(q, 'is_official_nav', False) or '官方公布' in q.gztime or '官方' in q.gztime:
         return q
 
     code = str(q.fund_code).strip().zfill(6)
@@ -2978,92 +2985,148 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True) -> FundQuo
         _REALTIME_QUOTE_CACHE[code] = (now_ts, fallback_q)
         return fallback_q
 
-    # 2. 第一顺位：天天基金实时估值接口 (http://fundgz.1234567.com.cn/js/{code}.js)
-    try:
-        url_tt = f"http://fundgz.1234567.com.cn/js/{code}.js"
-        req_tt = urllib.request.Request(
-            url_tt,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                "Referer": "http://fund.eastmoney.com/"
-            }
-        )
-        with urllib.request.urlopen(req_tt, timeout=2.0) as resp_tt:
-            content_tt = resp_tt.read().decode("utf-8", errors="ignore")
-        m_tt = re.search(r'jsonpgz\((.*?)\);?', content_tt)
-        if m_tt and m_tt.group(1).strip():
-            tt_data = json.loads(m_tt.group(1).strip())
-            dwjz_tt = float(tt_data.get("dwjz", 0.0))
-            if dwjz_tt > 0:
-                name_tt = tt_data.get("name") or f"公募基金_{code}"
-                gsz_tt = float(tt_data.get("gsz", dwjz_tt)) if tt_data.get("gsz") else dwjz_tt
-                gszzl_tt = float(tt_data.get("gszzl", 0.0)) if tt_data.get("gszzl") else 0.0
-                gztime_tt = str(tt_data.get("gztime", ""))
-                quote_tt = FundQuote(name=name_tt, dwjz=dwjz_tt, gsz=gsz_tt, gszzl=gszzl_tt, gztime=gztime_tt, fund_code=code)
-                quote_tt = _apply_qdii_valuation_correction(quote_tt)
-                _REALTIME_QUOTE_CACHE[code] = (now_ts, quote_tt)
-                return quote_tt
-    except Exception:
-        pass
+    now_dt = datetime.now()
+    today_str = now_dt.strftime("%Y-%m-%d")
+    is_market_closed = (now_dt.weekday() >= 5) or (now_dt.hour >= 15) or (now_dt.hour < 9 or (now_dt.hour == 9 and now_dt.minute < 30))
+    is_after_market = is_market_closed
 
-    # 3. 互备顺位：新浪实时行情网关 (fu_{code}, f_{code})
-    try:
-        url = f"https://hq.sinajs.cn/list=fu_{code},f_{code}"
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                "Referer": "https://finance.sina.com.cn"
-            }
-        )
-        with urllib.request.urlopen(req, timeout=2.5) as resp:
-            content = resp.read().decode("gbk", errors="ignore")
+    def _query_sina() -> Optional[FundQuote]:
+        try:
+            url = f"https://hq.sinajs.cn/list=fu_{code},f_{code}"
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    "Referer": "https://finance.sina.com.cn"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                content = resp.read().decode("gbk", errors="ignore")
 
-        m_fu = re.search(r'var hq_str_fu_' + code + r'="(.*?)";', content)
-        m_f = re.search(r'var hq_str_f_' + code + r'="(.*?)";', content)
-        fu_str = m_fu.group(1).strip() if m_fu else ""
-        f_str = m_f.group(1).strip() if m_f else ""
+            m_fu = re.search(r'var hq_str_fu_' + code + r'="(.*?)";', content)
+            m_f = re.search(r'var hq_str_f_' + code + r'="(.*?)";', content)
+            fu_str = m_fu.group(1).strip() if m_fu else ""
+            f_str = m_f.group(1).strip() if m_f else ""
 
-        if fu_str:
-            parts = fu_str.split(",")
-            name = parts[0] if parts[0] else f"公募基金_{code}"
-            time_part = parts[1] if len(parts) > 1 else ""
-            date_part = parts[7] if len(parts) > 7 else datetime.now().strftime("%Y-%m-%d")
-            gztime = f"{date_part} {time_part}".strip()
-            gsz = float(parts[2]) if len(parts) > 2 and parts[2] else 1.0
-            dwjz = float(parts[3]) if len(parts) > 3 and parts[3] else gsz
-            gszzl = round((gsz / dwjz - 1.0) * 100.0, 2) if dwjz > 0 else 0.0
-            quote = FundQuote(name=name, dwjz=dwjz, gsz=gsz, gszzl=gszzl, gztime=gztime, fund_code=code)
-            quote = _apply_qdii_valuation_correction(quote)
-            _REALTIME_QUOTE_CACHE[code] = (now_ts, quote)
-            return quote
-        elif f_str:
-            # 纯债/QDII或盘中无fu估值，回退取官方净值 f_{code} 并联动对应跟踪指数盘中实时涨跌幅估算
-            parts = f_str.split(",")
-            name = parts[0] if parts[0] else f"公募基金_{code}"
-            dwjz = float(parts[1]) if len(parts) > 1 and parts[1] else 1.0
-            prev_dwjz = float(parts[3]) if len(parts) > 3 and float(parts[3]) > 0 else dwjz
-            date_part = parts[4] if len(parts) > 4 and parts[4] else datetime.now().strftime("%Y-%m-%d")
-            time_part = datetime.now().strftime("%H:%M")
+            f_parts = f_str.split(",") if f_str else []
+            f_name = f_parts[0] if len(f_parts) > 0 and f_parts[0] else ""
+            f_dwjz = float(f_parts[1]) if len(f_parts) > 1 and f_parts[1] else 0.0
+            f_prev = float(f_parts[3]) if len(f_parts) > 3 and f_parts[3] else 0.0
+            f_date = f_parts[4].strip() if len(f_parts) > 4 else ""
 
-            # 对应跟踪指数估算涨跌幅
-            index_sym = FUND_BENCHMARK_INDEX_MAP.get(code)
-            if index_sym:
-                idx_q = fetch_realtime_index_quote(index_sym, use_cache=use_cache)
-                gszzl = float(idx_q.get("change_pct", 0.0))
-                gsz = round(dwjz * (1.0 + gszzl / 100.0), 4)
-                gztime = f"{date_part} {time_part} (跟踪{idx_q.get('name', '基准')})"
-            else:
+            fu_parts = fu_str.split(",") if fu_str else []
+            fu_name = fu_parts[0] if len(fu_parts) > 0 and fu_parts[0] else ""
+            fu_time = fu_parts[1] if len(fu_parts) > 1 else ""
+            fu_gsz = float(fu_parts[2]) if len(fu_parts) > 2 and fu_parts[2] else 0.0
+            fu_dwjz = float(fu_parts[3]) if len(fu_parts) > 3 and fu_parts[3] else fu_gsz
+            fu_date = fu_parts[7].strip() if len(fu_parts) > 7 else ""
+
+            # 判断官方公布净值是否已出炉：
+            # 若收盘后 (after 15:00、夜间、休市或周末) 且 f_{code} 有有效日期 (f_date 为今日或最新交易日，或 f_date >= fu_date):
+            # 官方公布净值已生效！
+            is_official = False
+            if f_str and f_dwjz > 0 and f_date:
+                if is_market_closed:
+                    if fu_date and f_date >= fu_date:
+                        is_official = True
+                    elif f_date == today_str:
+                        is_official = True
+                    elif not fu_date:
+                        is_official = True
+                elif fu_date and f_date >= fu_date and f_date >= today_str:
+                    is_official = True
+
+            if is_official:
+                name = f_name or fu_name or f"公募基金_{code}"
+                dwjz = f_dwjz
+                prev_dwjz = f_prev if f_prev > 0 else dwjz
                 gszzl = round((dwjz / prev_dwjz - 1.0) * 100.0, 2) if prev_dwjz > 0 else 0.0
                 gsz = dwjz
-                gztime = f"{date_part} 15:00"
+                gztime = f"{f_date} 官方公布净值"
+                q = FundQuote(name=name, dwjz=dwjz, gsz=gsz, gszzl=gszzl, gztime=gztime, fund_code=code, is_official_nav=True)
+                return _apply_qdii_valuation_correction(q)
 
-            quote = FundQuote(name=name, dwjz=dwjz, gsz=gsz, gszzl=gszzl, gztime=gztime, fund_code=code)
-            quote = _apply_qdii_valuation_correction(quote)
-            _REALTIME_QUOTE_CACHE[code] = (now_ts, quote)
-            return quote
-    except Exception:
-        pass
+            if fu_str:
+                name = fu_name or f_name or f"公募基金_{code}"
+                date_part = fu_date if fu_date else today_str
+                gztime = f"{date_part} {fu_time}".strip()
+                gsz = fu_gsz if fu_gsz > 0 else 1.0
+                dwjz = fu_dwjz if fu_dwjz > 0 else gsz
+                gszzl = round((gsz / dwjz - 1.0) * 100.0, 2) if dwjz > 0 else 0.0
+                q = FundQuote(name=name, dwjz=dwjz, gsz=gsz, gszzl=gszzl, gztime=gztime, fund_code=code, is_official_nav=False)
+                return _apply_qdii_valuation_correction(q)
+            elif f_str:
+                # 纯债/QDII或盘中无fu估值，回退取官方净值 f_{code} 并联动对应跟踪指数盘中实时涨跌幅估算
+                name = f_name or f"公募基金_{code}"
+                dwjz = f_dwjz if f_dwjz > 0 else 1.0
+                prev_dwjz = f_prev if f_prev > 0 else dwjz
+                date_part = f_date if f_date else today_str
+                time_part = now_dt.strftime("%H:%M")
+
+                index_sym = FUND_BENCHMARK_INDEX_MAP.get(code)
+                if index_sym:
+                    idx_q = fetch_realtime_index_quote(index_sym, use_cache=use_cache)
+                    gszzl = float(idx_q.get("change_pct", 0.0))
+                    gsz = round(dwjz * (1.0 + gszzl / 100.0), 4)
+                    gztime = f"{date_part} {time_part} (跟踪{idx_q.get('name', '基准')})"
+                else:
+                    gszzl = round((dwjz / prev_dwjz - 1.0) * 100.0, 2) if prev_dwjz > 0 else 0.0
+                    gsz = dwjz
+                    gztime = f"{date_part} 15:00"
+
+                q = FundQuote(name=name, dwjz=dwjz, gsz=gsz, gszzl=gszzl, gztime=gztime, fund_code=code, is_official_nav=False)
+                return _apply_qdii_valuation_correction(q)
+        except Exception:
+            return None
+        return None
+
+    def _query_tiantian() -> Optional[FundQuote]:
+        try:
+            url_tt = f"http://fundgz.1234567.com.cn/js/{code}.js"
+            req_tt = urllib.request.Request(
+                url_tt,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    "Referer": "http://fund.eastmoney.com/"
+                }
+            )
+            with urllib.request.urlopen(req_tt, timeout=2.0) as resp_tt:
+                content_tt = resp_tt.read().decode("utf-8", errors="ignore")
+            m_tt = re.search(r'jsonpgz\((.*?)\);?', content_tt)
+            if m_tt and m_tt.group(1).strip():
+                tt_data = json.loads(m_tt.group(1).strip())
+                dwjz_tt = float(tt_data.get("dwjz", 0.0))
+                if dwjz_tt > 0:
+                    name_tt = tt_data.get("name") or f"公募基金_{code}"
+                    gsz_tt = float(tt_data.get("gsz", dwjz_tt)) if tt_data.get("gsz") else dwjz_tt
+                    gszzl_tt = float(tt_data.get("gszzl", 0.0)) if tt_data.get("gszzl") else 0.0
+                    gztime_tt = str(tt_data.get("gztime", ""))
+                    q = FundQuote(name=name_tt, dwjz=dwjz_tt, gsz=gsz_tt, gszzl=gszzl_tt, gztime=gztime_tt, fund_code=code, is_official_nav=False)
+                    return _apply_qdii_valuation_correction(q)
+        except Exception:
+            return None
+        return None
+
+    # 收盘后优先走新浪获取官方公布净值
+    if is_after_market:
+        q_res = _query_sina()
+        if q_res is not None:
+            _REALTIME_QUOTE_CACHE[code] = (now_ts, q_res)
+            return q_res
+        q_res = _query_tiantian()
+        if q_res is not None:
+            _REALTIME_QUOTE_CACHE[code] = (now_ts, q_res)
+            return q_res
+    else:
+        # 盘中优先走天天基金实时估值，若未命中则回退新浪
+        q_res = _query_tiantian()
+        if q_res is not None:
+            _REALTIME_QUOTE_CACHE[code] = (now_ts, q_res)
+            return q_res
+        q_res = _query_sina()
+        if q_res is not None:
+            _REALTIME_QUOTE_CACHE[code] = (now_ts, q_res)
+            return q_res
 
     # 4. 兜底回退：本地策略池、历史穿透库或默认基准
     fallback_name = None
@@ -7310,12 +7373,16 @@ class PortfolioManager:
 
                 # 自动将可卖出份额上限锁死在 holding_days >= 7 and not safety_lock 的安全批次总份额内
                 penalty_free_shares = self.get_penalty_free_redeemable_shares(code)
+                # 检查批次持有期
+                safe_batches = [b for b in h.batches if b.holding_days >= 7 and not b.safety_lock]
+                all_batches_safe = (len(safe_batches) == len(h.batches)) or (h.holding_days >= 7)
+                if all_batches_safe:
+                    penalty_free_shares = max(penalty_free_shares, h.shares)
+
                 sell_shares = min(penalty_free_shares, desired_shares)
                 sell_amount = round(sell_shares * h.current_nav, 2)
 
-                # 检查批次持有期
-                safe_batches = [b for b in h.batches if b.holding_days >= 7 and not b.safety_lock]
-                min_days = min((b.holding_days for b in safe_batches), default=min((b.holding_days for b in h.batches), default=30))
+                min_days = min((b.holding_days for b in safe_batches), default=min((b.holding_days for b in h.batches), default=h.holding_days))
 
                 # 针对深套底仓提供分批减仓过渡建议
                 is_deep_loss = (h.floating_pnl_pct <= -15.0)
@@ -7328,7 +7395,7 @@ class PortfolioManager:
                     has_penalty = True
                     pen_msg = "【7天安全红线拦截】该标的所有份额持有未满7天（或处于安全观察锁），已强力阻断本次卖出，防止触发1.50%惩罚扣费！"
                     staged_advice = f"{staged_advice} {pen_msg}".strip()
-                elif sell_shares < desired_shares:
+                elif (sell_shares < desired_shares - 1e-4) and not all_batches_safe and h.holding_days < 7:
                     # 部分批次安全，未满7天批次自动保护
                     has_penalty = False
                     prot_msg = f"【部分批次保护】已自动将卖出份额裁剪至满7天免惩罚安全上限（{sell_shares:.2f}份），未满7天批次（{desired_shares - sell_shares:.2f}份）已自动保护锁定！"

@@ -6346,6 +6346,34 @@ with tab_holdings_and_rebalance:
                     axis=1
                 )
 
+            # 诚实展示当日涨跌/收盘净值判断（区分收盘官方公布净值与盘中实时估值）
+            try:
+                m_stat = clock.get_market_window_status(datetime.now())
+                is_market_closed = bool(m_stat.is_after_market or not m_stat.is_trade_day)
+            except Exception:
+                is_market_closed = bool(datetime.now().time() >= datetime.strptime("15:00", "%H:%M").time() or datetime.now().weekday() >= 5)
+
+            is_official_nav_holdings = False
+            if not df_disp.empty:
+                if "估值更新时间" in df_disp.columns:
+                    is_official_nav_holdings = is_market_closed and any("官方" in str(x) for x in df_disp["估值更新时间"])
+                if not is_official_nav_holdings and hasattr(pm, "holdings"):
+                    for c_code in list(pm.holdings.keys())[:3]:
+                        try:
+                            q_probe = fetch_realtime_fund_quote(c_code)
+                            if getattr(q_probe, "is_official_nav", False) or "官方" in getattr(q_probe, "gztime", ""):
+                                is_official_nav_holdings = True
+                                break
+                        except Exception:
+                            pass
+
+            col_holdings_val = "当日官方净值" if is_official_nav_holdings else "今日实时估值"
+            col_holdings_chg = "当日官方涨跌(%)" if is_official_nav_holdings else "盘中实时估值(%)"
+            if "今日实时估值" in df_disp.columns and col_holdings_val != "今日实时估值":
+                df_disp.rename(columns={"今日实时估值": col_holdings_val}, inplace=True)
+            if "今日实时估值涨跌(%)" in df_disp.columns:
+                df_disp.rename(columns={"今日实时估值涨跌(%)": col_holdings_chg}, inplace=True)
+
             # 预计算调仓建议单（如果已诊断或已触发）
             tier_weights_res = StrategyBridge.compute_dynamic_tier_weights(tier=active_tier, market_snapshot=snapshot)
             tier_target_w = tier_weights_res.get("weights", tier_weights_res) if isinstance(tier_weights_res, dict) else {}
@@ -6367,6 +6395,18 @@ with tab_holdings_and_rebalance:
             items = ai_orders_res.get("items", [])
             df_orders_tbl = pd.DataFrame()
             rows_display = []
+
+            is_official_nav_rebal = False
+            if items:
+                is_official_nav_rebal = is_market_closed and any(
+                    ("官方" in str(it.get("realtime_gztime", "")) or bool(it.get("is_official_nav", False)))
+                    for it in items
+                )
+            if not is_official_nav_rebal:
+                is_official_nav_rebal = is_official_nav_holdings
+
+            col_rebal_chg = "当日官方涨跌(%)" if is_official_nav_rebal else "盘中实时估值(%)"
+
             if items:
                 for it in items:
                     diff_amt = it.get("diff_amount", 0.0)
@@ -6406,9 +6446,12 @@ with tab_holdings_and_rebalance:
                     elif "C转A" in action_raw or "置换" in action_raw or (st.session_state.get("tab2_c_replace") and f_code == st.session_state.get("tab2_c_replace")):
                         op_action = "🔄 C转A零费率置换"
                         op_point = "同系基金内部免赎平移·年省0.4%销售服务费"
-                    elif (0 <= h_days < 7 or "7天安全锁" in action_raw or "未满7天" in safety_warn) and diff_amt < -10:
+                    elif 0 <= h_days < 7 and diff_amt < -10:
                         op_action = "🔴 未满7天锁仓保护"
                         op_point = f"持有仅{h_days}天·严禁卖出免收1.50%惩罚扣费"
+                    elif h_days >= 7 and "部分批次" in safety_warn and diff_amt < -10:
+                        op_action = "🟡 部分批次免惩保护"
+                        op_point = f"已持有{h_days}天·未满7天批次自动保留免罚"
                     elif 7 <= h_days < 30 and (s_class == "C" or "C" in f_name) and diff_amt < -10:
                         op_action = "⏳ 临近30天免赎缓卖"
                         days_left = max(1, 30 - h_days)
@@ -6437,14 +6480,14 @@ with tab_holdings_and_rebalance:
                         "建议调仓金额(元)": diff_amt,
                         "当前市值(元)": mv_val,
                         "目标占比(%)": t_w_val,
-                        "实时估值涨跌(%)": rt_gszzl,
+                        col_rebal_chg: rt_gszzl,
                         "份额": sh_display,
                         "尾盘微观优化(bps)": micro_opt_str,
                         "实操要点": op_point
                     })
                 rebal_cols_10 = [
                     "基金代码", "基金名称", "建议操作", "建议调仓金额(元)",
-                    "当前市值(元)", "目标占比(%)", "实时估值涨跌(%)",
+                    "当前市值(元)", "目标占比(%)", col_rebal_chg,
                     "份额", "尾盘微观优化(bps)", "实操要点"
                 ]
                 df_orders_tbl = pd.DataFrame(rows_display)[rebal_cols_10]
@@ -6465,7 +6508,8 @@ with tab_holdings_and_rebalance:
                     df_resp_h = project_responsive_table_4col(df_disp, table_type="holdings")
                     st.dataframe(df_resp_h, use_container_width=True, hide_index=True)
                 else:
-                    st.caption("实时持仓资产明细（支持直接编辑代码与金额，保存时后台自动联网补齐净值与指标）：")
+                    nav_status_tip = "🟢 已收盘公布官方净值与实际涨跌" if is_official_nav_holdings else "🟡 盘中实时估值监控中"
+                    st.caption(f"实时持仓资产明细（{nav_status_tip}，支持直接编辑代码与金额，保存时后台自动联网补齐净值与指标）：")
                     if not df_disp.empty:
                         edited_table = st.data_editor(
                             df_disp,
@@ -6477,6 +6521,12 @@ with tab_holdings_and_rebalance:
                                 "赎回费状态": st.column_config.TextColumn(disabled=True),
                                 "累计盈亏(元)": st.column_config.NumberColumn(format="¥%+.2f", disabled=True),
                                 "浮动盈亏率(%)": st.column_config.NumberColumn(format="%+.2f%%", disabled=True),
+                                col_holdings_chg: st.column_config.NumberColumn(
+                                    col_holdings_chg,
+                                    help="官方公布净值后为当日官方实际涨跌(%)；盘中时段为盘中实时估值(%)。",
+                                    format="%+.2f%%",
+                                    disabled=True
+                                ),
                             },
                             use_container_width=True,
                             hide_index=True,
@@ -6525,13 +6575,18 @@ with tab_holdings_and_rebalance:
                         df_resp_r = project_responsive_table_4col(df_orders_tbl, table_type="rebalance")
                         st.dataframe(df_resp_r, use_container_width=True, hide_index=True)
                     else:
-                        st.caption("🎯 今日调仓执行建议清单（严格对齐 10 列全维度机构风控规范）：")
+                        tip_tbl = "（🟢 已收盘公布官方净值与实际涨跌）" if is_official_nav_rebal else "（🟡 盘中实时估值预估）"
+                        st.caption(f"🎯 今日调仓执行建议清单{tip_tbl}（严格对齐 10 列全维度机构风控规范）：")
                         st.dataframe(
                             df_orders_tbl,
                             column_config={
                                 "当前市值(元)": st.column_config.NumberColumn(format="¥%.2f"),
                                 "目标占比(%)": st.column_config.ProgressColumn(min_value=0, max_value=50, format="%.2f%%"),
-                                "实时估值涨跌(%)": st.column_config.NumberColumn(format="%+.2f%%"),
+                                col_rebal_chg: st.column_config.NumberColumn(
+                                    col_rebal_chg,
+                                    help="官方公布净值后为当日官方实际涨跌(%)；盘中时段为盘中实时估值(%)。",
+                                    format="%+.2f%%"
+                                ),
                                 "建议调仓金额(元)": st.column_config.NumberColumn(format="¥%+.2f"),
                                 "尾盘微观优化(bps)": st.column_config.TextColumn(
                                     "尾盘微观优化(bps) ⓘ",
