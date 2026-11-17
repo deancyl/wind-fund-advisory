@@ -1297,10 +1297,18 @@
   * G23 核心交付物核验 (`scripts/verify_g23_deliverables.py`)：R1 至 R4 断言 100% 绿灯；
   * 裁判套件与核心断路器 (`tests/test_infra.py` & `test_g12_circuit_breakers_and_sentry.py`)：25/25 passed；
   * 全量扩展回归测试 (`scripts/run_more_tests.py`)：64/64 passed；累计全量回归 89/89 测试 100% 绿灯；
-  * 5 组独立对抗性测试（边界检索、估值穿透、债券冲击截断、尾仓清仓、宏观汇率校准）100% 通过。
-- **Playwright 实景双端验收 (`scripts/verify_g23_browser.py`)**：
-  * 验证并截获图 1 至图 5 实盘凭证（`fig1_corridor_customization.png`、`fig2_rebalance_table.png`、`fig3_tab3_charts.png`、`fig4_tab2_top_cards.png`、`fig5_first_screen_drawer.png`），标题图例零重叠、指标卡自适应无截断、抽屉双 Tab 瘦身清爽。
-- **物理安全红线**：4 个裁判文件与 DataLoader 扣费核心函数保持 100% 原始只读，零修改；规则严格工作区隔离。
+  * 5 组独立对抗性测试（边界检索、估值穿透、债券冲击截断、尾仓清仓、宏观汇率校准）100% 通过；
+  * **对抗复核与 0.95 全覆盖 (worker_2 & challenger_3)**：修复并验证全部 30 只标准指数与联接基金（涵盖 100032、161725、161726、160418 等）100% 享受 0.95 仓位折算，通过 5 组极限场景压力测试，获得 challenger_3 的 APPROVE 裁决。
+- **Playwright 端到端浏览器实景验收 (worker_3 / `scripts/run_all_browser_verification.py`)**：
+  * 彻底终止旧 8501 进程并以原生无窗口后台静默模式拉起服务，HTTP 200 探针一次性成功；
+  * 对照图 1：在核心指数走廊定制弹窗中输入 `hldb`，验证候选提示 `[红利高股息] 中证红利低波 (H30269) [hldb]` 正常呈现并一键成功添加，消灭 6 位纯数字校验报错；
+  * 对照图 4：在 Tab 2 顶栏验证第 6 张卡片主值显示「三阶重塑止血」，副标题显示「清扫19尾仓·置换深套」，字号自适应且无省略号截断，冗余单选条完全移除；
+  * 对照图 2：在 Tab 2 调仓执行建议单中，验证 000086（工银纯债）尾仓锁定清仓归拢（SELL，目标0.00%），份额列格式化为「A类」/「C类」无截断；
+  * 对照图 3：验证 Tab 3 组合回测 Plotly 图表顶部留白充足 (t=75)，标题左上，图例置底居中，物理间距充足零重叠；
+  * 对照图 5：展开首屏详情抽屉，验证已删除重复五维长文，重构为「Top 3 机会雷达与主动风控哨」和「十维投顾量化投票与拐点对照尺」双子标签页，且风控哨不再误报 001071；
+  * 全量截获 5 张图实盘凭证固化归档于 `reports/screenshots/g23/`。
+- **物理安全红线**：4 个裁判文件（`judge_engine.py`、`holdout_vault.py`、`AGENT_SPEC.md`、`tests/test_infra.py`）SHA256 绝对未动，`DataLoader.simulate_execution` 扣费核心函数保持 100% 原始只读；规则严格工作区隔离，未触碰全局配置。
+- **版本归档**：代码完整提交，打标 `v5.3-G23` 并推送远端仓库。
 
 
 

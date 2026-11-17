@@ -2896,7 +2896,19 @@ def evaluate_four_tier_realtime_valuation(fund_code: str, base_quote: Optional[F
     code = str(fund_code).strip().zfill(6)
     q = base_quote
     if q is None:
-        q = FundQuote(name=f"公募基金_{code}", dwjz=1.0, gsz=1.0, gszzl=0.0, gztime=datetime.now().strftime("%Y-%m-%d %H:%M"), fund_code=code)
+        fund_name = None
+        if code in CORE_STRATEGY_POOL:
+            fund_name = CORE_STRATEGY_POOL[code].get("fund_name")
+        elif code in EXTENDED_FUND_CATALOG:
+            fund_name = EXTENDED_FUND_CATALOG[code].get("fund_name")
+        if not fund_name:
+            fund_name = f"公募基金_{code}"
+        q = FundQuote(name=fund_name, dwjz=1.0, gsz=1.0, gszzl=0.0, gztime=datetime.now().strftime("%Y-%m-%d %H:%M"), fund_code=code)
+    elif str(q.name).startswith("公募基金_"):
+        if code in CORE_STRATEGY_POOL:
+            q.name = CORE_STRATEGY_POOL[code].get("fund_name", q.name)
+        elif code in EXTENDED_FUND_CATALOG:
+            q.name = EXTENDED_FUND_CATALOG[code].get("fund_name", q.name)
 
     # 官方公布净值是最终事实真理，严禁被盘中估值覆盖
     if getattr(q, 'is_official_nav', False) or '官方' in str(q.gztime):
@@ -2905,21 +2917,24 @@ def evaluate_four_tier_realtime_valuation(fund_code: str, base_quote: Optional[F
     now_dt = datetime.now()
     today_str = now_dt.strftime("%Y-%m-%d")
 
-    # ==================== 第一级：ETF 联接与标准指数基金穿透锚定 (0.95 系数) ====================
+    # ==================== 第一级：ETF 联接与标准指数基金穿透锚定 (0.95 系数全覆盖) ====================
+    # R2 规范：凡命中 FEEDER_AND_STANDARD_INDEX_MAPPING 的所有标的（含 100032/100033/161725/161726/160418/161017 等
+    # 标准指数与增强基金，及 110020/011612/011613 等 ETF 联接基金），一律统一应用 0.95 仓位系数穿透折算，绝不赋 1.0 系数。
     if code in FEEDER_AND_STANDARD_INDEX_MAPPING:
         target_sym = FEEDER_AND_STANDARD_INDEX_MAPPING[code]
         try:
             idx_q = fetch_realtime_index_quote(target_sym, use_cache=True)
-            target_chg = float(idx_q.get("change_pct", 0.0))
-            factor = 0.95
-            gszzl_p1 = round(factor * target_chg, 2)
-            dwjz_val = q.dwjz if q.dwjz > 0 else 1.0
-            gsz_val = round(dwjz_val * (1.0 + gszzl_p1 / 100.0), 4)
-            gztime_val = f"{now_dt.strftime('%Y-%m-%d %H:%M')} (穿透锚定: {target_sym} {target_chg:+.2f}%)"
-            return FundQuote(
-                name=q.name, dwjz=dwjz_val, gsz=gsz_val, gszzl=gszzl_p1,
-                gztime=gztime_val, fund_code=code, valuation_corrected=True
-            )
+            if idx_q and "change_pct" in idx_q:
+                target_chg = float(idx_q.get("change_pct", 0.0))
+                factor = 0.95
+                gszzl_p1 = round(factor * target_chg, 2)
+                dwjz_val = q.dwjz if q.dwjz > 0 else 1.0
+                gsz_val = round(dwjz_val * (1.0 + gszzl_p1 / 100.0), 4)
+                gztime_val = f"{now_dt.strftime('%Y-%m-%d %H:%M')} (穿透锚定: {target_sym} {target_chg:+.2f}%)"
+                return FundQuote(
+                    name=q.name, dwjz=dwjz_val, gsz=gsz_val, gszzl=gszzl_p1,
+                    gztime=gztime_val, fund_code=code, valuation_corrected=True
+                )
         except Exception:
             pass
 
@@ -3302,7 +3317,10 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True) -> FundQuo
         "050025": 5.5812,
         "016634": 0.9150,
         "001053": 1.4320,
-        "007339": 1.3520
+        "007339": 1.3520,
+        "110020": 1.3520,
+        "000086": 1.1916,
+        "000058": 1.1916
     }
     dwjz_fb = known_navs.get(code, 1.0000)
     gszzl_fb = 0.0

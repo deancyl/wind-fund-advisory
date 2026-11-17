@@ -37,7 +37,7 @@
           "shares": 40000.0,
           "cost_nav": 1.12,
           "fee": 6.0,
-          "holding_days": 212,
+          "holding_days": 213,
           "safety_lock": false,
           "notes": "战略底仓 (长持已免赎回费)"
         }
@@ -68,7 +68,7 @@
           "shares": 35000.0,
           "cost_nav": 0.985,
           "fee": 5.0,
-          "holding_days": 92,
+          "holding_days": 93,
           "safety_lock": false,
           "notes": "高股息周期价值底仓"
         }
@@ -130,7 +130,7 @@
           "shares": 22000.0,
           "cost_nav": 0.94,
           "fee": 0.0,
-          "holding_days": 30,
+          "holding_days": 31,
           "safety_lock": false,
           "notes": "🟡 战术C类 (已持28天，再等2天免赎回费)"
         }
@@ -161,7 +161,7 @@
           "shares": 12000.0,
           "cost_nav": 1.05,
           "fee": 0.0,
-          "holding_days": 42,
+          "holding_days": 43,
           "safety_lock": false,
           "notes": "深套非标战术仓 (待反弹阶梯减亏)"
         }
@@ -192,7 +192,7 @@
           "shares": 8000.0,
           "cost_nav": 1.45,
           "fee": 12.0,
-          "holding_days": 62,
+          "holding_days": 63,
           "safety_lock": false,
           "notes": "全球对冲配置"
         }
@@ -359,6 +359,12 @@
       "total_equity": 191445.0,
       "account_nav": 1.058,
       "benchmark_nav": 1.0
+    },
+    {
+      "date": "2026-11-17",
+      "total_equity": 191445.0,
+      "account_nav": 1.058,
+      "benchmark_nav": 1.0
     }
   ],
   "initial_baseline_snapshot": {
@@ -382,5 +388,5 @@
     "baseline_equity": 171729.5,
     "date": "2026-11-06"
   },
-  "updated_at": "2026-11-16 23:18:29"
+  "updated_at": "2026-11-17 19:30:35"
 }
