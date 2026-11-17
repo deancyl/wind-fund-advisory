@@ -80,6 +80,7 @@ from data_loader import (
     load_custom_watchlist,
     save_custom_watchlist,
     validate_and_fetch_code,
+    search_index_and_fund_candidates,
     fetch_custom_realtime_indices,
     get_index_corridor_metrics,
     INDEX_CATALOG_38
@@ -715,23 +716,6 @@ def render_chief_advisor_memo_expanded_details(memo_data: Dict[str, Any]):
         </div>
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:6px; margin-bottom:10px;">
             {dim_grid_html}
-        </div>
-        <div style="font-size:12px; font-weight:700; color:var(--text-primary); margin-bottom:6px; border-top:1px solid var(--border-subtle); padding-top:8px;">
-            📜 五维全息参谋详述文段
-        </div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:8px;">
-            <div style="background:var(--bg-elevated); border-left:3px solid var(--accent-primary); padding:6px 10px; border-radius:4px; font-size:11px; line-height:1.5;">
-                <b>🏛️ 宏观与政策面</b><br>{m_macro.get('content', '')}
-            </div>
-            <div style="background:var(--bg-elevated); border-left:3px solid #8b5cf6; padding:6px 10px; border-radius:4px; font-size:11px; line-height:1.5;">
-                <b>🌐 国际与汇率面</b><br>{m_intl.get('content', '')}
-            </div>
-            <div style="background:var(--bg-elevated); border-left:3px solid #0284c7; padding:6px 10px; border-radius:4px; font-size:11px; line-height:1.5;">
-                <b>📈 产业与估值面</b><br>{m_ind.get('content', '')}
-            </div>
-            <div style="background:var(--bg-elevated); border-left:3px solid var(--color-up, #ef4444); padding:6px 10px; border-radius:4px; font-size:11px; line-height:1.5;">
-                <b>{m_path.get('title', '🩺 存量持仓病灶')}</b><br>{m_path.get('content', '')}
-            </div>
         </div>
     </div>
     """
@@ -2658,7 +2642,7 @@ def apply_theme_to_plotly_figure(fig: go.Figure, theme_mode: Optional[str] = Non
     th = THEME_PRESETS.get(th_key, THEME_PRESETS.get("light_slate", THEME_PRESETS["institutional_slate"]))
     co = COLOR_PRESETS.get(co_key, COLOR_PRESETS["cn"])
     
-    fig.update_layout(
+    layout_update = dict(
         paper_bgcolor=th["bg_surface"],
         plot_bgcolor=th["bg_surface"],
         title_font_color=th["text_primary"],
@@ -2678,10 +2662,17 @@ def apply_theme_to_plotly_figure(fig: go.Figure, theme_mode: Optional[str] = Non
         legend=dict(
             font=dict(color=th["text_primary"]),
             bgcolor="rgba(0,0,0,0)",
-            bordercolor="rgba(0,0,0,0)"
+            bordercolor="rgba(0,0,0,0)",
+            orientation="h",
+            y=-0.20,
+            x=0.5,
+            xanchor="center"
         ),
-        margin=dict(l=10, r=10, t=45, b=10)
+        margin=dict(l=10, r=10, t=75, b=40)
     )
+    if hasattr(fig, "layout") and hasattr(fig.layout, "title") and fig.layout.title and getattr(fig.layout.title, "text", None):
+        layout_update["title"] = dict(x=0.01, xanchor="left", y=0.96)
+    fig.update_layout(**layout_update)
     return fig
 
 
@@ -3428,34 +3419,45 @@ with st.sidebar:
                 saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
                 save_custom_watchlist(saved_watchlist)
 
-            # 3. 任意 6 位有效代码实时接入输入框
+            # 3. 智能多模检索与标的接入 (支持拼音/代码/中文)
             st.markdown("---")
-            st.caption("➕ 接入任意 6 位有效代码 (股票/ETF/LOF/指数)")
-            c_input_col, c_btn_col = st.columns([7, 3])
-            with c_input_col:
-                new_code_input = st.text_input("标的代码", max_chars=6, placeholder="如 510300 或 159915", label_visibility="collapsed", key="txt_add_custom_code")
-            with c_btn_col:
-                add_btn = st.button("添加", key="btn_add_custom_code", use_container_width=True)
+            st.caption("➕ 智能检索接入标的 (支持拼音首字母/汉字/代码，如 hldb、红利低波、H30269、510300)")
+            search_query = st.text_input("智能检索", placeholder="输入拼音/代码/中文 如 hldb、红利低波、H30269", label_visibility="collapsed", key="txt_add_custom_code")
+            clean_query = str(search_query).strip() if search_query else ""
+            cands = search_index_and_fund_candidates(clean_query, limit=8) if clean_query else []
 
-            if add_btn and new_code_input:
-                clean_code = new_code_input.strip()
-                if len(clean_code) == 6 and clean_code.isdigit():
-                    probe_res = validate_and_fetch_code(clean_code)
+            if cands:
+                sel_cand = st.selectbox("选择匹配标的", options=cands, format_func=lambda x: str(x), key="sb_corridor_cand_select")
+                if st.button("➕ 一键添加选中标的", key="btn_add_custom_code", type="primary", use_container_width=True):
+                    target_code = sel_cand.get("code")
+                    probe_res = validate_and_fetch_code(target_code) or dict(sel_cand)
+                    st.session_state.sb_custom_corridor_items[target_code] = probe_res
+                    if target_code not in st.session_state.sb_selected_corridor_indices:
+                        st.session_state.sb_selected_corridor_indices.insert(0, target_code)
+                    saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
+                    saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
+                    saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
+                    saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
+                    save_custom_watchlist(saved_watchlist)
+                    st.success(f"已接入: {probe_res.get('name', target_code)} ({target_code})")
+                    st.rerun()
+            elif clean_query:
+                if st.button("接入标的", key="btn_add_custom_code", use_container_width=True):
+                    probe_res = validate_and_fetch_code(clean_query)
                     if probe_res:
-                        st.session_state.sb_custom_corridor_items[clean_code] = probe_res
-                        if clean_code not in st.session_state.sb_selected_corridor_indices:
-                            st.session_state.sb_selected_corridor_indices.insert(0, clean_code)
+                        target_code = probe_res.get("code", clean_query)
+                        st.session_state.sb_custom_corridor_items[target_code] = probe_res
+                        if target_code not in st.session_state.sb_selected_corridor_indices:
+                            st.session_state.sb_selected_corridor_indices.insert(0, target_code)
                         saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
                         saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
                         saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
                         saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
                         save_custom_watchlist(saved_watchlist)
-                        st.success(f"已接入: {probe_res['name']} ({clean_code})")
+                        st.success(f"已接入: {probe_res.get('name', target_code)} ({target_code})")
                         st.rerun()
                     else:
-                        st.error(f"代码 {clean_code} 探针失败，未能获取有效盘中行情")
-                else:
-                    st.warning("请输入有效的 6 位数字代码")
+                        st.error(f"代码/名称 {clean_query} 探针失败，未能获取有效盘中行情")
 
     with col_sb_rf:
         if st.button("🔄", key="btn_refresh_all_live_quotes", help="极速刷新实时行情", use_container_width=True):
@@ -3969,109 +3971,195 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
         wing_expander = st.expander("🔭 展开十维深度逻辑、Top 3 机会雷达与十三维风控体检详情", expanded=False)
 
         with wing_expander:
-            if memo_top:
-                render_chief_advisor_memo_expanded_details(memo_top)
-            col_radar, col_sentry = st.columns([5.2, 4.8])
+            tab_radar_sentry, tab_votes_ruler = st.tabs(["🔭 Top 3 机会雷达与主动风控哨", "🧭 十维投顾量化投票与拐点对照尺"])
+            with tab_radar_sentry:
+                col_radar, col_sentry = st.columns([5.2, 4.8])
 
-            # --- 左翼：机会雷达 ---
-            with col_radar:
-                # 优先从本地磁盘持久化缓存读取因子基因与 14 大赛道指标 (0 网络请求，0 现场进化)
-                factor_cache_f = Path(WORKSPACE_ROOT) / "data" / "cache" / "factor_evolution_cache.json"
-                evo_disk_data = {}
-                if factor_cache_f.exists():
-                    try:
-                        with open(factor_cache_f, "r", encoding="utf-8") as _fc:
-                            evo_disk_data = json.load(_fc)
-                    except Exception:
-                        pass
-
-                w_factors = evo_disk_data.get("weights", [0.30, 0.30, 0.25, 0.15])
-                evo_res = evo_disk_data.get("evolved_result", {})
-                traj_data = evo_disk_data.get("nav_trajectory", {})
-
-                col_rad_head1, col_rad_head2, col_rad_btn = st.columns([4.8, 3.6, 1.6])
-                with col_rad_head1:
-                    safe_markdown_html("<div style='font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;'>🔭 全市场机会雷达 · Top 3 机会甄选</div>")
-                with col_rad_head2:
-                    safe_markdown_html("<div style='font-size: 11px; color: var(--text-muted); text-align: right; padding-top: 3px;'>🧬 GP 规则自适应进化 · 动量/估值状态机</div>")
-                with col_rad_btn:
-                    if st.button("🔄 刷新", key="btn_refresh_radar_sentry", help="强制重算14赛道雷达与十二维主动风控"):
-                        st.session_state["_sentry_cached_rep"] = None
-                        st.session_state["_sentry_cached_holdings_hash"] = None
+                # --- 左翼：机会雷达 ---
+                with col_radar:
+                    # 优先从本地磁盘持久化缓存读取因子基因与 14 大赛道指标 (0 网络请求，0 现场进化)
+                    factor_cache_f = Path(WORKSPACE_ROOT) / "data" / "cache" / "factor_evolution_cache.json"
+                    evo_disk_data = {}
+                    if factor_cache_f.exists():
                         try:
-                            OpportunityRadarEngine().scan_all_sectors(force_refresh=True)
+                            with open(factor_cache_f, "r", encoding="utf-8") as _fc:
+                                evo_disk_data = json.load(_fc)
                         except Exception:
                             pass
-                        st.rerun()
 
-                # 信源验真指示徽章判定（优先读取本地快照缓存，零阻塞网络）
-                news_cache_f = Path(WORKSPACE_ROOT) / "data" / "cache" / "realtime_news.json"
-                news_cache_data = {}
-                if news_cache_f.exists():
+                    w_factors = evo_disk_data.get("weights", [0.30, 0.30, 0.25, 0.15])
+                    evo_res = evo_disk_data.get("evolved_result", {})
+                    traj_data = evo_disk_data.get("nav_trajectory", {})
+
+                    col_rad_head1, col_rad_head2, col_rad_btn = st.columns([4.8, 3.6, 1.6])
+                    with col_rad_head1:
+                        safe_markdown_html("<div style='font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;'>🔭 全市场机会雷达 · Top 3 机会甄选</div>")
+                    with col_rad_head2:
+                        safe_markdown_html("<div style='font-size: 11px; color: var(--text-muted); text-align: right; padding-top: 3px;'>🧬 GP 规则自适应进化 · 动量/估值状态机</div>")
+                    with col_rad_btn:
+                        if st.button("🔄 刷新", key="btn_refresh_radar_sentry", help="强制重算14赛道雷达与十二维主动风控"):
+                            st.session_state["_sentry_cached_rep"] = None
+                            st.session_state["_sentry_cached_holdings_hash"] = None
+                            try:
+                                OpportunityRadarEngine().scan_all_sectors(force_refresh=True)
+                            except Exception:
+                                pass
+                            st.rerun()
+
+                    # 信源验真指示徽章判定（优先读取本地快照缓存，零阻塞网络）
+                    news_cache_f = Path(WORKSPACE_ROOT) / "data" / "cache" / "realtime_news.json"
+                    news_cache_data = {}
+                    if news_cache_f.exists():
+                        try:
+                            with open(news_cache_f, "r", encoding="utf-8") as _ncf:
+                                news_cache_data = json.load(_ncf)
+                        except Exception:
+                            pass
+                    is_realtime_news = bool(news_cache_data.get("is_realtime", False))
+                    news_src_label = str(news_cache_data.get("source", "东方财富 7x24快讯" if is_realtime_news else "离线快照"))
+                    data_sense_time = news_cache_data.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                    if is_realtime_news:
+                        news_source_badge = (
+                            f'<span style="font-size: 10px; font-weight: 600; color: var(--color-down); '
+                            f'padding: 1px 6px; border-radius: 4px; background: rgba(34, 197, 94, 0.1); '
+                            f'border: 1px solid rgba(34, 197, 94, 0.25);">🟢 实时联网信源 ({news_src_label}) ⏱️ 数据感知时间: {data_sense_time} ⚡ 实时快讯</span>'
+                        )
+                    else:
+                        news_source_badge = (
+                            f'<span style="font-size: 10px; font-weight: 600; color: var(--accent-primary); '
+                            f'padding: 1px 6px; border-radius: 4px; background: rgba(245, 158, 11, 0.1); '
+                            f'border: 1px solid rgba(245, 158, 11, 0.25);">🟠 离线本地缓存快照 ⏱️ 数据感知时间: {data_sense_time} ⚡ 实时快讯</span>'
+                        )
+                    safe_markdown_html(f"<div style='margin-bottom: 6px;'>{news_source_badge}</div>")
+
+                    # 3 张赛道卡（直接显示优选基金名称与 6 位代码，删除 '+ 入备选池' 伪按钮）
+                    cols_top3 = st.columns(3)
+                    for i, sec in enumerate(top3_sectors):
+                        with cols_top3[i]:
+                            sec_fund = sec.get("fund", {})
+                            tag_color = "var(--color-up)" if "🔥" in sec.get("tag", "") else ("var(--accent-primary)" if "🎯" in sec.get("tag", "") else "var(--color-down)")
+                            rt_chg = sec.get("realtime_chg_pct", 0.0)
+                            rt_color = active_co["color_up"] if rt_chg >= 0 else active_co["color_down"]
+                            core_logic_txt = sec.get("core_logic", "综合得分靠前")
+                            sub_s = sec.get("sub_scores", {})
+                            val_score = float(sub_s.get("valuation", sec.get("s_val", 0.0)))
+                            mom_score = float(sub_s.get("momentum", sec.get("s_mom", 0.0)))
+                            snr_score = float(sub_s.get("kaufman_snr", sec.get("s_er", 0.0)))
+                            crowd_score = float(sub_s.get("anti_crowding", sec.get("s_crowd", 0.0)))
+                            vol_20_val = float(sec.get("vol_20", 15.0))
+                            mdd_20_val = float(sec.get("mdd_20", 8.0))
+
+                            concise_logic_txt = sec.get("concise_logic") or core_logic_txt[:18]
+                            if len(concise_logic_txt) > 18:
+                                concise_logic_txt = concise_logic_txt[:18]
+                            sec_score = float(sec.get("total_score", sec.get("score", 0.0)))
+                            sec_val_pct = float(sec.get("val_percentile", sec.get("val_pct", 50.0)))
+
+                            safe_markdown_html(f"""
+                            <div class="decision-card" style="padding: 8px 10px; height: 100%; min-height: 110px; overflow: visible !important; border-top: 2px solid {tag_color};" title="💡 入选依据: 20日波动 {vol_20_val:.1f}% ｜ 20日最大回撤 -{mdd_20_val:.1f}% ｜ 估值:{val_score:.0f} 动量:{mom_score:.0f} 信噪:{snr_score:.0f} 拥挤:{crowd_score:.0f} ｜ {core_logic_txt}">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <span style="font-size: 13px; font-weight: 700; white-space: nowrap !important; flex-shrink: 0 !important; color: var(--text-primary);">{sec.get('name', '')}</span>
+                                    <span style="font-size: 10px; white-space: nowrap !important; flex-shrink: 0 !important; padding: 1px 4px; border-radius: 4px; background: var(--bg-canvas); color: {tag_color}; border: 1px solid var(--border-subtle);">{sec.get('tag', '')}</span>
+                                </div>
+                                <div style="font-size: 11px; color: var(--text-muted); margin: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    得分 {sec_score:.1f} ｜ 今日 <span style="color: {rt_color}; font-weight: 700;">{rt_chg:+.2f}%</span> ｜ 估值分位 {sec_val_pct:.0f}%
+                                </div>
+                                <div style="font-size: 11px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-primary);">
+                                    优选: <b>{sec_fund.get('name', '')}</b> <code style="color: var(--accent-primary); font-size: 11px;">{sec_fund.get('code', '')}</code>
+                                </div>
+                                <div style="font-size: 10.5px; color: var(--text-muted); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    {concise_logic_txt}
+                                </div>
+                            </div>
+                            """)
+
+                # --- 右翼：主动风险提示与健康度 (完整十二维主动风控巡检真实呈现) ---
+                with col_sentry:
+                    safe_markdown_html("<div style='font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;'>🚨 主动风险预警哨 · 十二维全维巡检</div>")
+
+                    # G10: 动态相关性突变指示卡（仅在突变警报或结构异动时渲染，正常区间保持干净）
                     try:
-                        with open(news_cache_f, "r", encoding="utf-8") as _ncf:
-                            news_cache_data = json.load(_ncf)
+                        corr_eval_res = pm_instance.evaluate_dynamic_correlation_mutation_instance(threshold=0.75, stress_threshold=0.80)
+                        if corr_eval_res.get("is_triggered") or corr_eval_res.get("is_liquidity_shift_triggered") or corr_eval_res.get("is_mutation_alarm") or corr_eval_res.get("is_regime_shift_risk"):
+                            safe_markdown_html(render_correlation_mutation_card_html(corr_eval_res))
                     except Exception:
                         pass
-                is_realtime_news = bool(news_cache_data.get("is_realtime", False))
-                news_src_label = str(news_cache_data.get("source", "东方财富 7x24快讯" if is_realtime_news else "离线快照"))
-                data_sense_time = news_cache_data.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                if is_realtime_news:
-                    news_source_badge = (
-                        f'<span style="font-size: 10px; font-weight: 600; color: var(--color-down); '
-                        f'padding: 1px 6px; border-radius: 4px; background: rgba(34, 197, 94, 0.1); '
-                        f'border: 1px solid rgba(34, 197, 94, 0.25);">🟢 实时联网信源 ({news_src_label}) ⏱️ 数据感知时间: {data_sense_time} ⚡ 实时快讯</span>'
-                    )
-                else:
-                    news_source_badge = (
-                        f'<span style="font-size: 10px; font-weight: 600; color: var(--accent-primary); '
-                        f'padding: 1px 6px; border-radius: 4px; background: rgba(245, 158, 11, 0.1); '
-                        f'border: 1px solid rgba(245, 158, 11, 0.25);">🟠 离线本地缓存快照 ⏱️ 数据感知时间: {data_sense_time} ⚡ 实时快讯</span>'
-                    )
-                safe_markdown_html(f"<div style='margin-bottom: 6px;'>{news_source_badge}</div>")
 
-                # 3 张赛道卡（直接显示优选基金名称与 6 位代码，删除 '+ 入备选池' 伪按钮）
-                cols_top3 = st.columns(3)
-                for i, sec in enumerate(top3_sectors):
-                    with cols_top3[i]:
-                        sec_fund = sec.get("fund", {})
-                        tag_color = "var(--color-up)" if "🔥" in sec.get("tag", "") else ("var(--accent-primary)" if "🎯" in sec.get("tag", "") else "var(--color-down)")
-                        rt_chg = sec.get("realtime_chg_pct", 0.0)
-                        rt_color = active_co["color_up"] if rt_chg >= 0 else active_co["color_down"]
-                        core_logic_txt = sec.get("core_logic", "综合得分靠前")
-                        sub_s = sec.get("sub_scores", {})
-                        val_score = float(sub_s.get("valuation", sec.get("s_val", 0.0)))
-                        mom_score = float(sub_s.get("momentum", sec.get("s_mom", 0.0)))
-                        snr_score = float(sub_s.get("kaufman_snr", sec.get("s_er", 0.0)))
-                        crowd_score = float(sub_s.get("anti_crowding", sec.get("s_crowd", 0.0)))
-                        vol_20_val = float(sec.get("vol_20", 15.0))
-                        mdd_20_val = float(sec.get("mdd_20", 8.0))
-
-                        concise_logic_txt = sec.get("concise_logic") or core_logic_txt[:18]
-                        if len(concise_logic_txt) > 18:
-                            concise_logic_txt = concise_logic_txt[:18]
-                        sec_score = float(sec.get("total_score", sec.get("score", 0.0)))
-                        sec_val_pct = float(sec.get("val_percentile", sec.get("val_pct", 50.0)))
-
-                        safe_markdown_html(f"""
-                        <div class="decision-card" style="padding: 8px 10px; height: 100%; min-height: 110px; overflow: visible !important; border-top: 2px solid {tag_color};" title="💡 入选依据: 20日波动 {vol_20_val:.1f}% ｜ 20日最大回撤 -{mdd_20_val:.1f}% ｜ 估值:{val_score:.0f} 动量:{mom_score:.0f} 信噪:{snr_score:.0f} 拥挤:{crowd_score:.0f} ｜ {core_logic_txt}">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                <span style="font-size: 13px; font-weight: 700; white-space: nowrap !important; flex-shrink: 0 !important; color: var(--text-primary);">{sec.get('name', '')}</span>
-                                <span style="font-size: 10px; white-space: nowrap !important; flex-shrink: 0 !important; padding: 1px 4px; border-radius: 4px; background: var(--bg-canvas); color: {tag_color}; border: 1px solid var(--border-subtle);">{sec.get('tag', '')}</span>
+                    if len(pm_instance.holdings) == 0:
+                        safe_markdown_html("""
+                        <div class="decision-card" style="border-left: 3px solid var(--accent-primary); padding: 8px 10px; margin-bottom: 4px;">
+                            <div style="font-size: 12px; font-weight: 700; color: var(--accent-primary); margin-bottom: 2px;">
+                                🚀【空仓状态指引】
                             </div>
-                            <div style="font-size: 11px; color: var(--text-muted); margin: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                得分 {sec_score:.1f} ｜ 今日 <span style="color: {rt_color}; font-weight: 700;">{rt_chg:+.2f}%</span> ｜ 估值分位 {sec_val_pct:.0f}%
-                            </div>
-                            <div style="font-size: 11px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-primary);">
-                                优选: <b>{sec_fund.get('name', '')}</b> <code style="color: var(--accent-primary); font-size: 11px;">{sec_fund.get('code', '')}</code>
-                            </div>
-                            <div style="font-size: 10.5px; color: var(--text-muted); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                {concise_logic_txt}
+                            <div style="font-size: 11px; color: var(--text-secondary);">
+                                当前账本尚无持仓。宏观 ERP 处于黄金击球区，可在【🌱 新资建仓】快速获取 AI 智能配置全案。
                             </div>
                         </div>
                         """)
+                    elif all_passed or not alerts_list:
+                        safe_markdown_html("""
+                        <div class="decision-card" style="border-left: 3px solid var(--color-down); padding: 8px 12px; margin-bottom: 4px;">
+                            <div style="font-weight: 700; color: var(--color-down); font-size: 12px; margin-bottom: 2px;">🟢 主动风控十二维巡检全通</div>
+                            <div style="font-size: 11px; color: var(--text-secondary);">
+                                零惩罚锁仓 ｜ 零超买拥挤 ｜ 零右侧破位 ｜ 赛道与管理人集中度合规 ｜ 零迷你基清盘风险
+                            </div>
+                        </div>
+                        """)
+                    else:
+                        # 真实渲染所有触发的风控警报项 (采用 2×2 双栏网格排版，高度与左翼机会雷达完美齐平)
+                        def _sentry_alert_sorter(a):
+                            _lvl = str(a.get("level", "yellow")).lower()
+                            _t = str(a.get("title", "")) + str(a.get("desc", ""))
+                            is_tail_cleanup = a.get("dimension") == "碎片尾仓清理" or "碎片尾仓" in _t
+                            is_scale_unknown = "规模待核验" in _t
+                            if _lvl in ("red", "critical"):
+                                return (0, 0)
+                            elif _lvl in ("yellow", "warning"):
+                                return (1, -1 if is_tail_cleanup else (1 if is_scale_unknown else 0))
+                            elif "green" in _lvl or _lvl in ("info", "notice"):
+                                return (3, 0)
+                            return (2, 0)
 
-                # 补齐：历史三大牛熊拐点实盘对照尺紧凑横条 (高度约 55px，完美拉平左右双翼高度)
+                        sorted_sentry_alerts = sorted(alerts_list, key=_sentry_alert_sorter)
+                        col_sen1, col_sen2 = st.columns(2)
+
+                        for idx, alert in enumerate(sorted_sentry_alerts[:4]):
+                            raw_lvl = str(alert.get("level", "WARNING")).lower()
+                            is_red = raw_lvl in ("red", "critical")
+                            is_yellow = raw_lvl in ("yellow", "warning")
+                            is_info = raw_lvl in ("info", "green_notice", "notice")
+
+                            if is_red:
+                                border_col = "var(--color-up)"
+                                icon = "🔴"
+                            elif is_yellow:
+                                border_col = "var(--accent-primary)"
+                                icon = "🟡"
+                            else:
+                                border_col = "var(--color-down)" if "green" in raw_lvl else "var(--color-neutral)"
+                                icon = "🟢" if "green" in raw_lvl else "ℹ️"
+
+                            title_str = alert.get("title") or alert.get("message") or alert.get("dimension", "风控提示")
+                            detail_str = alert.get("desc") or alert.get("detail") or alert.get("message", "")
+                            action_str = alert.get("action") or alert.get("suggested_action", "")
+
+                            target_col = col_sen1 if (idx % 2 == 0) else col_sen2
+                            with target_col:
+                                safe_markdown_html(f"""
+                                <div class="decision-card" style="border-left: 3px solid {border_col}; padding: 6px 8px; margin-bottom: 6px; min-height: 82px;">
+                                    <div style="font-size: 11.5px; font-weight: 700; color: {border_col}; margin-bottom: 2px;">
+                                        {icon} {title_str}
+                                    </div>
+                                    <div style="font-size: 10.5px; color: var(--text-secondary); margin-bottom: 2px; line-height: 1.35;">
+                                        {detail_str}
+                                    </div>
+                                    {f'<div style="font-size: 10.5px; color: var(--text-primary); font-weight: 600;">💡 建议: {action_str}</div>' if action_str else ''}
+                                </div>
+                                """)
+
+            with tab_votes_ruler:
+                if memo_top:
+                    render_chief_advisor_memo_expanded_details(memo_top)
                 try:
                     _cur_plan_cap = float(st.session_state.get("plan_capital", 100000.0))
                     _cur_bias_val = float(snapshot_dict.get("bias_20", snapshot_dict.get("bias20", 1.4)))
@@ -4084,90 +4172,6 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         safe_markdown_html(f"<div style='margin-top: 8px;'>{render_historical_inflection_ruler_html(_ruler_obj)}</div>")
                 except Exception:
                     pass
-
-            # --- 右翼：主动风险提示与健康度 (完整十二维主动风控巡检真实呈现) ---
-            with col_sentry:
-                safe_markdown_html("<div style='font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;'>🚨 主动风险预警哨 · 十二维全维巡检</div>")
-
-                # G10: 动态相关性突变指示卡（仅在突变警报或结构异动时渲染，正常区间保持干净）
-                try:
-                    corr_eval_res = pm_instance.evaluate_dynamic_correlation_mutation_instance(threshold=0.75, stress_threshold=0.80)
-                    if corr_eval_res.get("is_triggered") or corr_eval_res.get("is_liquidity_shift_triggered") or corr_eval_res.get("is_mutation_alarm") or corr_eval_res.get("is_regime_shift_risk"):
-                        safe_markdown_html(render_correlation_mutation_card_html(corr_eval_res))
-                except Exception:
-                    pass
-
-                if len(pm_instance.holdings) == 0:
-                    safe_markdown_html("""
-                    <div class="decision-card" style="border-left: 3px solid var(--accent-primary); padding: 8px 10px; margin-bottom: 4px;">
-                        <div style="font-size: 12px; font-weight: 700; color: var(--accent-primary); margin-bottom: 2px;">
-                            🚀【空仓状态指引】
-                        </div>
-                        <div style="font-size: 11px; color: var(--text-secondary);">
-                            当前账本尚无持仓。宏观 ERP 处于黄金击球区，可在【🌱 新资建仓】快速获取 AI 智能配置全案。
-                        </div>
-                    </div>
-                    """)
-                elif all_passed or not alerts_list:
-                    safe_markdown_html("""
-                    <div class="decision-card" style="border-left: 3px solid var(--color-down); padding: 8px 12px; margin-bottom: 4px;">
-                        <div style="font-weight: 700; color: var(--color-down); font-size: 12px; margin-bottom: 2px;">🟢 主动风控十二维巡检全通</div>
-                        <div style="font-size: 11px; color: var(--text-secondary);">
-                            零惩罚锁仓 ｜ 零超买拥挤 ｜ 零右侧破位 ｜ 赛道与管理人集中度合规 ｜ 零迷你基清盘风险
-                        </div>
-                    </div>
-                    """)
-                else:
-                    # 真实渲染所有触发的风控警报项 (采用 2×2 双栏网格排版，高度与左翼机会雷达完美齐平)
-                    def _sentry_alert_sorter(a):
-                        _lvl = str(a.get("level", "yellow")).lower()
-                        _t = str(a.get("title", "")) + str(a.get("desc", ""))
-                        is_tail_cleanup = a.get("dimension") == "碎片尾仓清理" or "碎片尾仓" in _t
-                        is_scale_unknown = "规模待核验" in _t
-                        if _lvl in ("red", "critical"):
-                            return (0, 0)
-                        elif _lvl in ("yellow", "warning"):
-                            return (1, -1 if is_tail_cleanup else (1 if is_scale_unknown else 0))
-                        elif "green" in _lvl or _lvl in ("info", "notice"):
-                            return (3, 0)
-                        return (2, 0)
-
-                    sorted_sentry_alerts = sorted(alerts_list, key=_sentry_alert_sorter)
-                    col_sen1, col_sen2 = st.columns(2)
-
-                    for idx, alert in enumerate(sorted_sentry_alerts[:4]):
-                        raw_lvl = str(alert.get("level", "WARNING")).lower()
-                        is_red = raw_lvl in ("red", "critical")
-                        is_yellow = raw_lvl in ("yellow", "warning")
-                        is_info = raw_lvl in ("info", "green_notice", "notice")
-
-                        if is_red:
-                            border_col = "var(--color-up)"
-                            icon = "🔴"
-                        elif is_yellow:
-                            border_col = "var(--accent-primary)"
-                            icon = "🟡"
-                        else:
-                            border_col = "var(--color-down)" if "green" in raw_lvl else "var(--color-neutral)"
-                            icon = "🟢" if "green" in raw_lvl else "ℹ️"
-
-                        title_str = alert.get("title") or alert.get("message") or alert.get("dimension", "风控提示")
-                        detail_str = alert.get("desc") or alert.get("detail") or alert.get("message", "")
-                        action_str = alert.get("action") or alert.get("suggested_action", "")
-
-                        target_col = col_sen1 if (idx % 2 == 0) else col_sen2
-                        with target_col:
-                            safe_markdown_html(f"""
-                            <div class="decision-card" style="border-left: 3px solid {border_col}; padding: 6px 8px; margin-bottom: 6px; min-height: 82px;">
-                                <div style="font-size: 11.5px; font-weight: 700; color: {border_col}; margin-bottom: 2px;">
-                                    {icon} {title_str}
-                                </div>
-                                <div style="font-size: 10.5px; color: var(--text-secondary); margin-bottom: 2px; line-height: 1.35;">
-                                    {detail_str}
-                                </div>
-                                {f'<div style="font-size: 10.5px; color: var(--text-primary); font-weight: 600;">💡 建议: {action_str}</div>' if action_str else ''}
-                            </div>
-                            """)
     except Exception as e:
         st.caption(f"（双翼看板加载提示: {e}）")
 
@@ -5837,36 +5841,19 @@ with tab_holdings_and_rebalance:
                     eq = 0.0
                 return f"{tag} {m.get('name', lid)} (¥{eq:,.0f})"
 
-            if IS_MOBILE_VIEW:
-                col_tb_led = st.container()
-                col_tb_mode = st.container()
-            else:
-                col_tb_led, col_tb_mode = st.columns([3.8, 6.2])
-            with col_tb_led:
-                selected_lid = st.selectbox(
-                    "切换账本",
-                    options=[l["id"] for l in all_ledgers],
-                    index=active_idx,
-                    format_func=_fmt_ledger_choice,
-                    key=f"sel_tab2_ledger_picker_{active_lid}",
-                    label_visibility="collapsed"
-                )
-                if selected_lid != active_lid:
-                    switch_active_ledger(selected_lid)
-                    st.session_state["sel_tab2_active_ledger"] = selected_lid
-                    st.rerun()
-
-            with col_tb_mode:
-                tab2_view_mode = st.radio(
-                    "视图模式切换",
-                    ["💼 持仓诊断与智能调仓 (主流程)", "🛠️ 账本运维与实盘复盘档案 (宽屏工具坞)"],
-                    index=0 if "持仓诊断与智能调仓" in st.session_state.get("tab2_view_mode", "持仓诊断与智能调仓") else 1,
-                    horizontal=True,
-                    key="rad_tab2_view_mode",
-                    label_visibility="collapsed"
-                )
-                st.session_state["tab2_view_mode"] = tab2_view_mode
-                is_t2_main_mode = "持仓诊断与智能调仓" in tab2_view_mode
+            selected_lid = st.selectbox(
+                "切换账本",
+                options=[l["id"] for l in all_ledgers],
+                index=active_idx,
+                format_func=_fmt_ledger_choice,
+                key=f"sel_tab2_ledger_picker_{active_lid}",
+                label_visibility="collapsed"
+            )
+            if selected_lid != active_lid:
+                switch_active_ledger(selected_lid)
+                st.session_state["sel_tab2_active_ledger"] = selected_lid
+                st.rerun()
+            is_t2_main_mode = True
         else:
             active_lid = "main_live"
             is_t2_main_mode = True
@@ -5912,7 +5899,7 @@ with tab_holdings_and_rebalance:
             # ═════════════════════════════════════════════════════════════
             # 【BLOCK 1】今日关键信息感知与调仓裁决卡
             # ═════════════════════════════════════════════════════════════
-            # 1. 顶部六大核心资产与风控裁决指标条
+            # 1. 顶部六大核心资产与风控裁决指标条 (自适应 HTML 指标卡，clamp 字体防截断)
             if IS_MOBILE_VIEW:
                 col_m1, col_m2 = st.columns(2)
                 col_m3, col_m4 = st.columns(2)
@@ -5920,25 +5907,101 @@ with tab_holdings_and_rebalance:
             else:
                 col_m1, col_m2, col_m3, col_m4, col_m5, col_m6 = st.columns(6)
 
+            pnl_s = "+" if _t2_pnl >= 0 else ""
+            pnl_c = active_co["color_up"] if _t2_pnl >= 0 else active_co["color_down"]
+            tail_sub = f"可回收 ¥{t_cash:,.0f}" if t_count > 0 else "无碎片"
+            deep_sub = "浮亏 >10%" if d_loss_count > 0 else "无深套"
+            
+            if active_lid == "combat_29_funds":
+                card6_val = "三阶重塑止血"
+                card6_sub = "清扫19尾仓·置换深套"
+            else:
+                card6_val = f"【{v_title}】"
+                card6_sub = "清扫尾仓·降本增效" if t_count > 0 else ("监控深套·适时置换" if d_loss_count > 0 else "平稳持有")
+
             with col_m1:
-                st.metric("💼 持仓总资产", f"¥{_tot_equity:,.2f}", f"仓位 {_pos_pct:.1f}%")
+                safe_markdown_html(f"""
+                <div class="main-metric-card">
+                    <div class="metric-card-title"><span>💼 持仓总资产</span></div>
+                    <div class="metric-value-huge" style="font-size: clamp(14px, 1.3vw, 18px); color: var(--text-primary);">
+                        ¥{_tot_equity:,.2f}
+                    </div>
+                    <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
+                        仓位 {_pos_pct:.1f}%
+                    </div>
+                </div>
+                """)
             with col_m2:
-                st.metric("💵 可用现金池", f"¥{pm.available_cash:,.2f}")
+                safe_markdown_html(f"""
+                <div class="main-metric-card">
+                    <div class="metric-card-title"><span>💵 可用现金池</span></div>
+                    <div class="metric-value-huge" style="font-size: clamp(14px, 1.3vw, 18px); color: var(--text-primary);">
+                        ¥{pm.available_cash:,.2f}
+                    </div>
+                    <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
+                        备付缓冲
+                    </div>
+                </div>
+                """)
             with col_m3:
-                pnl_s = "+" if _t2_pnl >= 0 else ""
-                st.metric("📈 累计浮动盈亏", f"{pnl_s}¥{_t2_pnl:,.2f}", f"{pnl_s}{_t2_pnl_pct:.2f}%")
+                safe_markdown_html(f"""
+                <div class="main-metric-card">
+                    <div class="metric-card-title"><span>📈 累计浮动盈亏</span></div>
+                    <div class="metric-value-huge" style="font-size: clamp(14px, 1.3vw, 18px); color: {pnl_c};">
+                        {pnl_s}¥{_t2_pnl:,.2f}
+                    </div>
+                    <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
+                        {pnl_s}{_t2_pnl_pct:.2f}%
+                    </div>
+                </div>
+                """)
             with col_m4:
-                st.metric("🧹 免赎碎片尾仓", f"{t_count} 只", f"可回收 ¥{t_cash:,.0f}" if t_count > 0 else "无碎片")
+                safe_markdown_html(f"""
+                <div class="main-metric-card">
+                    <div class="metric-card-title"><span>🧹 免赎碎片尾仓</span></div>
+                    <div class="metric-value-huge" style="font-size: clamp(14px, 1.3vw, 18px); color: var(--accent-primary);">
+                        {t_count} 只
+                    </div>
+                    <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
+                        {tail_sub}
+                    </div>
+                </div>
+                """)
             with col_m5:
-                st.metric("🩺 深套出血点", f"{d_loss_count} 只", "浮亏 >10%" if d_loss_count > 0 else "无深套")
+                deep_col = "var(--color-up)" if d_loss_count > 0 else "var(--color-down)"
+                safe_markdown_html(f"""
+                <div class="main-metric-card">
+                    <div class="metric-card-title"><span>🩺 深套出血点</span></div>
+                    <div class="metric-value-huge" style="font-size: clamp(14px, 1.3vw, 18px); color: {deep_col};">
+                        {d_loss_count} 只
+                    </div>
+                    <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
+                        {deep_sub}
+                    </div>
+                </div>
+                """)
             with col_m6:
-                st.metric("🎯 今日调仓裁决", f"【{v_title}】")
+                safe_markdown_html(f"""
+                <div class="main-metric-card">
+                    <div class="metric-card-title"><span>🎯 今日调仓裁决</span></div>
+                    <div class="metric-value-huge" style="font-size: clamp(14px, 1.3vw, 18px); color: var(--accent-primary);">
+                        {card6_val}
+                    </div>
+                    <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
+                        {card6_sub}
+                    </div>
+                </div>
+                """)
 
             # 2. 三段式因果传导决策卡 (Fact -> Understanding -> Action)
             memo_top_data = st.session_state.get("chief_advisor_memo")
             if not memo_top_data:
                 try:
-                    memo_top_data = advisory_engine.generate_chief_advisor_memo()
+                    memo_top_data = advisory_engine.generate_chief_advisor_memo(
+                        snapshot=snapshot,
+                        holdings=pm.holdings,
+                        sentry_rep=_sentry_scan if "_sentry_scan" in locals() else None
+                    )
                     st.session_state["chief_advisor_memo"] = memo_top_data
                 except Exception:
                     memo_top_data = None
@@ -6472,6 +6535,7 @@ with tab_holdings_and_rebalance:
                     sh_display = float(it.get("shares", 0.0))
                     if sh_display == 0.0 and f_code in pm.holdings:
                         sh_display = float(getattr(pm.holdings[f_code], "shares", 0.0))
+                    share_class_tag = f"{s_class}类" if s_class in ["A", "C", "E", "H"] else ("C类" if "C" in f_name.upper() else "A类")
 
                     rows_display.append({
                         "基金代码": f_code,
@@ -6481,7 +6545,7 @@ with tab_holdings_and_rebalance:
                         "当前市值(元)": mv_val,
                         "目标占比(%)": t_w_val,
                         col_rebal_chg: rt_gszzl,
-                        "份额": sh_display,
+                        "份额": share_class_tag,
                         "尾盘微观优化(bps)": micro_opt_str,
                         "实操要点": op_point
                     })
@@ -6587,6 +6651,7 @@ with tab_holdings_and_rebalance:
                                     help="官方公布净值后为当日官方实际涨跌(%)；盘中时段为盘中实时估值(%)。",
                                     format="%+.2f%%"
                                 ),
+                                "份额": st.column_config.TextColumn("份额", width="small", help="基金份额类别 (A类前端收费 / C类销售服务费)"),
                                 "建议调仓金额(元)": st.column_config.NumberColumn(format="¥%+.2f"),
                                 "尾盘微观优化(bps)": st.column_config.TextColumn(
                                     "尾盘微观优化(bps) ⓘ",
@@ -7499,8 +7564,6 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
 
             fig_tm.update_layout(
                 title=f"截至【{curr_chosen_date}】历史盲测前推净值走势对比 (Point-in-Time 零未来函数)",
-                legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"),
-                margin=dict(t=75, l=10, r=10, b=10),
                 height=340
             )
             apply_theme_to_plotly_figure(fig_tm)

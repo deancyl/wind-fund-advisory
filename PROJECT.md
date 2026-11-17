@@ -44,7 +44,7 @@
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
 | M1 | 前端接线、数据断链修复与汇率校准 | Features 1-16 (app_gui.py, data_loader.py, advisory_engine.py, strategy_bridge.py, portfolio_manager.py, tests/) | none | DONE |
-| M2 | AST 门禁核验、双视口实盘验收与 G22 发布交付 | Features 17-19 (verify_g22_ast_gate.py, app restart, browser tests, docs, git tag, G23 output) | M1 | IN_PROGRESS |
+| M2 | AST 门禁核验、双视口实盘验收与 G22 发布交付 | Features 17-19 (verify_g22_ast_gate.py, app restart, browser tests, docs, git tag, G23 output) | M1 | DONE |
 
 ## Interface Contracts
 ### app_gui.py ↔ portfolio_manager.py

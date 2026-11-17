@@ -701,7 +701,7 @@
     },
     {
       "fund_code": "000086",
-      "fund_name": "华夏中小板ETF联接A",
+      "fund_name": "工银瑞信信用纯债债券A",
       "share_class": "A",
       "shares": 1.2588,
       "cost_price": 1.5888,
@@ -724,9 +724,9 @@
           "notes": "实战存量批次(满400天免赎)"
         }
       ],
-      "company": "华夏基金",
+      "company": "工银瑞信基金",
       "is_core_strategy": false,
-      "transition_tag": "中小板体验金尾仓",
+      "transition_tag": "纯债体验金尾仓",
       "rebalance_intent": "normal",
       "cost_nav": 1.588815
     },
