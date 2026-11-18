@@ -6658,13 +6658,18 @@ with tab_holdings_and_rebalance:
                         off_str = f"{float(off_v):+.2f}%"
                         diff_str = f"{diff_pct:+.2f}% ({diff_bp:+.0f}bp)"
                         if abs(diff_pct) <= 0.10:
-                            reason_str = "🟢 误差<=10bps 高度吻合"
-                        elif "增强" in h_aud.fund_name or "混合" in h_aud.fund_name:
-                            reason_str = "🟡 主动选股/增强 Alpha 偏离"
+                            reason_str = f"🟢 误差<=10bps 高度吻合 ({src_v})"
                         elif any(k in h_aud.fund_name for k in ["纳斯达克", "标普", "QDII"]):
-                            reason_str = "🟡 QDII 汇率与隔夜 T-1 时差"
+                            reason_str = f"🟡 QDII 跨时区汇率与外盘折算 ({src_v})"
+                        elif "联接" in h_aud.fund_name or "指数" in h_aud.fund_name:
+                            if "增强" in h_aud.fund_name:
+                                reason_str = f"🟡 指数增强主动Alpha持仓偏离 ({src_v})"
+                            else:
+                                reason_str = f"🟡 联接基金申赎现金头寸浮动 ({src_v})"
+                        elif "混合" in h_aud.fund_name or "股票" in h_aud.fund_name:
+                            reason_str = f"🟡 主动权益季内换仓Alpha偏离 ({src_v})"
                         else:
-                            reason_str = "🟡 仓位微调/净值4位修约差异"
+                            reason_str = f"🟡 净值4位小数修约微差 ({src_v})"
                     else:
                         prev_v = getattr(q_aud, "prev_official_chg_pct", None)
                         status_str = f"⏳ 待公布 (上期 {pdate_v[-5:]})"
