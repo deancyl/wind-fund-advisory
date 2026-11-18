@@ -6591,7 +6591,30 @@ with tab_holdings_and_rebalance:
                     sh_display = float(it.get("shares", 0.0))
                     if sh_display == 0.0 and f_code in pm.holdings:
                         sh_display = float(getattr(pm.holdings[f_code], "shares", 0.0))
-                    share_class_tag = f"{s_class}类" if s_class in ["A", "C", "E", "H"] else ("C类" if "C" in f_name.upper() else "A类")
+
+                    est_chg_val = float(it.get("est_gszzl", rt_gszzl))
+                    est_src_raw = str(it.get("est_source", "") or "估算")
+                    est_src_short = (
+                        "新浪" if "新浪" in est_src_raw else (
+                        "东财" if "东财" in est_src_raw else (
+                        "双源" if "双源" in est_src_raw else (
+                        "股债" if "股债" in est_src_raw else (
+                        "固收" if "固收" in est_src_raw or "纯债" in est_src_raw else (
+                        "外盘" if "外盘" in est_src_raw else "穿透")))))
+                    )
+                    est_col_str = f"{est_chg_val:+.2f}% ({est_src_short})"
+                    val_cmp_txt = str(it.get("val_compare_str", "") or "")
+                    if not val_cmp_txt:
+                        off_chg_v = it.get("official_chg_pct", None)
+                        off_pd_v = str(it.get("official_pdate", "") or "")
+                        if off_chg_v is not None:
+                            d_bp = round(est_chg_val - float(off_chg_v), 2)
+                            b_icon = "🟢" if abs(d_bp) <= 0.15 else ("🟡" if abs(d_bp) <= 0.40 else "🔴")
+                            val_cmp_txt = f"{b_icon} {float(off_chg_v):+.2f}% (差{d_bp:+.2f}%)"
+                        else:
+                            prev_off_v = it.get("prev_official_chg_pct", None)
+                            p_tag = off_pd_v[-5:] if len(off_pd_v) >= 5 else "待更"
+                            val_cmp_txt = f"⏳待出 ({p_tag}官 {float(prev_off_v):+.2f}%)" if prev_off_v is not None else f"⏳待出 ({p_tag})"
 
                     rows_display.append({
                         "基金代码": f_code,
@@ -6600,17 +6623,93 @@ with tab_holdings_and_rebalance:
                         "建议调仓金额(元)": diff_amt,
                         "当前市值(元)": mv_val,
                         "目标占比(%)": t_w_val,
-                        col_rebal_chg: rt_gszzl,
-                        "份额": share_class_tag,
+                        "当日估算(%)": est_col_str,
+                        "官方涨跌(对比)": val_cmp_txt,
                         "尾盘微观优化(bps)": micro_opt_str,
                         "实操要点": op_point
                     })
                 rebal_cols_10 = [
                     "基金代码", "基金名称", "建议操作", "建议调仓金额(元)",
-                    "当前市值(元)", "目标占比(%)", col_rebal_chg,
-                    "份额", "尾盘微观优化(bps)", "实操要点"
+                    "当前市值(元)", "目标占比(%)", "当日估算(%)", "官方涨跌(对比)",
+                    "尾盘微观优化(bps)", "实操要点"
                 ]
                 df_orders_tbl = pd.DataFrame(rows_display)[rebal_cols_10]
+
+            # 3.5 官方实际涨跌幅 vs 当日实时估算 紧凑对账摘要栏 + 逐基三方对账单弹窗
+            if hasattr(pm, "holdings") and pm.holdings:
+                audit_rows = []
+                off_published_diffs = []
+                dual_src_diffs = []
+                for c_aud, h_aud in pm.holdings.items():
+                    q_aud = fetch_realtime_fund_quote(c_aud, use_cache=True)
+                    est_v = float(getattr(q_aud, "est_gszzl", q_aud.gszzl))
+                    off_v = getattr(q_aud, "official_chg_pct", None)
+                    tt_v = getattr(q_aud, "tiantian_gszzl", None)
+                    pen_v = getattr(q_aud, "penetration_gszzl", None)
+                    pdate_v = str(getattr(q_aud, "official_pdate", "") or "--")
+                    is_off_v = bool(getattr(q_aud, "is_official_nav", False) and off_v is not None)
+                    src_v = str(getattr(q_aud, "est_source", "") or "四级穿透")
+
+                    if is_off_v:
+                        diff_pct = round(est_v - float(off_v), 2)
+                        diff_bp = round(diff_pct * 100.0, 1)
+                        off_published_diffs.append(abs(diff_pct))
+                        status_str = f"🟢 已出官方 ({pdate_v[-5:]})"
+                        off_str = f"{float(off_v):+.2f}%"
+                        diff_str = f"{diff_pct:+.2f}% ({diff_bp:+.0f}bp)"
+                        if abs(diff_pct) <= 0.10:
+                            reason_str = "🟢 误差<=10bps 高度吻合"
+                        elif "增强" in h_aud.fund_name or "混合" in h_aud.fund_name:
+                            reason_str = "🟡 主动选股/增强 Alpha 偏离"
+                        elif any(k in h_aud.fund_name for k in ["纳斯达克", "标普", "QDII"]):
+                            reason_str = "🟡 QDII 汇率与隔夜 T-1 时差"
+                        else:
+                            reason_str = "🟡 仓位微调/净值4位修约差异"
+                    else:
+                        prev_v = getattr(q_aud, "prev_official_chg_pct", None)
+                        status_str = f"⏳ 待公布 (上期 {pdate_v[-5:]})"
+                        off_str = f"待出 (上期{float(prev_v):+.2f}%)" if prev_v is not None else "待公布"
+                        if tt_v is not None and pen_v is not None:
+                            s_diff_pct = round(float(pen_v) - float(tt_v), 2)
+                            dual_src_diffs.append(abs(s_diff_pct))
+                            diff_str = f"双源差 {s_diff_pct:+.2f}%"
+                            reason_str = "🟢 双源高度一致" if abs(s_diff_pct) <= 0.15 else "🟡 重仓估值与标的指数分歧"
+                        else:
+                            diff_str = "待晚间净值核验"
+                            reason_str = f"模型来源: {src_v}"
+
+                    audit_rows.append({
+                        "基金代码": c_aud,
+                        "基金名称": h_aud.fund_name,
+                        "净值状态": status_str,
+                        "当日综合估算(%)": f"{est_v:+.2f}%",
+                        "官方实际涨跌(%)": off_str,
+                        "天天/新浪估值(%)": f"{float(tt_v):+.2f}%" if tt_v is not None else "--",
+                        "指数/ETF穿透(%)": f"{float(pen_v):+.2f}%" if pen_v is not None else "--",
+                        "估算偏差 / 双源差": diff_str,
+                        "偏差归因与来源": reason_str
+                    })
+
+                off_count = len(off_published_diffs)
+                total_h_cnt = len(audit_rows)
+                mae_str = f"{(sum(off_published_diffs) / off_count):.2f}%" if off_count > 0 else "待晚间公布"
+                dual_mae_str = f"{(sum(dual_src_diffs) / len(dual_src_diffs)):.2f}%" if dual_src_diffs else "--"
+
+                c_aud_bar, c_aud_pop = st.columns([7.4, 2.6])
+                with c_aud_bar:
+                    st.caption(
+                        f"📊 **估值精度双轨对账**：今日官方净值已出 **{off_count}/{total_h_cnt} 只** ｜ "
+                        f"已出标的估算平均误差 (MAE): **{mae_str}** ｜ 基金级估值 vs 指数穿透平均分歧: **{dual_mae_str}**"
+                    )
+                with c_aud_pop:
+                    with st.popover("🎯 估值 vs 官方逐基对账单", use_container_width=True):
+                        st.markdown("##### 🎯 官方实际涨跌幅 vs 当日实时估算 逐基三方对账单")
+                        mc1, mc2, mc3, mc4 = st.columns(4)
+                        mc1.metric("官方净值已公布", f"{off_count}/{total_h_cnt} 只")
+                        mc2.metric("官方vs估算 MAE", mae_str)
+                        mc3.metric("双源平均分歧", dual_mae_str)
+                        mc4.metric("核算准则", "4位修约+C类日费")
+                        st.dataframe(pd.DataFrame(audit_rows), use_container_width=True, hide_index=True)
 
             # 4. 表格视图切换与渲染
             has_orders = len(rows_display) > 0 and (st.session_state.get("tab2_diagnosed", False) or st.session_state.get("tab2_rebalanced", False) or active_lid == "combat_29_funds")
@@ -6628,7 +6727,7 @@ with tab_holdings_and_rebalance:
                     df_resp_h = project_responsive_table_4col(df_disp, table_type="holdings")
                     st.dataframe(df_resp_h, use_container_width=True, hide_index=True)
                 else:
-                    nav_status_tip = "🟢 已收盘公布官方净值与实际涨跌" if is_official_nav_holdings else "🟡 盘中实时估值监控中"
+                    nav_status_tip = "🟢 已收盘公布官方净值与实际涨跌" if is_official_nav_holdings else "🟡 盘中实时估值双轨对账中"
                     st.caption(f"实时持仓资产明细（{nav_status_tip}，支持直接编辑代码与金额，保存时后台自动联网补齐净值与指标）：")
                     if not df_disp.empty:
                         edited_table = st.data_editor(
@@ -6641,6 +6740,8 @@ with tab_holdings_and_rebalance:
                                 "赎回费状态": st.column_config.TextColumn(disabled=True),
                                 "累计盈亏(元)": st.column_config.NumberColumn(format="¥%+.2f", disabled=True),
                                 "浮动盈亏率(%)": st.column_config.NumberColumn(format="%+.2f%%", disabled=True),
+                                "当日估算(%)": st.column_config.TextColumn("当日估算(%)", disabled=True, help="当日实时综合估算涨跌幅及估值来源，晚间官方净值出炉后依然保留用于对账。"),
+                                "官方涨跌(对比)": st.column_config.TextColumn("官方涨跌(对比)", disabled=True, help="官方公布后展示当日官方涨跌及与估算偏差；未公布时诚实标注待出及上期官方涨跌。"),
                                 col_holdings_chg: st.column_config.NumberColumn(
                                     col_holdings_chg,
                                     help="官方公布净值后为当日官方实际涨跌(%)；盘中时段为盘中实时估值(%)。",
@@ -6695,19 +6796,21 @@ with tab_holdings_and_rebalance:
                         df_resp_r = project_responsive_table_4col(df_orders_tbl, table_type="rebalance")
                         st.dataframe(df_resp_r, use_container_width=True, hide_index=True)
                     else:
-                        tip_tbl = "（🟢 已收盘公布官方净值与实际涨跌）" if is_official_nav_rebal else "（🟡 盘中实时估值预估）"
+                        tip_tbl = "（🟢 已收盘公布官方净值 · 双轨对账）" if is_official_nav_rebal else "（🟡 当日实时估算 vs 官方涨跌双轨对账）"
                         st.caption(f"🎯 今日调仓执行建议清单{tip_tbl}（严格对齐 10 列全维度机构风控规范）：")
                         st.dataframe(
                             df_orders_tbl,
                             column_config={
                                 "当前市值(元)": st.column_config.NumberColumn(format="¥%.2f"),
                                 "目标占比(%)": st.column_config.ProgressColumn(min_value=0, max_value=50, format="%.2f%%"),
-                                col_rebal_chg: st.column_config.NumberColumn(
-                                    col_rebal_chg,
-                                    help="官方公布净值后为当日官方实际涨跌(%)；盘中时段为盘中实时估值(%)。",
-                                    format="%+.2f%%"
+                                "当日估算(%)": st.column_config.TextColumn(
+                                    "当日估算(%) ⓘ",
+                                    help="当日盘中/收盘定格实时综合估算涨跌幅与来源标签；晚间官方净值出炉后绝不被覆盖，用于精准对账。"
                                 ),
-                                "份额": st.column_config.TextColumn("份额", width="small", help="基金份额类别 (A类前端收费 / C类销售服务费)"),
+                                "官方涨跌(对比)": st.column_config.TextColumn(
+                                    "官方涨跌(对比) ⓘ",
+                                    help="已出当日官方净值时展示 官方涨跌(差值) 与精度绿/黄/红灯；未公布时诚实标注 ⏳待出 与上期官方净值日期和涨跌幅。"
+                                ),
                                 "建议调仓金额(元)": st.column_config.NumberColumn(format="¥%+.2f"),
                                 "尾盘微观优化(bps)": st.column_config.TextColumn(
                                     "尾盘微观优化(bps) ⓘ",

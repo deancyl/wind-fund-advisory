@@ -4118,16 +4118,36 @@ class StrategyBridge:
             if is_defensive and diff_w > 0:
                 advice_share += f" ｜ 🛡️【极端防御】{defensive_advice}"
 
-            # 盘中实时估值与预估盈亏
+            # 盘中实时估值与官方净值双轨对账字段透传
             try:
                 from portfolio_manager import fetch_realtime_fund_quote
                 q = fetch_realtime_fund_quote(code)
                 realtime_gszzl = q.gszzl
+                est_gszzl = float(getattr(q, "est_gszzl", q.gszzl))
+                official_chg_pct = getattr(q, "official_chg_pct", None)
+                official_chg = getattr(q, "official_chg", 0.0)
+                prev_official_chg_pct = getattr(q, "prev_official_chg_pct", None)
+                tiantian_gszzl = getattr(q, "tiantian_gszzl", None)
+                penetration_gszzl = getattr(q, "penetration_gszzl", None)
+                official_pdate = str(getattr(q, "official_pdate", "") or "")
+                est_diff = getattr(q, "est_diff", None)
+                val_compare_str = str(getattr(q, "val_compare_str", "") or "")
+                est_source = str(getattr(q, "est_source", "") or "")
                 realtime_est_pnl = round(mv * (q.gszzl / 100.0), 2)
                 realtime_gztime = q.gztime
                 is_official_nav = getattr(q, 'is_official_nav', False)
             except Exception:
                 realtime_gszzl = 0.0
+                est_gszzl = 0.0
+                official_chg_pct = None
+                official_chg = 0.0
+                prev_official_chg_pct = None
+                tiantian_gszzl = None
+                penetration_gszzl = None
+                official_pdate = ""
+                est_diff = None
+                val_compare_str = ""
+                est_source = ""
                 realtime_est_pnl = 0.0
                 realtime_gztime = ""
                 is_official_nav = False
@@ -4153,6 +4173,17 @@ class StrategyBridge:
                 "advice_share": advice_share,
                 "safety_warning": safety_warning,
                 "realtime_gszzl": realtime_gszzl,
+                "est_gszzl": est_gszzl,
+                "official_chg_pct": official_chg_pct,
+                "official_chg": official_chg,
+                "prev_official_chg_pct": prev_official_chg_pct,
+                "tiantian_gszzl": tiantian_gszzl,
+                "penetration_gszzl": penetration_gszzl,
+                "official_pdate": official_pdate,
+                "official_date": official_pdate,
+                "est_diff": est_diff,
+                "val_compare_str": val_compare_str,
+                "est_source": est_source,
                 "realtime_est_pnl": realtime_est_pnl,
                 "realtime_gztime": realtime_gztime,
                 "is_official_nav": is_official_nav,
