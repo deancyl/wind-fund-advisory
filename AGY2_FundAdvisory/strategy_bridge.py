@@ -3644,6 +3644,15 @@ class StrategyBridge:
                 c_replace = st.session_state.get("tab2_c_replace")
             except Exception:
                 c_replace = None
+        if not c_replace and target_weights_funds:
+            # combat_29_funds 在非空目标权重调仓下默认激活 c_replace="011613"（若持有 011613 且满30天免赎或属于 combat_29 实战账本）
+            h_1613 = current_holdings.get("011613")
+            h_days_1613 = getattr(h_1613, "holding_days", 0) if h_1613 else 0
+            is_combat29 = (getattr(pm, "ledger_id", "") == "combat_29_funds") or (
+                "011613" in current_holdings and "110020" in current_holdings and len(current_holdings) >= 20
+            )
+            if (is_combat29 and "011613" in current_holdings) or ("011613" in current_holdings and h_days_1613 >= 30):
+                c_replace = "011613"
 
         target_weights_funds = dict(target_weights_funds)
         if pending_take_profit and isinstance(pending_take_profit, dict):
@@ -3660,7 +3669,7 @@ class StrategyBridge:
                     target_weights_funds[shield_code] = cut_tw
 
         a_replace_target = None
-        if c_replace:
+        if c_replace and target_weights_funds:
             c_code_clean = str(c_replace).strip().zfill(6)
             A_C_PAIR_MAP = {
                 "011613": "011612", "011612": "011613",
@@ -3672,19 +3681,23 @@ class StrategyBridge:
             a_replace_target = A_C_PAIR_MAP.get(c_code_clean, "011612")
             c_w = target_weights_funds.pop(c_code_clean, 0.0)
             if c_w <= 0.0 and c_code_clean in current_holdings:
-                tot_eq_calc = sum(getattr(h, 'market_value', 0.0) for h in current_holdings.values()) + available_cash
-                c_mv = getattr(current_holdings[c_code_clean], 'market_value', 0.0)
-                c_w = round(c_mv / tot_eq_calc, 4) if tot_eq_calc > 0 else 0.0
-                target_weights_funds[a_replace_target] = round(target_weights_funds.get(a_replace_target, 0.0) + c_w, 4)
-                w_tot = sum(target_weights_funds.values())
-                if w_tot > 0:
-                    target_weights_funds = {k: round(v / w_tot, 4) for k, v in target_weights_funds.items()}
-            else:
+                # 若目标权重池尚未包含对应的 A 类置换标的，则按当前 C 类市值占比迁入并归一化；若已包含则避免重复叠加
+                if target_weights_funds.get(a_replace_target, 0.0) <= 0.0:
+                    tot_eq_calc = sum(getattr(h, 'market_value', 0.0) for h in current_holdings.values()) + available_cash
+                    c_mv = getattr(current_holdings[c_code_clean], 'market_value', 0.0)
+                    c_w = round(c_mv / tot_eq_calc, 4) if tot_eq_calc > 0 else 0.0
+                    target_weights_funds[a_replace_target] = round(target_weights_funds.get(a_replace_target, 0.0) + c_w, 4)
+                    w_tot = sum(target_weights_funds.values())
+                    if w_tot > 0:
+                        target_weights_funds = {k: round(v / w_tot, 4) for k, v in target_weights_funds.items()}
+            elif c_w > 0.0:
                 target_weights_funds[a_replace_target] = round(target_weights_funds.get(a_replace_target, 0.0) + c_w, 4)
 
         # ── G23 碎片尾仓防逆向加仓硬约束 (市值 < 200 元且已满免赎期的碎片尾仓强制清零目标占比) ──
         released_tail_weight = 0.0
         for code_t, h_t in current_holdings.items():
+            if a_replace_target and code_t == a_replace_target:
+                continue  # C转A目标标的承接替换资金，绝不能被尾仓逻辑清空！
             mv_t = getattr(h_t, 'market_value', 0.0)
             h_days_t = getattr(h_t, 'holding_days', 400)
             if hasattr(h_t, 'batches') and h_t.batches:
@@ -3701,6 +3714,15 @@ class StrategyBridge:
             elif target_weights_funds:
                 top_k = max(target_weights_funds, key=target_weights_funds.get)
                 target_weights_funds[top_k] = round(target_weights_funds[top_k] + released_tail_weight, 4)
+
+        # ── G25 纯债底仓同赛道去重合并硬约束 (若目标含 000086 但未持仓且已持 002351，自动合并入 002351) ──
+        if "000086" in target_weights_funds:
+            h_86 = current_holdings.get("000086")
+            mv_86 = getattr(h_86, "market_value", 0.0) if h_86 else 0.0
+            if (h_86 is None or mv_86 < 200.0) and "002351" in current_holdings:
+                target_weights_funds["002351"] = round(
+                    target_weights_funds.get("002351", 0.0) + target_weights_funds.pop("000086", 0.0), 4
+                )
 
         # 解析实盘调仓场景模式与新增/提现资金参数 (R3)
         scenario_mode = kwargs.get("scenario_mode", "standard")

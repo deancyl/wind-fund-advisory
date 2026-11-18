@@ -65,6 +65,7 @@ from portfolio_manager import (
     fuzzy_match_fund_by_name,
     parse_smart_text_holdings,
     fetch_realtime_fund_quote,
+    prefetch_batch_fund_quotes,
     fetch_realtime_index_quote,
     fetch_batch_realtime_indices,
     clear_realtime_cache,
@@ -160,6 +161,7 @@ if _need_reimport or not st.session_state.get("_modules_initialized"):
         SECTOR_FUND_SELECTION, get_fund_selection_funnel_stats,
         search_funds_in_catalog, fuzzy_match_fund_by_name, parse_smart_text_holdings,
         fetch_realtime_fund_quote, fetch_realtime_index_quote,
+        prefetch_batch_fund_quotes,
         fetch_batch_realtime_indices,
         clear_realtime_cache, FundQuote, get_fund_short_alias
     )
@@ -185,6 +187,9 @@ if _need_reimport or not st.session_state.get("_modules_initialized"):
         RADAR_SECTOR_CATALOG
     )
     st.session_state["_modules_initialized"] = True
+
+# 模块级单基波动率与均线偏离度时序计算高速缓存 (避免 UI 渲染循环重复读 Parquet)
+_APP_VOL_BIAS_MEM_CACHE: Dict[Tuple[str, str], Dict[str, float]] = {}
 
 
 def _clean_html(html_str: str) -> str:
@@ -3471,11 +3476,13 @@ with st.sidebar:
             clear_realtime_cache()
             fetch_custom_realtime_indices(codes=st.session_state.sb_selected_corridor_indices, use_cache=False)
             fetch_market_turnover_and_sentiment(force_refresh=True)
-            fetch_or_calc_index_valuations(force_refresh=True)
+            fetch_or_calc_index_valuations(force_refresh=False)  # 严格使用 False，彻底消除外部 PE 爬虫卡死！
+            if hasattr(pm, "holdings") and pm.holdings:
+                prefetch_batch_fund_quotes(list(pm.holdings.keys()), force_refresh=True)  # 单次 HTTP 批量获取全量估值
             pm.sync_holdings_live_nav(use_intraday_gsz=True)
+            st.session_state["_cached_session_intraday_pnl"] = None  # 强制使 60s 持仓盈亏缓存失效
+            st.session_state["_cached_session_intraday_pnl_ts"] = 0
             StrategyBridge._cached_snapshot = None
-            StrategyBridge._cached_matrix = None
-            StrategyBridge.get_latest_market_snapshot(force_reload=True, auto_sync=False)
             st.rerun()
 
     # 根据展示数量滑块切片取前 N 只
@@ -6468,10 +6475,15 @@ with tab_holdings_and_rebalance:
                 df_disp.rename(columns={"今日实时估值涨跌(%)": col_holdings_chg}, inplace=True)
 
             # 预计算调仓建议单（如果已诊断或已触发）
-            tier_weights_res = StrategyBridge.compute_dynamic_tier_weights(tier=active_tier, market_snapshot=snapshot)
-            tier_target_w = tier_weights_res.get("weights", tier_weights_res) if isinstance(tier_weights_res, dict) else {}
+            if active_lid == "combat_29_funds":
+                rx_preset = StrategyBridge.get_combat_29_vs_reconstructed_6_preset()
+                tier_target_w = dict(rx_preset.get("reconstructed_6_weights", {}))
+            else:
+                tier_weights_res = StrategyBridge.compute_dynamic_tier_weights(tier=active_tier, market_snapshot=snapshot)
+                tier_target_w = tier_weights_res.get("weights", tier_weights_res) if isinstance(tier_weights_res, dict) else {}
             _cur_buf = float(st.session_state.get("rebalance_buffer_pct", 3.0))
             effective_avail_cash = pm.available_cash
+            c_replace = st.session_state.get("tab2_c_replace") or ("011613" if active_lid == "combat_29_funds" else None)
             ai_orders_res = StrategyBridge.generate_ai_rebalance_orders(
                 current_holdings=pm.holdings,
                 available_cash=effective_avail_cash,
@@ -6481,7 +6493,7 @@ with tab_holdings_and_rebalance:
                 min_buffer_pct=_cur_buf,
                 locked_funds=st.session_state.get("tab2_locked_funds"),
                 pending_take_profit=st.session_state.get("tab2_pending_take_profit"),
-                c_replace=st.session_state.get("tab2_c_replace"),
+                c_replace=c_replace,
                 scenario_mode=st.session_state.get("rad_tab2_scenario_mode", "standard"),
                 core_anchor_code="002351"
             )
@@ -6515,10 +6527,16 @@ with tab_holdings_and_rebalance:
                     mv_val = float(it.get("market_value", 0.0))
                     safety_warn = str(it.get("safety_warning", ""))
 
-                    # 1. 动态精算微观执行滑点优化基点（消除静态硬编码）
+                    # 1. 动态精算微观执行滑点优化基点（消除静态硬编码与重复 Parquet 磁盘读取）
                     if abs(diff_amt) > 100:
                         try:
-                            f_metrics = SmartExecutionDCAEngine.get_fund_real_volatility_and_bias(f_code, f_name)
+                            today_cache_key = (f_code, datetime.now().strftime("%Y-%m-%d"))
+                            if today_cache_key in _APP_VOL_BIAS_MEM_CACHE:
+                                f_metrics = _APP_VOL_BIAS_MEM_CACHE[today_cache_key]
+                            else:
+                                f_metrics = SmartExecutionDCAEngine.get_fund_real_volatility_and_bias(f_code, f_name)
+                                _APP_VOL_BIAS_MEM_CACHE[today_cache_key] = f_metrics
+
                             slip_res = SmartExecutionDCAEngine.calculate_vwap_execution_slippage(
                                 order_amount=abs(diff_amt),
                                 fund_code=f_code,
@@ -6537,7 +6555,7 @@ with tab_holdings_and_rebalance:
                     if "手动锁定" in action_raw or "禁卖" in action_raw or "锁定" in action_raw or f_code in (st.session_state.get("tab2_locked_funds") or []):
                         op_action = "🔒 已手动锁定禁卖"
                         op_point = "主动风控·锁死持仓下界"
-                    elif "C转A" in action_raw or "置换" in action_raw or (st.session_state.get("tab2_c_replace") and f_code == st.session_state.get("tab2_c_replace")):
+                    elif "C转A" in action_raw or "置换" in action_raw or (c_replace and f_code == c_replace):
                         op_action = "🔄 C转A零费率置换"
                         op_point = "同系基金内部免赎平移·年省0.4%销售服务费"
                     elif 0 <= h_days < 7 and diff_amt < -10:
@@ -6550,7 +6568,7 @@ with tab_holdings_and_rebalance:
                         op_action = "⏳ 临近30天免赎缓卖"
                         days_left = max(1, 30 - h_days)
                         op_point = f"已持有{h_days}天·差{days_left}天满30天免赎·建议缓卖省0.50%"
-                    elif (t_w_val <= 0.0001 or "清仓" in action_raw or "清扫" in action_raw or (diff_amt < -10 and abs(diff_amt + mv_val) < 5.0)):
+                    elif mv_val < 500.0 and (t_w_val <= 0.0001 or "清仓" in action_raw or "清扫" in action_raw or (diff_amt < -10 and abs(diff_amt + mv_val) < 5.0)):
                         op_action = "🧹 建议清仓归拢"
                         op_point = f"免赎全额回收¥{mv_val:,.0f}·资金归拢核心底仓"
                     elif diff_amt > 100:
@@ -6558,7 +6576,7 @@ with tab_holdings_and_rebalance:
                         op_point = f"增配¥{abs(diff_amt):,.0f}·尾盘锚定/现金分红"
                     elif diff_amt < -100:
                         op_action = "➖ 建议减仓"
-                        op_point = f"减配¥{abs(diff_amt):,.0f}·阶梯退出/零摩擦落袋"
+                        op_point = f"减配¥{abs(diff_amt):,.0f}·防守控仓/阶梯退出"
                     else:
                         op_action = "✅ 维持现状"
                         op_point = "偏离在缓冲带内·无需无效换仓"

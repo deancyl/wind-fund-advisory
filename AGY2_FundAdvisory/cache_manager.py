@@ -584,10 +584,11 @@ class FundMetadataManager:
     CACHE_DIR = FUNDS_META_DIR
     MASTER_MANAGERS = _WORKSPACE_ROOT / "data" / "master" / "fund_managers.parquet"
     DUCKDB_PATH = _WORKSPACE_ROOT / "data" / "storage.duckdb"
+    _MASTER_MANAGERS_MAP: Optional[Dict[str, Dict[str, Any]]] = None
 
     @classmethod
-    def get_fund_metadata(cls, fund_code: str, force_refresh: bool = False, max_age_hours: float = 24.0) -> Dict[str, Any]:
-        """获取基金元数据（规模/经理/股债仓位/重仓股），带 24h 本地 TTL 缓存与离线兜底"""
+    def get_fund_metadata(cls, fund_code: str, force_refresh: bool = False, max_age_hours: float = 24.0, cache_only: bool = False) -> Dict[str, Any]:
+        """获取基金元数据（规模/经理/股债仓位/重仓股），带 24h 本地 TTL 缓存与离线兜底；cache_only=True 时严禁同步联网爬季报"""
         code = str(fund_code).strip().zfill(6)
         cache_file = cls.CACHE_DIR / f"{code}_meta.json"
 
@@ -596,11 +597,14 @@ class FundMetadataManager:
             try:
                 mtime = cache_file.stat().st_mtime
                 age_h = (datetime.datetime.now().timestamp() - mtime) / 3600.0
-                if age_h < max_age_hours:
+                if cache_only or age_h < max_age_hours:
                     with open(cache_file, "r", encoding="utf-8") as f:
                         return json.load(f)
             except Exception:
                 pass
+
+        if cache_only:
+            return cls.fallback_from_master(code)
 
         # 2. 联网调用天天基金接口
         try:
@@ -724,26 +728,38 @@ class FundMetadataManager:
 
     @classmethod
     def fallback_from_master(cls, fund_code: str) -> Dict[str, Any]:
-        """从本地数据湖仓提取兜底元数据"""
+        """从本地数据湖仓提取兜底元数据（内存哈希表缓存，避免重复读取 Parquet 导致主线程卡顿）"""
         code = str(fund_code).strip().zfill(6)
         manager_name = "未知"
         term_years = 0.0
         aum = None
         term_return = 0.0
 
-        if cls.MASTER_MANAGERS.exists():
+        if cls._MASTER_MANAGERS_MAP is None:
+            mgr_map: Dict[str, Dict[str, Any]] = {}
+            if cls.MASTER_MANAGERS.exists():
+                try:
+                    df_mgr = pd.read_parquet(cls.MASTER_MANAGERS)
+                    if "fund_code" in df_mgr.columns:
+                        df_dedup = df_mgr.drop_duplicates(subset=["fund_code"], keep="first")
+                        for rec in df_dedup.to_dict("records"):
+                            fc = str(rec.get("fund_code", "")).strip().zfill(6)
+                            if fc:
+                                mgr_map[fc] = rec
+                except Exception:
+                    pass
+            cls._MASTER_MANAGERS_MAP = mgr_map
+
+        row = (cls._MASTER_MANAGERS_MAP or {}).get(code)
+        if row:
             try:
-                df_mgr = pd.read_parquet(cls.MASTER_MANAGERS)
-                sub = df_mgr[df_mgr["fund_code"] == code]
-                if not sub.empty:
-                    row = sub.iloc[0]
-                    manager_name = str(row.get("manager_name", "未知"))
-                    career_days = float(row.get("career_days", 0) or 0)
-                    term_years = round(career_days / 365.25, 2)
-                    aum_val = row.get("aum_billion")
-                    aum = round(float(aum_val), 2) if pd.notna(aum_val) else None
-                    ret_val = row.get("best_return_pct")
-                    term_return = round(float(ret_val), 2) if pd.notna(ret_val) else 0.0
+                manager_name = str(row.get("manager_name", "未知"))
+                career_days = float(row.get("career_days", 0) or 0)
+                term_years = round(career_days / 365.25, 2)
+                aum_val = row.get("aum_billion")
+                aum = round(float(aum_val), 2) if pd.notna(aum_val) else None
+                ret_val = row.get("best_return_pct")
+                term_return = round(float(ret_val), 2) if pd.notna(ret_val) else 0.0
             except Exception:
                 pass
 

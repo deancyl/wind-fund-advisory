@@ -593,11 +593,11 @@ class MultiLedgerManager:
             else:
                 raise KeyError(f"账本未找到: {ledger_id}")
 
-        # 动态延迟导入以避免循环依赖
+        # 动态延迟导入以避免循环依赖（优先与 app_gui 统一从 portfolio_manager 导入，防止双模块实例导致实时行情缓存分裂）
         try:
-            from AGY2_FundAdvisory.portfolio_manager import PortfolioManager
-        except ImportError:
             from portfolio_manager import PortfolioManager
+        except ImportError:
+            from AGY2_FundAdvisory.portfolio_manager import PortfolioManager
 
         json_path = self.root / meta.get("file", "portfolio_ledger.json")
         db_path = self.root / meta.get("db_file", "portfolio_state.db")

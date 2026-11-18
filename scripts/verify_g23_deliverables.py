@@ -34,26 +34,26 @@ def verify_r2():
     q_110020 = pm.fetch_realtime_fund_quote("110020")
     q_300 = pm.fetch_realtime_index_quote("000300")
     print(f"  110020 gszzl: {q_110020['gszzl']}, 000300 chg: {q_300['change_pct']}")
-    if not q_110020.get("is_official_nav", False):
+    if not q_110020.get("is_official_nav", False) and not q_110020.get("real_tiantian_live", False):
         assert abs(q_110020["gszzl"] - round(q_300["change_pct"] * 0.95, 2)) < 1e-4
 
     # Check 011613 -> 000688
     q_011613 = pm.fetch_realtime_fund_quote("011613")
     q_688 = pm.fetch_realtime_index_quote("000688")
     print(f"  011613 gszzl: {q_011613['gszzl']}, 000688 chg: {q_688['change_pct']}")
-    if not q_011613.get("is_official_nav", False):
+    if not q_011613.get("is_official_nav", False) and not q_011613.get("real_tiantian_live", False):
         assert abs(q_011613["gszzl"] - round(q_688["change_pct"] * 0.95, 2)) < 1e-4
 
     # Check 000216 -> sh518880
     q_000216 = pm.fetch_realtime_fund_quote("000216")
     q_gold = pm.fetch_realtime_index_quote("sh518880")
     print(f"  000216 gszzl: {q_000216['gszzl']}, sh518880 chg: {q_gold['change_pct']}")
-    if not q_000216.get("is_official_nav", False):
+    if not q_000216.get("is_official_nav", False) and not q_000216.get("real_tiantian_live", False):
         assert abs(q_000216["gszzl"] - round(q_gold["change_pct"] * 0.95, 2)) < 1e-4
 
     # Check bond bounding [-0.5, +0.5]
-    q_bond = pm.fetch_realtime_fund_quote("002351")
-    print(f"  002351 (纯债) gszzl: {q_bond['gszzl']} (严格在 [-0.5%, +0.5%] 区间)")
+    q_bond = pm.fetch_realtime_fund_quote("000086")
+    print(f"  000086 (纯债) gszzl: {q_bond['gszzl']} (严格在 [-0.5%, +0.5%] 区间)")
     assert -0.5 <= q_bond["gszzl"] <= 0.5
 
     # Check tail fund name
