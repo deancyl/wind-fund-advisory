@@ -2375,27 +2375,33 @@ try:
         with open(_DISK_QUOTE_CACHE_FILE, "r", encoding="utf-8") as _dqf:
             _disk_q_data = json.load(_dqf)
             _now_init = time.time()
+            _today_init_str = datetime.now().strftime("%Y-%m-%d")
             for _c, _item in _disk_q_data.items():
-                _REALTIME_QUOTE_CACHE[_c] = (
-                    _now_init,
-                    FundQuote(
-                        name=_item.get("name", f"公募基金_{_c}"),
-                        dwjz=float(_item.get("dwjz", 1.0)),
-                        gsz=float(_item.get("gsz", 1.0)),
-                        gszzl=float(_item.get("gszzl", 0.0)),
-                        gztime=_item.get("gztime", ""),
-                        fund_code=_c,
-                        valuation_corrected=_item.get("valuation_corrected", False)
+                _saved_ts = float(_item.get("cached_ts", 0.0))
+                _gz_str = str(_item.get("gztime", ""))
+                if _saved_ts > 0 and (_now_init - _saved_ts < 180.0) and _gz_str.startswith(_today_init_str):
+                    _REALTIME_QUOTE_CACHE[_c] = (
+                        _saved_ts,
+                        FundQuote(
+                            name=_item.get("name", f"公募基金_{_c}"),
+                            dwjz=float(_item.get("dwjz", 1.0)),
+                            gsz=float(_item.get("gsz", 1.0)),
+                            gszzl=float(_item.get("gszzl", 0.0)),
+                            gztime=_gz_str,
+                            fund_code=_c,
+                            valuation_corrected=_item.get("valuation_corrected", False),
+                            is_official_nav=_item.get("is_official_nav", False)
+                        )
                     )
-                )
 except Exception:
     pass
+
 
 def _sync_realtime_quotes_to_disk():
     try:
         _DISK_QUOTE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         dump_data = {}
-        for c, (_, q) in _REALTIME_QUOTE_CACHE.items():
+        for c, (c_ts, q) in _REALTIME_QUOTE_CACHE.items():
             dump_data[c] = {
                 "name": q.name,
                 "dwjz": q.dwjz,
@@ -2403,47 +2409,53 @@ def _sync_realtime_quotes_to_disk():
                 "gszzl": q.gszzl,
                 "gztime": q.gztime,
                 "fund_code": q.fund_code,
-                "valuation_corrected": getattr(q, "valuation_corrected", False)
+                "valuation_corrected": getattr(q, "valuation_corrected", False),
+                "is_official_nav": getattr(q, "is_official_nav", False),
+                "cached_ts": float(c_ts)
             }
         with open(_DISK_QUOTE_CACHE_FILE, "w", encoding="utf-8") as _dqf:
             json.dump(dump_data, _dqf, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
+
 FUND_BENCHMARK_INDEX_MAP: Dict[str, str] = {
-    # 纯债 / 偏债
-    "002351": "s_sh000012", # 国债指数
-    "002352": "s_sh000012",
-    "018757": "s_sh000012",
-    # QDII 标普500
-    "050025": "s_sh513500", # 标普500 ETF
-    "001071": "s_sh513500",
-    # 黄金抗通胀
-    "000216": "s_sh518880", # 黄金ETF
-    "000217": "s_sh518880",
-    # 沪深300
-    "007339": "s_sh000300",
-    "110020": "s_sh000300",
-    # 中证500
-    "001053": "s_sh000905",
-    "161017": "s_sh000905",
-    # 科创50
-    "011612": "s_sh000688",
-    "011613": "s_sh000688",
-    # 中证1000
-    "016633": "s_sh000852",
-    "016634": "s_sh000852",
-    # 红利
-    "100032": "s_sh000922",
-    "005561": "s_sh000922",
+    "002351": "sh511260",
+    "002352": "sh511260",
+    "000086": "sh511260",
+    "018757": "sh000922",
+    "050025": "sh513500",
+    "001071": "sh513500",
+    "000216": "sh518880",
+    "000217": "sh518880",
+    "007339": "sh000300",
+    "110020": "sh000300",
+    "001053": "sh000905",
+    "161017": "sh000905",
+    "011612": "sh000688",
+    "011613": "sh000688",
+    "016633": "sh000852",
+    "016634": "sh000852",
+    "100032": "sh000922",
+    "005561": "sh512890",
 }
 
 
 def clear_realtime_cache() -> None:
-    """清空基金实时估值与大盘指数实时行情防抖缓存池"""
+    """清空基金实时估值与大盘指数实时行情防抖缓存池，并物理删除过期磁盘快照"""
     _REALTIME_QUOTE_CACHE.clear()
     _REALTIME_INDEX_CACHE.clear()
     _FUND_QUOTA_MEMORY_CACHE.clear()
+    try:
+        if _DISK_QUOTE_CACHE_FILE.exists():
+            _DISK_QUOTE_CACHE_FILE.unlink()
+    except Exception:
+        pass
+    try:
+        from data_loader import _REALTIME_CORRIDOR_CACHE
+        _REALTIME_CORRIDOR_CACHE.clear()
+    except Exception:
+        pass
 
 
 # =====================================================================
@@ -2562,83 +2574,169 @@ def fetch_realtime_fund_quota(
 
 def fetch_realtime_index_quote(index_code: str = "sh000300", use_cache: bool = True) -> Dict[str, Any]:
     """
-    拉取大盘或基准指数盘中实时行情点位与涨跌幅 (支持 sh000300 / s_sh000300 / gb_inx 等)
-    返回: {"name": str, "point": float, "change": float, "change_pct": float, "time_str": str, "date_str": str}
+    拉取大盘、行业基准指数或场内 ETF 盘中实时行情点位与涨跌幅：
+    1. 第一顺位：东方财富 push2 实时接口（与左侧核心指数走廊 100% 同源同真，支持 2.H30269、0.399997、1.000300 等）；
+    2. 第二顺位：腾讯 qt.gtimg 实时接口；
+    3. 第三顺位：新浪 hq.sinajs 实时接口（严格区分 sh 与 sz 前缀，严禁把 399/159/002/300 深市代码错拼为 s_sh）；
+    4. 离线兜底：显式标记 is_fallback=True，严禁用网络失败的 0.0% 覆盖真实基金估值。
     """
-    sym = index_code.strip().lower()
-    if sym.startswith("gb_"):
-        # 修复美股指数代码（如 gb_inx / gb_ixic 等），严禁添加 s_ 或 s_sh 前缀！
-        pass
-    elif not sym.startswith("s_") and not sym.startswith("sh") and not sym.startswith("sz"):
-        sym = f"s_sh{sym}"
-    elif not sym.startswith("s_"):
-        sym = f"s_{sym}"
+    raw_in = str(index_code or "sh000300").strip()
+    raw_lower = raw_in.lower()
+    clean_c = raw_lower.replace("s_sh", "").replace("s_sz", "").replace("sh", "").replace("sz", "").strip()
 
+    # 规范化 Sina/Tencent 符号 sym 与 东财 secid
+    SH_INDEX_SET = {
+        "000001", "000012", "000015", "000016", "000300", "000685",
+        "000688", "000852", "000905", "000922", "000932", "000933"
+    }
+    if raw_lower.startswith("gb_"):
+        sym = raw_lower
+        em_secids = []
+    elif clean_c.upper() == "H30269":
+        sym = "s_sh512890"
+        em_secids = ["2.H30269", "1.512890"]
+    elif raw_lower.startswith(("s_sh", "sh")):
+        sym = f"s_sh{clean_c}"
+        em_secids = [f"1.{clean_c}"]
+    elif raw_lower.startswith(("s_sz", "sz")):
+        sym = f"s_sz{clean_c}"
+        em_secids = [f"0.{clean_c}"]
+    elif clean_c in SH_INDEX_SET or clean_c.startswith(("5", "6")):
+        sym = f"s_sh{clean_c}"
+        em_secids = [f"1.{clean_c}"]
+    elif clean_c.startswith(("399", "159", "00", "30")):
+        sym = f"s_sz{clean_c}"
+        em_secids = [f"0.{clean_c}"]
+    else:
+        sym = f"s_sh{clean_c}"
+        em_secids = [f"1.{clean_c}", f"0.{clean_c}"]
+
+    cache_key = clean_c.upper() if clean_c.upper() == "H30269" else sym
     now_ts = time.time()
-    if use_cache and sym in _REALTIME_INDEX_CACHE:
-        cached_ts, cached_data = _REALTIME_INDEX_CACHE[sym]
-        if now_ts - cached_ts < 120.0:
+    if use_cache and cache_key in _REALTIME_INDEX_CACHE:
+        cached_ts, cached_data = _REALTIME_INDEX_CACHE[cache_key]
+        if now_ts - cached_ts < 60.0 and not cached_data.get("is_fallback", False):
             return cached_data
 
+    # 1. 第一顺位：东方财富 push2 接口（与左侧行情走廊完全同源）
+    if em_secids:
+        try:
+            secids_str = ",".join(em_secids)
+            em_url = f"https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&secids={secids_str}&fields=f12,f14,f2,f3,f4,f18"
+            req_em = urllib.request.Request(
+                em_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Referer": "https://quote.eastmoney.com/"
+                }
+            )
+            with urllib.request.urlopen(req_em, timeout=2.0) as resp_em:
+                em_json = json.loads(resp_em.read().decode("utf-8"))
+            diffs = em_json.get("data", {}).get("diff", []) or []
+            for it in diffs:
+                raw_pt = it.get("f2")
+                if raw_pt in (None, "-", ""):
+                    continue
+                pt = float(raw_pt)
+                if pt <= 0:
+                    continue
+                chg = float(it.get("f4", 0.0)) if it.get("f4") not in (None, "-", "") else 0.0
+                chg_pct = float(it.get("f3", 0.0)) if it.get("f3") not in (None, "-", "") else 0.0
+                f18 = it.get("f18")
+                if abs(chg_pct) < 1e-6 and f18 not in (None, "-", ""):
+                    prev_c = float(f18)
+                    if prev_c > 0 and abs(pt - prev_c) > 1e-5:
+                        chg = round(pt - prev_c, 4)
+                        chg_pct = round((pt / prev_c - 1.0) * 100.0, 2)
+                res = {
+                    "symbol": raw_in,
+                    "name": str(it.get("f14") or clean_c),
+                    "point": pt,
+                    "change": chg,
+                    "change_pct": round(chg_pct, 2),
+                    "time_str": datetime.now().strftime("%H:%M"),
+                    "date_str": datetime.now().strftime("%Y-%m-%d"),
+                    "is_fallback": False
+                }
+                _REALTIME_INDEX_CACHE[cache_key] = (now_ts, res)
+                _REALTIME_INDEX_CACHE[sym] = (now_ts, res)
+                return res
+        except Exception:
+            pass
+
+    # 2. 第二顺位：新浪实时行情接口
     try:
         url = f"https://hq.sinajs.cn/list={sym}"
         req = urllib.request.Request(
             url,
             headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Referer": "https://finance.sina.com.cn"
             }
         )
-        with urllib.request.urlopen(req, timeout=2.5) as resp:
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
             content = resp.read().decode("gbk", errors="ignore")
 
-        m = re.search(r'var hq_str_' + sym + r'="(.*?)";', content)
+        m = re.search(r'var hq_str_' + re.escape(sym) + r'="(.*?)";', content)
         if m and m.group(1).strip():
             parts = m.group(1).strip().split(",")
             name = parts[0]
             if sym.startswith("gb_"):
-                # 新浪美股指数格式: name, point, change_pct, datetime, change, ...
                 point = float(parts[1]) if len(parts) > 1 and parts[1] else 0.0
                 change_pct = float(parts[2]) if len(parts) > 2 and parts[2] else 0.0
                 change = float(parts[4]) if len(parts) > 4 and parts[4] else 0.0
             else:
-                # A股/ETF 简易格式: name, point, change, change_pct, volume, amount
                 point = float(parts[1]) if len(parts) > 1 and parts[1] else 0.0
                 change = float(parts[2]) if len(parts) > 2 and parts[2] else 0.0
                 change_pct = float(parts[3]) if len(parts) > 3 and parts[3] else 0.0
 
-            res = {
-                "name": name,
-                "point": point,
-                "change": change,
-                "change_pct": change_pct,
-                "time_str": datetime.now().strftime("%H:%M"),
-                "date_str": datetime.now().strftime("%Y-%m-%d")
-            }
-            _REALTIME_INDEX_CACHE[sym] = (now_ts, res)
-            return res
+            if point > 0:
+                res = {
+                    "symbol": raw_in,
+                    "name": name,
+                    "point": point,
+                    "change": change,
+                    "change_pct": round(change_pct, 2),
+                    "time_str": datetime.now().strftime("%H:%M"),
+                    "date_str": datetime.now().strftime("%Y-%m-%d"),
+                    "is_fallback": False
+                }
+                _REALTIME_INDEX_CACHE[cache_key] = (now_ts, res)
+                _REALTIME_INDEX_CACHE[sym] = (now_ts, res)
+                return res
     except Exception:
         pass
 
-    # 兜底基准
+    # 3. 第三顺位：离线最新双日真实涨跌幅兜底 (杜绝 0.00% 假平盘)
+    off_pt, off_chg, off_pct = 1000.0, 0.0, 0.0
+    try:
+        from data_loader import calc_offline_2day_return
+        off_res = calc_offline_2day_return(clean_c.upper() if clean_c.upper() == "H30269" else clean_c)
+        if off_res:
+            off_pt, off_chg, off_pct = float(off_res[0]), float(off_res[1]), float(off_res[2])
+    except Exception:
+        pass
+
     if sym.startswith("gb_"):
         fb_name = "标普500指数" if "inx" in sym else ("纳斯达克指数" if "ixic" in sym else "美股指数")
         fb_point = 5800.0 if "inx" in sym else 18000.0
     else:
         is_c300 = "300" in sym
-        is_bond_idx = any(k in sym.upper() for k in ["国债", "CBA", "BOND"]) or sym.endswith("12")
+        is_bond_idx = any(k in sym.upper() for k in ["国债", "CBA", "BOND", "511260"]) or sym.endswith("12")
         fb_name = "沪深300" if is_c300 else ("国债指数" if is_bond_idx else "基准指数")
-        fb_point = 4083.87 if is_c300 else (231.95 if is_bond_idx else 1000.0)
+        fb_point = off_pt if off_pt > 0 else (4083.87 if is_c300 else (231.95 if is_bond_idx else 1000.0))
 
     fb = {
+        "symbol": raw_in,
         "name": fb_name,
         "point": fb_point,
-        "change": 0.0,
-        "change_pct": 0.0,
+        "change": off_chg,
+        "change_pct": off_pct,
         "time_str": datetime.now().strftime("%H:%M"),
-        "date_str": datetime.now().strftime("%Y-%m-%d")
+        "date_str": datetime.now().strftime("%Y-%m-%d"),
+        "is_fallback": True
     }
-    _REALTIME_INDEX_CACHE[sym] = (now_ts, fb)
+    _REALTIME_INDEX_CACHE[cache_key] = (now_ts, fb)
     return fb
 
 
@@ -2828,39 +2926,38 @@ class FundQuote(dict):
 # 第一级：ETF 联接与标准指数基金穿透锚定表 (0.95 系数)
 FEEDER_AND_STANDARD_INDEX_MAPPING: Dict[str, str] = {
     # 宽基核心
-    "110020": "000300",  # 易方达沪深300ETF联接A -> 沪深300指数 (000300)
-    "007339": "000300",  # 易方达沪深300ETF联接C
-    "011612": "000688",  # 工银科创50联接A -> 科创50指数 (000688)
-    "011613": "000688",  # 工银科创50联接C -> 科创50指数 (000688)
-    "000478": "000905",  # 建信中证500联接A -> 中证500 (000905)
-    "001053": "000905",  # 华夏中证500联接A -> 中证500 (000905)
-    "161017": "000905",  # 富国中证500
-    "004194": "000852",  # 招商中证1000A -> 中证1000 (000852)
-    "016633": "000852",  # 华夏中证1000联接A
-    "016634": "000852",  # 华夏中证1000联接C -> 中证1000 (000852)
-    "000058": "399005",  # 华夏中小板ETF联接A -> 中小100 (399005)
-    "006163": "399005",  # 华夏中小板ETF联接C -> 中小100 (399005)
+    "110020": "sh000300",  # 易方达沪深300ETF联接A -> 沪深300指数 (sh000300)
+    "007339": "sh000300",  # 易方达沪深300ETF联接C
+    "011612": "sh000688",  # 工银科创50联接A -> 科创50指数 (sh000688)
+    "011613": "sh000688",  # 工银科创50联接C -> 科创50指数 (sh000688)
+    "000478": "sh000905",  # 建信中证500联接A -> 中证500 (sh000905)
+    "001053": "sh000905",  # 华夏中证500联接A -> 中证500 (sh000905)
+    "161017": "sh000905",  # 富国中证500
+    "004194": "sh000852",  # 招商中证1000A -> 中证1000 (sh000852)
+    "016633": "sh000852",  # 华夏中证1000联接A
+    "016634": "sh000852",  # 华夏中证1000联接C -> 中证1000 (sh000852)
+    "000058": "sz399005",  # 华夏中小板ETF联接A -> 中小100 (sz399005)
+    "006163": "sz399005",  # 华夏中小板ETF联接C -> 中小100 (sz399005)
     # 红利高股息
-    "005561": "H30269",  # 创金合信红利低波A -> 红利低波 (H30269)
-    "005562": "H30269",  # 创金合信红利低波C
-    "007466": "H30269",  # 华泰柏瑞中证红利低波联接A
-    "007467": "H30269",  # 华泰柏瑞中证红利低波联接C
-    "100032": "000922",  # 富国中证红利指数增强A -> 中证红利 (000922)
-    "100033": "000922",  # 富国中证红利指数增强C
-    "012643": "000922",  # 招商中证红利ETF联接A
-    "012644": "000922",  # 招商中证红利ETF联接C
+    "005561": "s_sh512890", # 创金合信红利低波A -> 红利低波 (s_sh512890 / H30269)
+    "005562": "s_sh512890", # 创金合信红利低波C
+    "007466": "s_sh512890", # 华泰柏瑞中证红利低波联接A
+    "007467": "s_sh512890", # 华泰柏瑞中证红利低波联接C
+    "100032": "sh000922",  # 富国中证红利指数增强A -> 中证红利 (sh000922)
+    "100033": "sh000922",  # 富国中证红利指数增强C
+    "012643": "sh000922",  # 招商中证红利ETF联接A
+    "012644": "sh000922",  # 招商中证红利ETF联接C
     # 大宗商品黄金
     "000216": "sh518880", # 华安黄金ETF联接A -> 华安黄金ETF (sh518880)
     "000217": "sh518880", # 华安黄金ETF联接C
     "002610": "sh518880", # 博时黄金ETF联接A
     "002611": "sh518880", # 博时黄金ETF联接C
     # 行业主题
-    "008888": "000685",  # 华夏半导体芯片联接A -> 半导体芯片 (000685/sh512480)
-    "013841": "000685",  # 银华/天弘半导体芯片联接C
-    "012414": "000685",
-    "161725": "399997",  # 招商中证白酒 -> 中证白酒 (399997)
-    "161726": "000933",  # 招商生物医药 -> 生物医药 (000933)
-    "160418": "399986",  # 华安中证银行 -> 中证银行 (399986)
+    "008888": "sh000685",  # 华夏半导体芯片联接A -> 半导体芯片 (sh000685)
+    "012414": "sh000685",
+    "161725": "sz399997",  # 招商中证白酒 -> 中证白酒 (sz399997)
+    "161726": "sh000933",  # 招商生物医药 -> 生物医药 (sh000933)
+    "160418": "sz399986",  # 华安中证银行 -> 中证银行 (sz399986)
 }
 
 # 第二级：纯债与固收底仓基金代码集合
@@ -2887,8 +2984,8 @@ QDII_BENCHMARK_MAP: Dict[str, str] = INDEX_AND_FEEDER_BENCHMARK_MAP
 
 def evaluate_four_tier_realtime_valuation(fund_code: str, base_quote: Optional[FundQuote] = None) -> FundQuote:
     """
-    四级穿透高精度盘中实时估值引擎 (G23):
-    1. 第一级：ETF 联接基金与标准指数基金穿透锚定 (0.95 仓位系数)
+    四级穿透高精度盘中实时估值引擎 (G24):
+    1. 第一级：ETF 联接基金与标准指数基金穿透锚定 (0.95 仓位系数，保留有效天天基金真实估值防归零)
     2. 第二级：纯债与固收底仓基金 (H11009/511260 锚定，日内变动严格限制在 ±0.5% 范围内)
     3. 第三级：海外 QDII 基金 (外盘指数 * 0.95 + 今日离岸人民币 USD/CNH 实时汇率变动率纠偏)
     4. 第四级：主动权益基金 (仅当天天基金返回的 gztime 严格等于今日日期时采用其 gszzl，否则使用前十大重仓股实时行情加权计算)
@@ -2919,12 +3016,24 @@ def evaluate_four_tier_realtime_valuation(fund_code: str, base_quote: Optional[F
 
     # ==================== 第一级：ETF 联接与标准指数基金穿透锚定 (0.95 系数全覆盖) ====================
     # R2 规范：凡命中 FEEDER_AND_STANDARD_INDEX_MAPPING 的所有标的（含 100032/100033/161725/161726/160418/161017 等
-    # 标准指数与增强基金，及 110020/011612/011613 等 ETF 联接基金），一律统一应用 0.95 仓位系数穿透折算，绝不赋 1.0 系数。
+    # 标准指数与增强基金，及 110020/011612/011613 等 ETF 联接基金），一律统一应用 0.95 仓位系数穿透折算。
     if code in FEEDER_AND_STANDARD_INDEX_MAPPING:
         target_sym = FEEDER_AND_STANDARD_INDEX_MAPPING[code]
         try:
             idx_q = fetch_realtime_index_quote(target_sym, use_cache=True)
-            if idx_q and "change_pct" in idx_q:
+            idx_chg = float(idx_q.get("change_pct", 0.0)) if idx_q else 0.0
+            # 防反向归零保护：若 idx_q 离线兜底 (is_fallback=True) 或点位无变动 (abs(idx_chg) < 1e-6 盘前未开盘)，且 base_quote 已有有效估值 (abs(q.gszzl) > 1e-4)，保留 q！
+            if (idx_q.get("is_fallback", False) or abs(idx_chg) < 1e-6) and abs(q.gszzl) > 1e-4:
+                return q
+
+            # 对于非 ETF 联接基金（如指数增强 100032、行业指数 161725 等），若已有今日盘中有效估值且偏差不大，优先保留天天基金真实持仓估值
+            if "联接" not in str(q.name) and q.gztime and q.gztime.startswith(today_str) and abs(q.gszzl) > 1e-4:
+                if idx_q and not idx_q.get("is_fallback", False):
+                    target_chg = float(idx_q.get("change_pct", 0.0))
+                    if abs(q.gszzl - target_chg * 0.95) <= 0.6:
+                        return q
+
+            if idx_q and "change_pct" in idx_q and not idx_q.get("is_fallback", False):
                 target_chg = float(idx_q.get("change_pct", 0.0))
                 factor = 0.95
                 gszzl_p1 = round(factor * target_chg, 2)
@@ -2943,8 +3052,10 @@ def evaluate_four_tier_realtime_valuation(fund_code: str, base_quote: Optional[F
     if is_bond_fund:
         try:
             bond_idx_q = fetch_realtime_index_quote("511260", use_cache=True)
-            raw_bond_chg = float(bond_idx_q.get("change_pct", 0.02))
-            gszzl_p2 = max(-0.50, min(0.50, round(raw_bond_chg, 2)))
+            bond_chg = float(bond_idx_q.get("change_pct", 0.02)) if bond_idx_q else 0.02
+            if (bond_idx_q.get("is_fallback", False) or abs(bond_chg) < 1e-6) and abs(q.gszzl) > 1e-4:
+                return q
+            gszzl_p2 = max(-0.50, min(0.50, round(bond_chg, 2)))
             dwjz_val = q.dwjz if q.dwjz > 0 else 1.0
             gsz_val = round(dwjz_val * (1.0 + gszzl_p2 / 100.0), 4)
             gztime_val = f"{now_dt.strftime('%Y-%m-%d %H:%M')} (固收锚定: 511260 {gszzl_p2:+.2f}%)"
@@ -2960,7 +3071,9 @@ def evaluate_four_tier_realtime_valuation(fund_code: str, base_quote: Optional[F
         outer_sym = QDII_INDEX_MAPPING.get(code, "sh513500")
         try:
             outer_q = fetch_realtime_index_quote(outer_sym, use_cache=True)
-            outer_chg = float(outer_q.get("change_pct", 0.0))
+            outer_chg = float(outer_q.get("change_pct", 0.0)) if outer_q else 0.0
+            if (outer_q.get("is_fallback", False) or abs(outer_chg) < 1e-6) and abs(q.gszzl) > 1e-4:
+                return q
             fx_chg = 0.0
             try:
                 from data_loader import DataLoader
@@ -2991,9 +3104,11 @@ def evaluate_four_tier_realtime_valuation(fund_code: str, base_quote: Optional[F
         if top10:
             stock_chgs = []
             for s_code in top10[:10]:
-                clean_s = s_code.split(".")[-1]
-                s_q = fetch_realtime_index_quote(clean_s, use_cache=True)
-                if s_q and "change_pct" in s_q:
+                raw_sc = str(s_code).strip().upper()
+                num_sc = raw_sc.split(".")[0].replace("SH", "").replace("SZ", "")
+                prefix = "sz" if (raw_sc.endswith(".SZ") or num_sc.startswith(("00", "30"))) else "sh"
+                s_q = fetch_realtime_index_quote(f"{prefix}{num_sc}", use_cache=True)
+                if s_q and "change_pct" in s_q and not s_q.get("is_fallback", False):
                     stock_chgs.append(float(s_q["change_pct"]))
             if stock_chgs:
                 gszzl_p4 = round(sum(stock_chgs) / len(stock_chgs), 2)
@@ -3152,6 +3267,86 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True) -> FundQuo
     is_market_closed = (now_dt.weekday() >= 5) or (now_dt.hour >= 15) or (now_dt.hour < 9 or (now_dt.hour == 9 and now_dt.minute < 30))
     is_after_market = is_market_closed
 
+    # 计算最近一个已到达收盘时间的有效交易日日期字符串 latest_completed_trade_str
+    try:
+        from trading_clock_fee import TradingClock
+        clock_inst = TradingClock()
+        if clock_inst.is_trade_day(now_dt.date()) and now_dt.hour >= 15:
+            latest_completed_trade_str = today_str
+        else:
+            # 盘前(<09:30)、盘中(09:30~15:00)或周末节假日，往前找最近一个交易日
+            d_cursor = now_dt.date() if (clock_inst.is_trade_day(now_dt.date()) and now_dt.hour >= 15) else (now_dt.date() - timedelta(days=1))
+            while not clock_inst.is_trade_day(d_cursor):
+                d_cursor -= timedelta(days=1)
+            latest_completed_trade_str = d_cursor.strftime("%Y-%m-%d")
+    except Exception:
+        if now_dt.weekday() == 5:
+            latest_completed_trade_str = (now_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+        elif now_dt.weekday() == 6:
+            latest_completed_trade_str = (now_dt - timedelta(days=2)).strftime("%Y-%m-%d")
+        elif now_dt.hour < 15:
+            prev_d = now_dt - timedelta(days=3 if now_dt.weekday() == 0 else 1)
+            latest_completed_trade_str = prev_d.strftime("%Y-%m-%d")
+        else:
+            latest_completed_trade_str = today_str
+
+    def _query_eastmoney_mob() -> Optional[FundQuote]:
+        """调用东方财富/天天基金官方 FundMNFInfo 接口，直接获取官方清算涨跌幅 NAVCHGRT 与实时估值 GSZZL"""
+        try:
+            url_em = (
+                f"https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?"
+                f"pageIndex=1&pageSize=10&plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=1&Fcodes={code}"
+            )
+            req_em = urllib.request.Request(
+                url_em,
+                headers={"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36"}
+            )
+            with urllib.request.urlopen(req_em, timeout=2.5) as resp_em:
+                em_data = json.loads(resp_em.read().decode("utf-8", errors="ignore"))
+            datas = em_data.get("Datas") or []
+            if datas and isinstance(datas[0], dict):
+                d = datas[0]
+                f_name = d.get("SHORTNAME") or f"公募基金_{code}"
+                pdate = str(d.get("PDATE") or "").strip()          # 官方净值日期
+                nav_str = d.get("NAV")                            # 官方单位净值
+                nav_chg_str = d.get("NAVCHGRT")                   # 官方日涨跌幅(%)
+                gsz_str = d.get("GSZ")                            # 盘中估算净值
+                gszzl_str = d.get("GSZZL")                        # 盘中估算涨跌幅(%)
+                gztime_str = str(d.get("GZTIME") or "").strip()   # 盘中估算时间
+
+                dwjz_val = float(nav_str) if nav_str not in (None, "", "--") else 0.0
+                official_chg = float(nav_chg_str) if nav_chg_str not in (None, "", "--") else 0.0
+                if dwjz_val > 0:
+                    # 情况 1：处于休市/盘后时段，且官方净值日期 pdate 已经是最近完成交易日 (如今日晚间已出净值或周末/盘前)
+                    if is_market_closed and pdate and pdate >= latest_completed_trade_str:
+                        return FundQuote(
+                            name=f_name,
+                            dwjz=dwjz_val,
+                            gsz=dwjz_val,
+                            gszzl=round(official_chg, 2),
+                            gztime=f"{pdate} 官方公布净值",
+                            fund_code=code,
+                            valuation_corrected=True,
+                            is_official_nav=True
+                        )
+                    # 情况 2：盘中交易时段，或盘后 15:00~20:30 官方净值尚未更新但有当日实时估值
+                    if gsz_str not in (None, "", "--") and gszzl_str not in (None, "", "--") and gztime_str.startswith(latest_completed_trade_str if is_market_closed else today_str):
+                        gsz_val = float(gsz_str)
+                        gszzl_val = float(gszzl_str)
+                        q_live = FundQuote(
+                            name=f_name,
+                            dwjz=dwjz_val,
+                            gsz=gsz_val,
+                            gszzl=round(gszzl_val, 2),
+                            gztime=gztime_str,
+                            fund_code=code,
+                            is_official_nav=False
+                        )
+                        return q_live
+        except Exception:
+            return None
+        return None
+
     def _query_sina() -> Optional[FundQuote]:
         try:
             url = f"https://hq.sinajs.cn/list=fu_{code},f_{code}"
@@ -3183,20 +3378,8 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True) -> FundQuo
             fu_dwjz = float(fu_parts[3]) if len(fu_parts) > 3 and fu_parts[3] else fu_gsz
             fu_date = fu_parts[7].strip() if len(fu_parts) > 7 else ""
 
-            # 判断官方公布净值是否已出炉：
-            # 若收盘后 (after 15:00、夜间、休市或周末) 且 f_{code} 有有效日期 (f_date 为今日或最新交易日，或 f_date >= fu_date):
-            # 官方公布净值已生效！
-            is_official = False
-            if f_str and f_dwjz > 0 and f_date:
-                if is_market_closed:
-                    if fu_date and f_date >= fu_date:
-                        is_official = True
-                    elif f_date == today_str:
-                        is_official = True
-                    elif not fu_date:
-                        is_official = True
-                elif fu_date and f_date >= fu_date and f_date >= today_str:
-                    is_official = True
+            # 判断官方公布净值是否已出炉：严格要求 f_date 达到最新已完成交易日
+            is_official = bool(f_str and f_dwjz > 0 and f_date and is_market_closed and f_date >= latest_completed_trade_str)
 
             if is_official:
                 name = f_name or fu_name or f"公募基金_{code}"
@@ -3258,41 +3441,57 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True) -> FundQuo
             if m_tt and m_tt.group(1).strip():
                 tt_data = json.loads(m_tt.group(1).strip())
                 dwjz_tt = float(tt_data.get("dwjz", 0.0))
+                jzrq_tt = str(tt_data.get("jzrq", "")).strip()
                 if dwjz_tt > 0:
                     name_tt = tt_data.get("name") or f"公募基金_{code}"
                     gsz_tt = float(tt_data.get("gsz", dwjz_tt)) if tt_data.get("gsz") else dwjz_tt
                     gszzl_tt = float(tt_data.get("gszzl", 0.0)) if tt_data.get("gszzl") else 0.0
                     gztime_tt = str(tt_data.get("gztime", ""))
-                    q = FundQuote(name=name_tt, dwjz=dwjz_tt, gsz=gsz_tt, gszzl=gszzl_tt, gztime=gztime_tt, fund_code=code, is_official_nav=False)
+                    is_off_tt = bool(is_market_closed and jzrq_tt and jzrq_tt >= latest_completed_trade_str)
+                    if is_off_tt:
+                        q = FundQuote(name=name_tt, dwjz=dwjz_tt, gsz=dwjz_tt, gszzl=gszzl_tt, gztime=f"{jzrq_tt} 官方公布净值", fund_code=code, is_official_nav=True)
+                    else:
+                        q = FundQuote(name=name_tt, dwjz=dwjz_tt, gsz=gsz_tt, gszzl=gszzl_tt, gztime=gztime_tt, fund_code=code, is_official_nav=False)
                     return _apply_qdii_valuation_correction(q)
         except Exception:
             return None
         return None
 
-    # 收盘后优先走新浪获取官方公布净值
-    if is_after_market:
-        q_res = _query_sina()
-        if q_res is not None:
-            q_res = evaluate_four_tier_realtime_valuation(code, q_res)
-            _REALTIME_QUOTE_CACHE[code] = (now_ts, q_res)
-            return q_res
-        q_res = _query_tiantian()
-        if q_res is not None:
-            q_res = evaluate_four_tier_realtime_valuation(code, q_res)
-            _REALTIME_QUOTE_CACHE[code] = (now_ts, q_res)
-            return q_res
-    else:
-        # 盘中优先走天天基金实时估值，若未命中则回退新浪
-        q_res = _query_tiantian()
-        if q_res is not None:
-            q_res = evaluate_four_tier_realtime_valuation(code, q_res)
-            _REALTIME_QUOTE_CACHE[code] = (now_ts, q_res)
-            return q_res
-        q_res = _query_sina()
-        if q_res is not None:
-            q_res = evaluate_four_tier_realtime_valuation(code, q_res)
-            _REALTIME_QUOTE_CACHE[code] = (now_ts, q_res)
-            return q_res
+    # 1. 优先调用东方财富移动端官方与实时接口
+    q_em = _query_eastmoney_mob()
+    if q_em is not None:
+        if getattr(q_em, 'is_official_nav', False):
+            _REALTIME_QUOTE_CACHE[code] = (now_ts, q_em)
+            _sync_realtime_quotes_to_disk()
+            return q_em
+        q_res = evaluate_four_tier_realtime_valuation(code, q_em)
+        _REALTIME_QUOTE_CACHE[code] = (now_ts, q_res)
+        _sync_realtime_quotes_to_disk()
+        return q_res
+
+    # 2. 次选：天天基金实时估值接口
+    q_tt = _query_tiantian()
+    if q_tt is not None:
+        if getattr(q_tt, 'is_official_nav', False):
+            _REALTIME_QUOTE_CACHE[code] = (now_ts, q_tt)
+            _sync_realtime_quotes_to_disk()
+            return q_tt
+        q_res = evaluate_four_tier_realtime_valuation(code, q_tt)
+        _REALTIME_QUOTE_CACHE[code] = (now_ts, q_res)
+        _sync_realtime_quotes_to_disk()
+        return q_res
+
+    # 3. 三选：新浪官方及估算行情接口
+    q_sina = _query_sina()
+    if q_sina is not None:
+        if getattr(q_sina, 'is_official_nav', False):
+            _REALTIME_QUOTE_CACHE[code] = (now_ts, q_sina)
+            _sync_realtime_quotes_to_disk()
+            return q_sina
+        q_res = evaluate_four_tier_realtime_valuation(code, q_sina)
+        _REALTIME_QUOTE_CACHE[code] = (now_ts, q_res)
+        _sync_realtime_quotes_to_disk()
+        return q_res
 
     # 4. 兜底回退：本地策略池、历史穿透库或默认基准
     fallback_name = None

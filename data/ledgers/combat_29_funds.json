@@ -700,8 +700,8 @@
       "cost_nav": 1.324503
     },
     {
-      "fund_code": "000086",
-      "fund_name": "工银瑞信信用纯债债券A",
+      "fund_code": "000058",
+      "fund_name": "华夏中小板ETF联接A",
       "share_class": "A",
       "shares": 1.2588,
       "cost_price": 1.5888,
@@ -714,7 +714,7 @@
       "dividend_method": "cash",
       "batches": [
         {
-          "batch_id": "B_COMBAT_000086_001",
+          "batch_id": "B_COMBAT_000058_001",
           "buy_date": "2024-01-05",
           "shares": 1.2588,
           "cost_nav": 1.588815,
@@ -724,9 +724,9 @@
           "notes": "实战存量批次(满400天免赎)"
         }
       ],
-      "company": "工银瑞信基金",
+      "company": "华夏基金",
       "is_core_strategy": false,
-      "transition_tag": "纯债体验金尾仓",
+      "transition_tag": "中小板体验金尾仓",
       "rebalance_intent": "normal",
       "cost_nav": 1.588815
     },

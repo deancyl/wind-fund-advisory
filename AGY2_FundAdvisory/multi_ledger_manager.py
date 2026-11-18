@@ -222,7 +222,7 @@ class MultiLedgerManager:
             ("011612", "华夏上证科创板50成份ETF联接A", "A", 3.95, -1.05, 5.00, "华夏基金", False, "科创50A类尾仓"),
             ("002611", "博时黄金ETF联接C", "C", 2.10, 0.10, 2.00, "博时基金", False, "黄金红包尾仓"),
             ("019260", "富国周期优势混合A", "A", 1.85, -0.15, 2.00, "富国基金", False, "周期优势红包尾仓"),
-            ("000086", "工银瑞信信用纯债债券A", "A", 1.50, -0.50, 2.00, "工银瑞信基金", False, "纯债固收体验金尾仓"),
+            ("000058", "华夏中小板ETF联接A", "A", 1.50, -0.50, 2.00, "华夏基金", False, "中小板体验金尾仓"),
             ("018757", "招商中证红利ETF联接C", "C", 1.35, -0.65, 2.00, "招商基金", False, "红利红包尾仓"),
             ("001071", "摩根标普500指数A", "A", 1.25, 0.25, 1.00, "摩根基金", False, "美股红包尾仓"),
             ("006113", "汇添富中证红利低波动指数C", "C", 1.15, -0.85, 2.00, "汇添富基金", False, "红利低波红包尾仓"),
@@ -607,6 +607,20 @@ class MultiLedgerManager:
             ledger_json_path=str(json_path),
             ledger_id=ledger_id
         )
+
+        # 账本真实性自动防御：若检测到 combat_29_funds 中残留旧代码 000086 且市值 <= 5.0 的尾仓，自动迁移为用户真实的 000058 华夏中小板ETF联接A
+        if "000086" in pm.holdings and float(pm.holdings["000086"].market_value) <= 5.0:
+            h_old = pm.holdings.pop("000086")
+            h_old.fund_code = "000058"
+            h_old.fund_name = "华夏中小板ETF联接A"
+            h_old.transition_tag = "中小板体验金尾仓"
+            if hasattr(h_old, "company"):
+                h_old.company = "华夏基金"
+            pm.holdings["000058"] = h_old
+            try:
+                pm.save_state()
+            except Exception:
+                pass
 
         self._pm_cache[ledger_id] = pm
         return pm

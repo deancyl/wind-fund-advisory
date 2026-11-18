@@ -44,7 +44,6 @@ import trading_clock_fee
 importlib.reload(trading_clock_fee)
 from trading_clock_fee import TradingClock, FeeMatrixCalculator
 import portfolio_manager
-importlib.reload(portfolio_manager)
 try:
     import multi_ledger_manager
     importlib.reload(multi_ledger_manager)
@@ -1899,6 +1898,10 @@ safe_markdown_html(f"""
     }}
     [data-testid="stMetricValue"] {{
         color: var(--text-primary) !important;
+        font-size: clamp(1.05rem, 1.35vw, 1.45rem) !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
     }}
 
     /* 输入框与下拉框内胆背景与文字深度绑定 */
@@ -2660,18 +2663,20 @@ def apply_theme_to_plotly_figure(fig: go.Figure, theme_mode: Optional[str] = Non
             title_font=dict(color=th["text_secondary"])
         ),
         legend=dict(
-            font=dict(color=th["text_primary"]),
+            font=dict(color=th["text_primary"], size=11),
             bgcolor="rgba(0,0,0,0)",
             bordercolor="rgba(0,0,0,0)",
             orientation="h",
-            y=-0.20,
-            x=0.5,
-            xanchor="center"
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1.0
         ),
-        margin=dict(l=10, r=10, t=75, b=40)
+        margin=dict(l=10, r=10, t=78, b=35)
     )
     if hasattr(fig, "layout") and hasattr(fig.layout, "title") and fig.layout.title and getattr(fig.layout.title, "text", None):
-        layout_update["title"] = dict(x=0.01, xanchor="left", y=0.96)
+        layout_update["title"] = dict(x=0.0, xanchor="left", y=0.98, yanchor="top", font=dict(size=13, color=th["text_primary"]))
+        layout_update["legend"]["y"] = 1.01
     fig.update_layout(**layout_update)
     return fig
 
@@ -3434,6 +3439,7 @@ with st.sidebar:
                     st.session_state.sb_custom_corridor_items[target_code] = probe_res
                     if target_code not in st.session_state.sb_selected_corridor_indices:
                         st.session_state.sb_selected_corridor_indices.insert(0, target_code)
+                    st.session_state["ms_corridor_indices"] = list(st.session_state.sb_selected_corridor_indices)
                     saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
                     saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
                     saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
@@ -3449,6 +3455,7 @@ with st.sidebar:
                         st.session_state.sb_custom_corridor_items[target_code] = probe_res
                         if target_code not in st.session_state.sb_selected_corridor_indices:
                             st.session_state.sb_selected_corridor_indices.insert(0, target_code)
+                        st.session_state["ms_corridor_indices"] = list(st.session_state.sb_selected_corridor_indices)
                         saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
                         saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
                         saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
@@ -4967,7 +4974,7 @@ with tab_zero_start:
                 with col_d1:
                     st.metric("定投周期与基准金额", f"¥{dca_plan['base_per_period']:,.2f} /期", "共 12 期")
                 with col_d2:
-                    st.metric("当期自适应乘数", f"{dca_plan['multiplier']:.2f}x ({dca_plan['multiplier_tag']})", dca_plan['valuation_status'])
+                    st.metric("当期自适应乘数", f"{dca_plan['multiplier']:.2f}x", f"{dca_plan['multiplier_tag']} · {dca_plan['valuation_status']}")
                 with col_d3:
                     st.metric("本期建议扣款金额", f"¥{dca_plan['actual_deduction']:,.2f}", f"基准: ¥{dca_plan['base_per_period']:,.2f}")
 
@@ -5841,22 +5848,39 @@ with tab_holdings_and_rebalance:
                     eq = 0.0
                 return f"{tag} {m.get('name', lid)} (¥{eq:,.0f})"
 
-            selected_lid = st.selectbox(
-                "切换账本",
-                options=[l["id"] for l in all_ledgers],
-                index=active_idx,
-                format_func=_fmt_ledger_choice,
-                key=f"sel_tab2_ledger_picker_{active_lid}",
-                label_visibility="collapsed"
-            )
-            if selected_lid != active_lid:
-                switch_active_ledger(selected_lid)
-                st.session_state["sel_tab2_active_ledger"] = selected_lid
-                st.rerun()
-            is_t2_main_mode = True
+            c_ld1, c_ld2 = st.columns([5, 5])
+            with c_ld1:
+                selected_lid = st.selectbox(
+                    "切换账本",
+                    options=[l["id"] for l in all_ledgers],
+                    index=active_idx,
+                    format_func=_fmt_ledger_choice,
+                    key=f"sel_tab2_ledger_picker_{active_lid}",
+                    label_visibility="collapsed"
+                )
+                if selected_lid != active_lid:
+                    switch_active_ledger(selected_lid)
+                    st.session_state["sel_tab2_active_ledger"] = selected_lid
+                    st.rerun()
+            with c_ld2:
+                tab2_mode = st.radio(
+                    "工作区模式",
+                    ["🎯 持仓诊断与调仓", "💼 账本运维与复盘"],
+                    horizontal=True,
+                    key="rad_tab2_work_mode",
+                    label_visibility="collapsed"
+                )
+                is_t2_main_mode = (tab2_mode == "🎯 持仓诊断与调仓")
         else:
             active_lid = "main_live"
-            is_t2_main_mode = True
+            tab2_mode = st.radio(
+                "工作区模式",
+                ["🎯 持仓诊断与调仓", "💼 账本运维与复盘"],
+                horizontal=True,
+                key="rad_tab2_work_mode_nomlm",
+                label_visibility="collapsed"
+            )
+            is_t2_main_mode = (tab2_mode == "🎯 持仓诊断与调仓")
 
         if is_t2_main_mode:
             # ─────────────────────────────────────────────────────────────
@@ -6325,13 +6349,16 @@ with tab_holdings_and_rebalance:
 
             with col_act_sync:
                 if st.button("🔄 同步估值", use_container_width=True, key="btn_sync_holdings_tab2", help="强制从公募接口同步全部持仓最新净值与盘中动态估值"):
-                    with st.spinner("正在同步全量基金估值与净值..."):
+                    with st.spinner("正在强制清空缓存并同步全量基金估值与官方净值..."):
+                        clear_realtime_cache()
+                        st.session_state["_cached_session_intraday_pnl"] = None
+                        st.session_state["_cached_session_intraday_pnl_ts"] = 0
                         sync_res = pm.sync_holdings_live_nav(use_intraday_gsz=True)
                         pm.save_state()
                         st.session_state.tab2_diag_cache = None
                         st.session_state.tab2_rebal_cache = None
                         up_cnt = sync_res.get("updated_count", len(pm.holdings))
-                        st.success(f"✅ 持仓基金估值已全部更新 (已更新 {up_cnt} 只)！")
+                        st.success(f"持仓基金估值与最新净值已全部刷新 (已更新 {up_cnt} 只)！")
                         st.rerun()
 
             with col_act_mgr:
@@ -6419,19 +6446,22 @@ with tab_holdings_and_rebalance:
             is_official_nav_holdings = False
             if not df_disp.empty:
                 if "估值更新时间" in df_disp.columns:
-                    is_official_nav_holdings = is_market_closed and any("官方" in str(x) for x in df_disp["估值更新时间"])
-                if not is_official_nav_holdings and hasattr(pm, "holdings"):
-                    for c_code in list(pm.holdings.keys())[:3]:
+                    off_cnt = sum(1 for x in df_disp["估值更新时间"] if "官方" in str(x))
+                    is_official_nav_holdings = is_market_closed and (off_cnt / len(df_disp) >= 0.5)
+                if not is_official_nav_holdings and hasattr(pm, "holdings") and pm.holdings:
+                    off_probes = 0
+                    probes_list = list(pm.holdings.keys())[:6]
+                    for c_code in probes_list:
                         try:
                             q_probe = fetch_realtime_fund_quote(c_code)
                             if getattr(q_probe, "is_official_nav", False) or "官方" in getattr(q_probe, "gztime", ""):
-                                is_official_nav_holdings = True
-                                break
+                                off_probes += 1
                         except Exception:
                             pass
+                    is_official_nav_holdings = is_market_closed and (off_probes / max(1, len(probes_list)) >= 0.5)
 
             col_holdings_val = "当日官方净值" if is_official_nav_holdings else "今日实时估值"
-            col_holdings_chg = "当日官方涨跌(%)" if is_official_nav_holdings else "盘中实时估值(%)"
+            col_holdings_chg = "当日官方涨跌(%)" if is_official_nav_holdings else ("今日估值/官方涨跌(%)" if is_market_closed else "盘中实时估值(%)")
             if "今日实时估值" in df_disp.columns and col_holdings_val != "今日实时估值":
                 df_disp.rename(columns={"今日实时估值": col_holdings_val}, inplace=True)
             if "今日实时估值涨跌(%)" in df_disp.columns:
@@ -6461,14 +6491,15 @@ with tab_holdings_and_rebalance:
 
             is_official_nav_rebal = False
             if items:
-                is_official_nav_rebal = is_market_closed and any(
-                    ("官方" in str(it.get("realtime_gztime", "")) or bool(it.get("is_official_nav", False)))
-                    for it in items
+                off_rebal_cnt = sum(
+                    1 for it in items
+                    if ("官方" in str(it.get("realtime_gztime", "")) or bool(it.get("is_official_nav", False)))
                 )
+                is_official_nav_rebal = is_market_closed and (off_rebal_cnt / len(items) >= 0.5)
             if not is_official_nav_rebal:
                 is_official_nav_rebal = is_official_nav_holdings
 
-            col_rebal_chg = "当日官方涨跌(%)" if is_official_nav_rebal else "盘中实时估值(%)"
+            col_rebal_chg = "当日官方涨跌(%)" if is_official_nav_rebal else ("今日估值/官方涨跌(%)" if is_market_closed else "盘中实时估值(%)")
 
             if items:
                 for it in items:
@@ -7562,8 +7593,9 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
             fig_tm.add_trace(go.Scatter(x=curve_df['date'], y=curve_df['h300_nav'], mode='lines', name='沪深300 基准', line=dict(color='#64748b', width=1.5, dash='dash')))
             fig_tm.add_trace(go.Scatter(x=curve_df['date'], y=curve_df['benchmark_nav'], mode='lines', name='股债平衡50/50 基准', line=dict(color='#10b981', width=1.5, dash='dot')))
 
+            st.markdown(f"##### 截至【{curr_chosen_date}】历史盲测前推净值走势对比 (Point-in-Time 零未来函数)")
             fig_tm.update_layout(
-                title=f"截至【{curr_chosen_date}】历史盲测前推净值走势对比 (Point-in-Time 零未来函数)",
+                title=None,
                 height=340
             )
             apply_theme_to_plotly_figure(fig_tm)
@@ -8075,35 +8107,16 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
             annotation_font_color=active_th.get("text_muted", "rgba(148, 163, 184, 0.55)")
         )
 
+    st.markdown("##### 2018-2026 全周期累计净值对比 (起始归一化 1.000)")
     fig_nav.update_layout(
-        title=f"2018-2026 全周期累计净值对比 (起始归一化 1.000)",
+        title=None,
         xaxis_title="交易日期",
         yaxis_title="标准化累计净值",
         hovermode="x unified",
-        margin=dict(t=75, b=10, l=10, r=10),
-        height=380,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.06,
-            xanchor="left",
-            x=0,
-            bgcolor="rgba(0,0,0,0)"
-        )
+        margin=dict(t=78, b=35, l=10, r=10),
+        height=380
     )
     apply_theme_to_plotly_figure(fig_nav)
-    # 强制在主题应用之后重新固化上方透明图例与 75px 上边距，彻底杜绝被覆盖
-    fig_nav.update_layout(
-        margin=dict(t=75, b=10, l=10, r=10),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.06,
-            xanchor="left",
-            x=0,
-            bgcolor="rgba(0,0,0,0)"
-        )
-    )
     st.plotly_chart(fig_nav, use_container_width=True)
 
     col_dd, col_alloc = st.columns(2)

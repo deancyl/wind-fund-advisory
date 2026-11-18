@@ -2862,7 +2862,7 @@ class StrategyBridge:
         # 4. 宏观利率与股债性价比 (ERP)
         treasury_10y = 1.6376
         us_treasury_10y = 4.4200
-        cn_us_spread_bp = -278.2
+        cn_us_spread_bp = round((treasury_10y - us_treasury_10y) * 100.0, 1)
 
         if RATE_FILE.exists():
             try:
@@ -2885,12 +2885,10 @@ class StrategyBridge:
             except Exception:
                 pass
 
-        # 美债合理性校验哨：统一校准异常旧截面 5.12/5.15 为 4.4200 与 -278.2bp
+        # 美债合理性校验哨：统一校准异常旧截面 5.12/5.15 为基线 4.4200，并动态计算中美利差
         if us_treasury_10y < 3.0 or us_treasury_10y > 5.0 or abs(us_treasury_10y - 5.12) < 0.05 or abs(us_treasury_10y - 5.15) < 0.05:
             us_treasury_10y = 4.4200
-            cn_us_spread_bp = -278.2
-        elif abs(cn_us_spread_bp - (-353.8)) < 1e-4 or abs(cn_us_spread_bp - (-349.1)) < 1e-4:
-            cn_us_spread_bp = -278.2
+        cn_us_spread_bp = round((treasury_10y - us_treasury_10y) * 100.0, 1)
 
         spot_usdcnh = 7.2385
         try:

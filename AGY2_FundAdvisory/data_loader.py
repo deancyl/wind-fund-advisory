@@ -1741,7 +1741,7 @@ EXPANDED_INDEX_CATALOG: Dict[str, Dict[str, Any]] = {
     "510300": {"code": "510300", "name": "300ETF", "secid": "1.510300", "sym": "s_sh510300", "pinyin": "300etf", "sector": "宽基核心", "asset_type": "etf", "fb_point": 4.185, "fb_chg": 0.32},
     # 2. 红利高股息 (Rule 16: 中证红利必须且仅映射为 000922)
     "000922": {"code": "000922", "name": "中证红利", "secid": "1.000922", "sym": "s_sh000922", "pinyin": "zzhl", "sector": "红利高股息", "asset_type": "index", "fb_point": 5510.92, "fb_chg": 0.34},
-    "H30269": {"code": "H30269", "name": "中证红利低波", "secid": "0.H30269", "sym": "s_sh512890", "pinyin": "hldb", "sector": "红利高股息", "asset_type": "index", "fb_point": 8920.50, "fb_chg": -0.45},
+    "H30269": {"code": "H30269", "name": "中证红利低波", "secid": "2.H30269", "sym": "s_sh512890", "pinyin": "hldb", "sector": "红利高股息", "asset_type": "index", "fb_point": 8920.50, "fb_chg": -0.45},
     "000015": {"code": "000015", "name": "上证红利", "secid": "1.000015", "sym": "s_sh000015", "pinyin": "szhl", "sector": "红利高股息", "asset_type": "index", "fb_point": 3248.31, "fb_chg": 1.21},
     "512890": {"code": "512890", "name": "红利低波ETF", "secid": "1.512890", "sym": "s_sh512890", "pinyin": "hldbetf", "sector": "红利高股息", "asset_type": "etf", "fb_point": 1.219, "fb_chg": -1.06},
     # 3. 科技精选
@@ -2442,7 +2442,8 @@ def fetch_custom_realtime_indices(
             with urllib.request.urlopen(req, timeout=2.5) as resp:
                 raw_json = json.loads(resp.read().decode("utf-8"))
             for it in raw_json.get("data", {}).get("diff", []):
-                c = str(it.get("f12", "")).strip().zfill(6)
+                raw_f12 = str(it.get("f12", "")).strip()
+                c = raw_f12.zfill(6) if raw_f12.isdigit() else raw_f12.upper()
                 if c not in full_catalog and c not in codes:
                     continue
                 raw_pt = it.get("f2")
@@ -2551,16 +2552,22 @@ def fetch_custom_realtime_indices(
                     if s_pt > 0:
                         matched_code = None
                         for c in still_missing:
-                            if c in var_name:
+                            if c in var_name or (c == "H30269" and "512890" in var_name):
                                 matched_code = c
                                 break
                         if matched_code:
                             is_etf = str(matched_code).startswith(('5', '1')) or full_catalog.get(matched_code, {}).get("asset_type") in ("etf", "commodity", "qdii", "bond")
+                            if matched_code == "H30269":
+                                pt_val = round(8920.50 * (1.0 + s_pct / 100.0), 2)
+                                chg_val = round(8920.50 * (s_pct / 100.0), 2)
+                            else:
+                                pt_val = round(s_pt, 3 if (is_etf and s_pt < 100.0) else 2)
+                                chg_val = round(s_chg, 3 if (is_etf and s_pt < 100.0) else 2)
                             res_obj = {
                                 "code": matched_code,
                                 "name": s_name or full_catalog.get(matched_code, {}).get("name", matched_code),
-                                "point": round(s_pt, 3 if (is_etf and s_pt < 100.0) else 2),
-                                "change": round(s_chg, 3 if (is_etf and s_pt < 100.0) else 2),
+                                "point": pt_val,
+                                "change": chg_val,
                                 "change_pct": round(s_pct, 2),
                                 "time_str": datetime.now().strftime("%H:%M")
                             }

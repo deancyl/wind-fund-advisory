@@ -4204,14 +4204,10 @@ def compute_ten_dimension_votes(
     erp_val = float(snap.get("erp_val", 6.55))
 
     us_10y = float(mm.get("us_10y_yield") or mm.get("us_treasury_10y") or snap.get("us_treasury_10y") or snap.get("us_10y_yield") or 4.4200)
-    # 消除 5.12 与 5.15 异常旧截面，统一校准为基线 4.4200 与 -278.2bp
+    # 消除 5.12 与 5.15 异常旧截面，统一校准为基线 4.4200，并动态计算中美利差
     if us_10y < 3.0 or us_10y > 5.0 or abs(us_10y - 5.12) < 0.05 or abs(us_10y - 5.15) < 0.05:
         us_10y = 4.4200
-        spread_bp = -278.2
-    else:
-        spread_bp = float(mm.get("cgb_us_spread_bp") or snap.get("cn_us_spread_bp") or round((cgb_10y - us_10y) * 100.0, 1))
-        if abs(spread_bp - (-353.8)) < 1e-4 or abs(spread_bp - (-349.1)) < 1e-4:
-            spread_bp = -278.2
+    spread_bp = round((cgb_10y - us_10y) * 100.0, 1)
 
     usdcnh_rate = float(mm.get("usdcnh_rate") or snap.get("spot_usdcnh") or 7.2385)
     if usdcnh_rate < 6.85 or usdcnh_rate > 7.60:
@@ -4634,11 +4630,7 @@ def generate_chief_advisor_memo(
     us_10y = float(snap.get("us_treasury_10y") or snap.get("us_10y_yield") or macro_multi.get("us_10y_yield") or macro_multi.get("us_treasury_10y") or 4.4200)
     if us_10y < 3.0 or us_10y > 5.0 or abs(us_10y - 5.12) < 0.05 or abs(us_10y - 5.15) < 0.05:
         us_10y = 4.4200
-        spread_cgb_us = -278.2
-    else:
-        spread_cgb_us = float(snap.get("cn_us_spread_bp") or macro_multi.get("cgb_us_spread_bp") or round((cgb_10y - us_10y) * 100.0, 1))
-        if abs(spread_cgb_us - (-353.8)) < 1e-4 or abs(spread_cgb_us - (-349.1)) < 1e-4:
-            spread_cgb_us = -278.2
+    spread_cgb_us = round((cgb_10y - us_10y) * 100.0, 1)
     cgb_20d_bp = float(macro_multi.get("cgb_20d_bp", -2.9))
     us_20d_bp = float(macro_multi.get("us_20d_bp", -26.0))
     treasury_date = str(macro_multi.get("treasury_date", datetime.now().strftime("%Y-%m-%d")))
