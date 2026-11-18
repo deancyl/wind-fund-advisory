@@ -6556,8 +6556,15 @@ with tab_holdings_and_rebalance:
                         op_action = "🔒 已手动锁定禁卖"
                         op_point = "主动风控·锁死持仓下界"
                     elif "C转A" in action_raw or "置换" in action_raw or (c_replace and f_code == c_replace):
-                        op_action = "🔄 C转A零费率置换"
-                        op_point = "同系基金内部免赎平移·年省0.4%销售服务费"
+                        if f_code == "011613":
+                            op_action = "🔄 C转A同赛道置换（转入 011612）"
+                            op_point = "同系基金内部免赎平移至 011612·年省0.4%销售服务费"
+                        elif f_code == "011612" and diff_amt > 0:
+                            op_action = "🔄 C转A零费率承接（源自 011613）"
+                            op_point = "承接 011613 免赎置换资金·长线低费率底仓"
+                        else:
+                            op_action = "🔄 C转A零费率置换"
+                            op_point = "同系基金内部免赎平移·年省0.4%销售服务费"
                     elif 0 <= h_days < 7 and diff_amt < -10:
                         op_action = "🔴 未满7天锁仓保护"
                         op_point = f"持有仅{h_days}天·严禁卖出免收1.50%惩罚扣费"

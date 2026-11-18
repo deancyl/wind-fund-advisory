@@ -114,6 +114,34 @@ assert 'c_replace = st.session_state.get("tab2_c_replace") or ("011613" if activ
 print("  [OK] 门禁 E: 调仓建议表已实装 elif mv_val < 500.0 and 尾仓清扫门禁及 011613 默认 C转A 置换")
 
 # -------------------------------------------------------------
+# 5.5 门禁 F & G：指数点位真实性 (H30269 > 1000) 与 Tab 2 上下卡片权重 100% 一致性
+# -------------------------------------------------------------
+q_h30269 = portfolio_manager.fetch_realtime_index_quote('H30269', use_cache=False)
+assert float(q_h30269.get('point', 0.0)) > 1000.0, f"FATAL: H30269 point must be real index level (>1000), not ETF price 1.x: {q_h30269}"
+print(f"  [OK] 门禁 F: H30269 中证红利低波真实点位校验通过 ({q_h30269['point']} 点, {q_h30269['change_pct']:+.2f}%)")
+
+rx_preset = StrategyBridge.get_combat_29_vs_reconstructed_6_preset()
+rec_w = dict(rx_preset.get('reconstructed_6_weights', {}))
+orders_rec = StrategyBridge.generate_ai_rebalance_orders(
+    current_holdings=pm29.holdings,
+    available_cash=pm29.available_cash,
+    target_weights_funds=rec_w,
+    pm=pm29,
+    mode='gentle',
+    min_buffer_pct=3.0,
+    c_replace='011613',
+    core_anchor_code='002351'
+)
+rec_map = {it['fund_code']: it for it in orders_rec['items']}
+for core_code in ['110020', '017436', '005561', '002351', '000216', '011612']:
+    assert core_code in rec_map and float(rec_map[core_code].get('target_weight_pct', 0.0)) > 0.0, (
+        f"FATAL: Tab 2 core holding {core_code} must have target_weight_pct > 0, got {rec_map.get(core_code)}"
+    )
+assert '000086' not in rec_map or float(rec_map['000086'].get('diff_amount', 0.0)) <= 0.0, "FATAL: Unheld 000086 must never be bought!"
+assert 'C转A' in rec_map['011613'].get('action_text', '') and 'C转A' in rec_map['011612'].get('action_text', ''), "FATAL: 011613 -> 011612 C-to-A pair broken!"
+print("  [OK] 门禁 G: Tab 2 上下卡片权重 100% 统一 (6大核心均>0%, 000086零买入, 011613->011612 C转A配对完好)")
+
+# -------------------------------------------------------------
 # 6. 运行时性能 Benchmark：实战 29 组合全量批量刷新与盘中盈亏测算 (< 3.0s)
 # -------------------------------------------------------------
 clear_realtime_cache()
