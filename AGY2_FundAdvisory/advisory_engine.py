@@ -4197,30 +4197,33 @@ def compute_ten_dimension_votes(
     mm = macro_multi or {}
     alerts = sentry_rep.get("alerts", []) if sentry_rep else []
 
-    cgb_10y = float(mm.get("cgb_10y_yield") or snap.get("cgb_10y_yield") or snap.get("treasury_10y", 1.6376))
-    dr007 = float(snap.get("dr007", 1.389))
-    dr007_bp = float(snap.get("dr007_spread_bp", -11.1))
-    erp_pct = float(snap.get("erp_percentile", 82.6))
-    erp_val = float(snap.get("erp_val", 6.55))
+    # 数据有效性/新鲜度探测：若未传入有效字段，触发中立化门禁 (delta_pct = 0.0)
+    has_cgb_data = bool(mm.get("cgb_10y_yield") or snap.get("cgb_10y_yield") or snap.get("treasury_10y"))
+    cgb_10y = float(mm.get("cgb_10y_yield") or snap.get("cgb_10y_yield") or snap.get("treasury_10y") or 0.0)
 
-    us_10y = float(mm.get("us_10y_yield") or mm.get("us_treasury_10y") or snap.get("us_treasury_10y") or snap.get("us_10y_yield") or 4.4200)
-    # 消除 5.12 与 5.15 异常旧截面，统一校准为基线 4.4200，并动态计算中美利差
-    if us_10y < 3.0 or us_10y > 5.0 or abs(us_10y - 5.12) < 0.05 or abs(us_10y - 5.15) < 0.05:
-        us_10y = 4.4200
-    spread_bp = round((cgb_10y - us_10y) * 100.0, 1)
+    has_dr007_data = bool(snap.get("dr007") or snap.get("dr007_spread_bp"))
+    dr007 = float(snap.get("dr007") or 0.0)
+    dr007_bp = float(snap.get("dr007_spread_bp") or 0.0)
+    erp_pct = float(snap.get("erp_percentile") or 0.0)
+    erp_val = float(snap.get("erp_val") or 0.0)
 
-    usdcnh_rate = float(mm.get("usdcnh_rate") or snap.get("spot_usdcnh") or 7.2385)
-    if usdcnh_rate < 6.85 or usdcnh_rate > 7.60:
-        usdcnh_rate = 7.2385
-    raw_usdcnh_chg = float(mm.get("change_pct") or mm.get("usdcnh_change_pct") or snap.get("usdcnh_change_pct", -0.0207))
-    # G23: 直接读取真实的百分比变动率，彻底删除错误乘百放大逻辑
+    has_us10y_data = bool(mm.get("us_10y_yield") or mm.get("us_treasury_10y") or snap.get("us_treasury_10y") or snap.get("us_10y_yield"))
+    us_10y = float(mm.get("us_10y_yield") or mm.get("us_treasury_10y") or snap.get("us_treasury_10y") or snap.get("us_10y_yield") or 0.0)
+    spread_bp = round((cgb_10y - us_10y) * 100.0, 1) if (has_cgb_data and has_us10y_data) else 0.0
+
+    has_usdcnh_data = bool(mm.get("usdcnh_rate") or snap.get("spot_usdcnh"))
+    usdcnh_rate = float(mm.get("usdcnh_rate") or snap.get("spot_usdcnh") or 0.0)
+    raw_usdcnh_chg = float(mm.get("change_pct") or mm.get("usdcnh_change_pct") or snap.get("usdcnh_change_pct") or 0.0)
     usdcnh_chg = float(raw_usdcnh_chg)
 
     bias_20 = float(snap.get("bias_20", -1.58))
     er_snr = float(snap.get("er_snr", 0.35))
 
-    # 1. 宏观经济
-    if cgb_10y <= 1.80:
+    # 1. 宏观经济 (新鲜度门禁：若数据缺失强制中立化)
+    if not has_cgb_data or cgb_10y <= 0.0:
+        d1_score = 50.0; d1_vote = "NEUTRAL"; d1_delta = 0.0
+        d1_reason = "10Y国债数据暂未更新，已中立化不参与仓位加减"
+    elif cgb_10y <= 1.80:
         d1_score = 85.0; d1_vote = "BULL"; d1_delta = 3.0
         d1_reason = f"10Y国债 {cgb_10y:.2f}% 处于极低水位，无风险利率下行托底资产估值"
     elif cgb_10y <= 2.30:
@@ -4230,8 +4233,11 @@ def compute_ten_dimension_votes(
         d1_score = 45.0; d1_vote = "BEAR"; d1_delta = -3.0
         d1_reason = f"10Y国债 {cgb_10y:.2f}% 利率中枢上行，对权益分母端构成折现压制"
 
-    # 2. 货币政策
-    if dr007_bp <= 0.0:
+    # 2. 货币政策 (新鲜度门禁：若数据缺失强制中立化)
+    if not has_dr007_data or dr007 <= 0.0:
+        d2_score = 50.0; d2_vote = "NEUTRAL"; d2_delta = 0.0
+        d2_reason = "DR007流动性数据暂未更新，已中立化不参与仓位加减"
+    elif dr007_bp <= 0.0:
         d2_score = 90.0; d2_vote = "BULL"; d2_delta = 5.0
         d2_reason = f"DR007为 {dr007:.3f}% (利差 {dr007_bp:+.1f}bp)，银行间资金面合理充裕宽松"
     elif dr007_bp <= 25.0:
@@ -4252,8 +4258,11 @@ def compute_ten_dimension_votes(
         d3_score = 30.0; d3_vote = "BEAR"; d3_delta = -8.0
         d3_reason = f"ERP分位仅 {erp_pct:.1f}% 偏向高估区，权益性价比收敛"
 
-    # 4. 国际联动
-    if spread_bp < -250.0:
+    # 4. 国际联动 (新鲜度门禁：若美债或利差缺失强制中立化)
+    if not has_us10y_data or us_10y <= 0.0:
+        d4_score = 50.0; d4_vote = "NEUTRAL"; d4_delta = 0.0
+        d4_reason = "中美利差与海外高息数据暂未更新，已中立化不参与仓位加减"
+    elif spread_bp < -250.0:
         d4_score = 45.0; d4_vote = "BEAR"; d4_delta = -3.0
         d4_reason = f"中美10Y利差倒挂 {spread_bp:+.1f}bp (美债 {us_10y:.2f}%)，海外高息压制外资流动性"
     elif spread_bp >= -150.0:
@@ -4263,8 +4272,11 @@ def compute_ten_dimension_votes(
         d4_score = 55.0; d4_vote = "NEUTRAL"; d4_delta = 0.0
         d4_reason = f"中美利差倒挂 {spread_bp:+.1f}bp，海外市场震荡消化"
 
-    # 5. 外汇锁汇
-    if abs(usdcnh_chg) <= 0.25:
+    # 5. 外汇锁汇 (新鲜度门禁：若汇率数据缺失强制中立化)
+    if not has_usdcnh_data or usdcnh_rate <= 0.0:
+        d5_score = 50.0; d5_vote = "NEUTRAL"; d5_delta = 0.0
+        d5_reason = "离岸人民币汇率数据暂未更新，已中立化不参与仓位加减"
+    elif abs(usdcnh_chg) <= 0.25:
         d5_score = 80.0; d5_vote = "BULL"; d5_delta = 2.0
         d5_reason = f"离岸人民币现汇 {usdcnh_rate:.4f} 运行平稳 (日变动 {usdcnh_chg:+.2f}%)，双向波动可控"
     elif usdcnh_chg < -0.25:
@@ -4371,14 +4383,20 @@ def compute_ten_dimension_votes(
         d9_score = 30.0; d9_vote = "BEAR"; d9_delta = -8.0
         d9_reason = f"周期对照尺仅 {ruler_mult:.2f}x 处于历史顶部狂热区，提示止盈保护"
 
-    # ── 10. 期权与黑天鹅 (接入真实 option_iv_pct、ic_basis 与动态相关性预警) ──
-    option_iv = float(snap.get("option_iv_pct") or snap.get("option_iv") or snap.get("ivix_index", 19.40))
-    ic_basis = float(snap.get("ic_annualized_basis_rate") or snap.get("ic_basis", 17.84))
-    dyn_corr = float(snap.get("dynamic_correlation") or snap.get("dyn_corr", 0.35))
+    # ── 10. 期权与黑天鹅 (接入真实 option_iv_pct、ic_basis 与动态相关性预警，缺失时强制中立化) ──
+    has_opt_data = bool(snap.get("option_iv_pct") is not None or snap.get("option_iv") is not None or snap.get("ivix_index") is not None or snap.get("ic_annualized_basis_rate") is not None or snap.get("ic_basis") is not None)
+    option_iv = float(snap.get("option_iv_pct") or snap.get("option_iv") or snap.get("ivix_index") or 0.0)
+    ic_basis = float(snap.get("ic_annualized_basis_rate") or snap.get("ic_basis") or 0.0)
+    dyn_corr = float(snap.get("dynamic_correlation") or snap.get("dyn_corr") or 0.35)
     has_corr_warning = any("相关性" in str(a.get("title", "")) or a.get("dimension") == "动态相关性突变" or "相关性突变" in str(a.get("message", "")) for a in alerts) or (dyn_corr >= 0.75)
     has_basis_cushion = (ic_basis >= 8.0)
 
-    if option_iv > 28.0 or has_corr_warning:
+    if not has_opt_data or option_iv <= 0.0:
+        d10_score = 50.0
+        d10_vote = "NEUTRAL"
+        d10_delta = 0.0
+        d10_reason = "期权隐波与中证500基差数据暂未更新，已中立化不参与仓位加减"
+    elif option_iv > 28.0 or has_corr_warning:
         d10_score = 30.0
         d10_vote = "BEAR"
         d10_delta = -8.0
@@ -4512,6 +4530,10 @@ def compute_ten_dimension_votes(
     }
 
 
+# 别名导出：满足投顾引擎外部调用规范与门禁反射契约
+evaluate_ten_dimensional_advisory = compute_ten_dimension_votes
+
+
 def generate_chief_advisor_memo(
     snapshot: Optional[Dict[str, Any]] = None,
     holdings: Optional[Union[Dict[str, Any], List[Any]]] = None,
@@ -4609,11 +4631,9 @@ def generate_chief_advisor_memo(
     )
 
     # ── 2. 国际与汇率面 ──────────────────────────────────────────
-    usdcnh_rate = float(snap.get("spot_usdcnh") or snap.get("usdcnh_rate") or macro_multi.get("usdcnh_rate") or 7.2385)
-    if usdcnh_rate < 6.85 or usdcnh_rate > 7.60:
-        usdcnh_rate = 7.2385
+    usdcnh_rate = float(snap.get("spot_usdcnh") or snap.get("usdcnh_rate") or macro_multi.get("usdcnh_rate") or 0.0)
     usdcnh_source = str(macro_multi.get("usdcnh_source", "外汇湖仓 (fx_rates.parquet)"))
-    usdcnh_chg = float(macro_multi.get("usdcnh_change_pct", -0.0207))
+    usdcnh_chg = float(macro_multi.get("usdcnh_change_pct", 0.0))
     usdcnh_date = str(macro_multi.get("usdcnh_date", datetime.now().strftime("%Y-%m-%d")))
 
     gold_chg = float(macro_multi.get("gold_change_pct", -1.30))
@@ -4627,10 +4647,8 @@ def generate_chief_advisor_memo(
     nasdaq_bias = float(macro_multi.get("nasdaq_bias_20", -2.46))
     nasdaq_source = str(macro_multi.get("nasdaq_source", "全球指数湖仓 (global_indices.parquet:IXIC)"))
 
-    us_10y = float(snap.get("us_treasury_10y") or snap.get("us_10y_yield") or macro_multi.get("us_10y_yield") or macro_multi.get("us_treasury_10y") or 4.4200)
-    if us_10y < 3.0 or us_10y > 5.0 or abs(us_10y - 5.12) < 0.05 or abs(us_10y - 5.15) < 0.05:
-        us_10y = 4.4200
-    spread_cgb_us = round((cgb_10y - us_10y) * 100.0, 1)
+    us_10y = float(snap.get("us_treasury_10y") or snap.get("us_10y_yield") or macro_multi.get("us_10y_yield") or macro_multi.get("us_treasury_10y") or 0.0)
+    spread_cgb_us = round((cgb_10y - us_10y) * 100.0, 1) if (cgb_10y > 0 and us_10y > 0) else 0.0
     cgb_20d_bp = float(macro_multi.get("cgb_20d_bp", -2.9))
     us_20d_bp = float(macro_multi.get("us_20d_bp", -26.0))
     treasury_date = str(macro_multi.get("treasury_date", datetime.now().strftime("%Y-%m-%d")))

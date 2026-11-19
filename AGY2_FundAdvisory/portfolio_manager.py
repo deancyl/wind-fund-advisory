@@ -2029,6 +2029,8 @@ def parse_screenshot_ocr_holdings(image_bytes: bytes) -> List[Dict[str, Any]]:
         structured_holdings.append({
             "fund_code": fc,
             "fund_name": fn,
+            "raw_name": str(f_info.get("raw_name") or blk_text[:20]),
+            "match_score": round(float(f_info.get("score", 1.0)), 2),
             "share_class": s_cls,
             "shares": sh,
             "cost_price": cp,
@@ -2697,7 +2699,7 @@ def fetch_realtime_index_quote(index_code: str = "sh000300", use_cache: bool = T
             if point > 0:
                 # 物理量纲守卫：H30269 回退至新浪 s_sh512890 时，严禁把 1.x 元 ETF 单价冒充万点级指数点位
                 if clean_c.upper() == "H30269" and point < 100.0:
-                    base_h30269 = 11569.50
+                    base_h30269 = None
                     try:
                         from data_loader import calc_offline_2day_return
                         off_h = calc_offline_2day_return("H30269")
@@ -2705,8 +2707,9 @@ def fetch_realtime_index_quote(index_code: str = "sh000300", use_cache: bool = T
                             base_h30269 = float(off_h[0])
                     except Exception:
                         pass
-                    point = round(base_h30269 * (1.0 + change_pct / 100.0), 2)
-                    change = round(point - base_h30269, 2)
+                    if base_h30269 is not None:
+                        point = round(base_h30269 * (1.0 + change_pct / 100.0), 2)
+                        change = round(point - base_h30269, 2)
                     name = "中证红利低波"
                 res = {
                     "symbol": raw_in,
@@ -3190,14 +3193,16 @@ def _save_daily_est_archive_to_disk() -> None:
 
 
 _ROLLING_BETA_CACHE: Dict[Tuple[str, str], float] = {}
+_ALIGNED_MATRIX_CACHE: Optional[Tuple[str, pd.DataFrame]] = None
 
 
-def get_calibrated_feeder_beta(fund_code: str, target_sym: str, default_beta: float = 0.95) -> float:
+def get_calibrated_feeder_beta(fund_code: str, target_sym: str, default_beta: float = 0.95, fund_name: str = "") -> float:
     """
     基于历史真实净值 vs 基准指数截至 T-1 日近 20 个交易日的真实日收益率序列计算滚动有效仓位系数 (Rolling Effective Beta)
     严格只使用截至 T-1 日之前历史已公布数据（零未来函数），每日最多计算一次并缓存。
     若本地历史不足或异常，物理回退 default_beta = 0.95。
     """
+    global _ALIGNED_MATRIX_CACHE
     code = str(fund_code).strip().zfill(6)
     today_k = datetime.now().strftime("%Y-%m-%d")
     cache_k = (code, today_k)
@@ -3224,11 +3229,19 @@ def get_calibrated_feeder_beta(fund_code: str, target_sym: str, default_beta: fl
             rows = con.execute(query, [code, f"{code}%", today_k]).fetchall()
             con.close()
             if len(rows) >= 10:
-                matrix_path = CURRENT_DIR / "data" / "processed" / "aligned_matrix_total_return.parquet"
-                if not matrix_path.exists():
-                    matrix_path = WORKSPACE_ROOT / "data" / "processed" / "aligned_matrix_total_return.parquet"
-                if matrix_path.exists():
-                    df_idx = pd.read_parquet(matrix_path)
+                # 内存缓存对齐矩阵，避免循环内重复读取磁盘
+                df_idx = None
+                if _ALIGNED_MATRIX_CACHE and _ALIGNED_MATRIX_CACHE[0] == today_k:
+                    df_idx = _ALIGNED_MATRIX_CACHE[1]
+                else:
+                    matrix_path = CURRENT_DIR / "data" / "processed" / "aligned_matrix_total_return.parquet"
+                    if not matrix_path.exists():
+                        matrix_path = WORKSPACE_ROOT / "data" / "processed" / "aligned_matrix_total_return.parquet"
+                    if matrix_path.exists():
+                        df_idx = pd.read_parquet(matrix_path)
+                        _ALIGNED_MATRIX_CACHE = (today_k, df_idx)
+
+                if df_idx is not None and not df_idx.empty:
                     sym_col_map = {
                         "000300": "H00300", "sh000300": "H00300",
                         "000905": "H00905", "sh000905": "H00905",
@@ -3239,18 +3252,19 @@ def get_calibrated_feeder_beta(fund_code: str, target_sym: str, default_beta: fl
                         "AU9999": "AU9999", "118.AU9999": "AU9999",
                         "511260": "H11009"
                     }
-                    col = sym_col_map.get(target_sym, "H00300")
-                    if col in df_idx.columns:
-                        df_idx["date_str"] = pd.to_datetime(df_idx["date"]).dt.strftime("%Y-%m-%d")
-                        df_idx["idx_ret"] = df_idx[col].pct_change() * 100.0
+                    col = sym_col_map.get(target_sym)
+                    if col and col in df_idx.columns:
+                        df_idx_copy = df_idx[["date", col]].copy()
+                        df_idx_copy["date_str"] = pd.to_datetime(df_idx_copy["date"]).dt.strftime("%Y-%m-%d")
+                        df_idx_copy["idx_ret"] = df_idx_copy[col].pct_change() * 100.0
                         fund_df = pd.DataFrame(rows, columns=["date_str", "fund_ret"])
-                        merged = pd.merge(fund_df, df_idx[["date_str", "idx_ret"]], on="date_str").dropna()
+                        merged = pd.merge(fund_df, df_idx_copy[["date_str", "idx_ret"]], on="date_str").dropna()
                         if len(merged) >= 10:
                             var_idx = float(np.var(merged["idx_ret"], ddof=1))
                             cov = float(np.cov(merged["fund_ret"], merged["idx_ret"])[0, 1])
                             if var_idx > 1e-6:
                                 raw_beta = cov / var_idx
-                                if "联接" in str(code):
+                                if "联接" in str(fund_name):
                                     beta = float(np.clip(raw_beta, 0.90, 0.97))
                                 else:
                                     beta = float(np.clip(raw_beta, 0.88, 1.00))
@@ -3340,7 +3354,6 @@ FEEDER_AND_STANDARD_INDEX_MAPPING: Dict[str, str] = {
     "008682": "sh000922",   # 富国中证红利指数增强C -> 中证红利 (sh000922)
     "012643": "sh000922",   # 招商中证红利ETF联接A
     "012644": "sh000922",   # 招商中证红利ETF联接C
-    "018757": "sh000922",   # 招商中证红利ETF联接C -> 中证红利 (sh000922)
     "016441": "sz159758",   # 华夏中证红利质量ETF联接C -> 华夏中证红利质量ETF (sz159758, 绝不误绑 sh000922)
     # 大宗商品黄金 (优先锚定上海金交所 AU9999 现货基准，回退对应场内黄金 ETF)
     "000216": "AU9999",     # 华安黄金ETF联接A -> 上海金交所 AU9999 (118.AU9999 / sh518880)
@@ -3357,14 +3370,14 @@ FEEDER_AND_STANDARD_INDEX_MAPPING: Dict[str, str] = {
     "012769": "sh516010",   # 华夏中证动漫游戏ETF联接C -> 游戏ETF (sh516010)
 }
 
-# 第二级：纯债与固收底仓基金代码集合 (002351/002352系二级债基，018757系中证红利股票联接C，严禁塞入纯债集合)
+# 第二级：纯债与固收底仓基金代码集合
 BOND_SOLID_CODES: Set[str] = {
-    "000086", "000087", "018756", "511260", "511010", "511360"
+    "000086", "000087", "511260", "511010", "511360"
 }
 
 # 二级债基（含股约10% + 转债约8% + 纯债约82%），仅在无官方实时估值时走股债转债混合兜底
 SECONDARY_BOND_CODES: Set[str] = {
-    "002351", "002352"
+    "002351", "002352", "018757", "018756"
 }
 
 # 第三级：海外 QDII 基金映射 (严格采用外盘原生指数 gb_ndx 纳指100 / gb_inx 标普500 + 离岸汇率)
@@ -3461,7 +3474,7 @@ def evaluate_four_tier_realtime_valuation(fund_code: str, base_quote: Optional[F
 
             if idx_q and "change_pct" in idx_q and not idx_q.get("is_fallback", False):
                 target_chg = float(idx_q.get("change_pct", 0.0))
-                factor = get_calibrated_feeder_beta(code, target_sym, 0.95)
+                factor = get_calibrated_feeder_beta(code, target_sym, 0.95, fund_name=str(q.name))
                 dwjz_val = q.dwjz if q.dwjz > 0 else 1.0
                 gsz_val, gszzl_p1 = _calc_nav_rounded_gszzl(dwjz_val, factor * target_chg, code, q.name)
                 gztime_val = f"{now_dt.strftime('%Y-%m-%d %H:%M')} (穿透锚定: {target_sym} {target_chg:+.2f}%)"
@@ -4249,8 +4262,19 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
                 est_src_label = "平盘兜底"
                 est_time_label = f"{pdate or today_str} 待更新"
 
-            # 仅当今日官方净值尚未公布，或今日尚无封存记录时，写入定格归档
-            if not is_off_today or c not in _TODAY_EST_ARCHIVE or _TODAY_EST_ARCHIVE[c][0] not in (today_str, active_date_prefix):
+            # 仅当今日官方净值尚未公布，或今日尚无封存记录时，写入定格归档（防御凌晨 00:00~09:34 写脏或平盘兜底污染）
+            now_h = now_dt.hour
+            now_m = now_dt.minute
+            is_dawn_premarket = (now_h < 9 or (now_h == 9 and now_m < 35))
+            can_archive = True
+            if est_src_label == "平盘兜底":
+                can_archive = False
+            elif is_dawn_premarket and c in _TODAY_EST_ARCHIVE:
+                can_archive = False
+            elif is_off_today and c in _TODAY_EST_ARCHIVE and _TODAY_EST_ARCHIVE[c][0] in (today_str, active_date_prefix):
+                can_archive = False
+
+            if can_archive:
                 _TODAY_EST_ARCHIVE[c] = (active_date_prefix, est_gsz_final, est_gszzl_final, est_src_label)
 
         # 主显字段：A股/债基在官方净值公布后主显官方净值，同时完整保留 est_gszzl 供双轨对账；
@@ -7074,7 +7098,7 @@ class PortfolioManager:
                 "当日估算(%)": f"{est_gszzl_val:+.2f}% ({est_src_val})",
                 "官方涨跌(对比)": val_cmp_str or off_chg_display,
                 "当日估算涨跌(%)": est_gszzl_val,
-                "当日官方涨跌(%)": off_chg_display,
+                "官方公布状态": off_chg_display,
                 "官方vs估算对比": val_cmp_str,
                 "今日实时估值涨跌(%)": float(gszzl),
                 "盘中预估盈亏(元)": float(est_pnl),
@@ -9319,13 +9343,11 @@ class PortfolioManager:
             try:
                 from data_loader import DataLoader
                 fx_info = DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
-                spot_usdcnh = float(fx_info.get("rate", 7.2385))
+                spot_usdcnh = float(fx_info.get("rate") or 0.0)
             except Exception:
-                spot_usdcnh = 7.2385
-        if spot_usdcnh < 6.85 or spot_usdcnh > 7.60:
-            spot_usdcnh = 7.2385
+                spot_usdcnh = 0.0
 
-        spot = float(spot_usdcnh)
+        spot = float(spot_usdcnh) if spot_usdcnh else 0.0
 
         # 远期掉期点 (Forward Swap Points, pips, 1 pip = 0.0001)
         # 根据中美利差与期限，默认 1Y 掉期点约为 -1450 pips (-0.1450), 3M 约为 -360 pips
@@ -9405,9 +9427,9 @@ class PortfolioManager:
             try:
                 from data_loader import DataLoader
                 fx_data = DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
-                spot_usdcnh = float(fx_data.get("rate", 7.2385))
+                spot_usdcnh = float(fx_data.get("rate") or 0.0)
             except Exception:
-                spot_usdcnh = 7.2385
+                spot_usdcnh = 0.0
 
         results = []
         for c in codes:

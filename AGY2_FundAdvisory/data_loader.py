@@ -2774,12 +2774,12 @@ def fetch_realtime_usdcnh_fx(
         if now_ts - _USDCNH_MEM_CACHE["ts"] < 60.0:
             return _USDCNH_MEM_CACHE["data"]
 
-    rate = 7.2385
-    chg_pct = -0.0207
-    chg_amount = -0.0015
-    prev_close = 7.2400
+    rate = None
+    chg_pct = 0.0
+    chg_amount = 0.0
+    prev_close = None
     is_realtime = False
-    source = "离线真实近期截面校准 (USD/CNH 7.2385)"
+    source = "数据待同步"
     fx_date = datetime.now().strftime("%Y-%m-%d")
 
     # 优先从本地外汇湖仓获取最新真实基线截面
@@ -2789,15 +2789,17 @@ def fetch_realtime_usdcnh_fx(
             fx_lake_p = Path("data/global/fx_rates.parquet")
         if fx_lake_p.exists():
             fx_lake_df = pd.read_parquet(fx_lake_p)
-            if not fx_lake_df.empty:
-                last_row = fx_lake_df.iloc[-1]
-                lake_rate = round(float(last_row.get("usd_cnh", 7.2385)), 4)
-                if 6.85 <= lake_rate <= 7.60:
-                    rate = lake_rate
-                    chg_pct = round(float(last_row.get("usd_cny_return", -0.0207)), 4)
-                    fx_date = str(last_row.get("date", fx_date))
-                    prev_close = rate
-                    source = f"外汇湖仓 (fx_rates.parquet: {fx_date})"
+            if not fx_lake_df.empty and "usd_cnh" in fx_lake_df.columns:
+                valid_df = fx_lake_df.dropna(subset=["usd_cnh"])
+                if not valid_df.empty:
+                    last_row = valid_df.iloc[-1]
+                    lake_rate = round(float(last_row["usd_cnh"]), 4)
+                    if 6.0 <= lake_rate <= 8.5:
+                        rate = lake_rate
+                        chg_pct = round(float(last_row.get("usd_cny_return", 0.0)), 4)
+                        fx_date = str(last_row.get("date", fx_date))
+                        prev_close = rate
+                        source = f"外汇湖仓 (fx_rates.parquet: {fx_date})"
     except Exception:
         pass
 
@@ -2818,7 +2820,7 @@ def fetch_realtime_usdcnh_fx(
                 p_pre = float(parts[3]) if parts[3] else 0.0
                 p_chg_pct = float(parts[10]) if parts[10] else 0.0
                 p_chg_amt = float(parts[11]) if parts[11] else 0.0
-                if 6.85 <= p_cur <= 7.60:
+                if 6.0 <= p_cur <= 8.5:
                     rate = round(p_cur, 4)
                     prev_close = round(p_pre, 4) if p_pre > 0 else rate
                     chg_pct = round(p_chg_pct, 4)
@@ -2829,14 +2831,11 @@ def fetch_realtime_usdcnh_fx(
     except Exception:
         pass
 
-    # 合理性校验哨（守死 [6.85, 7.60] 区间，异常时采用 7.2385 真实近期截面数据）
-    if rate < 6.85 or rate > 7.60:
-        rate = 7.2385
-        prev_close = 7.2400
-        chg_pct = -0.0207
-        chg_amount = -0.0015
-        is_realtime = False
-        source = "离线真实近期截面校准 (USD/CNH 7.2385)"
+    # 若仍为 None 则诚实标示待同步
+    if rate is None:
+        rate = 0.0
+        prev_close = 0.0
+        source = "数据待同步 (无可用外汇截面)"
 
     raw_dict = {
         "rate": rate,
@@ -3225,13 +3224,13 @@ def fetch_macro_cross_market_indicators(
         pass
 
     # 1. 国债收益率与中美利差 (优先读取 bond_zh_us_rate.parquet)
-    cgb_10y = 1.6376
-    us_10y = 4.4200
-    cgb_us_spread_bp = -278.2
-    cgb_20d_bp = -2.9
-    us_20d_bp = -26.0
+    cgb_10y = None
+    us_10y = None
+    cgb_us_spread_bp = None
+    cgb_20d_bp = 0.0
+    us_20d_bp = 0.0
     treasury_date = datetime.now().strftime("%Y-%m-%d")
-    treasury_source = "中债与美财政部数据库 (bond_zh_us_rate.parquet)"
+    treasury_source = "数据待同步"
 
     try:
         rate_p = WORKSPACE_ROOT / "data/macro/bond_zh_us_rate.parquet"
@@ -3240,29 +3239,41 @@ def fetch_macro_cross_market_indicators(
         if rate_p.exists():
             df_b = pd.read_parquet(rate_p)
             if not df_b.empty and "cn_yield_10y" in df_b.columns:
-                cgb_10y = float(df_b["cn_yield_10y"].dropna().iloc[-1])
-                treasury_date = str(df_b["date"].dropna().iloc[-1])
-                if "us_yield_10y" in df_b.columns and not df_b["us_yield_10y"].dropna().empty:
-                    us_10y = float(df_b["us_yield_10y"].dropna().iloc[-1])
-                if "cn_us_spread_10y" in df_b.columns and not df_b["cn_us_spread_10y"].dropna().empty:
-                    cgb_us_spread_bp = round(float(df_b["cn_us_spread_10y"].dropna().iloc[-1]) * 100.0, 1)
-                else:
+                cgb_series = df_b["cn_yield_10y"].dropna()
+                if not cgb_series.empty:
+                    cgb_10y = float(cgb_series.iloc[-1])
+                    treasury_date = str(df_b["date"].dropna().iloc[-1])
+                    treasury_source = f"中债与美财政部数据库 (bond_zh_us_rate.parquet: {treasury_date})"
+                if "us_yield_10y" in df_b.columns:
+                    us_series = df_b["us_yield_10y"].dropna()
+                    if not us_series.empty:
+                        us_10y = float(us_series.iloc[-1])
+                if cgb_10y is not None and us_10y is not None:
                     cgb_us_spread_bp = round((cgb_10y - us_10y) * 100.0, 1)
+                elif "cn_us_spread_10y" in df_b.columns and not df_b["cn_us_spread_10y"].dropna().empty:
+                    cgb_us_spread_bp = round(float(df_b["cn_us_spread_10y"].dropna().iloc[-1]) * 100.0, 1)
+
                 # 20 交易日变动 bp
                 if len(df_b) > 20:
-                    cgb_20d_ago = float(df_b["cn_yield_10y"].dropna().iloc[-21])
-                    us_20d_ago = float(df_b["us_yield_10y"].dropna().iloc[-21]) if "us_yield_10y" in df_b.columns else us_10y
-                    cgb_20d_bp = round((cgb_10y - cgb_20d_ago) * 100.0, 1)
-                    us_20d_bp = round((us_10y - us_20d_ago) * 100.0, 1)
+                    cgb_20d_ago = float(df_b["cn_yield_10y"].dropna().iloc[-21]) if not df_b["cn_yield_10y"].dropna().empty else cgb_10y
+                    if cgb_10y is not None and cgb_20d_ago is not None:
+                        cgb_20d_bp = round((cgb_10y - cgb_20d_ago) * 100.0, 1)
+                    if "us_yield_10y" in df_b.columns:
+                        us_valid = df_b["us_yield_10y"].dropna()
+                        if len(us_valid) > 20:
+                            us_20d_ago = float(us_valid.iloc[-21])
+                            if us_10y is not None:
+                                us_20d_bp = round((us_10y - us_20d_ago) * 100.0, 1)
     except Exception:
         pass
 
-    # 美债收益率与中美利差合理性校验哨：若超出 [3.0, 5.0] 或读入 5.12/5.15 异常截面，统一校准为真实基线 4.4200 与利差
-    if us_10y < 3.0 or us_10y > 5.0 or abs(us_10y - 5.12) < 0.05 or abs(us_10y - 5.15) < 0.05:
-        us_10y = 4.4200
-        cgb_us_spread_bp = round((cgb_10y - us_10y) * 100.0, 1)
-    elif abs(cgb_us_spread_bp - (-353.8)) < 1e-4 or abs(cgb_us_spread_bp - (-349.1)) < 1e-4:
-        cgb_us_spread_bp = round((cgb_10y - us_10y) * 100.0, 1)
+    # 诚实回退：若未拉取到则设为 0.0 并标记待同步
+    if cgb_10y is None:
+        cgb_10y = 0.0
+    if us_10y is None:
+        us_10y = 0.0
+    if cgb_us_spread_bp is None:
+        cgb_us_spread_bp = round((cgb_10y - us_10y) * 100.0, 1) if (cgb_10y > 0 and us_10y > 0) else 0.0
 
     # 2. 黄金资产 (华安黄金 ETF 518880 元/份 与 AU9999 现货回报)
     gold_price = 8.289
@@ -3380,13 +3391,9 @@ def fetch_macro_cross_market_indicators(
 
     # 4. 接入离岸人民币 (USD/CNH) 真实汇率与合理性校验哨
     usdcnh_info = fetch_realtime_usdcnh_fx(use_cache=use_cache, timeout=timeout)
-    usdcnh_rate = float(usdcnh_info.get("rate", 7.2385))
-    if usdcnh_rate < 6.85 or usdcnh_rate > 7.60:
-        usdcnh_rate = 7.2385
-        usdcnh_source = "离线真实近期截面校准 (USD/CNH 7.2385)"
-    else:
-        usdcnh_source = str(usdcnh_info.get("source", "外汇湖仓 (fx_rates.parquet)"))
-    usdcnh_chg = float(usdcnh_info.get("change_pct", -0.0207))
+    usdcnh_rate = float(usdcnh_info.get("rate") or 0.0)
+    usdcnh_source = str(usdcnh_info.get("source", "数据待同步"))
+    usdcnh_chg = float(usdcnh_info.get("change_pct", 0.0))
     usdcnh_date = str(usdcnh_info.get("date", treasury_date))
 
     res = {

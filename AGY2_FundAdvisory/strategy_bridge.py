@@ -2860,21 +2860,27 @@ class StrategyBridge:
             structure_color = "#94a3b8"
 
         # 4. 宏观利率与股债性价比 (ERP)
-        treasury_10y = 1.6376
-        us_treasury_10y = 4.4200
-        cn_us_spread_bp = round((treasury_10y - us_treasury_10y) * 100.0, 1)
+        treasury_10y = 0.0
+        us_treasury_10y = 0.0
+        cn_us_spread_bp = 0.0
 
         if RATE_FILE.exists():
             try:
                 df_rate_init = pd.read_parquet(RATE_FILE)
                 if 'cn_yield_10y' in df_rate_init.columns and not df_rate_init.empty:
-                    treasury_10y = float(df_rate_init['cn_yield_10y'].dropna().iloc[-1])
+                    c_valid = df_rate_init['cn_yield_10y'].dropna()
+                    if not c_valid.empty:
+                        treasury_10y = float(c_valid.iloc[-1])
                 if 'us_yield_10y' in df_rate_init.columns and not df_rate_init.empty:
-                    us_treasury_10y = float(df_rate_init['us_yield_10y'].dropna().iloc[-1])
-                if 'cn_us_spread_10y' in df_rate_init.columns and not df_rate_init.empty:
-                    cn_us_spread_bp = round(float(df_rate_init['cn_us_spread_10y'].dropna().iloc[-1]) * 100.0, 1)
-                else:
+                    u_valid = df_rate_init['us_yield_10y'].dropna()
+                    if not u_valid.empty:
+                        us_treasury_10y = float(u_valid.iloc[-1])
+                if treasury_10y > 0 and us_treasury_10y > 0:
                     cn_us_spread_bp = round((treasury_10y - us_treasury_10y) * 100.0, 1)
+                elif 'cn_us_spread_10y' in df_rate_init.columns and not df_rate_init.empty:
+                    s_valid = df_rate_init['cn_us_spread_10y'].dropna()
+                    if not s_valid.empty:
+                        cn_us_spread_bp = round(float(s_valid.iloc[-1]) * 100.0, 1)
             except Exception:
                 pass
         elif BOND_FILE.exists():
@@ -2885,20 +2891,13 @@ class StrategyBridge:
             except Exception:
                 pass
 
-        # 美债合理性校验哨：统一校准异常旧截面 5.12/5.15 为基线 4.4200，并动态计算中美利差
-        if us_treasury_10y < 3.0 or us_treasury_10y > 5.0 or abs(us_treasury_10y - 5.12) < 0.05 or abs(us_treasury_10y - 5.15) < 0.05:
-            us_treasury_10y = 4.4200
-        cn_us_spread_bp = round((treasury_10y - us_treasury_10y) * 100.0, 1)
-
-        spot_usdcnh = 7.2385
+        spot_usdcnh = 0.0
         try:
             from data_loader import DataLoader
             fx_info = DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
-            spot_usdcnh = float(fx_info.get("rate", 7.2385))
+            spot_usdcnh = float(fx_info.get("rate") or 0.0)
         except Exception:
-            spot_usdcnh = 7.2385
-        if spot_usdcnh < 6.85 or spot_usdcnh > 7.60:
-            spot_usdcnh = 7.2385
+            pass
 
         pe_ttm_300 = 12.23
         erp_percentile = 81.9

@@ -554,8 +554,8 @@ def render_chief_advisor_memo_card(memo_data: Dict[str, Any], title: str = "🧭
     cgb_10y_v = float(m_macro.get("cgb_10y", 1.64))
     macro_capsule_sub = f"10Y国债 {cgb_10y_v:.2f}% ｜ 资金合理充沛"
 
-    usdcnh_v = float(m_intl.get("usdcnh_rate", 7.2385))
-    intl_capsule_sub = f"USD/CNH {usdcnh_v:.4f} ｜ 利差深度倒挂"
+    usdcnh_v = float(m_intl.get("usdcnh_rate") or m_intl.get("spot_usdcnh") or 0.0)
+    intl_capsule_sub = f"USD/CNH {usdcnh_v:.4f} ｜ 利差深度倒挂" if usdcnh_v > 0 else "USD/CNH 待同步 ｜ 跨市场联动"
 
     ind_capsule_sub = m_ind.get("capsule_sub") or ""
     if not ind_capsule_sub:
@@ -2640,8 +2640,18 @@ def render_portfolio_cushion_and_stress_card_html(cushion_model: Dict[str, Any])
 
 
 # =============================================================
-# 全生态 Plotly 穿透回测图表自适应换肤
+# 全生态 Plotly 穿透回测图表自适应换肤与白话导读
 # =============================================================
+def _render_chart_reading_guide(how_to_read: str, action_trigger: str) -> None:
+    """渲染专业图表正上方的统一白话导读胶囊（怎么看 + 触发什么动作）"""
+    safe_markdown_html(
+        f"""<div style="background: rgba(30, 41, 59, 0.45); border-left: 3px solid #38bdf8; border-radius: 4px; padding: 6px 12px; margin: 4px 0 8px 0; font-size: 0.82rem; color: #cbd5e1; line-height: 1.5;">
+        <div>💡 <b>怎么看</b>：{how_to_read}</div>
+        <div>🎯 <b>行动信号</b>：{action_trigger}</div>
+        </div>"""
+    )
+
+
 def apply_theme_to_plotly_figure(fig: go.Figure, theme_mode: Optional[str] = None, color_mode: Optional[str] = None) -> go.Figure:
     """让 Plotly 图表深度自适应当前主题与涨跌配色 (5套主题自适应)"""
     th_key = theme_mode or st.session_state.get("app_theme_mode", "light_slate")
@@ -4120,19 +4130,12 @@ def render_dual_wing_advisory_dashboard(pm_instance, snapshot_dict):
                         </div>
                         """)
                     else:
-                        # 真实渲染所有触发的风控警报项 (采用 2×2 双栏网格排版，高度与左翼机会雷达完美齐平)
+                        # 真实渲染所有触发的风控警报项：按预计每年可省费用或可规避亏损金额 impact_rmb 降序排列置顶高价值风控
                         def _sentry_alert_sorter(a):
+                            impact = float(a.get("impact_rmb") or a.get("recoverable_cash") or 0.0)
                             _lvl = str(a.get("level", "yellow")).lower()
-                            _t = str(a.get("title", "")) + str(a.get("desc", ""))
-                            is_tail_cleanup = a.get("dimension") == "碎片尾仓清理" or "碎片尾仓" in _t
-                            is_scale_unknown = "规模待核验" in _t
-                            if _lvl in ("red", "critical"):
-                                return (0, 0)
-                            elif _lvl in ("yellow", "warning"):
-                                return (1, -1 if is_tail_cleanup else (1 if is_scale_unknown else 0))
-                            elif "green" in _lvl or _lvl in ("info", "notice"):
-                                return (3, 0)
-                            return (2, 0)
+                            lvl_weight = 100000.0 if _lvl in ("red", "critical") else (50000.0 if _lvl in ("yellow", "warning") else 0.0)
+                            return -(lvl_weight + impact)
 
                         sorted_sentry_alerts = sorted(alerts_list, key=_sentry_alert_sorter)
                         col_sen1, col_sen2 = st.columns(2)
@@ -6226,7 +6229,11 @@ with tab_holdings_and_rebalance:
 
                             df_ocr_rows = []
                             for it in parsed_ocr:
-                                if it.get("cross_check_verified"):
+                                sc = float(it.get("match_score", 1.0))
+                                raw_n = str(it.get("raw_name") or it.get("fund_name", ""))
+                                if sc < 0.85:
+                                    c_status = "⚠️ 请核对基金名称"
+                                elif it.get("cross_check_verified"):
                                     c_status = "🔒 双因子锁定"
                                 elif it.get("is_questionable"):
                                     c_status = "❓ 存疑待核"
@@ -6235,6 +6242,8 @@ with tab_holdings_and_rebalance:
                                 df_ocr_rows.append({
                                     "基金代码": str(it.get("fund_code", "")).zfill(6),
                                     "基金名称": str(it.get("fund_name", "")),
+                                    "原图识别名": raw_n,
+                                    "匹配置信度": f"{sc:.2f}",
                                     "核对状态": c_status,
                                     "持有市值": float(it.get("market_value", 0.0)),
                                     "持有收益": float(it.get("floating_pnl", 0.0)),
@@ -6249,6 +6258,8 @@ with tab_holdings_and_rebalance:
                                 column_config={
                                     "基金代码": st.column_config.TextColumn("基金代码", required=True),
                                     "基金名称": st.column_config.TextColumn("基金名称"),
+                                    "原图识别名": st.column_config.TextColumn("原图识别名", disabled=True),
+                                    "匹配置信度": st.column_config.TextColumn("匹配置信度", disabled=True),
                                     "核对状态": st.column_config.TextColumn("核对状态", disabled=True),
                                     "持有市值": st.column_config.NumberColumn("持有市值", format="¥%.2f"),
                                     "持有收益": st.column_config.NumberColumn("持有收益", format="¥%+.2f"),
@@ -6470,9 +6481,15 @@ with tab_holdings_and_rebalance:
             col_holdings_val = "当日官方净值" if is_official_nav_holdings else "今日实时估值"
             col_holdings_chg = "当日官方涨跌(%)" if is_official_nav_holdings else ("今日估值/官方涨跌(%)" if is_market_closed else "盘中实时估值(%)")
             if "今日实时估值" in df_disp.columns and col_holdings_val != "今日实时估值":
+                if col_holdings_val in df_disp.columns:
+                    df_disp.drop(columns=[col_holdings_val], inplace=True)
                 df_disp.rename(columns={"今日实时估值": col_holdings_val}, inplace=True)
             if "今日实时估值涨跌(%)" in df_disp.columns:
+                if col_holdings_chg in df_disp.columns:
+                    df_disp.drop(columns=[col_holdings_chg], inplace=True)
                 df_disp.rename(columns={"今日实时估值涨跌(%)": col_holdings_chg}, inplace=True)
+            if not df_disp.empty:
+                df_disp = df_disp.loc[:, ~df_disp.columns.duplicated(keep="last")]
 
             # 预计算调仓建议单（如果已诊断或已触发）
             if active_lid == "combat_29_funds":
@@ -6700,21 +6717,30 @@ with tab_holdings_and_rebalance:
                 mae_str = f"{(sum(off_published_diffs) / off_count):.2f}%" if off_count > 0 else "待晚间公布"
                 dual_mae_str = f"{(sum(dual_src_diffs) / len(dual_src_diffs)):.2f}%" if dual_src_diffs else "--"
 
-                c_aud_bar, c_aud_pop = st.columns([7.4, 2.6])
-                with c_aud_bar:
-                    st.caption(
-                        f"📊 **估值精度双轨对账**：今日官方净值已出 **{off_count}/{total_h_cnt} 只** ｜ "
-                        f"已出标的估算平均误差 (MAE): **{mae_str}** ｜ 基金级估值 vs 指数穿透平均分歧: **{dual_mae_str}**"
-                    )
-                with c_aud_pop:
-                    with st.popover("🎯 估值 vs 官方逐基对账单", use_container_width=True):
-                        st.markdown("##### 🎯 官方实际涨跌幅 vs 当日实时估算 逐基三方对账单")
+                st.caption(
+                    f"📊 **估值精度双轨对账**：今日官方净值已出 **{off_count}/{total_h_cnt} 只** ｜ "
+                    f"已出标的估算平均误差 (MAE): **{mae_str}** ｜ 基金级估值 vs 指数穿透平均分歧: **{dual_mae_str}**"
+                )
+                with st.expander("展开查看 29 只基金 估值 vs 官方逐基对账单 (官方实际涨跌 vs 当日估算)", expanded=False):
+                    if _is_mobile_viewport():
+                        mc1, mc2 = st.columns(2)
+                        mc1.metric("官方净值已公布", f"{off_count}/{total_h_cnt} 只")
+                        mc2.metric("官方vs估算 MAE", mae_str)
+                        mc3, mc4 = st.columns(2)
+                        mc3.metric("双源平均分歧", dual_mae_str)
+                        mc4.metric("核算准则", "4位修约+C类日费")
+                    else:
                         mc1, mc2, mc3, mc4 = st.columns(4)
                         mc1.metric("官方净值已公布", f"{off_count}/{total_h_cnt} 只")
                         mc2.metric("官方vs估算 MAE", mae_str)
                         mc3.metric("双源平均分歧", dual_mae_str)
                         mc4.metric("核算准则", "4位修约+C类日费")
-                        st.dataframe(pd.DataFrame(audit_rows), use_container_width=True, hide_index=True)
+                    df_aud_all = pd.DataFrame(audit_rows)
+                    if _is_mobile_viewport() and not df_aud_all.empty:
+                        m_cols = [c for c in ["基金简称", "当日估算(%)", "官方涨跌(%)", "偏差归因与来源"] if c in df_aud_all.columns]
+                        st.dataframe(df_aud_all[m_cols], use_container_width=True, hide_index=True)
+                    else:
+                        st.dataframe(df_aud_all, use_container_width=True, hide_index=True)
 
             # 4. 表格视图切换与渲染
             has_orders = len(rows_display) > 0 and (st.session_state.get("tab2_diagnosed", False) or st.session_state.get("tab2_rebalanced", False) or active_lid == "combat_29_funds")
@@ -6735,8 +6761,9 @@ with tab_holdings_and_rebalance:
                     nav_status_tip = "🟢 已收盘公布官方净值与实际涨跌" if is_official_nav_holdings else "🟡 盘中实时估值双轨对账中"
                     st.caption(f"实时持仓资产明细（{nav_status_tip}，支持直接编辑代码与金额，保存时后台自动联网补齐净值与指标）：")
                     if not df_disp.empty:
+                        clean_df_disp = df_disp.loc[:, ~df_disp.columns.duplicated(keep="last")]
                         edited_table = st.data_editor(
-                            df_disp,
+                            clean_df_disp,
                             column_config={
                                 "基金代码": st.column_config.TextColumn(max_chars=6, required=True),
                                 "基金名称": st.column_config.TextColumn(disabled=True),
@@ -7523,30 +7550,7 @@ with tab_holdings_and_rebalance:
                                 st.success(f"✅ 订单 {p_ord.order_id} 已成功对账入库！")
                                 st.rerun()
                 else:
-                    st.info("💡 当前暂无在途申报订单。您可点击下方按钮模拟生成一笔在途申购订单以体验 T+1 对账全流程：")
-                    if st.button("➕ 模拟生成一笔在途申购订单 (创金合信红利低波 005561 ¥5,000)", key="btn_mock_pending_order"):
-                        import uuid
-                        from portfolio_manager import PendingOrder
-                        mock_oid = f"ORD_{uuid.uuid4().hex[:8].upper()}"
-                        mock_ord = PendingOrder(
-                            order_id=mock_oid,
-                            fund_code="005561",
-                            fund_name="创金合信中证红利低波动A",
-                            action="BUY",
-                            amount=5000.0,
-                            shares=0.0,
-                            est_nav=1.258,
-                            est_fee=0.0,
-                            created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            effective_trade_date=datetime.now().strftime("%Y-%m-%d"),
-                            status="PENDING",
-                            notes="买方投顾模拟在途对账单"
-                        )
-                        pm.pending_orders.append(mock_ord)
-                        pm.in_transit_cash = round(pm.in_transit_cash + 5000.0, 2)
-                        pm.save_state()
-                        st.success("✅ 模拟在途申购订单已生成！请查看上方订单列表进行 T+1 对账。")
-                        st.rerun()
+                    st.info("💡 当前暂无在途申报订单。当您在调仓执行单中确认申购或赎回后，系统将自动在此跟踪 T+1 确认与 T+2 到账进度。")
 
             with dock_tab5:
                 st.markdown("##### 🔄 同公司基金低摩擦转换")
@@ -8289,6 +8293,10 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
             height=280,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
+        _render_chart_reading_guide(
+            how_to_read="曲线越贴近 0% 说明抗跌能力越强，深坑越浅越容易拿得住。",
+            action_trigger="若当前回撤已明显小于沪深300且处于修复期，坚持持有不轻易割肉。"
+        )
         apply_theme_to_plotly_figure(fig_dd)
         st.plotly_chart(fig_dd, use_container_width=True)
 
@@ -8318,6 +8326,10 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
             margin=dict(t=10, b=10, l=10, r=10),
             height=280,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        _render_chart_reading_guide(
+            how_to_read="观察高位时权益色块是否自动收缩、低位时是否自动放大。",
+            action_trigger="用于验证策略是否真正做到高抛低吸，而非满仓死扛。"
         )
         apply_theme_to_plotly_figure(fig_area)
         st.plotly_chart(fig_area, use_container_width=True)
@@ -8776,6 +8788,10 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
                     margin=dict(l=10, r=10, t=30, b=30),
                     yaxis=dict(range=[-0.6, 1.0], tickformat=".2f")
                 )
+                _render_chart_reading_guide(
+                    how_to_read="相关系数越低（<0.50）说明红利与沪深300互补效果越好。",
+                    action_trigger="一旦突破 0.75 红线说明同涨同跌分散失效，应降低高相关权益仓位并增配黄金或纯债。"
+                )
                 apply_theme_to_plotly_figure(fig_corr)
                 st.plotly_chart(fig_corr, use_container_width=True, key="fig_ewma_corr_trend")
 
@@ -8866,6 +8882,10 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
                             ticktext=overlap_res["funds"],
                             autorange="reversed"
                         )
+                    )
+                    _render_chart_reading_guide(
+                        how_to_read="色块越深（>0.70）说明两只基金底层买的是同一批股票。",
+                        action_trigger="对高重合标的只保留费率最低的 A 类或龙头基，清掉重复持仓。"
                     )
                     apply_theme_to_plotly_figure(fig_heat)
                     st.plotly_chart(fig_heat, use_container_width=True)
@@ -9101,6 +9121,10 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
                         legend=dict(orientation="h", yanchor="bottom", y=1.03, xanchor="center", x=0.5),
                         xaxis=dict(title="MA20 均线乖离率 Bias20 (%)"),
                         yaxis=dict(title="交易拥挤度热力 (0~100)", range=[10, 90])
+                    )
+                    _render_chart_reading_guide(
+                        how_to_read="横轴看短期涨跌偏离（右偏热、左偏冷），纵轴看资金拥挤度（上拥挤、下冷清）。",
+                        action_trigger="右上角严禁追高、左下角适合分批低吸、左上/右下维持观望。"
                     )
                     apply_theme_to_plotly_figure(fig_quad)
                     st.plotly_chart(fig_quad, use_container_width=True)
