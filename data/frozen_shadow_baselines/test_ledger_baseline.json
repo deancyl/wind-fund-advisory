@@ -1,8 +1,8 @@
 {
   "ledger_id": "test_ledger",
   "baseline_name": "测试躺平基准",
-  "frozen_date": "2026-11-19",
-  "frozen_timestamp": "2026-11-19 23:25:49",
+  "frozen_date": "2026-11-20",
+  "frozen_timestamp": "2026-11-20 01:09:44",
   "initial_total_market_value": 34150.0,
   "holdings_count": 3,
   "holdings": {

@@ -1,17 +1,11 @@
-import sys
-from pathlib import Path
+GUI_PATH = r"d:\Google\Workspace\Wind\AGY2_FundAdvisory\app_gui.py"
 
-content = Path("AGY2_FundAdvisory/app_gui.py").read_text(encoding="utf-8")
-lines = content.splitlines()
+with open(GUI_PATH, "r", encoding="utf-8") as f:
+    lines = f.readlines()
 
-for i, l in enumerate(lines):
-    if "def render_radar_and_sentry_wing" in l:
-        print(f"render_radar_and_sentry_wing starts at line {i+1}")
-    if "def render_tab2_holdings_content" in l:
-        print(f"render_tab2_holdings_content starts at line {i+1}")
-    if "def render_tab4_toolbox_content" in l:
-        print(f"render_tab4_toolbox_content starts at line {i+1}")
-    if "with st.expander(\"🛠️ 账本工具坞" in l:
-        print(f"dock expander at line {i+1}")
-    if "核心标的五维深度研判" in l:
-        print(f"5D diagnosis at line {i+1}")
+def print_section(start, end):
+    for i in range(start - 1, min(end, len(lines))):
+        print(f"{i+1:4d}: {lines[i].rstrip()}")
+
+print("=== Lines 3520 to 3565 ===")
+print_section(3520, 3565)

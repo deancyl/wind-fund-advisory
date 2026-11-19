@@ -31,6 +31,9 @@ def _compute_file_sha256(filepath: Union[str, Path]) -> str:
     return h.hexdigest().upper()
 
 
+_calc_file_sha256 = _compute_file_sha256
+
+
 def _ensure_backup_dir() -> Path:
     """确保备份根目录存在"""
     BACKUP_ROOT_DIR.mkdir(parents=True, exist_ok=True)

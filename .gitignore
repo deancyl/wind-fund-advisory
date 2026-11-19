@@ -44,6 +44,7 @@ data/global/*
 data/research/*
 data/derivatives/*
 data/*.duckdb
+data/backups/*
 scratch/
 !data/cache/.gitkeep
 !data/master/.gitkeep
