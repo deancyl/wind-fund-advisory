@@ -1,0 +1,20 @@
+{
+  "snapshot_id": "20261119_232555_g29_gate_test",
+  "timestamp": "2026-11-19 23:25:55",
+  "reason": "g29_gate_test",
+  "files": {
+    "portfolio_state.db": {
+      "sha256": "491A81E9399E089E1E0FB1385CAC592539EE80E1E11F14EE7103C3EB45FC6C24",
+      "size_bytes": 22
+    },
+    "portfolio_ledger.json": {
+      "sha256": "5BDF83ED8ED3243E5ED9A0CC61B1A6B82E17170D60535F66FC9D30DB66F6E547",
+      "size_bytes": 5878
+    },
+    "daily_intraday_est_archive.json": {
+      "sha256": "CB3F47C037C883E028872A58862CDB952E07F98BDD786F7E5905C7A48F475991",
+      "size_bytes": 10743
+    }
+  },
+  "total_market_value": 0.0
+}

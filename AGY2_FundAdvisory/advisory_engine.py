@@ -4216,8 +4216,10 @@ def compute_ten_dimension_votes(
     raw_usdcnh_chg = float(mm.get("change_pct") or mm.get("usdcnh_change_pct") or snap.get("usdcnh_change_pct") or 0.0)
     usdcnh_chg = float(raw_usdcnh_chg)
 
-    bias_20 = float(snap.get("bias_20", -1.58))
-    er_snr = float(snap.get("er_snr", 0.35))
+    has_bias_data = snap.get("bias_20") is not None
+    bias_20 = float(snap.get("bias_20") or 0.0)
+    has_er_data = snap.get("er_snr") is not None
+    er_snr = float(snap.get("er_snr") or 0.35)
 
     # 1. 宏观经济 (新鲜度门禁：若数据缺失强制中立化)
     if not has_cgb_data or cgb_10y <= 0.0:
@@ -4357,8 +4359,11 @@ def compute_ten_dimension_votes(
         d7_delta = 0.0
         d7_reason = f"两市成交额 {turnover_str}，多方占比 {up_pct:.1f}%，14赛道平均拥挤度 {avg_crowd:.1f}分，情绪中性平衡"
 
-    # 8. 技术信噪比
-    if bias_20 > 6.0:
+    # 8. 技术信噪比 (新鲜度门禁：若均线与信噪比数据缺失强制中立化)
+    if not has_bias_data:
+        d8_score = 50.0; d8_vote = "NEUTRAL"; d8_delta = 0.0
+        d8_reason = "技术均线与信噪比数据暂未更新，已中立化不参与仓位加减"
+    elif bias_20 > 6.0:
         d8_score = 35.0; d8_vote = "BEAR"; d8_delta = -5.0
         d8_reason = f"沪深300 MA20乖离达 {bias_20:+.1f}% 严重超买，触发均值回归折价约束"
     elif -4.0 <= bias_20 <= 0.0:
@@ -4371,9 +4376,14 @@ def compute_ten_dimension_votes(
         d8_score = 65.0; d8_vote = "NEUTRAL"; d8_delta = 0.0
         d8_reason = f"均线水下负乖离超卖修复 (乖离 {bias_20:+.1f}%)"
 
-    # 9. 历史同温层
-    ruler_mult = float(kwargs.get("ruler_multiplier", 1.76))
-    if ruler_mult >= 1.50:
+    # 9. 历史同温层 (新鲜度门禁：若同温层数据缺失强制中立化)
+    has_ruler_data = (kwargs.get("ruler_multiplier") is not None) or (snap.get("ruler_multiplier") is not None)
+    raw_ruler = kwargs.get("ruler_multiplier") if kwargs.get("ruler_multiplier") is not None else snap.get("ruler_multiplier")
+    ruler_mult = float(raw_ruler) if has_ruler_data else 1.0
+    if not has_ruler_data:
+        d9_score = 50.0; d9_vote = "NEUTRAL"; d9_delta = 0.0
+        d9_reason = "历史三大拐点对照尺数据暂未更新，已中立化不参与仓位加减"
+    elif ruler_mult >= 1.50:
         d9_score = 90.0; d9_vote = "BULL"; d9_delta = 5.0
         d9_reason = f"历史三大拐点对照尺达 {ruler_mult:.2f}x，高度贴近2022/2024底部反转击球区"
     elif ruler_mult >= 0.80:

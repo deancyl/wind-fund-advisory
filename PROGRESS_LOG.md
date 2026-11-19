@@ -1310,5 +1310,29 @@
 - **物理安全红线**：4 个裁判文件（`judge_engine.py`、`holdout_vault.py`、`AGENT_SPEC.md`、`tests/test_infra.py`）SHA256 绝对未动，`DataLoader.simulate_execution` 扣费核心函数保持 100% 原始只读；规则严格工作区隔离，未触碰全局配置。
 - **版本归档**：代码完整提交，打标 `v5.3-G23` 并推送远端仓库。
 
+---
+
+## 世代版本概览 (v5.9-G29 实盘信任闭环与架构模块化治理)
+- 当前版本：**v5.9-G29 (实盘信任与架构模块化升级)**
+- 核心主题：采纳两份外部法证审计报告中的正确意见，以最小必要原则进行针对性修复与独立模块化拓展：
+  1. **UI 缺陷修复**：修正 `app_gui.py:6740` 移动端 4 列对账单由于列名错配（`基金简称` vs `基金名称` 等）导致仅渲染 1 列的回归 Bug；修复 `_render_chart_reading_guide` 硬编码深色背景，适配 CSS 主题变量。
+  2. **缺失中立化闭环**：在 `advisory_engine.py` 中补齐 `bias_20`、`er_snr` 与 `ruler_multiplier` 数据缺失时的中立化门禁（`delta_pct = 0.0`），彻底清除隐形假默认值。
+  3. **架构瘦身与独立模块化治理**：坚决贯彻巨石文件冻结红线（`portfolio_manager.py` 净增 0 行），新建 5 大高内聚独立 Python 小模块（均 < 300 行）：
+     - `ledger_backup_manager.py` / `ledger_backup_vault.py`：实盘账本自动冷备份与一键安全可逆回滚；
+     - `cashflow_planner.py`：增量定投零摩擦再平衡、刚性流动性红线硬锁定、极端暴跌左侧分批子弹预案表；
+     - `execution_tracker.py` / `shadow_portfolio_tracker.py`：单日限购智能拆单日历、在途交割周期追踪、29只原始躺平影子账本赛跑、二次增量对账；
+     - `data_resilience_guard.py`：五路行情接口健康状态总线、分红除权假暴跌防误报过滤、买前四项硬安检；
+     - `forward_audit_logger.py` / `oos_verdict_tracker.py`：每日只读裁决不可篡改快照日志、未来实盘胜率与超额 Alpha 前瞻验真打分；
+  4. **全量门禁 100% 绿灯**：
+     - `scripts/verify_g29_eight_topics_gate.py` (ALL PASS)
+     - `scripts/verify_g29_trust_and_modularity_gate.py` (ALL PASS)
+     - `scripts/verify_readonly_hashes.py` (4/4 PASS)
+     - `AGY2_FundAdvisory/scripts/verify_g28_clean_debt_gate.py` (ALL PASS)
+     - `AGY2_FundAdvisory/scripts/verify_g28_production_readiness.py` (ALL PASS)
+     - `AGY2_FundAdvisory/scripts/verify_g27_anticheat_and_routing_gate.py` (ALL PASS)
+     - `tests/test_infra.py` (14/14 PASS)
+  5. **实盘账本神圣不可篡改**：`combat_29_funds` 29 只基金明细、份额、成本与真实事实 100% 物理保护。
+
+
 
 

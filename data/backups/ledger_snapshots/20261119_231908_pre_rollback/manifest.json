@@ -1,0 +1,20 @@
+{
+  "snapshot_id": "20261119_231908_pre_rollback",
+  "timestamp": "2026-11-19 23:19:08",
+  "reason": "pre_rollback",
+  "files": {
+    "portfolio_state.db": {
+      "sha256": "C8F365F1DFEDDBF96516FD49DDD0E2B313D6858F33C20CFD960CD1BDABDDF5CA",
+      "size_bytes": 3657728
+    },
+    "portfolio_ledger.json": {
+      "sha256": "1DB437F86EE0CD3569FC314AE1BCEABBE42F787B81A2CCF3E3C0C3C0CD039C20",
+      "size_bytes": 11662
+    },
+    "daily_intraday_est_archive.json": {
+      "sha256": "76003917F67FC7A1846B158A496A201D30C2D9349E5E832CC6EAF767905C71F1",
+      "size_bytes": 10745
+    }
+  },
+  "total_market_value": 0.0
+}

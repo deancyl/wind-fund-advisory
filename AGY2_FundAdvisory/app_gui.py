@@ -126,6 +126,11 @@ from advisory_engine import (
     calculate_fx_adjusted_intraday_valuation,
     generate_etf_feeder_arbitrage_advisory
 )
+import ledger_backup_manager
+import cashflow_planner
+import execution_tracker
+import data_resilience_guard
+import forward_audit_logger
 
 _MODULE_MAP = {
     "cache_manager": (cache_manager, CURRENT_DIR / "cache_manager.py"),
@@ -137,6 +142,11 @@ _MODULE_MAP = {
     "market_screener": (market_screener, CURRENT_DIR / "market_screener.py"),
     "portfolio_optimizer": (portfolio_optimizer, CURRENT_DIR / "portfolio_optimizer.py"),
     "advisory_engine": (advisory_engine, CURRENT_DIR / "advisory_engine.py"),
+    "ledger_backup_manager": (ledger_backup_manager, CURRENT_DIR / "ledger_backup_manager.py"),
+    "cashflow_planner": (cashflow_planner, CURRENT_DIR / "cashflow_planner.py"),
+    "execution_tracker": (execution_tracker, CURRENT_DIR / "execution_tracker.py"),
+    "data_resilience_guard": (data_resilience_guard, CURRENT_DIR / "data_resilience_guard.py"),
+    "forward_audit_logger": (forward_audit_logger, CURRENT_DIR / "forward_audit_logger.py"),
 }
 
 if "_module_mtimes" not in st.session_state:
@@ -2645,7 +2655,7 @@ def render_portfolio_cushion_and_stress_card_html(cushion_model: Dict[str, Any])
 def _render_chart_reading_guide(how_to_read: str, action_trigger: str) -> None:
     """渲染专业图表正上方的统一白话导读胶囊（怎么看 + 触发什么动作）"""
     safe_markdown_html(
-        f"""<div style="background: rgba(30, 41, 59, 0.45); border-left: 3px solid #38bdf8; border-radius: 4px; padding: 6px 12px; margin: 4px 0 8px 0; font-size: 0.82rem; color: #cbd5e1; line-height: 1.5;">
+        f"""<div style="background: var(--card-bg, rgba(148, 163, 184, 0.12)); border: 1px solid var(--border-color, rgba(148, 163, 184, 0.25)); border-left: 3px solid #2563eb; border-radius: 6px; padding: 8px 12px; margin: 4px 0 8px 0; font-size: 0.84rem; color: var(--text-primary, inherit); line-height: 1.55;">
         <div>💡 <b>怎么看</b>：{how_to_read}</div>
         <div>🎯 <b>行动信号</b>：{action_trigger}</div>
         </div>"""
@@ -4247,6 +4257,29 @@ if "pending_cross_tab_jump" in st.session_state and st.session_state["pending_cr
     """
     components.html(js_code, height=0, width=0)
     st.session_state.pop("pending_cross_tab_jump", None)
+
+# ── 五路数据源健康度总线与每日样本外裁决静默追加 (G29 课题 5 & 课题 7) ──
+try:
+    _d_health = data_resilience_guard.HEALTH_REGISTRY.get_overall_health()
+    _b_col = _d_health.get("badge_color", "green")
+    _s_msg = _d_health.get("status_message", "")
+    st.caption(f"🛡️ **数据源健康状态总线**：:{_b_col}[{_s_msg}]")
+
+    _snap_d = snapshot or {}
+    _td = str(_snap_d.get("date") or datetime.now().strftime("%Y-%m-%d"))
+    _reg = str(_snap_d.get("market_regime") or "NEUTRAL")
+    _tw = dict(_snap_d.get("target_weights_funds") or {})
+    _act = str(_snap_d.get("advisory_verdict") or "HOLD")
+    _hs = float(_snap_d.get("c300_point") or 3950.0)
+    forward_audit_logger.append_daily_decision_snapshot({
+        "date": _td,
+        "regime": _reg,
+        "verdict_action": _act,
+        "target_weights": _tw,
+        "hs300_point": _hs,
+    })
+except Exception:
+    pass
 
 # -------------------------------------------------------------
 # 核心四大工作区 (精简 ≤ 5 字符，彻底砍掉独立 Tab 5)
@@ -6409,6 +6442,29 @@ with tab_holdings_and_rebalance:
                                 st.success("现金池已更新！")
                                 st.rerun()
 
+                    st.markdown("---")
+                    st.markdown("###### 🛡️ 实盘资产自动冷备份与一键安全回滚 (G29 课题 8)")
+                    st.caption("写入或重构前自动生成不可变冷备份快照，支持秒级安全反向回滚。")
+                    col_bk1, col_bk2 = st.columns([1, 1])
+                    with col_bk1:
+                        if st.button("📦 立即打冷备份快照", use_container_width=True, key="btn_manual_cold_backup"):
+                            bpath = ledger_backup_manager.create_ledger_cold_backup(reason="manual_tab2")
+                            st.success(f"已生成冷备份: {Path(bpath).name}")
+                    with col_bk2:
+                        backups = ledger_backup_manager.list_ledger_backups()
+                        bk_options = [b.get("snapshot_id", "") for b in backups[:10]]
+                        if bk_options:
+                            sel_bk = st.selectbox("选择历史快照回滚", bk_options, key="sel_rollback_snapshot")
+                            if st.button("⏪ 安全回滚所选快照", use_container_width=True, key="btn_confirm_rollback"):
+                                ok = ledger_backup_manager.restore_ledger_backup(sel_bk)
+                                if ok:
+                                    st.success(f"已成功回滚至快照 {sel_bk}！")
+                                    st.rerun()
+                                else:
+                                    st.error("回滚失败，请检查快照文件。")
+                        else:
+                            st.caption("暂无历史冷备份记录")
+
             # 2. 诊断持仓按钮 + 免折腾调仓缓冲带滑块
             safe_markdown_html("<div style='height: 6px;'></div>")
             col_t2_btn1, col_t2_slider = st.columns([6.8, 3.2])
@@ -6737,7 +6793,7 @@ with tab_holdings_and_rebalance:
                         mc4.metric("核算准则", "4位修约+C类日费")
                     df_aud_all = pd.DataFrame(audit_rows)
                     if _is_mobile_viewport() and not df_aud_all.empty:
-                        m_cols = [c for c in ["基金简称", "当日估算(%)", "官方涨跌(%)", "偏差归因与来源"] if c in df_aud_all.columns]
+                        m_cols = [c for c in ["基金名称", "当日综合估算(%)", "官方实际涨跌(%)", "偏差归因与来源"] if c in df_aud_all.columns]
                         st.dataframe(df_aud_all[m_cols], use_container_width=True, hide_index=True)
                     else:
                         st.dataframe(df_aud_all, use_container_width=True, hide_index=True)
@@ -6923,6 +6979,61 @@ with tab_holdings_and_rebalance:
                     st.session_state.selected_secondary_weights = tier_target_w
                     st.session_state.tab3_backtest_activated = True
                     st.success("✅ 已将调仓前后组合送入回测，请切换至 Tab 3 查看双曲线对比。")
+
+            # ── 课题 6: 增量定投资金零摩擦再平衡 & 刚性流动性红线 & 暴跌子弹表 ──
+            with st.expander("🌱 增量定投资金再平衡与流动性红线（0 卖出·0 赎回费·新钱补齐欠配）", expanded=False):
+                st.caption("【增量定投优先思维】用每月新钱定投补齐低配赛道，不动存量老仓位，彻底省去 0.5% 赎回费与在途踏空风险。")
+                cfp_c1, cfp_c2, cfp_c3 = st.columns(3)
+                with cfp_c1:
+                    m_new_cash = st.number_input("每月新增定投金额 (元)", min_value=0.0, value=3000.0, step=500.0, key="num_cfp_monthly_cash")
+                with cfp_c2:
+                    m_months = st.slider("规划补仓月数", min_value=1, max_value=6, value=3, key="sli_cfp_months")
+                with cfp_c3:
+                    m_reserve = st.number_input("未来半年刚性用钱红线 (元)", min_value=0.0, value=0.0, step=1000.0, key="num_cfp_reserve")
+
+                liq_info = cashflow_planner.enforce_liquidity_redline(pm.available_cash, m_reserve)
+                if m_reserve > 0:
+                    st.info(f"🛡️ 已从现金池锁定刚性备用金 ¥{liq_info['locked_reserve']:,.2f}，可调仓现金降为 ¥{liq_info['investable_cash']:,.2f}")
+
+                cfp_plan = cashflow_planner.plan_incremental_investment(
+                    current_holdings=pm.holdings,
+                    available_cash=liq_info["investable_cash"],
+                    target_weights=tier_target_w,
+                    monthly_new_cash=m_new_cash,
+                    plan_months=m_months,
+                )
+                _ = pm.generate_incremental_investment_plan(new_cash=m_new_cash * m_months, target_weights_funds=tier_target_w)
+
+                st.markdown(f"**💡 规划结论**：{cfp_plan['summary_text']}")
+                if cfp_plan["allocations"]:
+                    st.dataframe(pd.DataFrame(cfp_plan["allocations"]), use_container_width=True, hide_index=True)
+
+                cur_pt_bullet = float(st.session_state.get("c300_point", 3950.0) or 3950.0)
+                bullet_plan = cashflow_planner.generate_left_side_bullet_plan(
+                    investable_spare_cash=liq_info["investable_cash"] + (m_new_cash * m_months),
+                    current_index_point=cur_pt_bullet,
+                )
+                with st.popover("🎯 极端暴跌三阶左侧子弹预案表"):
+                    st.caption("沪深 300 触发 -5%、-10%、-15% 跌幅时的分批纪律打出子弹预案：")
+                    st.dataframe(pd.DataFrame(bullet_plan["bullet_tiers"]), use_container_width=True, hide_index=True)
+
+            # ── 课题 4: 躺平不动影子账本实盘赛跑看板 ──
+            with st.expander("🏃 实盘跟单 vs 躺平不动影子账本赛跑（29 只原始基准线）", expanded=False):
+                cur_lid = getattr(pm, "ledger_id", "combat_29_funds")
+                current_quotes_map = {
+                    c: getattr(h, "latest_nav", getattr(h, "current_nav", 1.0))
+                    for c, h in pm.holdings.items()
+                }
+                shadow_comp = execution_tracker.compare_live_vs_shadow(
+                    ledger_id=cur_lid,
+                    live_holdings=pm.holdings,
+                    current_quotes=current_quotes_map,
+                )
+                sc1, sc2, sc3 = st.columns(3)
+                sc1.metric("躺平原版总市值", f"¥{shadow_comp['shadow_current_market_val']:,.2f}", f"{shadow_comp['shadow_return_pct']:+.2f}%")
+                sc2.metric("实盘跟单总市值", f"¥{shadow_comp['live_current_market_val']:,.2f}", f"{shadow_comp['live_return_pct']:+.2f}%")
+                sc3.metric("跟单累计超额", f"¥{shadow_comp['excess_rmb']:+,.2f}", f"{shadow_comp['excess_pct']:+.2f}%")
+                st.caption(shadow_comp["summary"])
 
             # ═════════════════════════════════════════════════════════════
             # 【BLOCK 3】底部折叠抽屉：展开底层投研与十维风控验算底稿
@@ -7639,6 +7750,18 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
     mlm_inst = st.session_state.get("mlm") or (MultiLedgerManager.get_instance() if MultiLedgerManager else None)
     active_lid = st.session_state.get("active_ledger_id", "main_live")
     all_ledgers = mlm_inst.list_ledgers() if mlm_inst else []
+
+    # ── 课题 7: 样本外前瞻验真记分牌 (真实未来行情打分·零过拟合) ──
+    with st.expander("🔭 样本外前瞻验真记分牌（真实未来行情打分·零过拟合）", expanded=False):
+        oos_eval = forward_audit_logger.evaluate_forward_performance()
+        o_c1, o_c2, o_c3, o_c4 = st.columns(4)
+        o_c1.metric("前瞻验真样本数", f"{oos_eval['sample_count']} 期")
+        o_c2.metric("平均前瞻收益率", f"{oos_eval['avg_forward_return_pct']:+.2f}%")
+        o_c3.metric("沪深300同期基准", f"{oos_eval['avg_hs300_return_pct']:+.2f}%")
+        o_c4.metric("超额 Alpha / 胜率", f"{oos_eval['excess_alpha_pct']:+.2f}%", f"胜率 {oos_eval['win_rate_pct']:.1f}%")
+        st.caption(oos_eval["status_summary"])
+        if oos_eval.get("eval_records"):
+            st.dataframe(pd.DataFrame(oos_eval["eval_records"]), use_container_width=True, hide_index=True)
     cur_meta = mlm_inst.get_ledger_meta(active_lid) if mlm_inst else {"name": "主实盘账本"}
     cur_pm = mlm_inst.get_pm(active_lid) if mlm_inst else pm
 
