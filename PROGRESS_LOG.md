@@ -1370,3 +1370,9 @@
      - 四大只读裁判文件 SHA256 绝对一致；
      - pytest 3 大核心套件（`test_infra.py`, `test_adversarial_m3_combat29_challenger.py`, `test_streamlit_apptest_run.py`）60 项全部 PASS；
      - Streamlit 8501 服务存活探针 HTTP 200 一次性通过。
+  8. **热重载子模块缓存解耦与 Playwright 双端真机实景验收 (v5.11-G31.1 Hotfix)**：
+     - 彻底清除旧 Streamlit 守护进程未自动重载子模块导致的 `TypeError` 崩溃风险，在首页路由处显式引入 `importlib.reload(ui_daily_brief)`；
+     - 修复顶栏账本下拉框 `_fmt_topbar_ledger` 在已有 `¥` 情况下重复拼接金额导致的文字截断；
+     - 向极简晨报动态注入十二维风控哨兵报告 `_sentry_rep`（`ActiveRiskSentry`），实景动态展示实盘真实告警；
+     - 极简模式下智能收敛左侧边栏，跳过 38+ 重型行情走廊与定制滑块，大幅节约算力与渲染时间；
+     - 编写并持久化保存 Playwright 真机端到端验收脚本 `scripts/verify_g31_browser_e2e.py`，完成桌面端 (1440x900) 与移动端 (390x844) 真实浏览器全流程渲染，确保零 `stException` 红框崩溃、三大核心卡片真实渲染、无任何死常数与拼接截断。

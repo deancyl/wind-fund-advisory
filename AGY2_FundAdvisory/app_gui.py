@@ -3378,105 +3378,92 @@ with st.sidebar:
     st.markdown("---")
 
     # 3. 📊 核心指数行情走廊 (垂直卡片流，支持全市场自由定制与 3 层专业指标流)
-    col_sb_title, col_sb_opt, col_sb_rf = st.columns([5.5, 2.5, 2.0])
-    with col_sb_title:
-        st.markdown("##### 📊 核心指数行情走廊")
-
-    # 读取持久化自选走廊配置
-    saved_watchlist = load_custom_watchlist()
-    if "sb_corridor_display_limit" not in st.session_state:
-        st.session_state.sb_corridor_display_limit = saved_watchlist.get("display_limit", 6)
-    if "sb_selected_corridor_indices" not in st.session_state:
-        st.session_state.sb_selected_corridor_indices = saved_watchlist.get("selected_codes", ["000300", "000688", "000922", "000905", "000852", "518880"])
-    if "sb_custom_corridor_items" not in st.session_state:
-        st.session_state.sb_custom_corridor_items = saved_watchlist.get("custom_items", {})
-
-    with col_sb_opt:
-        with st.popover("⚙️", help="全市场自由定制与走廊配置"):
-            st.caption("⚙️ 核心指数走廊自由定制")
-            # 1. 3~15 展示数量滑块
-            cur_limit = int(st.session_state.sb_corridor_display_limit)
-            new_limit = st.slider(
-                "走廊展示数量",
-                min_value=3,
-                max_value=15,
-                value=cur_limit,
-                step=1,
-                key="sl_corridor_disp_limit",
-                help="控制侧边栏卡片展示上限（3 至 15 只）"
-            )
-            if new_limit != cur_limit:
-                st.session_state.sb_corridor_display_limit = new_limit
-                saved_watchlist["display_limit"] = new_limit
-                saved_watchlist["display_count"] = new_limit
-                saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
-                saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
-                save_custom_watchlist(saved_watchlist)
-
-            # 2. 全市场 38+ 目录 + 自定义项多选检索器 (支持拼音首字母/代码/名称三模检索并保持选择顺序)
-            combined_catalog = dict(INDEX_CATALOG_38)
-            combined_catalog.update(st.session_state.sb_custom_corridor_items)
-
-            # 保证当前选中的代码均在 options 列表中
-            avail_options = []
-            for c in st.session_state.sb_selected_corridor_indices:
-                if c not in avail_options:
-                    avail_options.append(c)
-            for c in combined_catalog.keys():
-                if c not in avail_options:
-                    avail_options.append(c)
-
-            def _fmt_option(k: str) -> str:
-                item_info = combined_catalog.get(k, {})
-                c_name = item_info.get("name", k)
-                pinyin_str = item_info.get("pinyin", "")
-                sec = item_info.get("sector", "")
-                sec_tag = f"[{sec}] " if sec else ""
-                return f"{sec_tag}{c_name} ({k}) [{pinyin_str}]"
-
-            sel_corridor_keys = st.multiselect(
-                "全市场自选列表 (支持拼音/代码/名称检索)",
-                options=avail_options,
-                default=st.session_state.sb_selected_corridor_indices,
-                format_func=_fmt_option,
-                key="ms_corridor_indices"
-            )
-            if sel_corridor_keys != st.session_state.sb_selected_corridor_indices:
-                st.session_state.sb_selected_corridor_indices = sel_corridor_keys or ["000300", "000688", "000922", "000905", "000852", "518880"]
-                saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
-                saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
-                saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
-                saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
-                save_custom_watchlist(saved_watchlist)
-
-            # 3. 智能多模检索与标的接入 (支持拼音/代码/中文)
-            st.markdown("---")
-            st.caption("➕ 智能检索接入标的 (支持拼音首字母/汉字/代码，如 hldb、红利低波、H30269、510300)")
-            search_query = st.text_input("智能检索", placeholder="输入拼音/代码/中文 如 hldb、红利低波、H30269", label_visibility="collapsed", key="txt_add_custom_code")
-            clean_query = str(search_query).strip() if search_query else ""
-            cands = search_index_and_fund_candidates(clean_query, limit=8) if clean_query else []
-
-            if cands:
-                sel_cand = st.selectbox("选择匹配标的", options=cands, format_func=lambda x: str(x), key="sb_corridor_cand_select")
-                if st.button("➕ 一键添加选中标的", key="btn_add_custom_code", type="primary", use_container_width=True):
-                    target_code = sel_cand.get("code")
-                    probe_res = validate_and_fetch_code(target_code) or dict(sel_cand)
-                    st.session_state.sb_custom_corridor_items[target_code] = probe_res
-                    if target_code not in st.session_state.sb_selected_corridor_indices:
-                        st.session_state.sb_selected_corridor_indices.insert(0, target_code)
-                    st.session_state["ms_corridor_indices"] = list(st.session_state.sb_selected_corridor_indices)
+    if st.session_state.get("ui_experience_mode", "每日极简投顾") == "每日极简投顾":
+        st.caption("💡 核心指数行情已在主屏晨报卡片 1 中同源展示。如需全市场 38+ 走廊自由定制与深潜指标，可切换至【专家量化实验室】。")
+    else:
+        col_sb_title, col_sb_opt, col_sb_rf = st.columns([5.5, 2.5, 2.0])
+        with col_sb_title:
+            st.markdown("##### 📊 核心指数行情走廊")
+    
+        # 读取持久化自选走廊配置
+        saved_watchlist = load_custom_watchlist()
+        if "sb_corridor_display_limit" not in st.session_state:
+            st.session_state.sb_corridor_display_limit = saved_watchlist.get("display_limit", 6)
+        if "sb_selected_corridor_indices" not in st.session_state:
+            st.session_state.sb_selected_corridor_indices = saved_watchlist.get("selected_codes", ["000300", "000688", "000922", "000905", "000852", "518880"])
+        if "sb_custom_corridor_items" not in st.session_state:
+            st.session_state.sb_custom_corridor_items = saved_watchlist.get("custom_items", {})
+    
+        with col_sb_opt:
+            with st.popover("⚙️", help="全市场自由定制与走廊配置"):
+                st.caption("⚙️ 核心指数走廊自由定制")
+                # 1. 3~15 展示数量滑块
+                cur_limit = int(st.session_state.sb_corridor_display_limit)
+                new_limit = st.slider(
+                    "走廊展示数量",
+                    min_value=3,
+                    max_value=15,
+                    value=cur_limit,
+                    step=1,
+                    key="sl_corridor_disp_limit",
+                    help="控制侧边栏卡片展示上限（3 至 15 只）"
+                )
+                if new_limit != cur_limit:
+                    st.session_state.sb_corridor_display_limit = new_limit
+                    saved_watchlist["display_limit"] = new_limit
+                    saved_watchlist["display_count"] = new_limit
+                    saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
+                    saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
+                    save_custom_watchlist(saved_watchlist)
+    
+                # 2. 全市场 38+ 目录 + 自定义项多选检索器 (支持拼音首字母/代码/名称三模检索并保持选择顺序)
+                combined_catalog = dict(INDEX_CATALOG_38)
+                combined_catalog.update(st.session_state.sb_custom_corridor_items)
+    
+                # 保证当前选中的代码均在 options 列表中
+                avail_options = []
+                for c in st.session_state.sb_selected_corridor_indices:
+                    if c not in avail_options:
+                        avail_options.append(c)
+                for c in combined_catalog.keys():
+                    if c not in avail_options:
+                        avail_options.append(c)
+    
+                def _fmt_option(k: str) -> str:
+                    item_info = combined_catalog.get(k, {})
+                    c_name = item_info.get("name", k)
+                    pinyin_str = item_info.get("pinyin", "")
+                    sec = item_info.get("sector", "")
+                    sec_tag = f"[{sec}] " if sec else ""
+                    return f"{sec_tag}{c_name} ({k}) [{pinyin_str}]"
+    
+                sel_corridor_keys = st.multiselect(
+                    "全市场自选列表 (支持拼音/代码/名称检索)",
+                    options=avail_options,
+                    default=st.session_state.sb_selected_corridor_indices,
+                    format_func=_fmt_option,
+                    key="ms_corridor_indices"
+                )
+                if sel_corridor_keys != st.session_state.sb_selected_corridor_indices:
+                    st.session_state.sb_selected_corridor_indices = sel_corridor_keys or ["000300", "000688", "000922", "000905", "000852", "518880"]
                     saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
                     saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
                     saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
                     saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
                     save_custom_watchlist(saved_watchlist)
-                    st.success(f"已接入: {probe_res.get('name', target_code)} ({target_code})")
-                    st.rerun()
-            elif clean_query:
-                if st.button("接入标的", key="btn_add_custom_code", use_container_width=True):
-                    probe_res = validate_and_fetch_code(clean_query)
-                    if probe_res:
-                        target_code = probe_res.get("code", clean_query)
+    
+                # 3. 智能多模检索与标的接入 (支持拼音/代码/中文)
+                st.markdown("---")
+                st.caption("➕ 智能检索接入标的 (支持拼音首字母/汉字/代码，如 hldb、红利低波、H30269、510300)")
+                search_query = st.text_input("智能检索", placeholder="输入拼音/代码/中文 如 hldb、红利低波、H30269", label_visibility="collapsed", key="txt_add_custom_code")
+                clean_query = str(search_query).strip() if search_query else ""
+                cands = search_index_and_fund_candidates(clean_query, limit=8) if clean_query else []
+    
+                if cands:
+                    sel_cand = st.selectbox("选择匹配标的", options=cands, format_func=lambda x: str(x), key="sb_corridor_cand_select")
+                    if st.button("➕ 一键添加选中标的", key="btn_add_custom_code", type="primary", use_container_width=True):
+                        target_code = sel_cand.get("code")
+                        probe_res = validate_and_fetch_code(target_code) or dict(sel_cand)
                         st.session_state.sb_custom_corridor_items[target_code] = probe_res
                         if target_code not in st.session_state.sb_selected_corridor_indices:
                             st.session_state.sb_selected_corridor_indices.insert(0, target_code)
@@ -3488,93 +3475,109 @@ with st.sidebar:
                         save_custom_watchlist(saved_watchlist)
                         st.success(f"已接入: {probe_res.get('name', target_code)} ({target_code})")
                         st.rerun()
-                    else:
-                        st.error(f"代码/名称 {clean_query} 探针失败，未能获取有效盘中行情")
-
-    with col_sb_rf:
-        if st.button("🔄", key="btn_refresh_all_live_quotes", help="极速刷新实时行情", use_container_width=True):
-            clear_realtime_cache()
-            fetch_custom_realtime_indices(codes=st.session_state.sb_selected_corridor_indices, use_cache=False)
-            fetch_market_turnover_and_sentiment(force_refresh=True)
-            fetch_or_calc_index_valuations(force_refresh=False)  # 严格使用 False，彻底消除外部 PE 爬虫卡死！
-            if hasattr(pm, "holdings") and pm.holdings:
-                prefetch_batch_fund_quotes(list(pm.holdings.keys()), force_refresh=True)  # 单次 HTTP 批量获取全量估值
-            pm.sync_holdings_live_nav(use_intraday_gsz=True)
-            st.session_state["_cached_session_intraday_pnl"] = None  # 强制使 60s 持仓盈亏缓存失效
-            st.session_state["_cached_session_intraday_pnl_ts"] = 0
-            StrategyBridge._cached_snapshot = None
-            st.rerun()
-
-    # 根据展示数量滑块切片取前 N 只
-    display_limit = int(st.session_state.get("sb_corridor_display_limit", 6))
-    current_corridor_codes = st.session_state.get("sb_selected_corridor_indices", ["000300", "000688", "000922", "000905", "000852", "518880"])[:display_limit]
-
-    # 拉取当前批次实时指数行情与估值
-    active_corridor_list = fetch_custom_realtime_indices(codes=current_corridor_codes, use_cache=True)
-    corridor_val_map = fetch_or_calc_index_valuations(force_refresh=False)
-
-    rendered_count = 0
-    corridor_cards_html = []
-    for idx_item in active_corridor_list:
-        icode = idx_item["code"]
-        rendered_count += 1
-        c_pct = float(idx_item["change_pct"])
-        c_badge_cls = "sidebar-index-badge-up" if c_pct > 0 else ("sidebar-index-badge-down" if c_pct < 0 else "sidebar-index-badge-flat")
-        c_sign = "+" if c_pct > 0 else ""
-        is_small_pt = (idx_item["point"] < 100.0)
-        pt_fmt = f"{idx_item['point']:,.3f}" if is_small_pt else f"{idx_item['point']:,.2f}"
-
-        # 估值分位标签
-        v_meta = corridor_val_map.get(icode) or corridor_val_map.get(idx_item.get("secid", "")) or {}
-        v_label = v_meta.get("label", "")
-        v_status = v_meta.get("status", "mid")
-        # 兼容连字符与下划线两种类名
-        val_cls_name = f"val-{v_status.replace('_', '-')}"
-        if not v_label:
-            v_label = "适中"
-            val_cls_name = "val-mid"
-        v_badge_html = f'<span class="index-pill-val-badge {val_cls_name}">{v_label}</span>'
-
-        # 近 20 日累计涨跌幅
-        ret20 = float(idx_item.get("ret_20d", 0.0))
-        ret20_sign = "+" if ret20 > 0 else ""
-        ret20_color = "var(--color-up, #ef4444)" if ret20 > 0 else ("var(--color-down, #10b981)" if ret20 < 0 else "var(--text-muted)")
-
-        # MA20 趋势与偏离状态
-        trend_status_text = idx_item.get("trend_status", "")
-        trend_color = idx_item.get("trend_color", "var(--text-secondary)")
-        ma20_fmt = idx_item.get("ma20_fmt", "")
-
-        corridor_cards_html.append(f"""
-        <div class="sidebar-index-card">
-            <!-- 第 1 行：指数名称、代码、最新点位与涨跌幅防压扁胶囊 -->
-            <div class="sidebar-card-row-top">
-                <div class="sidebar-card-title-box">
-                    <span class="sidebar-index-name">{idx_item['name']}</span>
-                    <span class="sidebar-index-code">{icode}</span>
+                elif clean_query:
+                    if st.button("接入标的", key="btn_add_custom_code", use_container_width=True):
+                        probe_res = validate_and_fetch_code(clean_query)
+                        if probe_res:
+                            target_code = probe_res.get("code", clean_query)
+                            st.session_state.sb_custom_corridor_items[target_code] = probe_res
+                            if target_code not in st.session_state.sb_selected_corridor_indices:
+                                st.session_state.sb_selected_corridor_indices.insert(0, target_code)
+                            st.session_state["ms_corridor_indices"] = list(st.session_state.sb_selected_corridor_indices)
+                            saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
+                            saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
+                            saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
+                            saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
+                            save_custom_watchlist(saved_watchlist)
+                            st.success(f"已接入: {probe_res.get('name', target_code)} ({target_code})")
+                            st.rerun()
+                        else:
+                            st.error(f"代码/名称 {clean_query} 探针失败，未能获取有效盘中行情")
+    
+        with col_sb_rf:
+            if st.button("🔄", key="btn_refresh_all_live_quotes", help="极速刷新实时行情", use_container_width=True):
+                clear_realtime_cache()
+                fetch_custom_realtime_indices(codes=st.session_state.sb_selected_corridor_indices, use_cache=False)
+                fetch_market_turnover_and_sentiment(force_refresh=True)
+                fetch_or_calc_index_valuations(force_refresh=False)  # 严格使用 False，彻底消除外部 PE 爬虫卡死！
+                if hasattr(pm, "holdings") and pm.holdings:
+                    prefetch_batch_fund_quotes(list(pm.holdings.keys()), force_refresh=True)  # 单次 HTTP 批量获取全量估值
+                pm.sync_holdings_live_nav(use_intraday_gsz=True)
+                st.session_state["_cached_session_intraday_pnl"] = None  # 强制使 60s 持仓盈亏缓存失效
+                st.session_state["_cached_session_intraday_pnl_ts"] = 0
+                StrategyBridge._cached_snapshot = None
+                st.rerun()
+    
+        # 根据展示数量滑块切片取前 N 只
+        display_limit = int(st.session_state.get("sb_corridor_display_limit", 6))
+        current_corridor_codes = st.session_state.get("sb_selected_corridor_indices", ["000300", "000688", "000922", "000905", "000852", "518880"])[:display_limit]
+    
+        # 拉取当前批次实时指数行情与估值
+        active_corridor_list = fetch_custom_realtime_indices(codes=current_corridor_codes, use_cache=True)
+        corridor_val_map = fetch_or_calc_index_valuations(force_refresh=False)
+    
+        rendered_count = 0
+        corridor_cards_html = []
+        for idx_item in active_corridor_list:
+            icode = idx_item["code"]
+            rendered_count += 1
+            c_pct = float(idx_item["change_pct"])
+            c_badge_cls = "sidebar-index-badge-up" if c_pct > 0 else ("sidebar-index-badge-down" if c_pct < 0 else "sidebar-index-badge-flat")
+            c_sign = "+" if c_pct > 0 else ""
+            is_small_pt = (idx_item["point"] < 100.0)
+            pt_fmt = f"{idx_item['point']:,.3f}" if is_small_pt else f"{idx_item['point']:,.2f}"
+    
+            # 估值分位标签
+            v_meta = corridor_val_map.get(icode) or corridor_val_map.get(idx_item.get("secid", "")) or {}
+            v_label = v_meta.get("label", "")
+            v_status = v_meta.get("status", "mid")
+            # 兼容连字符与下划线两种类名
+            val_cls_name = f"val-{v_status.replace('_', '-')}"
+            if not v_label:
+                v_label = "适中"
+                val_cls_name = "val-mid"
+            v_badge_html = f'<span class="index-pill-val-badge {val_cls_name}">{v_label}</span>'
+    
+            # 近 20 日累计涨跌幅
+            ret20 = float(idx_item.get("ret_20d", 0.0))
+            ret20_sign = "+" if ret20 > 0 else ""
+            ret20_color = "var(--color-up, #ef4444)" if ret20 > 0 else ("var(--color-down, #10b981)" if ret20 < 0 else "var(--text-muted)")
+    
+            # MA20 趋势与偏离状态
+            trend_status_text = idx_item.get("trend_status", "")
+            trend_color = idx_item.get("trend_color", "var(--text-secondary)")
+            ma20_fmt = idx_item.get("ma20_fmt", "")
+    
+            corridor_cards_html.append(f"""
+            <div class="sidebar-index-card">
+                <!-- 第 1 行：指数名称、代码、最新点位与涨跌幅防压扁胶囊 -->
+                <div class="sidebar-card-row-top">
+                    <div class="sidebar-card-title-box">
+                        <span class="sidebar-index-name">{idx_item['name']}</span>
+                        <span class="sidebar-index-code">{icode}</span>
+                    </div>
+                    <div class="sidebar-card-quote-box">
+                        <span class="sidebar-index-pt">{pt_fmt}</span>
+                        <span class="sidebar-index-badge {c_badge_cls}" style="flex: 0 0 auto !important; white-space: nowrap !important;">{c_sign}{c_pct:.2f}%</span>
+                    </div>
                 </div>
-                <div class="sidebar-card-quote-box">
-                    <span class="sidebar-index-pt">{pt_fmt}</span>
-                    <span class="sidebar-index-badge {c_badge_cls}" style="flex: 0 0 auto !important; white-space: nowrap !important;">{c_sign}{c_pct:.2f}%</span>
+    
+                <!-- 第 2 行：真实 PE/PB 估值分位数徽章 与 近20日累计涨跌幅 -->
+                <div class="sidebar-card-row-mid">
+                    {v_badge_html}
+                    <span class="sidebar-card-ret20" style="color: {ret20_color};">近20日 {ret20_sign}{ret20:.1f}%</span>
+                </div>
+    
+                <!-- 第 3 行：MA20 趋势生命线与乖离率攻防状态 -->
+                <div class="sidebar-card-row-bot">
+                    <span class="sidebar-card-trend-text" style="color: {trend_color};">{trend_status_text}</span>
+                    <span class="sidebar-card-ma-pt">MA20: {ma20_fmt}</span>
                 </div>
             </div>
-
-            <!-- 第 2 行：真实 PE/PB 估值分位数徽章 与 近20日累计涨跌幅 -->
-            <div class="sidebar-card-row-mid">
-                {v_badge_html}
-                <span class="sidebar-card-ret20" style="color: {ret20_color};">近20日 {ret20_sign}{ret20:.1f}%</span>
-            </div>
-
-            <!-- 第 3 行：MA20 趋势生命线与乖离率攻防状态 -->
-            <div class="sidebar-card-row-bot">
-                <span class="sidebar-card-trend-text" style="color: {trend_color};">{trend_status_text}</span>
-                <span class="sidebar-card-ma-pt">MA20: {ma20_fmt}</span>
-            </div>
-        </div>
-        """)
-
-    safe_markdown_html("\n".join(corridor_cards_html))
-    st.caption(f"💡 点击右上角 ⚙️ 可自由定制 38+ 全市场指数与任意 6 位代码。当前展示 {rendered_count}/{len(st.session_state.sb_selected_corridor_indices)} 只标的。")
+            """)
+    
+        safe_markdown_html("\n".join(corridor_cards_html))
+        st.caption(f"💡 点击右上角 ⚙️ 可自由定制 38+ 全市场指数与任意 6 位代码。当前展示 {rendered_count}/{len(st.session_state.sb_selected_corridor_indices)} 只标的。")
 
 # -------------------------------------------------------------
 # 🌐 全局紧凑顶栏：系统品牌标识 + 行情源状态角标 + 「📂 当前激活账本」切换 + 「🖥️ 桌面专业 / 📱 手机盯盘」切换胶囊
@@ -3632,9 +3635,14 @@ with col_t_l:
     def _fmt_topbar_ledger(lid: str) -> str:
         m = mlm_inst.get_ledger_meta(lid) or {}
         tag = "🟢 [实盘]" if m.get("type") == "live" else ("🧪 [沙盒]" if m.get("type") == "sandbox" else "👨‍👩‍👧 [家庭]")
-        try: eq = float(mlm_inst.get_pm(lid).total_equity)
-        except Exception: eq = 0.0
-        return f"{tag} {m.get('name', lid)} (¥{eq:,.0f})"
+        name_str = str(m.get("name", lid))
+        if "¥" in name_str:
+            return f"{tag} {name_str}"
+        try:
+            eq = float(mlm_inst.get_pm(lid).total_equity)
+        except Exception:
+            eq = 0.0
+        return f"{tag} {name_str} (¥{eq:,.0f})"
     active_idx = next((i for i, l in enumerate(all_ledgers) if l["id"] == active_lid), 0)
     col_sel_ld, col_pop_rv = st.columns([7.8, 2.2])
     with col_sel_ld:
@@ -3664,11 +3672,29 @@ with col_t_l:
 
 if st.session_state.get("ui_experience_mode") == "每日极简投顾":
     try:
-        from ui_daily_brief import render_minimal_daily_brief, render_simple_daily_home
+        import importlib
+        import ui_daily_brief
+        ui_daily_brief = importlib.reload(ui_daily_brief)
+        render_minimal_daily_brief = ui_daily_brief.render_minimal_daily_brief
         _rx = StrategyBridge.get_combat_29_vs_reconstructed_6_preset() if active_lid == "combat_29_funds" else {}
         _tw = dict(_rx.get("reconstructed_6_weights", {})) if _rx else (StrategyBridge.compute_dynamic_tier_weights(st.session_state.get("active_tier_val", "C3"), snapshot).get("weights", {}))
         _ai_res = StrategyBridge.generate_ai_rebalance_orders(pm.holdings, pm.available_cash, _tw, pm=pm, mode="gentle", min_buffer_pct=float(st.session_state.get("rebalance_buffer_pct", 3.0)), c_replace="011613" if active_lid == "combat_29_funds" else None, core_anchor_code="002351")
-        render_minimal_daily_brief(pm=pm, snapshot=snapshot, active_lid=active_lid, ai_orders_res=_ai_res, target_weights=_tw)
+        _sentry_rep = st.session_state.get(f"sentry_rep_cache_{active_lid}")
+        if not isinstance(_sentry_rep, dict):
+            try:
+                from advisory_engine import ActiveRiskSentry
+                _sentry_rep = ActiveRiskSentry().inspect_portfolio(holdings=pm.holdings, snapshot=snapshot)
+                st.session_state[f"sentry_rep_cache_{active_lid}"] = _sentry_rep
+            except Exception:
+                _sentry_rep = None
+        render_minimal_daily_brief(
+            pm=pm,
+            snapshot=snapshot,
+            active_lid=active_lid,
+            sentry_rep=_sentry_rep,
+            ai_orders_res=_ai_res,
+            target_weights=_tw
+        )
     except Exception as _e:
         st.exception(_e)
     st.stop()
