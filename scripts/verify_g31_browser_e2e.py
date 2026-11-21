@@ -13,8 +13,12 @@ def run_browser_e2e():
         for label, vp in viewports:
             page = browser.new_page(viewport=vp)
             print(f"[{label}] 正在导航至 {url} ...")
-            page.goto(url, wait_until="networkidle", timeout=30000)
-            page.wait_for_timeout(4000)
+            page.goto(url, timeout=30000)
+            try:
+                page.wait_for_selector("text=今日市场定调", timeout=20000)
+            except Exception:
+                page.wait_for_timeout(5000)
+            page.wait_for_timeout(2000)
 
             # 硬断言 1：页面严禁出现任何 Streamlit 红色异常框
             exc_count = page.locator('[data-testid="stException"]').count()
