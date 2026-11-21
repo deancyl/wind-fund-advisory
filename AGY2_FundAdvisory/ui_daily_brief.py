@@ -1,16 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-AGY2 Minimal Daily Brief (G30 每日极简投顾主视图)
+AGY2 Minimal Daily Brief (G31 真实同源极简投顾视图)
 ===================================================
-严格控制在 450 行以内，零 Plotly 重型图表，最多 5 个交互按钮。
-实现“3 秒看定调、10 秒看资产、15 秒抄作业”的 30 秒极致降噪投顾晨报。
+100% 消除硬编码假常数，严格同源实算真实数据。
+严格控制在 450 行以内，零 Plotly 图表，最多 5 个交互按钮。
+实现“3 秒看定调、10 秒看资产、15 秒抄作业”的极致降噪投顾晨报。
 """
 
-import streamlit as pd_st  # alias if needed, or import streamlit as st
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional
+
+try:
+    from portfolio_manager import fetch_realtime_index_quote
+except Exception:
+    try:
+        from AGY2_FundAdvisory.portfolio_manager import fetch_realtime_index_quote
+    except Exception:
+        fetch_realtime_index_quote = None
 
 try:
     from ledger_backup_vault import LedgerBackupVault
@@ -38,65 +46,52 @@ except Exception:
 
 
 class IntentGroup(list):
-    """
-    意图聚合分组容器：同时支持 List 迭代/索引与 Dict 键值访问。
-    支持 len(group) == 元素数，同时支持 group['count'], group['items'], group['total_recovered_cash']。
-    """
+    """支持字典键访问与列表迭代的兼容数据结构"""
     def __init__(self, items: List[Dict[str, Any]], title: str = "", summary_text: str = "", **kwargs):
         super().__init__(items)
         self.title = title
         self.summary_text = summary_text
+        self.count = len(items)
         self.items = items
-        self.meta = dict(kwargs)
+        self.extra = kwargs
 
-    @property
-    def count(self) -> int:
-        return len(self)
-
-    def __getitem__(self, key: Any) -> Any:
+    def __getitem__(self, key):
         if isinstance(key, str):
-            if key == "items":
+            if key in ("items", "list"):
                 return self.items
-            if key == "count":
-                return len(self)
             if key == "title":
                 return self.title
             if key == "summary_text":
                 return self.summary_text
-            if key in self.meta:
-                return self.meta[key]
-            raise KeyError(key)
+            if key == "count":
+                return self.count
+            return self.extra.get(key)
         return super().__getitem__(key)
 
-    def get(self, key: str, default: Any = None) -> Any:
-        if key == "items":
-            return self.items
-        if key == "count":
-            return len(self)
-        if key == "title":
-            return self.title
-        if key == "summary_text":
-            return self.summary_text
-        return self.meta.get(key, default)
-
-    def __contains__(self, item: Any) -> bool:
-        if isinstance(item, str) and (item in ("items", "count", "title", "summary_text") or item in self.meta):
+    def __contains__(self, key):
+        if isinstance(key, str) and (key in ("items", "list", "title", "summary_text", "count") or key in self.extra):
             return True
-        return super().__contains__(item)
+        return super().__contains__(key)
 
-    def keys(self) -> List[str]:
-        k = ["title", "count", "summary_text", "items"]
-        k.extend(self.meta.keys())
+    def keys(self):
+        k = ["items", "title", "summary_text", "count"]
+        k.extend(self.extra.keys())
         return k
+
+    def get(self, key: str, default: Any = None) -> Any:
+        try:
+            return self[key]
+        except Exception:
+            return default
 
 
 def group_rebalance_orders_by_intent(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    按业务操作意图聚类为 4 组清晰动作块：
-    1. tail_sweep: 碎片尾仓清扫组 (< 200 元且建议清仓归拢)
-    2. c_replace: C 转 A 零费率置换组 (已满 30 天同赛道免赎转 A)
-    3. core_trades: 核心底仓买卖组 (主动再平衡买入/减仓)
-    4. buffer_hold: 维持仓位组 (缓冲带内无需操作)
+    按业务操作意图聚类为最多 3 组清晰动作块：
+    1. 碎片尾仓归拢组 (免赎尾仓归拢)
+    2. C 转 A 零费率置换组 (同赛道免赎转 A)
+    3. 核心底仓买卖组 (主动再平衡买卖)
+    4. 缓冲带维持组 (不产生买卖摩擦)
     保证输入项与输出项 100% 绝对守恒、分厘平账、零丢单。
     """
     tail_items = []
@@ -199,10 +194,11 @@ def render_minimal_daily_brief(
     snapshot: Optional[Dict[str, Any]] = None,
     active_lid: str = "combat_29_funds",
     sentry_rep: Optional[Dict[str, Any]] = None,
-    ai_orders_res: Optional[Dict[str, Any]] = None
+    ai_orders_res: Optional[Dict[str, Any]] = None,
+    target_weights: Optional[Dict[str, float]] = None
 ) -> None:
     """
-    渲染每日 30 秒极简投顾晨报主视图 (一页三卡片结构，严格单一事实源)
+    渲染每日 30 秒极简投顾晨报主视图 (一页三卡片结构，严格单一事实源与真实数据)
     """
     snap = snapshot or {}
     holdings = getattr(pm, "holdings", {})
@@ -210,42 +206,52 @@ def render_minimal_daily_brief(
     st.caption("🛡️ **系统安全保障**：每次调仓或改动均已生成不可变冷备份，随时可一键撤回恢复。")
 
     # -------------------------------------------------------------
-    # 卡片 1: 3 秒看今日市场定调 (Tone / Status / Indices / Health)
+    # 卡片 1: 3 秒看今日市场定调 (真实定调与三大指数获取，零写死常数)
     # -------------------------------------------------------------
-    regime = str(snap.get("market_regime", "DEFENSIVE_HOLD") or "DEFENSIVE_HOLD").upper()
-    verdict = str(snap.get("advisory_verdict", "DEFENSIVE_HOLD") or "DEFENSIVE_HOLD").upper()
-    reason = str(snap.get("reason", "大盘处于估值击球区与均线收敛期，建议坚守股债平衡，保持防御。"))
+    market_state = str(snap.get("market_state") or snap.get("advisory_verdict") or "待同步市场定调")
+    core_action = str(snap.get("core_action_advice") or snap.get("advisory_takeaway") or "大盘处于均线收敛期，坚守股债平衡，保持防御。")
+    state_code = str(snap.get("market_state_code") or snap.get("regime") or "NEUTRAL").upper()
 
-    if "BULL" in regime or "OFFENSIVE" in verdict or "BUY" in verdict:
+    if "BULL" in state_code or "OFFENSIVE" in state_code or "BUY" in market_state:
         status_light = "🟡 逢低分批吸筹"
         light_color = "#eab308"
-    elif "BEAR" in regime or "RISK" in verdict:
+    elif "BEAR" in state_code or "DEFENSE" in state_code or "RISK" in state_code:
         status_light = "🔴 适度防守减仓"
         light_color = "#ef4444"
     else:
         status_light = "🟢 安心持仓吃息"
         light_color = "#22c55e"
 
-    c300_pt = float(snap.get("c300_close", snap.get("close", 3950.0)) or 3950.0)
-    c300_chg = float(snap.get("c300_chg", 0.12) or 0.12)
-    kc50_pt = float(snap.get("kc50_close", 1025.0) or 1025.0)
-    kc50_chg = float(snap.get("kc50_chg", -0.35) or -0.35)
-    hldb_pt = float(snap.get("hldb_close", 4120.0) or 4120.0)
-    hldb_chg = float(snap.get("hldb_chg", 0.28) or 0.28)
+    def _fmt_idx(code_sym: str, default_name: str) -> str:
+        if fetch_realtime_index_quote:
+            try:
+                q = fetch_realtime_index_quote(code_sym, use_cache=True)
+                if isinstance(q, dict) and q.get("point") is not None:
+                    pt_val = float(q.get("point", 0.0))
+                    chg_val = float(q.get("change_pct", 0.0))
+                    nm = str(q.get("name") or default_name)
+                    return f"<span>{nm}: <b>{pt_val:,.1f}</b> ({chg_val:+.2f}%)</span>"
+            except Exception:
+                pass
+        return f"<span>{default_name}: <b>--</b> (--%)</span>"
+
+    c300_str = _fmt_idx("sh000300", "沪深300")
+    kc50_str = _fmt_idx("sh000688", "科创50")
+    hldb_str = _fmt_idx("sh000922", "中证红利")
 
     st.markdown(
         f"""<div style="background: var(--card-bg, rgba(255,255,255,0.05)); border: 1px solid var(--border-color, rgba(148,163,184,0.2)); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <span style="font-weight: 700; font-size: 1rem; color: var(--text-primary);">🧭 今日市场定调</span>
+                <span style="font-weight: 700; font-size: 1rem; color: var(--text-primary);">🧭 今日市场定调 · {market_state}</span>
                 <span style="font-weight: 700; font-size: 0.9rem; color: {light_color}; background: rgba(0,0,0,0.1); padding: 2px 8px; border-radius: 4px;">{status_light}</span>
             </div>
             <div style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 8px;">
-                {reason}
+                {core_action}
             </div>
             <div style="display: flex; gap: 16px; font-size: 0.82rem; color: var(--text-muted); font-family: monospace;">
-                <span>沪深300: <b>{c300_pt:,.1f}</b> ({c300_chg:+.2f}%)</span>
-                <span>科创50: <b>{kc50_pt:,.1f}</b> ({kc50_chg:+.2f}%)</span>
-                <span>中证红利: <b>{hldb_pt:,.1f}</b> ({hldb_chg:+.2f}%)</span>
+                {c300_str}
+                {kc50_str}
+                {hldb_str}
             </div>
         </div>""",
         unsafe_allow_html=True
@@ -261,7 +267,7 @@ def render_minimal_daily_brief(
             pass
 
     # -------------------------------------------------------------
-    # 卡片 2: 10 秒看我的资产与体检 (Assets / Verdict / Modal)
+    # 卡片 2: 10 秒看我的资产与体检 (真实估值计算与风控输出)
     # -------------------------------------------------------------
     total_eq = float(getattr(pm, "total_equity", 0.0))
     avail_cash = float(getattr(pm, "available_cash", 0.0))
@@ -269,17 +275,30 @@ def render_minimal_daily_brief(
     cost_val = sum(float(getattr(h, "shares", 0.0)) * float(getattr(h, "cost_price", getattr(h, "current_nav", 1.0))) for h in holdings.values()) if holdings else 0.0
     tot_pnl = mkt_val - cost_val
     tot_pnl_pct = (tot_pnl / cost_val * 100.0) if cost_val > 0 else 0.0
-    day_pnl_pct = float(snap.get("today_pnl_pct", 0.38) or 0.38)
-    day_pnl_rmb = mkt_val * (day_pnl_pct / 100.0)
 
-    tail_cnt = sum(1 for h in holdings.values() if float(getattr(h, "shares", 0.0)) * float(getattr(h, "current_nav", 1.0)) < 200.0)
-    has_c = any(c in ("011613", "013841") for c in holdings.keys())
-    if tail_cnt > 0 and has_c:
-        health_verdict = f"🔍 资产体检：发现 {tail_cnt} 只已免赎碎片尾仓，以及 1 只高费率 C 类，建议一键清理理顺。"
-    elif tail_cnt > 0:
-        health_verdict = f"🔍 资产体检：发现 {tail_cnt} 只已免赎碎片尾仓，建议归拢清扫提升资金效率。"
+    # 真实调用 calculate_intraday_pnl() 实算今日预估盈亏，彻底拒绝硬编码假常数
+    day_pnl_rmb = 0.0
+    day_pnl_pct = 0.0
+    if hasattr(pm, "calculate_intraday_pnl"):
+        try:
+            pnl_data = pm.calculate_intraday_pnl()
+            if isinstance(pnl_data, dict):
+                day_pnl_rmb = float(pnl_data.get("total_est_pnl", 0.0) or 0.0)
+                day_pnl_pct = float(pnl_data.get("total_est_pnl_pct", 0.0) or 0.0)
+        except Exception:
+            pass
+
+    health_verdict = "🛡️ 资产体检：持仓结构健康，未触发高危行业超标与隐形费率损耗。"
+    if sentry_rep and isinstance(sentry_rep, dict):
+        alerts = sentry_rep.get("alerts", [])
+        if alerts:
+            top_a = alerts[0]
+            a_title = top_a.get("title") or top_a.get("message") or "存在待关注风险"
+            health_verdict = f"🔍 资产体检：{a_title}，建议关注并适时优化。"
     else:
-        health_verdict = "🛡️ 资产体检：持仓结构健康，无高危行业暴露与隐形抽血风险。"
+        tail_cnt = sum(1 for h in holdings.values() if float(getattr(h, "shares", 0.0)) * float(getattr(h, "current_nav", 1.0)) < 200.0)
+        if tail_cnt > 0:
+            health_verdict = f"🔍 资产体检：发现 {tail_cnt} 只已免赎碎片尾仓，建议清扫归拢提升资金效率。"
 
     c_m1, c_m2, c_m3 = st.columns(3)
     c_m1.metric("当前总资产", f"¥{total_eq:,.2f}", f"可用现金 ¥{avail_cash:,.2f}")
@@ -287,11 +306,12 @@ def render_minimal_daily_brief(
     c_m3.metric("累计浮动盈亏", f"{tot_pnl_pct:+.2f}%", f"{tot_pnl:+,.2f} 元")
     st.caption(health_verdict)
 
-    with st.expander("📝 更新持仓 / 截图导入", expanded=False):
-        st.write("如需增删基金或通过天天基金/支付宝截图自动识别导入，可在此快速操作：")
-        quick_code = st.text_input("快速添加基金代码 (如 002351)", key="txt_quick_add_code")
-        if quick_code and st.button("➕ 确认添加", key="btn_quick_add_fund"):
-            st.info(f"基金 {quick_code} 添加请求已记录，进入专家实验室可核准买入。")
+    with st.expander("📸 调整持仓 / 截图导入", expanded=False):
+        st.write("如需增删基金、调整份额或通过截图 OCR 自动识别导入持仓：")
+        if st.button("🚀 前往专家量化实验室 · 账本运维与导入工作区", use_container_width=True, key="btn_goto_ledger_ops"):
+            st.session_state["ui_experience_mode"] = "专家量化实验室"
+            st.session_state["tab2_view_mode"] = "💼 账本运维与复盘"
+            st.rerun()
 
     # -------------------------------------------------------------
     # 卡片 3: 15 秒抄作业 (Rebalance grouped by intent / Cashflow)
@@ -374,14 +394,15 @@ def render_minimal_daily_brief(
                 } for x in h_grp["items"]])
                 st.dataframe(df_h, use_container_width=True, hide_index=True)
 
-    # 发工资新钱定投折叠抽屉
+    # 发工资新钱定投折叠抽屉 (接收真实的 target_weights)
     with st.expander("💰 手头有新钱 / 发工资了？输入新增资金算零摩擦定投", expanded=False):
         new_inc_cash = st.number_input("本月计划投入新资金 (元)", min_value=0.0, max_value=500000.0, value=3000.0, step=500.0, key="num_simple_new_cash")
-        if new_inc_cash > 0 and cashflow_planner:
+        tw_plan = target_weights or dict(snap.get("target_weights_funds") or {})
+        if new_inc_cash > 0 and cashflow_planner and tw_plan:
             inc_plan = cashflow_planner.plan_incremental_investment(
                 current_holdings=holdings,
                 available_cash=avail_cash,
-                target_weights=getattr(pm, "target_weights", {}),
+                target_weights=tw_plan,
                 monthly_new_cash=new_inc_cash,
                 plan_months=1
             )
@@ -389,13 +410,17 @@ def render_minimal_daily_brief(
             if inc_plan.get("allocations"):
                 st.dataframe(pd.DataFrame(inc_plan["allocations"]), use_container_width=True, hide_index=True)
 
-    # 底部 2 个核心主按钮
+    # 底部 2 个核心主按钮 (过滤掉 0 元维持项)
     st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
     c_sub1, c_sub2 = st.columns([1, 1])
     with c_sub1:
         if st.button("📋 复制今日买卖下单小抄", use_container_width=True, key="btn_simple_copy_cheat_sheet"):
             cheat_lines = ["【今日投顾调仓小抄】"]
-            for idx, it in enumerate(rebal_items, 1):
+            actionable_items = [
+                it for it in (grouped["tail_items"] + grouped["c_items"] + grouped["core_items"])
+                if abs(float(it.get("diff_amount", it.get("amount", 0.0)))) > 1e-4
+            ]
+            for idx, it in enumerate(actionable_items, 1):
                 c_code = it.get("fund_code", it.get("code", ""))
                 c_name = it.get("fund_name", it.get("name", ""))
                 c_act = it.get("action_text", it.get("action", ""))

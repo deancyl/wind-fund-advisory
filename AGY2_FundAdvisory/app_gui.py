@@ -3614,7 +3614,7 @@ if "ui_experience_mode" not in st.session_state:
 if "global_ui_view_mode" not in st.session_state:
     st.session_state["global_ui_view_mode"] = st.session_state["ui_experience_mode"]
 
-col_t_b, col_t_m, col_t_l, col_t_rf, col_t_rv = st.columns([2.6, 2.7, 3.1, 0.8, 0.8])
+col_t_b, col_t_m, col_t_l = st.columns([3.2, 3.6, 3.2])
 with col_t_b:
     safe_markdown_html(f"""<div style="display:flex;align-items:center;gap:6px;padding-top:4px;">
         <span style="font-size:15px;font-weight:800;color:var(--text-primary);white-space:nowrap;">🧭 AGY2 智投</span>
@@ -3636,25 +3636,31 @@ with col_t_l:
         except Exception: eq = 0.0
         return f"{tag} {m.get('name', lid)} (¥{eq:,.0f})"
     active_idx = next((i for i, l in enumerate(all_ledgers) if l["id"] == active_lid), 0)
-    selected_lid = st.selectbox("当前激活账本", options=[l["id"] for l in all_ledgers], index=active_idx, format_func=_fmt_topbar_ledger, key=f"topbar_ledger_select_{active_lid}", label_visibility="collapsed")
-    if selected_lid != active_lid:
-        switch_active_ledger(selected_lid)
-        st.rerun()
-with col_t_rf:
-    if st.button("🔄", help="极速刷新行情", key="btn_top_refresh_live", use_container_width=True):
-        st.session_state["_cached_session_intraday_pnl"] = None
-        StrategyBridge._cached_snapshot = None
-        st.rerun()
-with col_t_rv:
-    if st.button("↩️", help="安全后悔键：撤回上次操作（对接冷备快照）", key="btn_top_revert_last", use_container_width=True):
-        try:
-            from ledger_backup_vault import LedgerBackupVault
-            snaps = [s for s in LedgerBackupVault.list_snapshots() if not s.get("snapshot_id", "").startswith("test_")]
-            if snaps and LedgerBackupVault.restore_snapshot(snaps[0].get("snapshot_id")):
-                st.toast("✅ 已成功还原至上一次冷备快照")
-                st.rerun()
-        except Exception as _e:
-            st.error(f"撤回失败: {_e}")
+    col_sel_ld, col_pop_rv = st.columns([7.8, 2.2])
+    with col_sel_ld:
+        selected_lid = st.selectbox("当前激活账本", options=[l["id"] for l in all_ledgers], index=active_idx, format_func=_fmt_topbar_ledger, key=f"topbar_ledger_select_{active_lid}", label_visibility="collapsed")
+        if selected_lid != active_lid:
+            switch_active_ledger(selected_lid)
+            st.rerun()
+    with col_pop_rv:
+        with st.popover("↩️", help="安全后悔药：查看最近冷备快照并二次确认还原"):
+            st.caption("🛡️ **安全后悔药（冷备还原）**")
+            try:
+                from ledger_backup_vault import LedgerBackupVault
+                snaps = [s for s in LedgerBackupVault.list_snapshots() if not s.get("snapshot_id", "").startswith("test_")]
+                if snaps:
+                    last_s = snaps[0]
+                    st.markdown(f"**最近快照**：`{last_s.get('snapshot_id')}`\n\n**生成时间**：{last_s.get('timestamp')}\n\n**备份原因**：{last_s.get('reason', '自动冷备')}")
+                    if st.button("⚠️ 确认还原此快照", key="btn_top_confirm_revert", use_container_width=True):
+                        if LedgerBackupVault.restore_snapshot(last_s.get("snapshot_id")):
+                            st.toast("✅ 已成功还原至上一次冷备快照")
+                            st.rerun()
+                        else:
+                            st.error("还原失败")
+                else:
+                    st.info("当前暂无冷备快照")
+            except Exception as _e:
+                st.error(f"撤回失败: {_e}")
 
 if st.session_state.get("ui_experience_mode") == "每日极简投顾":
     try:
@@ -3662,7 +3668,7 @@ if st.session_state.get("ui_experience_mode") == "每日极简投顾":
         _rx = StrategyBridge.get_combat_29_vs_reconstructed_6_preset() if active_lid == "combat_29_funds" else {}
         _tw = dict(_rx.get("reconstructed_6_weights", {})) if _rx else (StrategyBridge.compute_dynamic_tier_weights(st.session_state.get("active_tier_val", "C3"), snapshot).get("weights", {}))
         _ai_res = StrategyBridge.generate_ai_rebalance_orders(pm.holdings, pm.available_cash, _tw, pm=pm, mode="gentle", min_buffer_pct=float(st.session_state.get("rebalance_buffer_pct", 3.0)), c_replace="011613" if active_lid == "combat_29_funds" else None, core_anchor_code="002351")
-        render_minimal_daily_brief(pm=pm, snapshot=snapshot, active_lid=active_lid, ai_orders_res=_ai_res)
+        render_minimal_daily_brief(pm=pm, snapshot=snapshot, active_lid=active_lid, ai_orders_res=_ai_res, target_weights=_tw)
     except Exception as _e:
         st.exception(_e)
     st.stop()
