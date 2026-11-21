@@ -46,9 +46,10 @@ def plan_incremental_investment(
     在旧仓完全不动（0 赎回费、0 在途踏空）的前提下，将未来 N 个月每月新增定投资金
     精准按缺口比例补齐低配赛道。
     """
-    m_amt = max(0.0, float(monthly_new_cash))
-    n_months = max(1, min(12, int(plan_months)))
+    m_amt = max(0.0, float(monthly_new_cash or 0.0))
+    n_months = max(1, min(12, int(plan_months or 3)))
     total_new_money = m_amt * n_months
+    avail_cash_num = float((available_cash.get("investable_cash", 0.0) if isinstance(available_cash, dict) else available_cash) or 0.0)
 
     if not target_weights:
         return {
@@ -63,15 +64,15 @@ def plan_incremental_investment(
     total_curr_mv = 0.0
     quotes = quotes_or_nav_map or {}
 
-    for code, h in current_holdings.items():
-        sh = float(getattr(h, "shares", 0.0) if hasattr(h, "shares") else h.get("shares", 0.0))
+    for code, h in (current_holdings or {}).items():
+        sh = float(getattr(h, "shares", 0.0) if hasattr(h, "shares") else (h.get("shares", 0.0) if isinstance(h, dict) else 0.0) or 0.0)
         q = quotes.get(code)
         nav = float(getattr(q, "gsz", None) or getattr(q, "official_nav", None) or 1.0) if q else 1.0
         mv = round(sh * nav, 2)
         curr_mv_map[str(code)] = mv
         total_curr_mv += mv
 
-    target_total_mv = total_curr_mv + total_new_money + max(0.0, available_cash)
+    target_total_mv = total_curr_mv + total_new_money + max(0.0, avail_cash_num)
 
     # 2. 精算各标的理论目标金额与当前市值缺口
     shortfalls = {}
@@ -141,7 +142,9 @@ def generate_left_side_bullet_plan(
     根据可用备用金（已扣除刚性流动性红线），在沪深 300 发生 -5%、-10%、-15% 三阶急跌时
     提前写好静态纪律执行单，防止实盘暴跌时心态崩溃反复横跳。
     """
-    bullets = max(0.0, float(available_bullets if available_bullets is not None else investable_spare_cash))
+    raw_b = available_bullets if available_bullets is not None else investable_spare_cash
+    spare_val = raw_b.get("investable_cash", 0.0) if isinstance(raw_b, dict) else raw_b
+    bullets = max(0.0, float(spare_val or 0.0))
     pt = float(current_hs300 if current_hs300 is not None else current_index_point)
     if pt <= 100.0:
         pt = 3950.0

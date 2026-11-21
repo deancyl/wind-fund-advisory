@@ -1,9 +1,9 @@
 # Wind 量化投顾系统持续进化日志 (PROGRESS_LOG.md)
 
 ## 世代版本概览
-- 当前版本：**v5.11-G31 (反假数据、真实同源实算与交互二次确认终极修复)**
-- 核心主题：重构 GEMINI.md 为《AGY2 智能投顾产品哲学与工程宪法》确立五大最高工程准则；物理清除 G30 中全部硬编码假数字与错误键名；全面同源接线指数行情与盘中估值实算；顶栏视觉瘦身并实装撤回二次确认；极简日常模式与专家实验室双态无缝贯通。
-- 演进基线：全量核心回归测试 100% 绿灯，4 大只读裁判文件 SHA256 绝对吻合，Streamlit 8501 服务平滑托管，双态交互与 6 大 G31 强门禁 100% PASS。
+- 当前版本：**v5.12-G32 (零废话极简交互重构、底层缺陷根治与跨端 REST API 底座)**
+- 核心主题：清除重复图标与废话文案，标题 <= 6 字、按钮 <= 4 字，所有解释收进 `popover("i")`；修复 C转A 份额计数（卖C与买A严格统计为1组）；消除市场定调与调仓方案口径脱节；收敛 `oos_verdict_tracker.py` 为纯薄代理；新建跨端 REST API 服务层 `api_server.py`（为 Windows Tauri `.exe` 与 Android `.apk` 提供统一 JSON 底座）；G32 自动化零作弊门禁与 Playwright 真机端到端全绿。
+- 演进基线：全量核心回归测试 100% 绿灯，4 大只读裁判文件 SHA256 绝对吻合，Streamlit 8501 服务平滑托管，`verify_g32_clean_ui_and_api_gate.py`、`verify_g31_real_data_parity_gate.py`、`verify_g30_minimal_daily_mode_gate.py` 均 100% PASS。
 
 ---
 
@@ -1376,3 +1376,25 @@
      - 向极简晨报动态注入十二维风控哨兵报告 `_sentry_rep`（`ActiveRiskSentry`），实景动态展示实盘真实告警；
      - 极简模式下智能收敛左侧边栏，跳过 38+ 重型行情走廊与定制滑块，大幅节约算力与渲染时间；
      - 编写并持久化保存 Playwright 真机端到端验收脚本 `scripts/verify_g31_browser_e2e.py`，完成桌面端 (1440x900) 与移动端 (390x844) 真实浏览器全流程渲染，确保零 `stException` 红框崩溃、三大核心卡片真实渲染、无任何死常数与拼接截断。
+
+
+---
+
+## 世代版本概览 (v5.12-G32 零废话极简交互重构、底层缺陷根治与跨端 REST API 底座)
+- 当前版本：**v5.12-G32 (零废话极简交互重构与跨端 REST API 底座)**
+- 核心主题：遵从外部审计指导文件 `agy2 (23).md` 的全部修复开发指令，彻底消灭 UI 噪音、修复底层计算与统计口径缺陷、并构建标准化的跨端 REST API 基础设施：
+  1. **彻底消除重复图标拼接 Bug**：在 `group_rebalance_orders_by_intent` 数据结构层彻底剥离硬编码前缀图标，标题保持纯中文短文本（`清理尾仓`、`C转A省费`、`核心调仓`、`维持持仓`），由渲染层统一管理排版，杜绝 `🧹 🧹`、`🔄 🔄`、`🎯 🎯` 重复；
+  2. **修复 C转A 份额计数逻辑错误**：将“卖出 1 只 C 类与买入 1 只 A 类”的对称置换严格统计为 1 组待置换份额（`c_sell_cnt`），彻底根治将买入 A 类误计为“高费率 C 类”并虚报为 2 只的缺陷；
+  3. **全局零废话与 `i` 弹窗极简重构**：
+     - 标题上限 6 个汉字（`市场定调`、`我的资产`、`今日调仓`、`新钱定投`）；
+     - 按钮上限 4 个汉字（`复制小抄`、`导入持仓`、`完整视图`）；
+     - 彻底清除顶部安全长句、空壳跳转折叠框等满屏噪音，所有解释性说明全部收进 `st.popover("i")` 气泡；
+  4. **消除市场定调与调仓方案口径脱节**：第一行显式展示大盘真实定调与三大宽基（沪深300、科创50、中证红利）实时点位涨跌，第二行明确标注当前账本策略口径（实战账本标注 `当前方案：存量瘦身重构`），详细因果传导收进 `i` 弹窗；
+  5. **收敛重复模块 `oos_verdict_tracker.py`**：将 `oos_verdict_tracker.py` 收敛为 6 行纯薄代理，唯一实现保留在 `forward_audit_logger.py` 中，杜绝双份逻辑分叉；
+  6. **新建跨端 REST API 服务层 `api_server.py`**：基于 FastAPI 构建纯净、强类型、零 HTML 污染的跨端标准接口（涵盖 `/api/health`、`/api/overview`、`/api/holdings`、`/api/rebalance`、`/api/cashflow/plan`、`/api/backups`、`/api/backups/restore`、`/api/forward-audit` 等 8 大接口），且内置对未知账本返回规范 HTTP 404、对异常快照返回规范 HTTP 400 的严密防御；
+  7. **增强定投与左侧子弹算法鲁棒性 (`cashflow_planner.py`)**：防御性兼容字典、浮点数及 `None` 入参，防止 `TypeError` 与 `AttributeError` 崩溃；
+  8. **全量门禁与真实端到端验收**：
+     - `verify_g32_clean_ui_and_api_gate.py` 覆盖 AST、禁语扫描、字数限制、C转A单元测试、FastAPI 8 大端点与 404/400 容错、Playwright 桌面 (1440x900) 与移动 (390x844) 双端全绿；
+     - `test_api_server_endpoints.py` 8 大接口及边界攻击全部 PASS；
+     - 四大只读裁判文件 SHA256 绝对一致；
+     - `pytest tests/test_infra.py` 14 passed。
