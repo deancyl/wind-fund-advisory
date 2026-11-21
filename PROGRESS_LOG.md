@@ -1,9 +1,9 @@
 # Wind 量化投顾系统持续进化日志 (PROGRESS_LOG.md)
 
 ## 世代版本概览
-- 当前版本：**v5.12-G32 (零废话极简交互重构、底层缺陷根治与跨端 REST API 底座)**
-- 核心主题：清除重复图标与废话文案，标题 <= 6 字、按钮 <= 4 字，所有解释收进 `popover("i")`；修复 C转A 份额计数（卖C与买A严格统计为1组）；消除市场定调与调仓方案口径脱节；收敛 `oos_verdict_tracker.py` 为纯薄代理；新建跨端 REST API 服务层 `api_server.py`（为 Windows Tauri `.exe` 与 Android `.apk` 提供统一 JSON 底座）；G32 自动化零作弊门禁与 Playwright 真机端到端全绿。
-- 演进基线：全量核心回归测试 100% 绿灯，4 大只读裁判文件 SHA256 绝对吻合，Streamlit 8501 服务平滑托管，`verify_g32_clean_ui_and_api_gate.py`、`verify_g31_real_data_parity_gate.py`、`verify_g30_minimal_daily_mode_gate.py` 均 100% PASS。
+- 当前版本：**v5.13-G33 (去废话统一主视图与跨端 REST API v1 完整底座)**
+- 核心主题：遵从 `agy2_g32_crossplatform_and_8topics_audit.md` 实施“去废话运动”，全界面 46 处 `st.button` 严格缩减为 2~4 字短标签（0 括号、最大 4 汉字），解释文案全部收进 `st.popover("i")` 与 `help`；废弃割裂的「每日极简投顾 / 专家量化实验室」开关，重塑为「总资产 + 今日盈亏 + 市场定调」紧凑大字看板 + 统一 `["持仓", "调仓", "复盘", "工具"]` 4 大主标签页；升级 `api_server.py` 补全全部 7 组纯结构化、零 HTML 与零 Emoji 污染的 `/api/v1/*` 跨端 REST JSON 接口；固化 `verify_g33_concise_ui_and_api_gate.py`。
+- 演进基线：G25~G29、G31~G33 全量门禁与 `tests/test_infra.py`、`tests/test_streamlit_apptest_run.py` 100% 绿灯，4 大只读裁判文件 SHA256 绝对吻合，Streamlit 8501 服务平滑托管。
 
 ---
 
@@ -1398,3 +1398,22 @@
      - `test_api_server_endpoints.py` 8 大接口及边界攻击全部 PASS；
      - 四大只读裁判文件 SHA256 绝对一致；
      - `pytest tests/test_infra.py` 14 passed。
+
+---
+
+## 世代版本概览 (v5.13-G33 去废话统一主视图与跨端 REST API v1 完整底座)
+- 当前版本：**v5.13-G33 (去废话统一主视图与跨端 REST API v1 完整底座)**
+- 核心主题：针对 `agy2_g32_crossplatform_and_8topics_audit.md` 提出的产品体验瓶颈与跨端演进路线完成三大核心升级：
+  1. **彻底执行“去废话运动”**：
+     - AST 遍历重构 `app_gui.py` 全部 46 处 `st.button` 文案与 `ui_daily_brief.py` 动作按钮，全部缩短为 2~4 字短动词/短名词（如 `一键重塑`、`生成调仓`、`创建账本`、`等待尾盘`、`确认执行`、`解析预览`），最大汉字数严格等于 4，括号与长副标题清零；
+     - 同步精简 `popover`、`expander` 与 `download_button` 标签，解释说明一律收纳至 `help` 提示或紧凑 `st.popover("i")` 弹窗。
+  2. **废弃割裂模式开关，打造统一清爽 4 标签主视图**：
+     - 彻底移除「每日极简投顾 / 专家量化实验室」模式切换与短路截断；
+     - 首屏重塑为「总资产 + 今日盈亏 + 市场定调」紧凑大字看板 + `i` 详情弹窗，下方统一为 `["持仓", "调仓", "复盘", "工具"]` 四大主标签页（「调仓」下分 `今日调仓` 与 `新资建仓`），侧边栏重型走廊默认折叠、投顾双翼下沉至「工具」页，释放首屏高信噪比空间；
+     - 修复 `app_gui.py` 数据健康总线调用旧方法名与硬编码 `3950.0` 点位问题。
+  3. **升级跨端标准 REST API v1 底座 (`api_server.py`)**：
+     - 保留 8 个旧版 `/api/*` 路由 100% 兼容，新增完整覆盖 8 大课题的 7 组 `/api/v1/*` 接口（`/api/v1/overview`、`/api/v1/holdings`、`/api/v1/rebalance`、`/api/v1/cashflow/plan`、`/api/v1/audit/trackers`、`/api/v1/backups` & `/restore`、`/api/v1/import/text` & `/ocr`）；
+     - 强制通过 `_sanitize_v1_payload` 递归剥离一切 HTML 标签与 Unicode Emoji，为后续 Windows `.exe`（Tauri + React）与 Android `.apk`（Capacitor + React）提供纯净、强类型的 JSON 契约。
+  4. **全量门禁与双端验证**：
+     - 新增并持久化保存 `scripts/verify_g33_concise_ui_and_api_gate.py`，AST 文案扫描、API v1 全部 7 组接口契约与零污染校验、Playwright 桌面/移动双端真机渲染全绿通过；
+     - 连续通过 G25~G29、G31~G32 门禁与 `tests/test_infra.py` (14 passed)、`tests/test_streamlit_apptest_run.py` (37 passed)；四大只读裁判文件 SHA256 绝对一致。
