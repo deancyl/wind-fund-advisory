@@ -130,6 +130,9 @@ def get_shadow_baseline(ledger_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+load_frozen_shadow_baseline = get_shadow_baseline
+
+
 def compare_live_vs_shadow(
     ledger_id: str,
     live_holdings: Dict[str, Any],

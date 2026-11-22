@@ -1,0 +1,411 @@
+{
+  "version": "1.0.0",
+  "name": "AGY2 Client Information Architecture & Route Contract",
+  "description": "面向 Windows (.exe) 桌面端与 Android (.apk) 移动端跨端客户端的统一路由与 API 映射契约",
+  "base_url": "http://127.0.0.1:18501",
+  "desktop_ia": {
+    "topbar": {
+      "cards": [
+        {
+          "id": "total_equity",
+          "title": "总资产",
+          "field": "total_equity",
+          "api": "/api/v1/overview"
+        },
+        {
+          "id": "intraday_pnl",
+          "title": "今日盈亏",
+          "field": "intraday_pnl_pct",
+          "api": "/api/v1/overview"
+        },
+        {
+          "id": "market_stance",
+          "title": "市场定调",
+          "field": "market_stance",
+          "api": "/api/v1/overview"
+        }
+      ],
+      "actions": [
+        {
+          "id": "ledger_switch",
+          "label": "账本切换",
+          "api": "/api/v1/overview"
+        },
+        {
+          "id": "cold_backup_restore",
+          "label": "快照备份",
+          "api_list": "/api/v1/backups",
+          "api_restore": "/api/v1/backups/restore"
+        },
+        {
+          "id": "quick_import",
+          "label": "快捷导入",
+          "api_text": "/api/v1/import/text",
+          "api_ocr": "/api/v1/import/ocr"
+        }
+      ]
+    },
+    "tabs": [
+      {
+        "id": "holdings",
+        "title": "持仓",
+        "subviews": [
+          {
+            "id": "detail",
+            "title": "持仓明细",
+            "api": "/api/v1/holdings",
+            "banner_api": "/api/v1/holdings/movers"
+          },
+          {
+            "id": "reconciliation",
+            "title": "估值对账",
+            "api": "/api/v1/holdings"
+          },
+          {
+            "id": "in_transit",
+            "title": "在途限购",
+            "api": "/api/v1/rebalance"
+          }
+        ]
+      },
+      {
+        "id": "rebalance",
+        "title": "调仓",
+        "subviews": [
+          {
+            "id": "today_orders",
+            "title": "今日调仓",
+            "api": "/api/v1/rebalance",
+            "checkin_api": "/api/v1/rebalance/checkin"
+          },
+          {
+            "id": "new_money_dca",
+            "title": "新钱定投",
+            "api": "/api/v1/cashflow/plan"
+          },
+          {
+            "id": "combat_reconstruction",
+            "title": "存量重塑",
+            "api": "/api/v1/rebalance"
+          }
+        ]
+      },
+      {
+        "id": "review",
+        "title": "复盘",
+        "subviews": [
+          {
+            "id": "timemachine",
+            "title": "历史时光机",
+            "api": "/api/v1/review/timemachine"
+          },
+          {
+            "id": "rolling_winrate",
+            "title": "近三年胜率",
+            "api": "/api/v1/review/rolling_winrate"
+          },
+          {
+            "id": "forward_audit",
+            "title": "样本外前瞻",
+            "api": "/api/v1/review/forward_audit"
+          },
+          {
+            "id": "shadow_race",
+            "title": "影子账本",
+            "api": "/api/v1/review/shadow_race"
+          }
+        ]
+      },
+      {
+        "id": "diagnose",
+        "title": "诊断",
+        "subviews": [
+          {
+            "id": "risk_check",
+            "title": "风险体检",
+            "api": "/api/v1/diagnose/risk_check"
+          },
+          {
+            "id": "exposure",
+            "title": "资产敞口",
+            "api": "/api/v1/diagnose/exposure"
+          },
+          {
+            "id": "overlap",
+            "title": "重仓重叠",
+            "api": "/api/v1/diagnose/overlap"
+          },
+          {
+            "id": "stress_test",
+            "title": "极端承压",
+            "api": "/api/v1/diagnose/stress_test"
+          },
+          {
+            "id": "ten_dim_votes",
+            "title": "投顾底稿",
+            "api": "/api/v1/diagnose/ten_dim_votes"
+          }
+        ]
+      }
+    ]
+  },
+  "mobile_ia": {
+    "bottom_bar": [
+      {
+        "id": "m_holdings",
+        "icon": "pie_chart",
+        "label": "持仓",
+        "target_desktop_tab": "holdings"
+      },
+      {
+        "id": "m_rebalance",
+        "icon": "swap_horiz",
+        "label": "调仓",
+        "target_desktop_tab": "rebalance"
+      },
+      {
+        "id": "m_review",
+        "icon": "history",
+        "label": "复盘",
+        "target_desktop_tab": "review"
+      },
+      {
+        "id": "m_diagnose",
+        "icon": "shield",
+        "label": "诊断",
+        "target_desktop_tab": "diagnose"
+      }
+    ],
+    "high_frequency_flow": [
+      {
+        "step": 1,
+        "name": "早盘看盈亏与定调",
+        "api": "/api/v1/overview"
+      },
+      {
+        "step": 2,
+        "name": "尾盘看调仓与红黑榜",
+        "api_movers": "/api/v1/holdings/movers",
+        "api_rebalance": "/api/v1/rebalance"
+      },
+      {
+        "step": 3,
+        "name": "复制小抄去支付宝下单并打卡",
+        "api_checkin": "/api/v1/rebalance/checkin"
+      }
+    ]
+  },
+  "tray_and_push_alerts": {
+    "polling_interval_seconds": 60,
+    "api": "/api/v1/alerts/push",
+    "triggers": [
+      {
+        "condition": "time == 14:40 and has_rebalance_orders",
+        "level": "warn",
+        "title": "尾盘调仓提醒"
+      },
+      {
+        "condition": "key_channel_red_circuit_break",
+        "level": "urgent",
+        "title": "数据通道熔断"
+      },
+      {
+        "condition": "c_to_a_replace_due",
+        "level": "info",
+        "title": "C转A省费置换"
+      }
+    ]
+  },
+  "desktop_navigation": {
+    "topbar": {
+      "cards": [
+        {
+          "id": "total_equity",
+          "title": "总资产",
+          "field": "total_equity",
+          "api": "/api/v1/overview"
+        },
+        {
+          "id": "intraday_pnl",
+          "title": "今日盈亏",
+          "field": "intraday_pnl_pct",
+          "api": "/api/v1/overview"
+        },
+        {
+          "id": "market_stance",
+          "title": "市场定调",
+          "field": "market_stance",
+          "api": "/api/v1/overview"
+        }
+      ],
+      "actions": [
+        {
+          "id": "ledger_switch",
+          "label": "账本切换",
+          "api": "/api/v1/overview"
+        },
+        {
+          "id": "cold_backup_restore",
+          "label": "快照备份",
+          "api_list": "/api/v1/backups",
+          "api_restore": "/api/v1/backups/restore"
+        },
+        {
+          "id": "quick_import",
+          "label": "快捷导入",
+          "api_text": "/api/v1/import/text",
+          "api_ocr": "/api/v1/import/ocr"
+        }
+      ]
+    },
+    "tabs": [
+      {
+        "id": "holdings",
+        "title": "持仓",
+        "subviews": [
+          {
+            "id": "detail",
+            "title": "持仓明细",
+            "api": "/api/v1/holdings",
+            "banner_api": "/api/v1/holdings/movers"
+          },
+          {
+            "id": "reconciliation",
+            "title": "估值对账",
+            "api": "/api/v1/holdings"
+          },
+          {
+            "id": "in_transit",
+            "title": "在途限购",
+            "api": "/api/v1/rebalance"
+          }
+        ]
+      },
+      {
+        "id": "rebalance",
+        "title": "调仓",
+        "subviews": [
+          {
+            "id": "today_orders",
+            "title": "今日调仓",
+            "api": "/api/v1/rebalance",
+            "checkin_api": "/api/v1/rebalance/checkin"
+          },
+          {
+            "id": "new_money_dca",
+            "title": "新钱定投",
+            "api": "/api/v1/cashflow/plan"
+          },
+          {
+            "id": "combat_reconstruction",
+            "title": "存量重塑",
+            "api": "/api/v1/rebalance"
+          }
+        ]
+      },
+      {
+        "id": "review",
+        "title": "复盘",
+        "subviews": [
+          {
+            "id": "timemachine",
+            "title": "历史时光机",
+            "api": "/api/v1/review/timemachine"
+          },
+          {
+            "id": "rolling_winrate",
+            "title": "近三年胜率",
+            "api": "/api/v1/review/rolling_winrate"
+          },
+          {
+            "id": "forward_audit",
+            "title": "样本外前瞻",
+            "api": "/api/v1/review/forward_audit"
+          },
+          {
+            "id": "shadow_race",
+            "title": "影子账本",
+            "api": "/api/v1/review/shadow_race"
+          }
+        ]
+      },
+      {
+        "id": "diagnose",
+        "title": "诊断",
+        "subviews": [
+          {
+            "id": "risk_check",
+            "title": "风险体检",
+            "api": "/api/v1/diagnose/risk_check"
+          },
+          {
+            "id": "exposure",
+            "title": "资产敞口",
+            "api": "/api/v1/diagnose/exposure"
+          },
+          {
+            "id": "overlap",
+            "title": "重仓重叠",
+            "api": "/api/v1/diagnose/overlap"
+          },
+          {
+            "id": "stress_test",
+            "title": "极端承压",
+            "api": "/api/v1/diagnose/stress_test"
+          },
+          {
+            "id": "ten_dim_votes",
+            "title": "投顾底稿",
+            "api": "/api/v1/diagnose/ten_dim_votes"
+          }
+        ]
+      }
+    ]
+  },
+  "mobile_navigation": {
+    "bottom_bar": [
+      {
+        "id": "m_holdings",
+        "icon": "pie_chart",
+        "label": "持仓",
+        "target_desktop_tab": "holdings"
+      },
+      {
+        "id": "m_rebalance",
+        "icon": "swap_horiz",
+        "label": "调仓",
+        "target_desktop_tab": "rebalance"
+      },
+      {
+        "id": "m_review",
+        "icon": "history",
+        "label": "复盘",
+        "target_desktop_tab": "review"
+      },
+      {
+        "id": "m_diagnose",
+        "icon": "shield",
+        "label": "诊断",
+        "target_desktop_tab": "diagnose"
+      }
+    ],
+    "high_frequency_flow": [
+      {
+        "step": 1,
+        "name": "早盘看盈亏与定调",
+        "api": "/api/v1/overview"
+      },
+      {
+        "step": 2,
+        "name": "尾盘看调仓与红黑榜",
+        "api_movers": "/api/v1/holdings/movers",
+        "api_rebalance": "/api/v1/rebalance"
+      },
+      {
+        "step": 3,
+        "name": "复制小抄去支付宝下单并打卡",
+        "api_checkin": "/api/v1/rebalance/checkin"
+      }
+    ]
+  }
+}

@@ -220,13 +220,14 @@ def compare_live_vs_shadow(
     ledger_id: str = "combat_29_funds",
     live_holdings: Optional[Dict[str, Any]] = None,
     current_quotes: Optional[Dict[str, Any]] = None,
+    **kwargs: Any,
 ) -> Dict[str, Any]:
     """
     影子账本赛跑对账门面：
     严格遵循零硬编码假数铁律，无冻结基准时诚实返回 has_baseline=False 与实算实盘收益率。
     """
-    holdings = live_holdings or {}
-    quotes = current_quotes or {}
+    holdings = live_holdings or kwargs.get("holdings") or {}
+    quotes = current_quotes or kwargs.get("current_quotes_map") or kwargs.get("quotes") or {}
 
     raw_res = None
     if _shadow_compare:

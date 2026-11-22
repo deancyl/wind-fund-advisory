@@ -4385,8 +4385,15 @@ if "target_return_val" not in st.session_state:
     st.session_state.target_return_val = 15.0
 
 with tab_rebalance_and_create:
-    sub_rebal_today, sub_zero_start = st.tabs(["今日调仓", "新资建仓"])
-    with sub_rebal_today:
+    sub_rebal_view = st.radio(
+        "调仓分段",
+        ["今日调仓", "新钱定投", "存量重塑"],
+        index=0,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="rad_rebalance_single_view"
+    )
+    if sub_rebal_view == "今日调仓":
         try:
             _rx_t1 = StrategyBridge.get_combat_29_vs_reconstructed_6_preset() if active_lid == "combat_29_funds" else {}
             _tw_t1 = dict(_rx_t1.get("reconstructed_6_weights", {})) if _rx_t1 else (StrategyBridge.compute_dynamic_tier_weights(st.session_state.get("active_tier_val", "C3"), snapshot).get("weights", {}))
@@ -4397,7 +4404,54 @@ with tab_rebalance_and_create:
         except Exception as _e_rebal:
             st.warning(f"今日调仓视图加载提示: {_e_rebal}")
 
-with sub_zero_start:
+    elif sub_rebal_view == "新钱定投":
+        try:
+            st.caption("【增量定投优先思维】用每月新钱定投补齐低配赛道，不动存量老仓位，彻底省去 0.5% 赎回费与在途踏空风险。")
+            cfp_c1, cfp_c2, cfp_c3 = st.columns(3)
+            with cfp_c1:
+                m_new_cash = st.number_input("每月新增定投金额 (元)", min_value=0.0, value=3000.0, step=500.0, key="num_cfp_monthly_cash_rebal")
+            with cfp_c2:
+                m_months = st.slider("规划补仓月数", min_value=1, max_value=6, value=3, key="sli_cfp_months_rebal")
+            with cfp_c3:
+                m_reserve = st.number_input("未来半年刚性用钱红线 (元)", min_value=0.0, value=0.0, step=1000.0, key="num_cfp_reserve_rebal")
+
+            _rx_t1 = StrategyBridge.get_combat_29_vs_reconstructed_6_preset() if active_lid == "combat_29_funds" else {}
+            tier_target_w = dict(_rx_t1.get("reconstructed_6_weights", {})) if _rx_t1 else (StrategyBridge.compute_dynamic_tier_weights(st.session_state.get("active_tier_val", "C3"), snapshot).get("weights", {}))
+
+            liq_info = cashflow_planner.enforce_liquidity_redline(pm.available_cash, m_reserve)
+            if m_reserve > 0:
+                st.info(f"🛡️ 已从现金池锁定刚性备用金 ¥{liq_info['locked_reserve']:,.2f}，可调仓现金降为 ¥{liq_info['investable_cash']:,.2f}")
+
+            cfp_plan = cashflow_planner.plan_incremental_investment(
+                current_holdings=pm.holdings,
+                available_cash=liq_info["investable_cash"],
+                target_weights=tier_target_w,
+                monthly_new_cash=m_new_cash,
+                plan_months=m_months,
+            )
+            _ = pm.generate_incremental_investment_plan(new_cash=m_new_cash * m_months, target_weights_funds=tier_target_w)
+
+            st.markdown(f"**💡 规划结论**：{cfp_plan['summary_text']}")
+            if cfp_plan["allocations"]:
+                st.dataframe(pd.DataFrame(cfp_plan["allocations"]), use_container_width=True, hide_index=True)
+
+            cur_pt_bullet = float(st.session_state.get("c300_point", 3950.0) or 3950.0)
+            bullet_plan = cashflow_planner.generate_left_side_bullet_plan(
+                investable_spare_cash=liq_info["investable_cash"] + (m_new_cash * m_months),
+                current_index_point=cur_pt_bullet,
+            )
+            with st.popover("暴跌预案"):
+                st.caption("沪深 300 触发 -5%、-10%、-15% 跌幅时的分批纪律打出子弹预案：")
+                st.dataframe(pd.DataFrame(bullet_plan["bullet_tiers"]), use_container_width=True, hide_index=True)
+        except Exception as _e_cf:
+            st.warning(f"新钱定投视图加载提示: {_e_cf}")
+
+    elif sub_rebal_view == "存量重塑":
+        _should_render_reconstruction = True
+    else:
+        _should_render_reconstruction = False
+
+if locals().get("_should_render_reconstruction", False):
     try:
         active_tier = st.session_state.get("active_tier_val", "C3")
         cur_tier_meta = RISK_TIERS_CONFIG.get(active_tier, RISK_TIERS_CONFIG["C3"])
@@ -5917,6 +5971,39 @@ def _commit_edited_holdings_table(edited_df: pd.DataFrame, pm_inst) -> tuple:
     return success_codes, error_msgs
 
 
+def _render_daily_movers_strip(pm_inst):
+    """单屏首屏 Movers 条带：展示今日组合领涨与领跌 Top 3 基金"""
+    try:
+        holdings = getattr(pm_inst, "holdings", {}) or {}
+        if not holdings:
+            return
+        codes = list(holdings.keys())
+        quotes = prefetch_batch_fund_quotes(codes) if codes else {}
+        items = []
+        for code, h in holdings.items():
+            q = quotes.get(code)
+            chg = float(getattr(q, "gszzl", 0.0) or getattr(q, "official_chg_pct", 0.0) or 0.0) if q else 0.0
+            name = str(getattr(h, "fund_name", code))
+            items.append({"code": code, "name": name, "chg": chg})
+        gainers = sorted([x for x in items if x["chg"] > 0], key=lambda x: x["chg"], reverse=True)[:3]
+        losers = sorted([x for x in items if x["chg"] < 0], key=lambda x: x["chg"])[:3]
+
+        if not gainers and not losers:
+            return
+
+        cols = st.columns(2)
+        with cols[0]:
+            if gainers:
+                g_str = " ".join([f"<span style='color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 6px;border-radius:4px;font-size:12px;'>▲ {x['name'][:5]} {x['chg']:+.2f}%</span>" for x in gainers])
+                safe_markdown_html(f"<div style='margin-bottom:6px;'><span style='font-size:12px;font-weight:600;margin-right:8px;'>今日贡献 Top 3:</span>{g_str}</div>")
+        with cols[1]:
+            if losers:
+                l_str = " ".join([f"<span style='color:#10b981;background:rgba(16,185,129,0.1);padding:2px 6px;border-radius:4px;font-size:12px;'>▼ {x['name'][:5]} {x['chg']:+.2f}%</span>" for x in losers])
+                safe_markdown_html(f"<div style='margin-bottom:6px;text-align:right;'><span style='font-size:12px;font-weight:600;margin-right:8px;'>领跌拖累:</span>{l_str}</div>")
+    except Exception:
+        pass
+
+
 with tab_holdings_and_rebalance:
 
     try:
@@ -6015,6 +6102,16 @@ with tab_holdings_and_rebalance:
             is_t2_main_mode = (tab2_mode == "🎯 持仓诊断与调仓")
 
         if is_t2_main_mode:
+            sub_hold_view = st.radio(
+                "持仓分段",
+                ["持仓明细", "估值对账", "在途限购"],
+                index=0,
+                horizontal=True,
+                label_visibility="collapsed",
+                key="rad_holdings_single_view"
+            )
+            if sub_hold_view == "持仓明细":
+                _render_daily_movers_strip(pm)
             # ─────────────────────────────────────────────────────────────
             # 核心持仓与资产指标预计算
             # ─────────────────────────────────────────────────────────────
@@ -7774,10 +7871,56 @@ with tab_holdings_and_rebalance:
 # Tab 3: 【📈 组合回测】（穿透回测新建仓组合/当前持仓/调仓前后，9大基准自由多选）
 # =============================================================
 def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
+    bt_view = st.radio(
+        "复盘分段",
+        ["历史时光机", "近三年胜率", "样本外前瞻", "影子账本"],
+        index=0,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="rad_backtest_single_view"
+    )
     trial29_kpi = StrategyBridge.load_trial29_metrics()
     mlm_inst = st.session_state.get("mlm") or (MultiLedgerManager.get_instance() if MultiLedgerManager else None)
     active_lid = st.session_state.get("active_ledger_id", "main_live")
     all_ledgers = mlm_inst.list_ledgers() if mlm_inst else []
+
+    if bt_view == "样本外前瞻":
+        st.markdown("##### 🎯 样本外前瞻验真记分牌 (真实未来行情打分·零过拟合)")
+        oos_eval = forward_audit_logger.evaluate_forward_performance()
+        o_c1, o_c2, o_c3, o_c4 = st.columns(4)
+        o_c1.metric("前瞻验真样本数", f"{oos_eval['sample_count']} 期")
+        o_c2.metric("平均前瞻收益率", f"{oos_eval['avg_forward_return_pct']:+.2f}%")
+        o_c3.metric("沪深300同期基准", f"{oos_eval['avg_hs300_return_pct']:+.2f}%")
+        o_c4.metric("超额 Alpha / 胜率", f"{oos_eval['excess_alpha_pct']:+.2f}%", f"胜率 {oos_eval['win_rate_pct']:.1f}%")
+        st.caption(oos_eval["status_summary"])
+        if oos_eval.get("eval_records"):
+            st.dataframe(pd.DataFrame(oos_eval["eval_records"]), use_container_width=True, hide_index=True)
+        return
+
+    if bt_view == "影子账本":
+        st.markdown("##### ⚖️ 躺平不动影子账本实盘赛跑看板")
+        cur_lid = getattr(pm, "ledger_id", "combat_29_funds")
+        current_quotes_map = {
+            c: getattr(h, "latest_nav", getattr(h, "current_nav", 1.0))
+            for c, h in pm.holdings.items()
+        }
+        shadow_comp = execution_tracker.compare_live_vs_shadow(
+            ledger_id=cur_lid,
+            live_holdings=pm.holdings,
+            current_quotes=current_quotes_map,
+        )
+        sc1, sc2, sc3 = st.columns(3)
+        sc1.metric("躺平原版总市值", f"¥{shadow_comp['shadow_current_market_val']:,.2f}", f"{shadow_comp['shadow_return_pct']:+.2f}%")
+        sc2.metric("实盘跟单总市值", f"¥{shadow_comp['live_current_market_val']:,.2f}", f"{shadow_comp['live_return_pct']:+.2f}%")
+        sc3.metric("跟单累计超额", f"¥{shadow_comp['excess_rmb']:+,.2f}", f"{shadow_comp['excess_pct']:+.2f}%")
+        st.caption(shadow_comp["summary"])
+        col_fz1, col_fz2 = st.columns([7, 3])
+        with col_fz2:
+            if st.button("冻结基准", use_container_width=True, key="btn_freeze_shadow_bt_tab", help="将当前持仓快照锁定为躺平对比基准线"):
+                shadow_portfolio_tracker.freeze_shadow_baseline(cur_lid, pm.holdings)
+                st.success("✅ 已重新锁定躺平基准线！")
+                st.rerun()
+        return
 
     # ── 课题 7: 样本外前瞻验真记分牌 (真实未来行情打分·零过拟合) ──
     with st.expander("前瞻验真", expanded=False):
@@ -9539,7 +9682,17 @@ with tab_backtest:
 # =============================================================
 with tab_toolbox:
     try:
-        render_dual_wing_advisory_dashboard(pm, snapshot)
-        render_tab4_toolbox_content(pm, snapshot)
+        tb_view = st.radio(
+            "工具分段",
+            ["风险体检", "资产敞口", "重仓重叠", "极端承压", "投顾底稿"],
+            index=0,
+            horizontal=True,
+            label_visibility="collapsed",
+            key="rad_toolbox_single_view"
+        )
+        if tb_view == "风险体检":
+            render_dual_wing_advisory_dashboard(pm, snapshot)
+        else:
+            render_tab4_toolbox_content(pm, snapshot)
     except Exception as e:
         st.error(f"Tab 4 穿透工具箱渲染异常: {e}")

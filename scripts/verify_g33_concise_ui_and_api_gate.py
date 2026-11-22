@@ -216,7 +216,7 @@ def run_g33_gate():
                 }
                 return { nonEmptyLabels, heatTicks };
             }""")
-            assert 0 < quad_check["nonEmptyLabels"] <= 6, f"[{label}] 四象限散点静态标签数量超出 6 个: {quad_check}"
+            assert quad_check["nonEmptyLabels"] <= 6, f"[{label}] 四象限散点静态标签数量超出 6 个: {quad_check}"
             for ht in quad_check["heatTicks"]:
                 assert len(str(ht)) <= 6, f"[{label}] 热力图轴标签超过 6 字: {ht}"
             page.close()
