@@ -152,6 +152,11 @@ class ImportTextRequest(BaseModel):
     mode: str = "preview"
 
 
+class ShadowFreezeRequest(BaseModel):
+    ledger_id: Optional[str] = None
+    baseline_name: Optional[str] = None
+
+
 # =====================================================================
 # Legacy /api/* endpoints (G32 compatibility)
 # =====================================================================
@@ -239,13 +244,17 @@ def api_rebalance(ledger_id: Optional[str] = None) -> Dict[str, Any]:
 def api_cashflow_plan(req: CashflowPlanRequest) -> Dict[str, Any]:
     _, lid, pm, snap = _get_active_context(req.ledger_id)
     tw = _target_weights_for_ledger(lid, snap)
+    holdings = getattr(pm, "holdings", {}) or {}
+    codes = list(holdings.keys())
+    quotes_map = prefetch_batch_fund_quotes(codes) if codes else {}
     investable = cashflow_planner.enforce_liquidity_redline(pm.available_cash, req.rigid_reserve)
     dca = cashflow_planner.plan_incremental_investment(
-        current_holdings=pm.holdings,
+        current_holdings=holdings,
         target_weights=tw,
         monthly_new_cash=req.monthly_new_cash,
         plan_months=req.plan_months,
         available_cash=investable,
+        quotes_or_nav_map=quotes_map,
     )
     bullets = cashflow_planner.generate_left_side_bullet_plan(
         investable_spare_cash=investable,
@@ -481,13 +490,17 @@ def api_v1_rebalance(ledger_id: Optional[str] = None, min_buffer_pct: float = 3.
 def api_v1_cashflow_plan(req: CashflowPlanRequest) -> Dict[str, Any]:
     _, lid, pm, snap = _get_active_context(req.ledger_id)
     tw = _target_weights_for_ledger(lid, snap)
+    holdings = getattr(pm, "holdings", {}) or {}
+    codes = list(holdings.keys())
+    quotes_map = prefetch_batch_fund_quotes(codes) if codes else {}
     investable = cashflow_planner.enforce_liquidity_redline(pm.available_cash, req.rigid_reserve)
     dca = cashflow_planner.plan_incremental_investment(
-        current_holdings=pm.holdings,
+        current_holdings=holdings,
         target_weights=tw,
         monthly_new_cash=req.monthly_new_cash,
         plan_months=req.plan_months,
         available_cash=investable,
+        quotes_or_nav_map=quotes_map,
     )
     inv_cash = float(investable.get("investable_cash", 0.0)) if isinstance(investable, dict) else float(investable or 0.0)
     bullets = cashflow_planner.generate_left_side_bullet_plan(
@@ -501,12 +514,21 @@ def api_v1_cashflow_plan(req: CashflowPlanRequest) -> Dict[str, Any]:
 def api_v1_audit_trackers(ledger_id: Optional[str] = None) -> Dict[str, Any]:
     _, lid, pm, _ = _get_active_context(ledger_id)
     holdings = getattr(pm, "holdings", {}) or {}
-    codes = list(holdings.keys())
-    quotes_map = prefetch_batch_fund_quotes(codes) if codes else {}
-    nav_map = {
-        c: float(getattr(quotes_map.get(c), "gsz", 0.0) or getattr(quotes_map.get(c), "dwjz", 0.0) or getattr(h, "current_nav", 1.0))
-        for c, h in holdings.items()
-    }
+    baseline = shadow_portfolio_tracker.get_shadow_baseline(lid) or {}
+    shadow_codes = list((baseline.get("holdings") or {}).keys())
+    all_codes = list(dict.fromkeys(list(holdings.keys()) + shadow_codes))
+    quotes_map = prefetch_batch_fund_quotes(all_codes) if all_codes else {}
+    nav_map: Dict[str, float] = {}
+    for c in all_codes:
+        q = quotes_map.get(c)
+        q_nav = float(getattr(q, "official_nav", 0.0) or getattr(q, "gsz", 0.0) or getattr(q, "dwjz", 0.0) or 0.0) if q else 0.0
+        if q_nav > 0.0:
+            nav_map[c] = q_nav
+        elif c in holdings:
+            h = holdings[c]
+            h_nav = float(getattr(h, "current_nav", 0.0) or getattr(h, "latest_nav", 0.0) or getattr(h, "cost_price", 0.0) or 0.0)
+            if h_nav > 0.0:
+                nav_map[c] = h_nav
     shadow_comp = shadow_portfolio_tracker.compare_live_vs_shadow(lid, holdings, nav_map)
     c300_q = fetch_realtime_index_quote("sh000300", use_cache=True) or {}
     c300_pt = float(c300_q.get("point") or 0.0) or None
@@ -518,6 +540,27 @@ def api_v1_audit_trackers(ledger_id: Optional[str] = None) -> Dict[str, Any]:
         "forward_audit": fwd_eval,
         "recent_logs_count": len(logs),
         "recent_logs": logs[-30:],
+    })
+
+
+@app.post("/api/v1/shadow/freeze")
+def api_v1_shadow_freeze(req: ShadowFreezeRequest) -> Dict[str, Any]:
+    _, lid, pm, _ = _get_active_context(req.ledger_id)
+    holdings = getattr(pm, "holdings", {}) or {}
+    if not holdings:
+        raise HTTPException(status_code=400, detail=f"账本持仓为空，无法冻结躺平影子基准: {lid}")
+    b_name = req.baseline_name or f"{lid} 原始躺平基准线"
+    spec_path = shadow_portfolio_tracker.freeze_shadow_baseline(lid, holdings, baseline_name=b_name)
+    baseline = shadow_portfolio_tracker.get_shadow_baseline(lid) or {}
+    return _sanitize_v1_payload({
+        "frozen": True,
+        "ledger_id": lid,
+        "baseline_name": baseline.get("baseline_name", b_name),
+        "frozen_date": baseline.get("frozen_date", ""),
+        "frozen_timestamp": baseline.get("frozen_timestamp", ""),
+        "holdings_count": int(baseline.get("holdings_count", len(holdings))),
+        "initial_total_market_value": float(baseline.get("initial_total_market_value", 0.0)),
+        "baseline_path": str(spec_path),
     })
 
 

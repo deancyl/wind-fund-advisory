@@ -145,17 +145,80 @@ def run_g33_gate():
             page = browser.new_page(viewport=vp)
             page.goto("http://127.0.0.1:8501", timeout=30000)
             try:
-                page.wait_for_selector("text=总资产", timeout=25000)
+                page.wait_for_selector("text=免赎碎片尾仓", timeout=35000)
             except Exception:
                 page.wait_for_timeout(5000)
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(1500)
             exc_cnt = page.locator('[data-testid="stException"]').count()
             assert exc_cnt == 0, f"[{label}] 出现 {exc_cnt} 个 Streamlit 异常红框"
             body = page.inner_text("body")
-            for must_kw in ["总资产", "持仓", "调仓", "复盘", "工具"]:
+            full_dom_text = page.locator("body").text_content() or ""
+            for must_kw in ["总资产", "持仓", "调仓", "复盘", "工具", "¥562.89"]:
                 assert must_kw in body, f"[{label}] 页面缺少核心元素: {must_kw}"
-            for bad_kw in ["每日极简投顾", "🧹 🧹", "TypeError", "Traceback"]:
+            for bad_kw in ["每日极简投顾", "🧹 🧹", "TypeError", "Traceback", "¥442.70", "💼 持仓总资产"]:
                 assert bad_kw not in body, f"[{label}] 页面出现非法残留文本: {bad_kw}"
+            assert "¥442.70" not in full_dom_text, f"[{label}] 折叠抽屉内部仍残留旧尾仓金额 ¥442.70"
+
+            # (A) Material Symbols 图标字体不被 .stApp span 覆盖
+            icon_fonts = page.evaluate("""() => {
+                const icons = Array.from(document.querySelectorAll('[data-testid="stIconMaterial"], .material-symbols-rounded'));
+                return icons.map(el => ({
+                    text: el.textContent,
+                    fontFamily: window.getComputedStyle(el).fontFamily
+                }));
+            }""")
+            assert len(icon_fonts) > 0, f"[{label}] 未检测到 Material Symbols 图标元素"
+            for ic in icon_fonts:
+                assert "Material Symbols Rounded" in ic["fontFamily"], f"[{label}] Material 图标字体被覆盖: {ic}"
+
+            # (B) 切换至「实时持仓明细」时隐藏底部 4 个调仓执行按钮
+            page.locator("label:has-text('📋 实时持仓明细')").first.click()
+            try:
+                page.wait_for_selector("text=实时持仓资产明细", timeout=15000)
+            except Exception:
+                page.wait_for_selector("text=移动端 4 列极简持仓表", timeout=15000)
+            page.wait_for_timeout(1500)
+            for btn_lbl in ["确认执行", "清扫尾仓", "等待尾盘", "提前执行", "保存预案"]:
+                assert page.locator(f"button:has-text('{btn_lbl}'):visible").count() == 0, f"[{label}] 实时持仓明细视图下仍残留调仓执行按钮: {btn_lbl}"
+
+            # (C) 复盘 Tab 校验：历史时光机默认折叠、无裸 **历史环境类比**、无自相矛盾超额文案
+            page.get_by_role("tab", name="复盘").first.click()
+            page.wait_for_timeout(2500)
+            body_t3 = page.inner_text("body")
+            assert "**历史环境类比**" not in body_t3, f"[{label}] 复盘 Tab 仍残留未解析 Markdown 星号 **历史环境类比**"
+            assert "历史环境类比" in body_t3, f"[{label}] 复盘 Tab 缺少历史环境类比文案"
+            assert not ("平均相对超额 -" in body_t3 and "明显战胜纯宽基基准" in body_t3), f"[{label}] 复盘 Tab 存在负超额却宣称明显战胜基准的自相矛盾文案"
+            tm_open = page.evaluate("""() => {
+                const details = Array.from(document.querySelectorAll('details'));
+                const tm = details.find(d => d.textContent.includes('历史时光机'));
+                return tm ? tm.hasAttribute('open') : null;
+            }""")
+            assert tm_open is False, f"[{label}] 复盘 Tab 历史时光机未默认收起 (open={tm_open})"
+
+            # (D) 工具 Tab 校验：四象限散点图静态标签 <= 6 个，热力图轴标签 <= 6 字
+            page.get_by_role("tab", name="工具").first.click()
+            page.wait_for_timeout(2500)
+            quad_check = page.evaluate("""() => {
+                const plots = Array.from(document.querySelectorAll('.js-plotly-plot'));
+                let nonEmptyLabels = 0;
+                let heatTicks = [];
+                for (const p of plots) {
+                    if (p.data) {
+                        for (const tr of p.data) {
+                            if (tr.mode && tr.mode.includes('text') && Array.isArray(tr.text)) {
+                                nonEmptyLabels += tr.text.filter(t => t && String(t).trim().length > 0).length;
+                            }
+                            if (tr.type === 'heatmap' && p.layout && p.layout.yaxis && p.layout.yaxis.ticktext) {
+                                heatTicks = p.layout.yaxis.ticktext;
+                            }
+                        }
+                    }
+                }
+                return { nonEmptyLabels, heatTicks };
+            }""")
+            assert 0 < quad_check["nonEmptyLabels"] <= 6, f"[{label}] 四象限散点静态标签数量超出 6 个: {quad_check}"
+            for ht in quad_check["heatTicks"]:
+                assert len(str(ht)) <= 6, f"[{label}] 热力图轴标签超过 6 字: {ht}"
             page.close()
         browser.close()
     print("  [PASS] Gate 3: Playwright 双端浏览器渲染零异常、统一 4 主标签就绪")

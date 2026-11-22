@@ -11,7 +11,7 @@ import os
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 BENCHMARK_FILE = Path("data/shadow_benchmarks.json")
 BASELINE_DIR = Path("data/frozen_shadow_baselines")
@@ -22,10 +22,35 @@ def _ensure_dir() -> None:
     BASELINE_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _read_pos_float(obj: Any, field: str) -> Optional[float]:
+    if obj is None:
+        return None
+    val = obj.get(field) if isinstance(obj, dict) else getattr(obj, field, None)
+    if val is None or val == "":
+        return None
+    try:
+        f = float(val)
+        return f if f > 0.0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_holding_nav(h: Any) -> float:
+    for field in ("current_nav", "latest_nav", "nav", "unit_nav", "cost_price"):
+        v = _read_pos_float(h, field)
+        if v is not None:
+            return v
+    mv = _read_pos_float(h, "market_value")
+    sh = _read_pos_float(h, "shares")
+    if mv is not None and sh is not None and sh > 0.0:
+        return round(mv / sh, 4)
+    return 1.0
+
+
 def freeze_shadow_baseline(
     ledger_id: str,
     holdings_dict: Dict[str, Any],
-    baseline_name: str = "原始29只躺平不动基准线"
+    baseline_name: str = "原始29只躺平不动基准线",
 ) -> Path:
     """
     冻结保存原始持仓切片（只读不可篡改）
@@ -37,12 +62,13 @@ def freeze_shadow_baseline(
 
     for code, h in holdings_dict.items():
         sh = float(getattr(h, "shares", 0.0) if hasattr(h, "shares") else h.get("shares", 0.0))
-        nav = float(getattr(h, "current_nav", 1.0) if hasattr(h, "current_nav") else h.get("current_nav", 1.0))
-        cost = float(getattr(h, "cost_price", nav) if hasattr(h, "cost_price") else h.get("cost_price", nav))
+        nav = _resolve_holding_nav(h)
+        cost = _read_pos_float(h, "cost_price") or nav
         fname = str(getattr(h, "fund_name", code) if hasattr(h, "fund_name") else h.get("fund_name", code))
         s_class = str(getattr(h, "share_class", "A") if hasattr(h, "share_class") else h.get("share_class", "A"))
 
-        mv = round(sh * nav, 2)
+        direct_mv = _read_pos_float(h, "market_value")
+        mv = round(sh * nav, 2) if sh > 0.0 else round(direct_mv or 0.0, 2)
         init_total_val += mv
         frozen_items[str(code)] = {
             "fund_code": str(code),
@@ -51,7 +77,7 @@ def freeze_shadow_baseline(
             "frozen_shares": sh,
             "frozen_nav": nav,
             "cost_price": cost,
-            "frozen_market_value": mv
+            "frozen_market_value": mv,
         }
 
     payload = {
@@ -61,7 +87,7 @@ def freeze_shadow_baseline(
         "frozen_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "initial_total_market_value": round(init_total_val, 2),
         "holdings_count": len(frozen_items),
-        "holdings": frozen_items
+        "holdings": frozen_items,
     }
 
     # 1. 写入独立专属文件
@@ -107,7 +133,7 @@ def get_shadow_baseline(ledger_id: str) -> Optional[Dict[str, Any]]:
 def compare_live_vs_shadow(
     ledger_id: str,
     live_holdings: Dict[str, Any],
-    quotes_or_nav_map: Dict[str, Any]
+    quotes_or_nav_map: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
     使用同一套最新真实行情，计算实盘调仓相对原始躺平影子组合的超额收益
@@ -116,30 +142,45 @@ def compare_live_vs_shadow(
     if not baseline or not baseline.get("holdings"):
         return {
             "has_shadow": False,
-            "message": f"账本 [{ledger_id}] 尚未冻结原始躺平基准线，可点击上方「冻结基准」按钮建立对照。"
+            "has_baseline": False,
+            "ledger_id": ledger_id,
+            "message": f"账本 [{ledger_id}] 尚未冻结原始躺平基准线，可点击上方「冻结基准」按钮建立对照。",
         }
 
-    # 提取行情字典辅助函数
-    def _extract_nav(c: str) -> float:
-        q = quotes_or_nav_map.get(c)
+    quotes = quotes_or_nav_map or {}
+
+    # 提取行情字典辅助函数：缺失行情返回 None，严禁伪造 1.0 净值！
+    def _extract_nav(c: str) -> Optional[float]:
+        q = quotes.get(c)
         if q is None:
-            return 1.0
+            q = quotes.get(str(c))
+        if q is None:
+            return None
         if isinstance(q, (int, float)):
-            return float(q)
-        if isinstance(q, dict):
-            return float(q.get("official_nav") or q.get("gsz") or q.get("dwjz") or 1.0)
-        return float(getattr(q, "official_nav", None) or getattr(q, "gsz", None) or getattr(q, "dwjz", 1.0))
+            v = float(q)
+            return v if v > 0.001 else None
+        for k in ("official_nav", "gsz", "dwjz", "current_nav", "latest_nav", "nav", "unit_nav"):
+            v = _read_pos_float(q, k)
+            if v is not None and v > 0.001:
+                return v
+        return None
 
     # 1. 影子躺平持仓当前价值核算
     shadow_h = baseline.get("holdings", {})
     init_shadow_mv = float(baseline.get("initial_total_market_value", 0.0))
     curr_shadow_mv = 0.0
+    missing_quote_codes: List[str] = []
 
     for code, item in shadow_h.items():
         c_nav = _extract_nav(code)
-        if c_nav <= 0.001:
-            c_nav = float(item.get("frozen_nav", 1.0))
-        curr_shadow_mv += float(item.get("frozen_shares", 0.0)) * c_nav
+        f_sh = float(item.get("frozen_shares", 0.0) or 0.0)
+        if c_nav is None or c_nav <= 0.001:
+            missing_quote_codes.append(str(code))
+            c_nav = float(item.get("frozen_nav", 0.0) or 0.0)
+            if c_nav <= 0.001 and f_sh > 0.0:
+                f_mv = float(item.get("frozen_market_value", 0.0) or 0.0)
+                c_nav = (f_mv / f_sh) if f_mv > 0.0 else 1.0
+        curr_shadow_mv += f_sh * c_nav
 
     shadow_ret_pct = 0.0
     if init_shadow_mv > 0.01:
@@ -148,12 +189,16 @@ def compare_live_vs_shadow(
     # 2. 实盘跟单持仓当前价值核算
     curr_live_mv = 0.0
     init_live_cost = 0.0
-    for code, h in live_holdings.items():
+    for code, h in (live_holdings or {}).items():
         sh = float(getattr(h, "shares", 0.0) if hasattr(h, "shares") else h.get("shares", 0.0))
-        cost = float(getattr(h, "cost_price", 1.0) if hasattr(h, "cost_price") else h.get("cost_price", 1.0))
+        h_nav = _resolve_holding_nav(h)
+        cost = _read_pos_float(h, "cost_price") or h_nav
         c_nav = _extract_nav(code)
+        if c_nav is None or c_nav <= 0.001:
+            c_nav = h_nav
         curr_live_mv += sh * c_nav
-        init_live_cost += sh * cost
+        cost_basis = _read_pos_float(h, "cost_basis")
+        init_live_cost += cost_basis if cost_basis is not None else (sh * cost)
 
     live_ret_pct = 0.0
     if init_live_cost > 0.01:
@@ -165,19 +210,22 @@ def compare_live_vs_shadow(
 
     return {
         "has_shadow": True,
+        "has_baseline": True,
         "ledger_id": ledger_id,
         "frozen_date": baseline.get("frozen_date", ""),
         "shadow_count": baseline.get("holdings_count", len(shadow_h)),
-        "live_count": len(live_holdings),
+        "live_count": len(live_holdings or {}),
         "shadow_initial_equity": round(init_shadow_mv, 2),
         "shadow_current_equity": round(curr_shadow_mv, 2),
         "shadow_return_pct": round(shadow_ret_pct, 2),
         "live_current_equity": round(curr_live_mv, 2),
+        "live_cost_basis": round(init_live_cost, 2),
         "live_return_pct": round(live_ret_pct, 2),
         "excess_rmb": excess_rmb,
         "excess_return_pct": excess_ret_pct,
         "is_outperforming": excess_rmb >= 0,
-        "status_badge": "🟢 实盘跑赢躺平" if excess_rmb >= 0 else "🟡 暂时受摩擦拖累"
+        "missing_quote_codes": missing_quote_codes,
+        "status_badge": "🟢 实盘跑赢躺平" if excess_rmb >= 0 else "🟡 暂时受摩擦拖累",
     }
 
 

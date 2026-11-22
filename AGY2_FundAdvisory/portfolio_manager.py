@@ -3715,6 +3715,15 @@ def _apply_fund_valuation_calibration(q: FundQuote) -> FundQuote:
 _apply_qdii_valuation_correction = _apply_fund_valuation_calibration
 
 
+def _record_data_channel_health(channel_key: str, ok: bool, latency_ms: float) -> None:
+    """轻量记录外部行情通道真实探测结果（供 DataSourceHealthRegistry 实时红绿灯使用）"""
+    try:
+        from data_resilience_guard import DataSourceHealthRegistry
+        DataSourceHealthRegistry.record_channel_ping(channel_key, ok=ok, latency_ms=latency_ms)
+    except Exception:
+        pass
+
+
 def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = False) -> Dict[str, FundQuote]:
     """
     利用东方财富/天天基金官方移动端 FundMNFInfo 接口的批量 Fcodes 能力，
@@ -3789,6 +3798,7 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
         for i in range(0, len(missing_codes), 60):
             batch_slice = missing_codes[i:i + 60]
             fcodes_str = ",".join(batch_slice)
+            _t0 = time.perf_counter()
             try:
                 url_em = (
                     f"https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?"
@@ -3800,17 +3810,20 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
                 )
                 with urllib.request.urlopen(req_em, timeout=2.5) as resp_em:
                     em_data = json.loads(resp_em.read().decode("utf-8", errors="ignore"))
-                for d in (em_data.get("Datas") or []):
+                datas = em_data.get("Datas") or []
+                for d in datas:
                     if isinstance(d, dict):
                         c_code = str(d.get("FCODE") or "").strip().zfill(6)
                         if c_code:
                             em_raw_map[c_code] = d
+                _record_data_channel_health("eastmoney_mnf", ok=bool(datas), latency_ms=(time.perf_counter() - _t0) * 1000.0)
             except Exception:
-                pass
+                _record_data_channel_health("eastmoney_mnf", ok=False, latency_ms=(time.perf_counter() - _t0) * 1000.0)
 
     def _fetch_sina_fu_all():
         for i in range(0, len(missing_codes), 60):
             batch_slice = missing_codes[i:i + 60]
+            _t0 = time.perf_counter()
             try:
                 fu_list = ",".join(f"fu_{c}" for c in batch_slice)
                 s_url = f"https://hq.sinajs.cn/list={fu_list}"
@@ -3834,8 +3847,9 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
                             # 优先采用新浪自带精确涨跌幅或 4 位净值比值
                             fu_chg = round((fu_gsz / fu_dwjz - 1.0) * 100.0, 2)
                             sina_fu_live_map[c_fu] = (fu_gsz, fu_chg, f"{fu_date} {fu_time[:5]}".strip())
+                _record_data_channel_health("sina_fu", ok=bool(s_txt.strip()), latency_ms=(time.perf_counter() - _t0) * 1000.0)
             except Exception:
-                pass
+                _record_data_channel_health("sina_fu", ok=False, latency_ms=(time.perf_counter() - _t0) * 1000.0)
 
     def _fetch_tiantian_fundgz_missing():
         unhit_codes = [
@@ -3844,6 +3858,9 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
         ]
         if not unhit_codes:
             return
+
+        _tt_t0 = time.perf_counter()
+        _tt_ok_flags: List[bool] = []
 
         def _fetch_single_gz(c_code: str):
             try:
@@ -3854,19 +3871,24 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
                 )
                 with urllib.request.urlopen(gz_req, timeout=1.5) as gz_resp:
                     gz_txt = gz_resp.read().decode("utf-8", errors="ignore")
-                m = re.search(r'jsonpgz\((.*?)\);', gz_txt)
-                if m:
-                    gz_json = json.loads(m.group(1))
-                    g_time = str(gz_json.get("gztime") or "").strip()
-                    g_sz = float(gz_json.get("gsz", 0.0))
-                    g_sz_zl = float(gz_json.get("gszzl", 0.0))
-                    if g_sz > 0 and (g_time.startswith(active_date_prefix) or active_short_date in g_time):
-                        tiantian_fundgz_map[c_code] = (g_sz, g_sz_zl, g_time)
+                if "jsonpgz(" in gz_txt:
+                    _tt_ok_flags.append(True)
+                    m = re.search(r'jsonpgz\((.+?)\);', gz_txt)
+                    if m and m.group(1).strip():
+                        gz_json = json.loads(m.group(1))
+                        g_time = str(gz_json.get("gztime") or "").strip()
+                        g_sz = float(gz_json.get("gsz", 0.0))
+                        g_sz_zl = float(gz_json.get("gszzl", 0.0))
+                        if g_sz > 0 and (g_time.startswith(active_date_prefix) or active_short_date in g_time):
+                            tiantian_fundgz_map[c_code] = (g_sz, g_sz_zl, g_time)
+                else:
+                    _tt_ok_flags.append(False)
             except Exception:
-                pass
+                _tt_ok_flags.append(False)
 
         with ThreadPoolExecutor(max_workers=min(4, len(unhit_codes))) as gz_exec:
             list(gz_exec.map(_fetch_single_gz, unhit_codes))
+        _record_data_channel_health("tiantian_fundgz", ok=any(_tt_ok_flags), latency_ms=(time.perf_counter() - _tt_t0) * 1000.0)
 
     needed_syms = {"sh000300", "sh000922", "sh511380", "511260"}
     need_fx = False
@@ -3922,6 +3944,7 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
     def _batch_prefetch_em_indices():
         if not secid_to_meta:
             return
+        _t0 = time.perf_counter()
         try:
             em_url = (
                 f"https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2"
@@ -3933,7 +3956,9 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
             )
             with urllib.request.urlopen(req_idx, timeout=2.0) as resp_idx:
                 idx_json = json.loads(resp_idx.read().decode("utf-8", errors="ignore"))
-            for it in (idx_json.get("data", {}).get("diff", []) or []):
+            diff_items = idx_json.get("data", {}).get("diff", []) or []
+            _record_data_channel_health("eastmoney_push2", ok=bool(diff_items), latency_ms=(time.perf_counter() - _t0) * 1000.0)
+            for it in diff_items:
                 raw_pt = it.get("f2")
                 if raw_pt in (None, "-", ""):
                     continue
@@ -3975,7 +4000,7 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
                 _REALTIME_INDEX_CACHE[sym_k] = (now_ts, res_i)
                 _REALTIME_INDEX_CACHE[raw_orig] = (now_ts, res_i)
         except Exception:
-            pass
+            _record_data_channel_health("eastmoney_push2", ok=False, latency_ms=(time.perf_counter() - _t0) * 1000.0)
 
     def _batch_prefetch_sina_indices():
         if not sina_idx_to_meta:
@@ -4395,6 +4420,7 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True, sync_disk:
 
     def _query_eastmoney_mob() -> Optional[FundQuote]:
         """调用东方财富/天天基金官方 FundMNFInfo 接口，直接获取官方清算涨跌幅 NAVCHGRT 与实时估值 GSZZL"""
+        _t0 = time.perf_counter()
         try:
             url_em = (
                 f"https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?"
@@ -4407,6 +4433,7 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True, sync_disk:
             with urllib.request.urlopen(req_em, timeout=2.5) as resp_em:
                 em_data = json.loads(resp_em.read().decode("utf-8", errors="ignore"))
             datas = em_data.get("Datas") or []
+            _record_data_channel_health("eastmoney_mnf", ok=bool(datas), latency_ms=(time.perf_counter() - _t0) * 1000.0)
             if datas and isinstance(datas[0], dict):
                 d = datas[0]
                 f_name = d.get("SHORTNAME") or f"公募基金_{code}"
@@ -4472,10 +4499,12 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True, sync_disk:
                         is_official_nav=False
                     )
         except Exception:
+            _record_data_channel_health("eastmoney_mnf", ok=False, latency_ms=(time.perf_counter() - _t0) * 1000.0)
             return None
         return None
 
     def _query_sina() -> Optional[FundQuote]:
+        _t0 = time.perf_counter()
         try:
             url = f"https://hq.sinajs.cn/list=fu_{code},f_{code}"
             req = urllib.request.Request(
@@ -4487,6 +4516,7 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True, sync_disk:
             )
             with urllib.request.urlopen(req, timeout=2.5) as resp:
                 content = resp.read().decode("gbk", errors="ignore")
+            _record_data_channel_health("sina_fu", ok=bool(content.strip()), latency_ms=(time.perf_counter() - _t0) * 1000.0)
 
             m_fu = re.search(r'var hq_str_fu_' + code + r'="(.*?)";', content)
             m_f = re.search(r'var hq_str_f_' + code + r'="(.*?)";', content)
@@ -4551,10 +4581,12 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True, sync_disk:
                 q = FundQuote(name=name, dwjz=dwjz, gsz=gsz, gszzl=gszzl, gztime=gztime, fund_code=code, is_official_nav=False)
                 return q
         except Exception:
+            _record_data_channel_health("sina_fu", ok=False, latency_ms=(time.perf_counter() - _t0) * 1000.0)
             return None
         return None
 
     def _query_tiantian() -> Optional[FundQuote]:
+        _t0 = time.perf_counter()
         try:
             url_tt = f"http://fundgz.1234567.com.cn/js/{code}.js"
             req_tt = urllib.request.Request(
@@ -4566,7 +4598,11 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True, sync_disk:
             )
             with urllib.request.urlopen(req_tt, timeout=2.0) as resp_tt:
                 content_tt = resp_tt.read().decode("utf-8", errors="ignore")
-            m_tt = re.search(r'jsonpgz\((.*?)\);?', content_tt)
+            if "jsonpgz(" in content_tt:
+                _record_data_channel_health("tiantian_fundgz", ok=True, latency_ms=(time.perf_counter() - _t0) * 1000.0)
+            else:
+                _record_data_channel_health("tiantian_fundgz", ok=False, latency_ms=(time.perf_counter() - _t0) * 1000.0)
+            m_tt = re.search(r'jsonpgz\((.+?)\);?', content_tt)
             if m_tt and m_tt.group(1).strip():
                 tt_data = json.loads(m_tt.group(1).strip())
                 dwjz_tt = float(tt_data.get("dwjz", 0.0))
@@ -4591,6 +4627,7 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True, sync_disk:
                     q = FundQuote(name=name_tt, dwjz=dwjz_tt, gsz=gsz_tt, gszzl=gszzl_tt, gztime=gztime_tt, fund_code=code, is_official_nav=False)
                     return q
         except Exception:
+            _record_data_channel_health("tiantian_fundgz", ok=False, latency_ms=(time.perf_counter() - _t0) * 1000.0)
             return None
         return None
 
@@ -5629,10 +5666,29 @@ class PortfolioManager:
         except Exception:
             pass
 
+    def _is_production_ledger_path(self) -> bool:
+        """判断当前账本是否指向默认生产数据目录（防单测/沙盒临时目录误触发生产冷备）"""
+        if getattr(self, "_is_memory", False):
+            return False
+        try:
+            p = self.ledger_json_path.resolve()
+            prod_main = (WORKSPACE_ROOT / "portfolio_ledger.json").resolve()
+            prod_ledgers_dir = (WORKSPACE_ROOT / "data" / "ledgers").resolve()
+            return (p == prod_main) or (p.parent == prod_ledgers_dir)
+        except Exception:
+            return False
+
     def save_state(self, record_snapshot: bool = True) -> None:
         """
-        持久化当前运行态至 SQLite 与 JSON，并自动记录 Undo 快照
+        持久化当前运行态至 SQLite 与 JSON，并自动记录 Undo 快照。
+        仅在写入默认生产数据目录（且非 pytest 沙盒）时，写前轻量触发冷却保护冷备。
         """
+        if self._is_production_ledger_path() and not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                from ledger_backup_vault import LedgerBackupVault
+                LedgerBackupVault.auto_backup_before_write("pm_save_state", cooldown_sec=60)
+            except Exception:
+                pass
         self._recalculate_totals()
         # 记录实盘净值记账历史 (Realized Account NAV Curve)
         today_s = datetime.now().strftime("%Y-%m-%d")

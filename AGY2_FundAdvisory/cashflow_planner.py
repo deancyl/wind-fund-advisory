@@ -22,7 +22,7 @@ def enforce_liquidity_redline(available_cash: float, rigid_reserve: float) -> Di
     return {
         "locked_reserve": round(locked, 2),
         "investable_cash": round(investable, 2),
-        "total_cash": round(cash, 2)
+        "total_cash": round(cash, 2),
     }
 
 
@@ -33,13 +33,70 @@ def apply_liquidity_reserve(available_cash: float, rigid_reserve: float) -> floa
     return enforce_liquidity_redline(available_cash, rigid_reserve)["investable_cash"]
 
 
+def _read_positive_float(obj: Any, field: str) -> Optional[float]:
+    """安全读取对象属性或字典字段的正浮点数。"""
+    if obj is None:
+        return None
+    val = obj.get(field) if isinstance(obj, dict) else getattr(obj, field, None)
+    if val is None or val == "":
+        return None
+    try:
+        f = float(val)
+        return f if f > 0.0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_quote_nav(q: Any) -> Optional[float]:
+    """从行情对象/字典/纯数值中提取有效净值（严格拒绝假默认值 1.0）。"""
+    if q is None:
+        return None
+    if isinstance(q, (int, float)):
+        f = float(q)
+        return f if f > 0.0 else None
+    for k in ("gsz", "official_nav", "dwjz", "current_nav", "latest_nav", "nav", "unit_nav"):
+        v = _read_positive_float(q, k)
+        if v is not None:
+            return v
+    return None
+
+
+def _resolve_holding_market_value(code: str, h: Any, quotes: Dict[str, Any]) -> float:
+    """
+    真实市值解析链（根治缺失 quotes_or_nav_map 时按 nav=1.0 误估 Bug）：
+    1. 优先使用外部实时 quotes_or_nav_map 中的有效净值 × 持仓份额；
+    2. 否则依次从持仓对象/字典读取 market_value（若 > 0 直接使用），
+       或按 current_nav / latest_nav / nav / unit_nav / cost_price × shares；
+    3. 仅当上述全部缺失时才回退 nav = 1.0。
+    """
+    sh = _read_positive_float(h, "shares") or 0.0
+    q = quotes.get(code) if quotes else None
+    if q is None and quotes:
+        q = quotes.get(str(code))
+
+    q_nav = _extract_quote_nav(q)
+    if q_nav is not None and sh > 0.0:
+        return round(sh * q_nav, 2)
+
+    direct_mv = _read_positive_float(h, "market_value")
+    if direct_mv is not None:
+        return round(direct_mv, 2)
+
+    for field in ("current_nav", "latest_nav", "nav", "unit_nav", "cost_price"):
+        h_nav = _read_positive_float(h, field)
+        if h_nav is not None:
+            return round(sh * h_nav, 2)
+
+    return round(sh * 1.0, 2)
+
+
 def plan_incremental_investment(
     current_holdings: Dict[str, Any],
     target_weights: Dict[str, float],
     monthly_new_cash: float = 3000.0,
     plan_months: int = 3,
     available_cash: float = 0.0,
-    quotes_or_nav_map: Optional[Dict[str, Any]] = None
+    quotes_or_nav_map: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     增量资金定投再平衡计划：
@@ -56,26 +113,24 @@ def plan_incremental_investment(
             "has_plan": False,
             "summary_text": "策略目标权重池为空，无法规划定投。",
             "allocations": [],
-            "advice_summary": "目标权重池为空。"
+            "advice_summary": "目标权重池为空。",
         }
 
-    # 1. 计算当前持仓市值
-    curr_mv_map = {}
+    # 1. 计算当前持仓真实市值（优先实时行情，缺失时使用持仓自身真实市值/净值，严禁无脑按 1.0 估值）
+    curr_mv_map: Dict[str, float] = {}
     total_curr_mv = 0.0
     quotes = quotes_or_nav_map or {}
 
     for code, h in (current_holdings or {}).items():
-        sh = float(getattr(h, "shares", 0.0) if hasattr(h, "shares") else (h.get("shares", 0.0) if isinstance(h, dict) else 0.0) or 0.0)
-        q = quotes.get(code)
-        nav = float(getattr(q, "gsz", None) or getattr(q, "official_nav", None) or 1.0) if q else 1.0
-        mv = round(sh * nav, 2)
-        curr_mv_map[str(code)] = mv
+        code_str = str(code)
+        mv = _resolve_holding_market_value(code_str, h, quotes)
+        curr_mv_map[code_str] = mv
         total_curr_mv += mv
 
     target_total_mv = total_curr_mv + total_new_money + max(0.0, avail_cash_num)
 
     # 2. 精算各标的理论目标金额与当前市值缺口
-    shortfalls = {}
+    shortfalls: Dict[str, float] = {}
     for code, tw in target_weights.items():
         code_str = str(code)
         c_mv = curr_mv_map.get(code_str, 0.0)
@@ -103,7 +158,7 @@ def plan_incremental_investment(
                 "目标配置占比": f"{target_weights.get(code, 0.0)*100:.1f}%",
                 "每月定投金额(元)": monthly_buy,
                 f"未来{n_months}月累计注入(元)": total_buy,
-                "当前市值缺口(元)": round(gap, 2)
+                "当前市值缺口(元)": round(gap, 2),
             })
             fund_monthly_breakdown[code] = total_buy
 
@@ -119,8 +174,9 @@ def plan_incremental_investment(
         "monthly_dca_amount": m_amt,
         "plan_months": n_months,
         "total_new_money": total_new_money,
+        "current_total_market_value": round(total_curr_mv, 2),
         "allocations": allocations,
-        "fund_summary": fund_monthly_breakdown
+        "fund_summary": fund_monthly_breakdown,
     }
 
 
@@ -135,7 +191,7 @@ def generate_left_side_bullet_plan(
     available_bullets: Optional[float] = None,
     current_hs300: Optional[float] = None,
     core_anchor_code: str = "005561",
-    growth_anchor_code: str = "011612"
+    growth_anchor_code: str = "011612",
 ) -> Dict[str, Any]:
     """
     大盘极端行情左侧分批子弹预案表：
@@ -157,7 +213,7 @@ def generate_left_side_bullet_plan(
             "打出比例": "30%",
             "打出金额(元)": round(bullets * 0.30, 2),
             "增配主攻方向": f"核心底仓吃息 ({core_anchor_code} 红利低波 + 002351 纯债)",
-            "纪律原则": "大盘回踩 5% 跌穿均线，打出首批 30% 子弹，平抑成本吃息。"
+            "纪律原则": "大盘回踩 5% 跌穿均线，打出首批 30% 子弹，平抑成本吃息。",
         },
         {
             "档位编号": "第二档（深度调整加码）",
@@ -166,7 +222,7 @@ def generate_left_side_bullet_plan(
             "打出比例": "30%",
             "打出金额(元)": round(bullets * 0.30, 2),
             "增配主攻方向": f"宽基与弹性进攻 (110020 沪深300 + {growth_anchor_code} 科创50)",
-            "纪律原则": "大盘回撤 10% 逼近通道下沿，再打 30% 子弹获取赔率超额。"
+            "纪律原则": "大盘回撤 10% 逼近通道下沿，再打 30% 子弹获取赔率超额。",
         },
         {
             "档位编号": "第三档（极端黄金坑决战）",
@@ -175,8 +231,8 @@ def generate_left_side_bullet_plan(
             "打出比例": "40%",
             "打出金额(元)": round(bullets * 0.40, 2),
             "增配主攻方向": "全天候战略标杆 (按 C3 平衡型比例全面抄底全池)",
-            "纪律原则": "大盘极端下挫 15% 进入历史恐慌区，打光最后 40% 子弹锁定底部廉价筹码。"
-        }
+            "纪律原则": "大盘极端下挫 15% 进入历史恐慌区，打光最后 40% 子弹锁定底部廉价筹码。",
+        },
     ]
 
     # 返回同时支持 dict 和 list 访问模式的对象
@@ -189,7 +245,7 @@ def generate_left_side_bullet_plan(
     res = BulletPlanResult({
         "current_hs300_point": pt,
         "available_bullets": bullets,
-        "bullet_tiers": tiers
+        "bullet_tiers": tiers,
     })
     return res
 

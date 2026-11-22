@@ -8,10 +8,10 @@ import pandas as pd
 from typing import Dict, Any, List, Optional
 
 try:
-    from portfolio_manager import fetch_realtime_index_quote
+    from portfolio_manager import fetch_realtime_index_quote, fetch_realtime_fund_quote
 except Exception:
-    try: from AGY2_FundAdvisory.portfolio_manager import fetch_realtime_index_quote
-    except Exception: fetch_realtime_index_quote = None
+    try: from AGY2_FundAdvisory.portfolio_manager import fetch_realtime_index_quote, fetch_realtime_fund_quote
+    except Exception: fetch_realtime_index_quote, fetch_realtime_fund_quote = None, None
 try:
     from ledger_backup_vault import LedgerBackupVault
 except Exception:
@@ -27,6 +27,11 @@ try:
 except Exception:
     try: import AGY2_FundAdvisory.cashflow_planner as cashflow_planner
     except Exception: cashflow_planner = None
+try:
+    import execution_tracker
+except Exception:
+    try: import AGY2_FundAdvisory.execution_tracker as execution_tracker
+    except Exception: execution_tracker = None
 
 
 class IntentGroup(list):
@@ -183,15 +188,39 @@ def render_rebalance_action_section(
         new_inc_cash = st.number_input("新增资金", min_value=0.0, max_value=500000.0, value=3000.0, step=500.0, key=f"num_simple_new_cash_{include_nav_buttons}")
         tw_plan = target_weights or dict(snap.get("target_weights_funds") or {})
         if new_inc_cash > 0 and cashflow_planner and tw_plan:
+            _live_nav_map = {}
+            for _c, _h in (holdings or {}).items():
+                _q = fetch_realtime_fund_quote(_c, use_cache=True) if fetch_realtime_fund_quote else None
+                _live_nav_map[_c] = _q if _q is not None else {"official_nav": float(getattr(_h, "latest_nav", getattr(_h, "current_nav", 1.0)) or 1.0)}
+            _res_amt = float(st.session_state.get("tab2_liquidity_redline_reserve", 0.0) or 0.0)
+            _eff_cash = cashflow_planner.enforce_liquidity_redline(avail_cash, _res_amt)["investable_cash"] if _res_amt > 0 else avail_cash
             inc_plan = cashflow_planner.plan_incremental_investment(
                 current_holdings=holdings,
-                available_cash=avail_cash,
+                available_cash=_eff_cash,
                 target_weights=tw_plan,
                 monthly_new_cash=new_inc_cash,
-                plan_months=1
+                plan_months=1,
+                quotes_or_nav_map=_live_nav_map,
             )
             if inc_plan.get("allocations"):
                 st.dataframe(pd.DataFrame(inc_plan["allocations"]), use_container_width=True, hide_index=True)
+
+    # 限购标的自动拆单日历（QDII 或单笔较大买入自动提示分日打卡）
+    if execution_tracker:
+        _qdii_limits = {"017436": 100.0, "050025": 500.0, "013402": 1000.0, "000216": 5000.0}
+        _split_rows = []
+        for _it in (grouped["c_items"] + grouped["core_items"]):
+            _fc = str(_it.get("fund_code", _it.get("code", "")))
+            _fn = str(_it.get("fund_name", _it.get("name", _fc)))
+            _amt = float(_it.get("diff_amount") or _it.get("amount") or 0.0)
+            _lim = _qdii_limits.get(_fc)
+            if _amt > 0 and _lim and _amt > _lim:
+                _sp = execution_tracker.split_quota_dca_calendar(_fc, _fn, _amt, daily_limit=_lim)
+                if _sp.get("needs_split"):
+                    _split_rows.append({"代码": _fc, "名称": _fn, "计划买入": f"¥{_amt:,.2f}", "日限额": f"¥{_lim:,.0f}", "拆分天数": f"{_sp['days_needed']} 天", "打卡节奏": _sp.get("summary", "")})
+        if _split_rows:
+            with st.expander(f"限购拆单 ({len(_split_rows)}只)", expanded=False):
+                st.dataframe(pd.DataFrame(_split_rows), use_container_width=True, hide_index=True)
 
     cols = st.columns(3 if include_nav_buttons else [3, 7])
     with cols[0]:
@@ -236,16 +265,18 @@ def render_minimal_daily_brief(
     state_code = str(snap.get("market_state_code") or snap.get("regime") or "NEUTRAL").upper()
     plan_mode_label = "存量瘦身重构" if active_lid == "combat_29_funds" else "动态股债平衡"
 
-    if "BULL" in state_code or "OFFENSIVE" in state_code: badge_txt, badge_clr = "分批进攻", "#d97706"
-    elif "BEAR" in state_code or "DEFENSE" in state_code or "RISK" in state_code: badge_txt, badge_clr = "防守控仓", "#dc2626"
-    else: badge_txt, badge_clr = "安心持仓", "#16a34a"
+    if "BULL" in state_code or "OFFENSIVE" in state_code: badge_txt, badge_clr = "分批进攻", "#dc2626"
+    elif "BEAR" in state_code or "DEFENSE" in state_code or "RISK" in state_code: badge_txt, badge_clr = "防守控仓", "#16a34a"
+    else: badge_txt, badge_clr = "安心持仓", "#1d4ed8"
 
     def _fmt_idx(sym: str, label: str) -> str:
         if fetch_realtime_index_quote:
             try:
                 q = fetch_realtime_index_quote(sym, use_cache=True)
                 if isinstance(q, dict) and q.get("point") is not None:
-                    return f"{label} <b>{float(q['point']):,.1f}</b> ({float(q.get('change_pct', 0.0)):+.2f}%)"
+                    chg = float(q.get("change_pct", 0.0))
+                    c_clr = "#dc2626" if chg > 0 else ("#16a34a" if chg < 0 else "#64748b")
+                    return f"{label} <b>{float(q['point']):,.1f}</b> <span style='color:{c_clr};font-weight:700;'>({chg:+.2f}%)</span>"
             except Exception: pass
         return f"{label} <b>--</b>"
 
