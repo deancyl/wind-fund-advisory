@@ -26,10 +26,10 @@ import pandas as pd
 # 确保父目录及当前目录在 sys.path 中
 CURRENT_DIR = Path(__file__).resolve().parent
 WORKSPACE_ROOT = CURRENT_DIR.parent if CURRENT_DIR.name == "AGY2_FundAdvisory" else CURRENT_DIR
-if str(CURRENT_DIR) not in sys.path:
-    sys.path.insert(0, str(CURRENT_DIR))
-if str(WORKSPACE_ROOT) not in sys.path:
-    sys.path.insert(0, str(WORKSPACE_ROOT))
+AGY2_DIR = CURRENT_DIR if CURRENT_DIR.name == "AGY2_FundAdvisory" else (CURRENT_DIR / "AGY2_FundAdvisory")
+for p in [str(CURRENT_DIR), str(WORKSPACE_ROOT), str(AGY2_DIR)]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 from islands.island_ensemble import strategy_fn, PARAMS
 from islands import island_momentum, island_erp, island_breadth
@@ -4125,6 +4125,43 @@ class StrategyBridge:
             if is_defensive and diff_w > 0:
                 advice_share += f" ｜ 🛡️【极端防御】{defensive_advice}"
 
+            # 课题 5: 买前四项硬安检真实接入主链路 (防暂停申购/限额为0/清盘线/经理离任)
+            buy_safety_note = ""
+            safety_blocked = False
+            if action == "BUY" or diff_amount > 100.0:
+                try:
+                    from data_resilience_guard import inspect_buy_candidate_safety
+                    from portfolio_manager import CORE_STRATEGY_POOL
+                    _meta_p = CORE_STRATEGY_POOL.get(code, {})
+                    _d_lim = float(_meta_p.get("daily_limit", 1e11) or 1e11)
+                    _aum_m = float(_meta_p.get("aum_million", 500.0) or 500.0)
+                    _is_susp = bool(_meta_p.get("is_suspended", False) or _d_lim <= 0.0)
+                    _mgr_days = _meta_p.get("manager_departure_days", None)
+                    _fb_code = str(_meta_p.get("fallback_code", "") or "005561")
+                    _sec_chk = inspect_buy_candidate_safety(
+                        fund_code=code,
+                        fund_name=fund_name,
+                        is_suspended=_is_susp,
+                        daily_limit=_d_lim,
+                        aum_million=_aum_m,
+                        manager_departure_days=_mgr_days,
+                        fallback_code=_fb_code,
+                    )
+                    is_safe = _sec_chk.get("is_cleared", True) and _sec_chk.get("safe_to_buy", True)
+                    if isinstance(_sec_chk, dict) and not is_safe:
+                        safety_blocked = True
+                        _reasons = "; ".join(_sec_chk.get("blocking_reasons") or _sec_chk.get("reasons", []))
+                        buy_safety_note = f"买前安检拦截: {_reasons}"
+                        if _sec_chk.get("fallback_code") or _sec_chk.get("recommended_fallback"):
+                            _fb = _sec_chk.get("fallback_code") or _sec_chk.get("recommended_fallback")
+                            buy_safety_note += f" (建议替代: {_fb})"
+                        action_text = f"暂缓买入 ({_reasons[:18]})"
+                        safety_warning = (safety_warning + " | " + buy_safety_note).strip(" |")
+                        action = "HOLD"
+                        diff_amount = 0.0
+                except Exception:
+                    pass
+
             # 盘中实时估值与官方净值双轨对账字段透传
             try:
                 from portfolio_manager import fetch_realtime_fund_quote
@@ -4179,6 +4216,7 @@ class StrategyBridge:
                 "role_desc": role_desc,
                 "advice_share": advice_share,
                 "safety_warning": safety_warning,
+                "safety_blocked": safety_blocked,
                 "realtime_gszzl": realtime_gszzl,
                 "est_gszzl": est_gszzl,
                 "official_chg_pct": official_chg_pct,
@@ -4332,46 +4370,61 @@ class StrategyBridge:
         opt_iv = 19.4
 
         if market_snapshot is not None and isinstance(market_snapshot, dict):
-            erp_percentile = float(market_snapshot.get("erp_percentile", 50.0))
-            bias_20 = float(market_snapshot.get("bias_20", 0.0))
-            bias_20_star = float(market_snapshot.get("bias_20_star", bias_20))
-            crowding_warning = bool(market_snapshot.get("crowding_warning", False))
-            crowding_degree = str(market_snapshot.get("crowding_degree", "相对分散"))
-            crowding_score = float(market_snapshot.get("crowding_score", 90.0))
-            mom_accel = float(market_snapshot.get("mom_accel", market_snapshot.get("accel", 0.0)))
-            ivix_val = float(market_snapshot.get("ivix_index", market_snapshot.get("ivix", 19.5)))
-            delta_ivix = float(market_snapshot.get("delta_ivix", 0.0))
-            opt_iv = float(market_snapshot.get("option_iv_pct", market_snapshot.get("option_iv", 19.4)))
-            momentum_exhaustion_warning = bool(market_snapshot.get("momentum_exhaustion_warning", False))
+            # 课题 2: 陈旧数据截面中立化校验 (超过 5 个自然日 / 约 3 个交易日)
+            from datetime import datetime as _dt_fresh
+            _snap_date_str = str(market_snapshot.get("date") or market_snapshot.get("as_of_date") or "").strip()[:10]
+            _is_sb_stale = False
+            if _snap_date_str:
+                try:
+                    _lag_days = (_dt_fresh.now().date() - _dt_fresh.strptime(_snap_date_str, "%Y-%m-%d").date()).days
+                    if _lag_days > 5:
+                        _is_sb_stale = True
+                except Exception:
+                    pass
 
-            m_code = str(market_snapshot.get("market_state_code") or market_snapshot.get("regime_code") or "").upper()
-            m_name = str(market_snapshot.get("market_state") or market_snapshot.get("regime_name") or "")
-            reg_field = str(market_snapshot.get("regime") or "").upper()
+            erp_percentile = float(market_snapshot.get("erp_percentile", 50.0)) if not _is_sb_stale else 50.0
+            bias_20 = float(market_snapshot.get("bias_20", 0.0)) if not _is_sb_stale else 0.0
+            bias_20_star = float(market_snapshot.get("bias_20_star", bias_20)) if not _is_sb_stale else 0.0
+            crowding_warning = bool(market_snapshot.get("crowding_warning", False)) if not _is_sb_stale else False
+            crowding_degree = str(market_snapshot.get("crowding_degree", "相对分散")) if not _is_sb_stale else "相对分散"
+            crowding_score = float(market_snapshot.get("crowding_score", 90.0)) if not _is_sb_stale else 90.0
+            mom_accel = float(market_snapshot.get("mom_accel", market_snapshot.get("accel", 0.0))) if not _is_sb_stale else 0.0
+            ivix_val = float(market_snapshot.get("ivix_index", market_snapshot.get("ivix", 19.5))) if not _is_sb_stale else 19.5
+            delta_ivix = float(market_snapshot.get("delta_ivix", 0.0)) if not _is_sb_stale else 0.0
+            opt_iv = float(market_snapshot.get("option_iv_pct", market_snapshot.get("option_iv", 19.4))) if not _is_sb_stale else 19.4
+            momentum_exhaustion_warning = bool(market_snapshot.get("momentum_exhaustion_warning", False)) if not _is_sb_stale else False
 
-            if any(k in m_code for k in ["GROWTH", "BULL", "ATTACK", "UP", "STRUCTURAL"]) or any(k in reg_field for k in ["BULL", "ATTACK", "GROWTH"]) or any(k in m_name for k in ["进攻", "牛市", "主升浪"]):
-                regime = "BULL"
-            elif any(k in m_code for k in ["BEAR", "DEFENSE", "DOWN", "BREAKDOWN", "SEVERE"]) or any(k in reg_field for k in ["BEAR", "DEFENSE"]) or any(k in m_name for k in ["熊市", "防守", "破位"]):
-                regime = "BEAR"
-            elif any(k in m_code for k in ["STABLE", "DIVIDEND", "OSCILLATING", "SHOCK", "RANGE", "NEUTRAL"]) or any(k in reg_field for k in ["OSCILLATING", "SHOCK", "RANGE", "NEUTRAL"]) or any(k in m_name for k in ["震荡", "收息", "慢牛", "常态"]):
+            if _is_sb_stale:
                 regime = "OSCILLATING"
             else:
-                c300 = market_snapshot.get("c300_price", market_snapshot.get("c300"))
-                m20 = market_snapshot.get("m20_price", market_snapshot.get("m20"))
-                m60 = market_snapshot.get("m60_price", market_snapshot.get("m60"))
-                m120 = market_snapshot.get("m120_price", market_snapshot.get("m120"))
-                if c300 is not None and m60 is not None:
-                    try:
-                        c300_f, m60_f = float(c300), float(m60)
-                        m20_f = float(m20) if m20 is not None else m60_f
-                        m120_f = float(m120) if m120 is not None else m60_f
-                        if c300_f < m60_f and c300_f < m120_f:
-                            regime = "BEAR"
-                        elif c300_f > m20_f and c300_f > m60_f:
-                            regime = "BULL"
-                        else:
+                m_code = str(market_snapshot.get("market_state_code") or market_snapshot.get("regime_code") or "").upper()
+                m_name = str(market_snapshot.get("market_state") or market_snapshot.get("regime_name") or "")
+                reg_field = str(market_snapshot.get("regime") or "").upper()
+
+                if any(k in m_code for k in ["GROWTH", "BULL", "ATTACK", "UP", "STRUCTURAL"]) or any(k in reg_field for k in ["BULL", "ATTACK", "GROWTH"]) or any(k in m_name for k in ["进攻", "牛市", "主升浪"]):
+                    regime = "BULL"
+                elif any(k in m_code for k in ["BEAR", "DEFENSE", "DOWN", "BREAKDOWN", "SEVERE"]) or any(k in reg_field for k in ["BEAR", "DEFENSE"]) or any(k in m_name for k in ["熊市", "防守", "破位"]):
+                    regime = "BEAR"
+                elif any(k in m_code for k in ["STABLE", "DIVIDEND", "OSCILLATING", "SHOCK", "RANGE", "NEUTRAL"]) or any(k in reg_field for k in ["OSCILLATING", "SHOCK", "RANGE", "NEUTRAL"]) or any(k in m_name for k in ["震荡", "收息", "慢牛", "常态"]):
+                    regime = "OSCILLATING"
+                else:
+                    c300 = market_snapshot.get("c300_price", market_snapshot.get("c300"))
+                    m20 = market_snapshot.get("m20_price", market_snapshot.get("m20"))
+                    m60 = market_snapshot.get("m60_price", market_snapshot.get("m60"))
+                    m120 = market_snapshot.get("m120_price", market_snapshot.get("m120"))
+                    if c300 is not None and m60 is not None:
+                        try:
+                            c300_f, m60_f = float(c300), float(m60)
+                            m20_f = float(m20) if m20 is not None else m60_f
+                            m120_f = float(m120) if m120 is not None else m60_f
+                            if c300_f < m60_f and c300_f < m120_f:
+                                regime = "BEAR"
+                            elif c300_f > m20_f and c300_f > m60_f:
+                                regime = "BULL"
+                            else:
+                                regime = "OSCILLATING"
+                        except Exception:
                             regime = "OSCILLATING"
-                    except Exception:
-                        regime = "OSCILLATING"
 
             # 若未显式传入预警标记，按三联条件动态判别
             if not momentum_exhaustion_warning:

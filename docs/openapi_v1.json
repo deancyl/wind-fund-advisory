@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AGY2 Local Advisory Engine API",
-    "version": "5.13-G34"
+    "version": "5.13-G33"
   },
   "paths": {
     "/api/health": {
@@ -211,8 +211,8 @@
     },
     "/api/backups": {
       "get": {
-        "summary": "Api Backups",
-        "operationId": "api_backups_api_backups_get",
+        "summary": "Api List Backups",
+        "operationId": "api_list_backups_api_backups_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -221,7 +221,7 @@
                 "schema": {
                   "additionalProperties": true,
                   "type": "object",
-                  "title": "Response Api Backups Api Backups Get"
+                  "title": "Response Api List Backups Api Backups Get"
                 }
               }
             }
@@ -231,8 +231,8 @@
     },
     "/api/backups/restore": {
       "post": {
-        "summary": "Api Backups Restore",
-        "operationId": "api_backups_restore_api_backups_restore_post",
+        "summary": "Api Restore Backup",
+        "operationId": "api_restore_backup_api_backups_restore_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -251,7 +251,7 @@
                 "schema": {
                   "additionalProperties": true,
                   "type": "object",
-                  "title": "Response Api Backups Restore Api Backups Restore Post"
+                  "title": "Response Api Restore Backup Api Backups Restore Post"
                 }
               }
             }
@@ -270,26 +270,6 @@
       }
     },
     "/api/forward-audit": {
-      "get": {
-        "summary": "Api Forward Audit Hyphen",
-        "operationId": "api_forward_audit_hyphen_api_forward_audit_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Api Forward Audit Hyphen Api Forward Audit Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/forward_audit": {
       "get": {
         "summary": "Api Forward Audit",
         "operationId": "api_forward_audit_api_forward_audit_get",
@@ -405,55 +385,6 @@
         }
       }
     },
-    "/api/v1/holdings/movers": {
-      "get": {
-        "summary": "Api V1 Holdings Movers",
-        "description": "返回今日贡献与拖累红黑榜（Top 3 领涨 / Top 3 领跌）。",
-        "operationId": "api_v1_holdings_movers_api_v1_holdings_movers_get",
-        "parameters": [
-          {
-            "name": "ledger_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Ledger Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Api V1 Holdings Movers Api V1 Holdings Movers Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/rebalance": {
       "get": {
         "summary": "Api V1 Rebalance",
@@ -474,6 +405,16 @@
               ],
               "title": "Ledger Id"
             }
+          },
+          {
+            "name": "min_buffer_pct",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 3.0,
+              "title": "Min Buffer Pct"
+            }
           }
         ],
         "responses": {
@@ -485,86 +426,6 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Api V1 Rebalance Api V1 Rebalance Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/rebalance/checkin": {
-      "get": {
-        "summary": "Api V1 Get Checkin",
-        "operationId": "api_v1_get_checkin_api_v1_rebalance_checkin_get",
-        "parameters": [
-          {
-            "name": "date_str",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "",
-              "title": "Date Str"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Api V1 Get Checkin Api V1 Rebalance Checkin Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "summary": "Api V1 Post Checkin",
-        "operationId": "api_v1_post_checkin_api_v1_rebalance_checkin_post",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CheckinItemRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Api V1 Post Checkin Api V1 Rebalance Checkin Post"
                 }
               }
             }
@@ -605,220 +466,6 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Api V1 Cashflow Plan Api V1 Cashflow Plan Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/alerts/push": {
-      "get": {
-        "summary": "Api V1 Alerts Push",
-        "description": "返回轻量告警推送列表（供桌面托盘气泡与手机状态栏通知）。",
-        "operationId": "api_v1_alerts_push_api_v1_alerts_push_get",
-        "parameters": [
-          {
-            "name": "ledger_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Ledger Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Api V1 Alerts Push Api V1 Alerts Push Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/review/{subview}": {
-      "get": {
-        "summary": "Api V1 Review Subview",
-        "description": "复盘子视图纯 JSON View-Model (timemachine | rolling_winrate | forward_audit | shadow_race)。",
-        "operationId": "api_v1_review_subview_api_v1_review__subview__get",
-        "parameters": [
-          {
-            "name": "subview",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Subview"
-            }
-          },
-          {
-            "name": "ledger_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Ledger Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Api V1 Review Subview Api V1 Review  Subview  Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/diagnose/{subview}": {
-      "get": {
-        "summary": "Api V1 Diagnose Subview",
-        "description": "诊断子视图纯 JSON View-Model (risk_check | exposure | overlap | stress_test | ten_dim_votes)。",
-        "operationId": "api_v1_diagnose_subview_api_v1_diagnose__subview__get",
-        "parameters": [
-          {
-            "name": "subview",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Subview"
-            }
-          },
-          {
-            "name": "ledger_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Ledger Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Api V1 Diagnose Subview Api V1 Diagnose  Subview  Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/backtest/summary": {
-      "get": {
-        "summary": "Api V1 Backtest Summary",
-        "description": "返回回测全周期与样本外统计纯 JSON 摘要。",
-        "operationId": "api_v1_backtest_summary_api_v1_backtest_summary_get",
-        "parameters": [
-          {
-            "name": "ledger_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Ledger Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Api V1 Backtest Summary Api V1 Backtest Summary Get"
                 }
               }
             }
@@ -888,32 +535,24 @@
       "post": {
         "summary": "Api V1 Shadow Freeze",
         "operationId": "api_v1_shadow_freeze_api_v1_shadow_freeze_post",
-        "parameters": [
-          {
-            "name": "ledger_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Ledger Id"
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShadowFreezeRequest"
+              }
             }
-          }
-        ],
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
                   "additionalProperties": true,
+                  "type": "object",
                   "title": "Response Api V1 Shadow Freeze Api V1 Shadow Freeze Post"
                 }
               }
@@ -934,8 +573,8 @@
     },
     "/api/v1/backups": {
       "get": {
-        "summary": "Api V1 Backups",
-        "operationId": "api_v1_backups_api_v1_backups_get",
+        "summary": "Api V1 List Backups",
+        "operationId": "api_v1_list_backups_api_v1_backups_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -944,7 +583,7 @@
                 "schema": {
                   "additionalProperties": true,
                   "type": "object",
-                  "title": "Response Api V1 Backups Api V1 Backups Get"
+                  "title": "Response Api V1 List Backups Api V1 Backups Get"
                 }
               }
             }
@@ -954,8 +593,8 @@
     },
     "/api/v1/backups/restore": {
       "post": {
-        "summary": "Api V1 Backups Restore",
-        "operationId": "api_v1_backups_restore_api_v1_backups_restore_post",
+        "summary": "Api V1 Restore Backup",
+        "operationId": "api_v1_restore_backup_api_v1_backups_restore_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -974,7 +613,7 @@
                 "schema": {
                   "additionalProperties": true,
                   "type": "object",
-                  "title": "Response Api V1 Backups Restore Api V1 Backups Restore Post"
+                  "title": "Response Api V1 Restore Backup Api V1 Backups Restore Post"
                 }
               }
             }
@@ -1051,6 +690,438 @@
           }
         }
       }
+    },
+    "/api/v1/holdings/reconcile": {
+      "post": {
+        "summary": "Api V1 Holdings Reconcile",
+        "operationId": "api_v1_holdings_reconcile_api_v1_holdings_reconcile_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HoldingsReconcileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 Holdings Reconcile Api V1 Holdings Reconcile Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ledger/export": {
+      "get": {
+        "summary": "Api V1 Ledger Export",
+        "operationId": "api_v1_ledger_export_api_v1_ledger_export_get",
+        "parameters": [
+          {
+            "name": "ledger_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ledger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Ledger Export Api V1 Ledger Export Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/holdings/movers": {
+      "get": {
+        "summary": "Api V1 Holdings Movers",
+        "operationId": "api_v1_holdings_movers_api_v1_holdings_movers_get",
+        "parameters": [
+          {
+            "name": "ledger_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ledger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Holdings Movers Api V1 Holdings Movers Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rebalance/checkin": {
+      "get": {
+        "summary": "Api V1 Get Checkin",
+        "operationId": "api_v1_get_checkin_api_v1_rebalance_checkin_get",
+        "parameters": [
+          {
+            "name": "date_str",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date Str"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Get Checkin Api V1 Rebalance Checkin Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Api V1 Post Checkin",
+        "operationId": "api_v1_post_checkin_api_v1_rebalance_checkin_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckinItemRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Post Checkin Api V1 Rebalance Checkin Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/push": {
+      "get": {
+        "summary": "Api V1 Alerts Push",
+        "operationId": "api_v1_alerts_push_api_v1_alerts_push_get",
+        "parameters": [
+          {
+            "name": "ledger_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ledger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Alerts Push Api V1 Alerts Push Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/review/{subview}": {
+      "get": {
+        "summary": "Api V1 Review Subview",
+        "operationId": "api_v1_review_subview_api_v1_review__subview__get",
+        "parameters": [
+          {
+            "name": "subview",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Subview"
+            }
+          },
+          {
+            "name": "ledger_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ledger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Review Subview Api V1 Review  Subview  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/diagnose/{subview}": {
+      "get": {
+        "summary": "Api V1 Diagnose Subview",
+        "operationId": "api_v1_diagnose_subview_api_v1_diagnose__subview__get",
+        "parameters": [
+          {
+            "name": "subview",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Subview"
+            }
+          },
+          {
+            "name": "ledger_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ledger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Diagnose Subview Api V1 Diagnose  Subview  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/backtest/summary": {
+      "get": {
+        "summary": "Api V1 Backtest Summary",
+        "operationId": "api_v1_backtest_summary_api_v1_backtest_summary_get",
+        "parameters": [
+          {
+            "name": "ledger_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ledger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Backtest Summary Api V1 Backtest Summary Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1073,48 +1144,37 @@
             "title": "Monthly New Cash",
             "default": 3000.0
           },
-          "monthly_budget": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Monthly Budget"
-          },
-          "locked_reserve": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Locked Reserve"
+          "plan_months": {
+            "type": "integer",
+            "title": "Plan Months",
+            "default": 3
           },
           "rigid_reserve": {
             "type": "number",
             "title": "Rigid Reserve",
             "default": 0.0
           },
-          "plan_months": {
-            "type": "integer",
-            "title": "Plan Months",
-            "default": 3
-          },
-          "months": {
+          "monthly_cash": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Months"
+            "title": "Monthly Cash"
+          },
+          "reserve_fund": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reserve Fund"
           }
         },
         "type": "object",
@@ -1166,6 +1226,32 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HoldingsReconcileRequest": {
+        "properties": {
+          "ledger_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ledger Id"
+          },
+          "updates": {
+            "title": "Updates",
+            "default": []
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "HoldingsReconcileRequest"
+      },
       "ImportTextRequest": {
         "properties": {
           "ledger_id": {
@@ -1179,9 +1265,20 @@
             ],
             "title": "Ledger Id"
           },
-          "raw_text": {
+          "text": {
             "type": "string",
-            "title": "Raw Text"
+            "title": "Text"
+          },
+          "available_cash": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available Cash"
           },
           "mode": {
             "type": "string",
@@ -1191,7 +1288,7 @@
         },
         "type": "object",
         "required": [
-          "raw_text"
+          "text"
         ],
         "title": "ImportTextRequest"
       },
@@ -1199,10 +1296,18 @@
         "properties": {
           "snapshot_id": {
             "type": "string",
-            "title": "Snapshot Id",
-            "default": ""
-          },
-          "snapshot_name": {
+            "title": "Snapshot Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot_id"
+        ],
+        "title": "RestoreBackupRequest"
+      },
+      "ShadowFreezeRequest": {
+        "properties": {
+          "ledger_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -1211,11 +1316,22 @@
                 "type": "null"
               }
             ],
-            "title": "Snapshot Name"
+            "title": "Ledger Id"
+          },
+          "baseline_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Name"
           }
         },
         "type": "object",
-        "title": "RestoreBackupRequest"
+        "title": "ShadowFreezeRequest"
       },
       "ValidationError": {
         "properties": {

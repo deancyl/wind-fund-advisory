@@ -213,6 +213,7 @@ def reconcile_incremental_holdings_diff(
         "modified_count": sum(1 for d in diff_records if d["is_modified"]),
         "total_checked": len(diff_records),
         "diff_items": diff_records,
+        "records": diff_records,
     }
 
 

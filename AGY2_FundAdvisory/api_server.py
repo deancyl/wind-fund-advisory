@@ -672,9 +672,96 @@ async def api_v1_import_ocr(request: Request) -> Dict[str, Any]:
     })
 
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("api_server:app", host="127.0.0.1", port=8000, reload=False)
+class HoldingsReconcileRequest(BaseModel):
+    ledger_id: Optional[str] = None
+    updates: Any = []
+    dry_run: bool = True
+
+
+@app.post("/api/v1/holdings/reconcile")
+def api_v1_holdings_reconcile(req: HoldingsReconcileRequest) -> Dict[str, Any]:
+    _, lid, pm, _ = _get_active_context(req.ledger_id)
+    raw_updates = req.updates
+    norm_updates: Dict[str, Dict[str, Any]] = {}
+    if isinstance(raw_updates, list):
+        for item in raw_updates:
+            if isinstance(item, dict):
+                c = str(item.get("fund_code") or item.get("code") or "").strip().zfill(6)
+                if c:
+                    norm_updates[c] = item
+    elif isinstance(raw_updates, dict):
+        for k, v in raw_updates.items():
+            c = str(k).strip().zfill(6)
+            if isinstance(v, dict):
+                norm_updates[c] = v
+            elif isinstance(v, (int, float)):
+                norm_updates[c] = {"shares": float(v)}
+
+    diff_res = execution_tracker.reconcile_incremental_holdings_diff(getattr(pm, "holdings", {}), norm_updates)
+
+    applied = False
+    if not req.dry_run and diff_res.get("modified_count", 0) > 0:
+        LedgerBackupVault.create_snapshot(reason=f"api_reconcile_{lid}")
+        for code, upd in norm_updates.items():
+            curr = pm.holdings.get(code)
+            if curr:
+                if "shares" in upd:
+                    curr.shares = float(upd["shares"])
+                if "cost_price" in upd:
+                    curr.cost_price = float(upd["cost_price"])
+            else:
+                from portfolio_manager import HoldingItem
+                pm.holdings[code] = HoldingItem(
+                    fund_code=code,
+                    fund_name=upd.get("fund_name", code),
+                    shares=float(upd.get("shares", 0.0)),
+                    cost_price=float(upd.get("cost_price", 1.0)),
+                    current_nav=float(upd.get("current_nav", upd.get("cost_price", 1.0))),
+                )
+        pm.save_state()
+        applied = True
+
+    return _sanitize_v1_payload({
+        "ledger_id": lid,
+        "dry_run": req.dry_run,
+        "applied": applied,
+        "total_checked": diff_res.get("total_checked", 0),
+        "modified_count": diff_res.get("modified_count", 0),
+        "diff_items": diff_res.get("diff_items", []),
+    })
+
+
+@app.get("/api/v1/ledger/export")
+def api_v1_ledger_export(ledger_id: Optional[str] = None) -> Dict[str, Any]:
+    from dataclasses import asdict
+    _, lid, pm, _ = _get_active_context(ledger_id)
+    holdings_dict = {}
+    for code, h in getattr(pm, "holdings", {}).items():
+        sh = float(getattr(h, "shares", 0.0))
+        nav = float(getattr(h, "current_nav", 1.0))
+        cost = float(getattr(h, "cost_price", 1.0))
+        holdings_dict[code] = {
+            "fund_code": code,
+            "fund_name": str(getattr(h, "fund_name", code)),
+            "shares": sh,
+            "cost_price": cost,
+            "current_nav": nav,
+            "market_value": round(sh * nav, 2),
+            "share_class": str(getattr(h, "share_class", "A")),
+        }
+    pending = [
+        o if isinstance(o, dict) else (asdict(o) if hasattr(o, "__dataclass_fields__") else getattr(o, "__dict__", str(o)))
+        for o in getattr(pm, "pending_orders", [])
+    ]
+    checkins = load_daily_checkin()
+    return _sanitize_v1_payload({
+        "ledger_id": lid,
+        "total_equity": round(float(getattr(pm, "total_equity", 0.0)), 2),
+        "available_cash": round(float(getattr(pm, "available_cash", 0.0)), 2),
+        "holdings": holdings_dict,
+        "pending_orders": pending,
+        "checkins": checkins,
+    })
 
 
 class CheckinItemRequest(BaseModel):
@@ -881,14 +968,28 @@ def api_v1_backtest_summary(ledger_id: Optional[str] = None) -> Dict[str, Any]:
     })
 
 
+def export_openapi_contract(output_path: Optional[Path] = None) -> Path:
+    import json
+    target = output_path or (ROOT_DIR / "docs" / "openapi_v1.json")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    schema = app.openapi()
+    with open(target, "w", encoding="utf-8") as f:
+        json.dump(schema, f, ensure_ascii=False, indent=2)
+    return target
+
+
 if __name__ == "__main__":
     import argparse
     import uvicorn
 
-    parser = argparse.ArgumentParser(description="AGY2 FundAdvisory Headless API Server")
-    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host interface to bind")
-    parser.add_argument("--port", type=int, default=18501, help="Port to listen on (default 18501)")
+    parser = argparse.ArgumentParser(description="AGY2 Local Advisory REST API Server")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--export-openapi", action="store_true")
     args = parser.parse_args()
 
-    print(f"[*] Starting AGY2 API Server on http://{args.host}:{args.port} ...")
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    if args.export_openapi:
+        out_p = export_openapi_contract()
+        print(f"Exported OpenAPI contract to: {out_p}")
+    else:
+        uvicorn.run(app, host=args.host, port=args.port, reload=False)

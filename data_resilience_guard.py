@@ -266,13 +266,14 @@ def detect_dividend_or_split_false_alarm(
     if unit_chg_pct <= -3.0 and has_accum and abs(accum_chg_pct) <= 1.0:
         return {
             "is_dividend_ex": True,
+            "is_dividend_or_split": True,
             "unit_chg_pct": round(unit_chg_pct, 2),
             "accum_chg_pct": round(accum_chg_pct, 2),
             "alert_tag": "🎉 大额分红除权（非实盘暴跌）",
             "action_advice": "基金除权现金已派发或转为再投资份额，资产总值未损，严禁割肉止损。",
         }
 
-    return {"is_dividend_ex": False, "unit_chg_pct": round(unit_chg_pct, 2)}
+    return {"is_dividend_ex": False, "is_dividend_or_split": False, "unit_chg_pct": round(unit_chg_pct, 2)}
 
 
 def inspect_buy_candidate_safety(
@@ -305,20 +306,25 @@ def inspect_buy_candidate_safety(
     if reasons:
         return {
             "is_cleared": False,
+            "safe_to_buy": False,
             "fund_code": fund_code,
             "fund_name": fund_name,
             "safety_verdict": "🚨 触发买前安全红线，已拦截执行",
             "blocking_reasons": reasons,
+            "reasons": reasons,
             "fallback_code": fallback_code,
+            "recommended_fallback": fallback_code,
             "action": f"建议暂停申购该标的，平移至备选标的 {fallback_code}",
         }
 
     return {
         "is_cleared": True,
+        "safe_to_buy": True,
         "fund_code": fund_code,
         "fund_name": fund_name,
         "safety_verdict": "🟢 通过四项前置安全体检",
         "blocking_reasons": [],
+        "reasons": [],
     }
 
 

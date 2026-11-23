@@ -4197,7 +4197,19 @@ def compute_ten_dimension_votes(
     mm = macro_multi or {}
     alerts = sentry_rep.get("alerts", []) if sentry_rep else []
 
-    # 数据有效性/新鲜度探测：若未传入有效字段，触发中立化门禁 (delta_pct = 0.0)
+    # 数据有效性/新鲜度探测：若未传入有效字段或超3个交易日陈旧，触发中立化门禁 (delta_pct = 0.0)
+    from datetime import datetime as _dt_fresh
+    _snap_date_str = str(snap.get("date") or snap.get("as_of_date") or "").strip()[:10]
+    _is_macro_stale = False
+    if _snap_date_str:
+        try:
+            _lag_days = (_dt_fresh.now().date() - _dt_fresh.strptime(_snap_date_str, "%Y-%m-%d").date()).days
+            # 超过 5 个自然日（约 3 个交易日以上）判定为陈旧截面
+            if _lag_days > 5:
+                _is_macro_stale = True
+        except Exception:
+            pass
+
     has_cgb_data = bool(mm.get("cgb_10y_yield") or snap.get("cgb_10y_yield") or snap.get("treasury_10y"))
     cgb_10y = float(mm.get("cgb_10y_yield") or snap.get("cgb_10y_yield") or snap.get("treasury_10y") or 0.0)
 
@@ -4221,10 +4233,10 @@ def compute_ten_dimension_votes(
     has_er_data = snap.get("er_snr") is not None
     er_snr = float(snap.get("er_snr") or 0.35)
 
-    # 1. 宏观经济 (新鲜度门禁：若数据缺失强制中立化)
-    if not has_cgb_data or cgb_10y <= 0.0:
+    # 1. 宏观经济 (新鲜度门禁：若数据缺失或超3个交易日陈旧强制中立化)
+    if not has_cgb_data or cgb_10y <= 0.0 or _is_macro_stale:
         d1_score = 50.0; d1_vote = "NEUTRAL"; d1_delta = 0.0
-        d1_reason = "10Y国债数据暂未更新，已中立化不参与仓位加减"
+        d1_reason = f"数据截面({_snap_date_str})已超3个交易日未更新，已中立化" if _is_macro_stale else "10Y国债数据暂未更新，已中立化不参与仓位加减"
     elif cgb_10y <= 1.80:
         d1_score = 85.0; d1_vote = "BULL"; d1_delta = 3.0
         d1_reason = f"10Y国债 {cgb_10y:.2f}% 处于极低水位，无风险利率下行托底资产估值"
@@ -4235,10 +4247,10 @@ def compute_ten_dimension_votes(
         d1_score = 45.0; d1_vote = "BEAR"; d1_delta = -3.0
         d1_reason = f"10Y国债 {cgb_10y:.2f}% 利率中枢上行，对权益分母端构成折现压制"
 
-    # 2. 货币政策 (新鲜度门禁：若数据缺失强制中立化)
-    if not has_dr007_data or dr007 <= 0.0:
+    # 2. 货币政策 (新鲜度门禁：若数据缺失或超3个交易日陈旧强制中立化)
+    if not has_dr007_data or dr007 <= 0.0 or _is_macro_stale:
         d2_score = 50.0; d2_vote = "NEUTRAL"; d2_delta = 0.0
-        d2_reason = "DR007流动性数据暂未更新，已中立化不参与仓位加减"
+        d2_reason = f"数据截面({_snap_date_str})已超3个交易日未更新，已中立化" if _is_macro_stale else "DR007流动性数据暂未更新，已中立化不参与仓位加减"
     elif dr007_bp <= 0.0:
         d2_score = 90.0; d2_vote = "BULL"; d2_delta = 5.0
         d2_reason = f"DR007为 {dr007:.3f}% (利差 {dr007_bp:+.1f}bp)，银行间资金面合理充裕宽松"
@@ -4260,10 +4272,10 @@ def compute_ten_dimension_votes(
         d3_score = 30.0; d3_vote = "BEAR"; d3_delta = -8.0
         d3_reason = f"ERP分位仅 {erp_pct:.1f}% 偏向高估区，权益性价比收敛"
 
-    # 4. 国际联动 (新鲜度门禁：若美债或利差缺失强制中立化)
-    if not has_us10y_data or us_10y <= 0.0:
+    # 4. 国际联动 (新鲜度门禁：若美债或利差缺失或超3个交易日陈旧强制中立化)
+    if not has_us10y_data or us_10y <= 0.0 or _is_macro_stale:
         d4_score = 50.0; d4_vote = "NEUTRAL"; d4_delta = 0.0
-        d4_reason = "中美利差与海外高息数据暂未更新，已中立化不参与仓位加减"
+        d4_reason = f"数据截面({_snap_date_str})已超3个交易日未更新，已中立化" if _is_macro_stale else "中美利差与海外高息数据暂未更新，已中立化不参与仓位加减"
     elif spread_bp < -250.0:
         d4_score = 45.0; d4_vote = "BEAR"; d4_delta = -3.0
         d4_reason = f"中美10Y利差倒挂 {spread_bp:+.1f}bp (美债 {us_10y:.2f}%)，海外高息压制外资流动性"
@@ -4274,10 +4286,10 @@ def compute_ten_dimension_votes(
         d4_score = 55.0; d4_vote = "NEUTRAL"; d4_delta = 0.0
         d4_reason = f"中美利差倒挂 {spread_bp:+.1f}bp，海外市场震荡消化"
 
-    # 5. 外汇锁汇 (新鲜度门禁：若汇率数据缺失强制中立化)
-    if not has_usdcnh_data or usdcnh_rate <= 0.0:
+    # 5. 外汇锁汇 (新鲜度门禁：若汇率数据缺失或超3个交易日陈旧强制中立化)
+    if not has_usdcnh_data or usdcnh_rate <= 0.0 or _is_macro_stale:
         d5_score = 50.0; d5_vote = "NEUTRAL"; d5_delta = 0.0
-        d5_reason = "离岸人民币汇率数据暂未更新，已中立化不参与仓位加减"
+        d5_reason = f"数据截面({_snap_date_str})已超3个交易日未更新，已中立化" if _is_macro_stale else "离岸人民币汇率数据暂未更新，已中立化不参与仓位加减"
     elif abs(usdcnh_chg) <= 0.25:
         d5_score = 80.0; d5_vote = "BULL"; d5_delta = 2.0
         d5_reason = f"离岸人民币现汇 {usdcnh_rate:.4f} 运行平稳 (日变动 {usdcnh_chg:+.2f}%)，双向波动可控"
@@ -4393,7 +4405,7 @@ def compute_ten_dimension_votes(
         d9_score = 30.0; d9_vote = "BEAR"; d9_delta = -8.0
         d9_reason = f"周期对照尺仅 {ruler_mult:.2f}x 处于历史顶部狂热区，提示止盈保护"
 
-    # ── 10. 期权与黑天鹅 (接入真实 option_iv_pct、ic_basis 与动态相关性预警，缺失时强制中立化) ──
+    # ── 10. 期权与黑天鹅 (接入真实 option_iv_pct、ic_basis 与动态相关性预警，缺失或超3个交易日陈旧时强制中立化) ──
     has_opt_data = bool(snap.get("option_iv_pct") is not None or snap.get("option_iv") is not None or snap.get("ivix_index") is not None or snap.get("ic_annualized_basis_rate") is not None or snap.get("ic_basis") is not None)
     option_iv = float(snap.get("option_iv_pct") or snap.get("option_iv") or snap.get("ivix_index") or 0.0)
     ic_basis = float(snap.get("ic_annualized_basis_rate") or snap.get("ic_basis") or 0.0)
@@ -4401,11 +4413,11 @@ def compute_ten_dimension_votes(
     has_corr_warning = any("相关性" in str(a.get("title", "")) or a.get("dimension") == "动态相关性突变" or "相关性突变" in str(a.get("message", "")) for a in alerts) or (dyn_corr >= 0.75)
     has_basis_cushion = (ic_basis >= 8.0)
 
-    if not has_opt_data or option_iv <= 0.0:
+    if not has_opt_data or option_iv <= 0.0 or _is_macro_stale:
         d10_score = 50.0
         d10_vote = "NEUTRAL"
         d10_delta = 0.0
-        d10_reason = "期权隐波与中证500基差数据暂未更新，已中立化不参与仓位加减"
+        d10_reason = f"数据截面({_snap_date_str})已超3个交易日未更新，已中立化" if _is_macro_stale else "期权隐波与中证500基差数据暂未更新，已中立化不参与仓位加减"
     elif option_iv > 28.0 or has_corr_warning:
         d10_score = 30.0
         d10_vote = "BEAR"

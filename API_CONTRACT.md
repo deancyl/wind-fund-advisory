@@ -177,3 +177,30 @@
 
 ### 10. `GET /api/v1/backups` 与 `POST /api/v1/backups/restore`
 - **说明**：快照清册查询与一键无损回滚。
+
+### 11. `POST /api/v1/holdings/reconcile`
+- **说明**：局部增量份额核对与对账 Diff（支持 dry_run 预览与自动冷备落库）。
+- **请求体示例**：
+```json
+{
+  "ledger_id": "combat_29_funds",
+  "updates": [
+    {"fund_code": "005561", "shares": 35000.0, "cost_price": 1.25}
+  ],
+  "dry_run": true
+}
+```
+
+### 12. `GET /api/v1/ledger/export`
+- **说明**：导出当前账本纯净 JSON 数据包，供跨端同步。
+- **返回示例**：
+```json
+{
+  "ledger_id": "combat_29_funds",
+  "total_equity": 328000.0,
+  "available_cash": 25000.0,
+  "holdings": {},
+  "pending_orders": [],
+  "checkins": {}
+}
+```

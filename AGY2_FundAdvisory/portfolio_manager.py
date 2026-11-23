@@ -2962,7 +2962,9 @@ class FundQuote(dict):
         official_pdate: str = "",
         official_date: str = "",
         est_source: str = "",
-        val_compare_str: str = ""
+        val_compare_str: str = "",
+        is_dividend_event: bool = False,
+        accum_nav: Optional[float] = None
     ):
         _gsz_f = float(gsz)
         _gszzl_f = float(gszzl)
@@ -3022,9 +3024,13 @@ class FundQuote(dict):
             official_date=_pdate_s,
             est_diff=_est_diff_f,
             est_source=str(est_source or ""),
-            val_compare_str=str(val_compare_str)
+            val_compare_str=str(val_compare_str),
+            is_dividend_event=bool(is_dividend_event),
+            accum_nav=float(accum_nav) if accum_nav is not None else None
         )
 
+    @property
+    def accum_nav(self) -> Optional[float]: return self.get("accum_nav")
     @property
     def name(self) -> str: return str(self.get("name", ""))
     @property
@@ -3081,6 +3087,8 @@ class FundQuote(dict):
     def est_source(self) -> str: return str(self.get("est_source", ""))
     @property
     def val_compare_str(self) -> str: return str(self.get("val_compare_str", ""))
+    @property
+    def is_dividend_event(self) -> bool: return bool(self.get("is_dividend_event", False))
 
     def __iter__(self):
         return iter([self.name, self.dwjz, self.gsz, self.gszzl, self.gztime])
@@ -4391,6 +4399,35 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
         if is_qdii_t1_settled and prev_official_chg is not None:
             custom_cmp_str = f"⏳T-1已结 ({pdate[-5:]}官 {prev_official_chg:+.2f}%)"
 
+        # 课题 5: 真实接入分红除权防误报拦截 (detect_dividend_or_split_false_alarm)
+        is_dividend_event = False
+        curr_acc_nav = None
+        try:
+            from data_resilience_guard import detect_dividend_or_split_false_alarm
+            acc_nav_str = d.get("ACCNAV")
+            curr_acc_nav = float(acc_nav_str) if acc_nav_str not in (None, "", "--") else None
+            prev_acc_nav = None
+            if c in _REALTIME_QUOTE_CACHE:
+                _old_q = _REALTIME_QUOTE_CACHE[c][1]
+                prev_acc_nav = getattr(_old_q, "accum_nav", None)
+            if prev_acc_nav is None and curr_acc_nav is not None and abs(1.0 + nav_chg_val / 100.0) > 1e-6:
+                prev_acc_nav = round(curr_acc_nav / (1.0 + nav_chg_val / 100.0), 4)
+
+            chk_chg = official_chg_today if official_chg_today is not None else (prev_official_chg if is_off_today else 0.0)
+            raw_unit_drop = ((nav_val - dwjz_prev) / dwjz_prev * 100.0) if dwjz_prev > 0 else 0.0
+            if (raw_unit_drop <= -3.0 or (chk_chg is not None and chk_chg <= -3.0)) and dwjz_prev > 0 and nav_val > 0:
+                div_res = detect_dividend_or_split_false_alarm(
+                    prev_unit_nav=dwjz_prev,
+                    curr_unit_nav=nav_val,
+                    prev_accum_nav=prev_acc_nav,
+                    curr_accum_nav=curr_acc_nav,
+                )
+                if div_res.get("is_dividend_ex", False) or div_res.get("is_dividend_or_split", False):
+                    custom_cmp_str = "🎉 分红除权 (非真实亏损)"
+                    is_dividend_event = True
+        except Exception:
+            pass
+
         q_final = FundQuote(
             name=f_name,
             dwjz=dwjz_prev,
@@ -4410,7 +4447,9 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
             prev_official_chg_pct=prev_official_chg,
             official_pdate=pdate,
             est_source=est_src_label,
-            val_compare_str=custom_cmp_str
+            val_compare_str=custom_cmp_str,
+            is_dividend_event=is_dividend_event,
+            accum_nav=curr_acc_nav
         )
         _REALTIME_QUOTE_CACHE[c] = (now_ts, q_final)
         results[c] = q_final
