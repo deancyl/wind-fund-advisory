@@ -84,6 +84,31 @@ class DataSourceHealthRegistry:
             cls._HEALTH_RECORDS = _build_default_channels()
 
     @classmethod
+    def mark_channel_standby(cls, channel_key: str, note: str = "热备通道待命（主源已全覆盖）") -> None:
+        """主通道已全量覆盖时，将备用补漏通道标记为 STANDBY（待命正常态），禁止误报降级。"""
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with cls._LOCK:
+            if channel_key not in cls._HEALTH_RECORDS:
+                cls._HEALTH_RECORDS[channel_key] = {
+                    "name": channel_key,
+                    "status": "STANDBY",
+                    "latency_ms": 0.0,
+                    "last_success": now_str,
+                    "last_checked": now_str,
+                    "consecutive_failures": 0,
+                    "is_critical": False,
+                    "note": note,
+                }
+            else:
+                rec = cls._HEALTH_RECORDS[channel_key]
+                if rec.get("status") in ("UNKNOWN", "STANDBY"):
+                    rec["status"] = "STANDBY"
+                    rec["last_checked"] = now_str
+                    rec["note"] = note
+                    if not rec.get("last_success"):
+                        rec["last_success"] = now_str
+
+    @classmethod
     def record_channel_ping(
         cls,
         channel_key: str,
@@ -160,22 +185,36 @@ class DataSourceHealthRegistry:
         with cls._LOCK:
             channels_copy = {k: dict(v) for k, v in cls._HEALTH_RECORDS.items()}
 
-        green_cnt = sum(1 for v in channels_copy.values() if v["status"] == "GREEN")
-        yellow_cnt = sum(1 for v in channels_copy.values() if v["status"] == "YELLOW")
-        red_cnt = sum(1 for v in channels_copy.values() if v["status"] == "RED")
-        unknown_cnt = sum(1 for v in channels_copy.values() if v["status"] == "UNKNOWN")
+        green_cnt = sum(1 for v in channels_copy.values() if v.get("status") == "GREEN")
+        standby_cnt = sum(1 for v in channels_copy.values() if v.get("status") == "STANDBY")
+        yellow_cnt = sum(1 for v in channels_copy.values() if v.get("status") == "YELLOW")
+        red_cnt = sum(1 for v in channels_copy.values() if v.get("status") == "RED")
+        unknown_cnt = sum(1 for v in channels_copy.values() if v.get("status") == "UNKNOWN")
         total_cnt = len(channels_copy)
         probed_cnt = total_cnt - unknown_cnt
-        all_passed = (probed_cnt > 0 and red_cnt == 0 and yellow_cnt == 0 and green_cnt == total_cnt)
+        healthy_cnt = green_cnt + standby_cnt
+        degraded_cnt = yellow_cnt + red_cnt
+        degraded_channels = [
+            f"{v.get('name', k)}({k})"
+            for k, v in channels_copy.items()
+            if v.get("status") in ("YELLOW", "RED")
+        ]
+        degraded_names = [
+            v.get("name", k)
+            for k, v in channels_copy.items()
+            if v.get("status") in ("YELLOW", "RED")
+        ]
+        is_degraded = (yellow_cnt > 0 or red_cnt > 0)
+        all_passed = (probed_cnt > 0 and red_cnt == 0 and yellow_cnt == 0)
 
         if red_cnt > 0:
             badge = "🔴 核心行情源熔断告警·已启用离线湖仓保护"
         elif yellow_cnt > 0:
-            badge = "🟡 部分行情接口降级运行中"
-        elif green_cnt == total_cnt and total_cnt > 0:
+            badge = f"🟡 部分行情接口降级运行中 ({'、'.join(degraded_names)})"
+        elif healthy_cnt == total_cnt and total_cnt > 0:
             badge = "🟢 全部行情接口健康在线"
-        elif green_cnt > 0:
-            badge = f"🟢 已探测 {green_cnt}/{total_cnt} 路行情接口健康在线"
+        elif healthy_cnt > 0:
+            badge = f"🟢 已就绪 {healthy_cnt}/{total_cnt} 路行情接口健康在线"
         else:
             badge = "⚪ 行情接口待首次探测"
 
@@ -185,9 +224,15 @@ class DataSourceHealthRegistry:
             "all_passed": all_passed,
             "badge": badge,
             "green_count": green_cnt,
+            "standby_count": standby_cnt,
+            "healthy_count": healthy_cnt,
             "yellow_count": yellow_cnt,
             "red_count": red_cnt,
             "unknown_count": unknown_cnt,
+            "degraded_count": degraded_cnt,
+            "degraded_channels": degraded_channels,
+            "degraded_names": degraded_names,
+            "is_degraded": is_degraded,
             "probed_count": probed_cnt,
             "total_count": total_cnt,
             "pause_aggressive_rebalance": pause_flag,

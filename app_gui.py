@@ -3752,7 +3752,17 @@ with col_t_l:
             st.markdown(f"**估值资金**：ERP 分位 {erp_pct:.1f}% ｜ DR007 {dr007_val:.2f}% ｜ 两市成交 {t_str}")
             if data_resilience_guard and hasattr(data_resilience_guard, "DataSourceHealthRegistry"):
                 hs = data_resilience_guard.DataSourceHealthRegistry.get_health_summary()
-                st.markdown(f"**数据底座**：{hs.get('badge', '在线')} ({hs.get('green_count', 5)}/{hs.get('total_count', 5)}) ｜ 每次写入自动冷备")
+                _h_cnt = hs.get('healthy_count', hs.get('green_count', 0))
+                _tot_cnt = hs.get('total_count', 6)
+                st.markdown(f"**数据底座**：{hs.get('badge', '在线')} ({_h_cnt}/{_tot_cnt}) ｜ 每次写入自动冷备")
+                _chans = hs.get("channels", {})
+                if _chans:
+                    st.caption("通道实时健康明细：")
+                    for _ck, _cv in _chans.items():
+                        _st = _cv.get("status", "UNKNOWN")
+                        _st_icon = "🟢 正常" if _st == "GREEN" else ("⚪ 待命" if _st == "STANDBY" else ("🟡 波动" if _st == "YELLOW" else ("🔴 熔断" if _st == "RED" else "⏳ 待探")))
+                        _lat = f"{_cv.get('latency_ms', 0):.0f}ms" if _cv.get('latency_ms') is not None else "--"
+                        st.markdown(f"- **{_cv.get('name', _ck)}**：{_st_icon}（{_lat}）")
     with col_pop_rv:
         with st.popover("↩️", help="撤回至最近冷备快照"):
             st.caption("**冷备还原**")
@@ -4338,8 +4348,12 @@ if "pending_cross_tab_jump" in st.session_state and st.session_state["pending_cr
 # ── 静默记录每日样本外裁决快照 & 降级告警 ──
 try:
     _d_health = data_resilience_guard.DataSourceHealthRegistry.get_health_summary()
-    if int(_d_health.get("green_count", 5)) < int(_d_health.get("total_count", 5)):
-        st.warning(f"部分行情通道降级 ({_d_health.get('green_count')}/{_d_health.get('total_count')})")
+    if int(_d_health.get("red_count", 0)) > 0:
+        _deg_names = "、".join(_d_health.get("degraded_channels", [])) or "核心源"
+        st.error(f"核心行情源异常：{_deg_names}（已切换本地缓存保护）")
+    elif int(_d_health.get("degraded_count", 0)) > 0:
+        _deg_names = "、".join(_d_health.get("degraded_names", [])) or "部分源"
+        st.warning(f"行情通道异常降级：{_deg_names}（已自动启用备用源）")
 
     _snap_d = snapshot or {}
     _td = str(_snap_d.get("date") or datetime.now().strftime("%Y-%m-%d"))

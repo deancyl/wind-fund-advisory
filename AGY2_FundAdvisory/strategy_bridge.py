@@ -3276,6 +3276,14 @@ class StrategyBridge:
 
         cls._refresh_derivatives_data(snapshot)
 
+        try:
+            from data_resilience_guard import DataSourceHealthRegistry
+            _cgb_ok = float(snapshot.get("cgb_10y_yield") or snapshot.get("treasury_10y") or 0.0) > 0.0
+            _dr_ok = float(snapshot.get("dr007") or 0.0) > 0.0
+            DataSourceHealthRegistry.record_channel_ping("macro_rates", ok=(_cgb_ok and _dr_ok), latency_ms=15.0)
+        except Exception:
+            pass
+
         if not force_live_tail:
             cls._cached_snapshot = snapshot
         return snapshot

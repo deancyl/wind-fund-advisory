@@ -3854,9 +3854,17 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
     def _fetch_tiantian_fundgz_missing():
         unhit_codes = [
             c for c in missing_codes
-            if c not in sina_fu_live_map and (c not in em_raw_map or not em_raw_map[c].get("GSZ"))
+            if c not in sina_fu_live_map and (
+                c not in em_raw_map
+                or not (em_raw_map[c].get("GSZ") or em_raw_map[c].get("NAV") or em_raw_map[c].get("FCODE"))
+            )
         ]
         if not unhit_codes:
+            try:
+                from data_resilience_guard import DataSourceHealthRegistry
+                DataSourceHealthRegistry.mark_channel_standby("tiantian_fundgz")
+            except Exception:
+                pass
             return
 
         _tt_t0 = time.perf_counter()
@@ -3945,19 +3953,58 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
         if not secid_to_meta:
             return
         _t0 = time.perf_counter()
+        diff_items = []
+        em_secids = [
+            k for k in secid_to_meta.keys()
+            if "." in k and k.split(".")[0] in ("0", "1") and k.split(".")[1].isdigit()
+        ]
+        if not em_secids:
+            return
+        secids_str = ",".join(em_secids)
+        for _try_idx, host in enumerate(["push2.eastmoney.com", "push2.eastmoney.com"]):
+            try:
+                em_url = (
+                    f"https://{host}/api/qt/ulist.np/get?fltt=2&invt=2"
+                    f"&secids={secids_str}&fields=f2,f3,f4,f12,f13,f14,f18"
+                )
+                req_idx = urllib.request.Request(
+                    em_url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                        "Accept": "*/*",
+                        "Accept-Language": "zh-CN,zh;q=0.9",
+                        "Referer": "https://quote.eastmoney.com/center/gridlist.html"
+                    }
+                )
+                with urllib.request.urlopen(req_idx, timeout=2.0) as resp_idx:
+                    idx_json = json.loads(resp_idx.read().decode("utf-8", errors="ignore"))
+                diff_items = idx_json.get("data", {}).get("diff", []) or []
+                if diff_items:
+                    break
+            except Exception:
+                if _try_idx == 0:
+                    time.sleep(0.2)
+
+        push2_ok = bool(diff_items)
+        if not push2_ok:
+            try:
+                kamt_url = "https://push2.eastmoney.com/api/qt/kamt/get?fields1=f1,f2,f3,f4&fields2=f51,f52&ut=fa5fd1943c7b386f172d6893dbfba10b"
+                req_kamt = urllib.request.Request(
+                    kamt_url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        "Referer": "https://quote.eastmoney.com/center/gridlist.html"
+                    }
+                )
+                with urllib.request.urlopen(req_kamt, timeout=1.5) as resp_k:
+                    k_data = json.loads(resp_k.read().decode("utf-8", errors="ignore"))
+                    if k_data.get("rc") == 0:
+                        push2_ok = True
+            except Exception:
+                push2_ok = False
+
+        _record_data_channel_health("eastmoney_push2", ok=push2_ok, latency_ms=(time.perf_counter() - _t0) * 1000.0)
         try:
-            em_url = (
-                f"https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2"
-                f"&secids={','.join(secid_to_meta.keys())}&fields=f12,f13,f14,f2,f3,f4,f18"
-            )
-            req_idx = urllib.request.Request(
-                em_url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "https://quote.eastmoney.com/"}
-            )
-            with urllib.request.urlopen(req_idx, timeout=2.0) as resp_idx:
-                idx_json = json.loads(resp_idx.read().decode("utf-8", errors="ignore"))
-            diff_items = idx_json.get("data", {}).get("diff", []) or []
-            _record_data_channel_health("eastmoney_push2", ok=bool(diff_items), latency_ms=(time.perf_counter() - _t0) * 1000.0)
             for it in diff_items:
                 raw_pt = it.get("f2")
                 if raw_pt in (None, "-", ""):
@@ -4105,12 +4152,26 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
         ]
         if need_fx:
             def _prefetch_fx():
+                _t_fx = time.perf_counter()
                 try:
                     from data_loader import DataLoader
-                    DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
+                    fx_res = DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
+                    fx_ok = isinstance(fx_res, dict) and float(fx_res.get("rate") or fx_res.get("usdcnh_rate") or 0.0) > 0.0 and not bool(fx_res.get("is_fallback", False))
+                    _record_data_channel_health("usdcnh_fx", ok=fx_ok, latency_ms=(time.perf_counter() - _t_fx) * 1000.0)
+                except Exception:
+                    _record_data_channel_health("usdcnh_fx", ok=False, latency_ms=(time.perf_counter() - _t_fx) * 1000.0)
+            pre_futs.append(pre_ex.submit(_prefetch_fx))
+        else:
+            def _prefetch_fx_standby():
+                _t_fx = time.perf_counter()
+                try:
+                    from data_loader import DataLoader
+                    fx_res = DataLoader.fetch_realtime_usdcnh_fx(use_cache=True)
+                    fx_ok = isinstance(fx_res, dict) and float(fx_res.get("rate") or fx_res.get("usdcnh_rate") or 0.0) > 0.0 and not bool(fx_res.get("is_fallback", False))
+                    _record_data_channel_health("usdcnh_fx", ok=fx_ok, latency_ms=(time.perf_counter() - _t_fx) * 1000.0)
                 except Exception:
                     pass
-            pre_futs.append(pre_ex.submit(_prefetch_fx))
+            pre_futs.append(pre_ex.submit(_prefetch_fx_standby))
         for pf in as_completed(pre_futs):
             try:
                 pf.result()

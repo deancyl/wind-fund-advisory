@@ -2772,6 +2772,13 @@ def fetch_realtime_usdcnh_fx(
     now_ts = time.time()
     if use_cache and _USDCNH_MEM_CACHE["data"] is not None:
         if now_ts - _USDCNH_MEM_CACHE["ts"] < 60.0:
+            try:
+                from data_resilience_guard import DataSourceHealthRegistry
+                _cached_rate = float(_USDCNH_MEM_CACHE["data"].get("rate", 0.0))
+                if _cached_rate > 0.0:
+                    DataSourceHealthRegistry.record_channel_ping("usdcnh_fx", ok=True, latency_ms=1.0)
+            except Exception:
+                pass
             return _USDCNH_MEM_CACHE["data"]
 
     rate = None
@@ -2849,6 +2856,13 @@ def fetch_realtime_usdcnh_fx(
         "summary": f"USD/CNH {rate:.4f} ({chg_pct:+.2f}%)"
     }
     res = FXRate(rate, extra_dict=raw_dict)
+    try:
+        from data_resilience_guard import DataSourceHealthRegistry
+        _fx_ok = (rate > 0.0 and "无可用" not in source)
+        _lat_ms = max(1.0, round((time.time() - now_ts) * 1000.0, 1))
+        DataSourceHealthRegistry.record_channel_ping("usdcnh_fx", ok=_fx_ok, latency_ms=_lat_ms)
+    except Exception:
+        pass
     _USDCNH_MEM_CACHE["data"] = res
     _USDCNH_MEM_CACHE["ts"] = now_ts
     return res
@@ -3215,6 +3229,13 @@ def fetch_macro_cross_market_indicators(
     now_ts = time.time()
     if use_cache and _MACRO_INDICATORS_MEM_CACHE["data"] is not None:
         if now_ts - _MACRO_INDICATORS_MEM_CACHE["ts"] < 60.0:
+            try:
+                from data_resilience_guard import DataSourceHealthRegistry
+                _cgb_cached = float(_MACRO_INDICATORS_MEM_CACHE["data"].get("cgb_10y", 0.0))
+                if _cgb_cached > 0.0:
+                    DataSourceHealthRegistry.record_channel_ping("macro_rates", ok=True, latency_ms=1.0)
+            except Exception:
+                pass
             return _MACRO_INDICATORS_MEM_CACHE["data"]
 
     # 自动探测并按需自愈同步 parquet 数据湖
@@ -3449,6 +3470,13 @@ def fetch_macro_cross_market_indicators(
         "macro_summary": f"10Y中债 {cgb_10y:.2f}% (利差 {cgb_us_spread_bp:+.1f}bp) ｜ 黄金ETF {gold_price:.2f}元/份 ｜ 隔夜纳指 {nasdaq_chg:+.2f}% ｜ USD/CNH {usdcnh_rate:.4f}",
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
+
+    try:
+        from data_resilience_guard import DataSourceHealthRegistry
+        _cgb_ok = (cgb_10y > 0.0)
+        DataSourceHealthRegistry.record_channel_ping("macro_rates", ok=_cgb_ok, latency_ms=max(1.0, round((time.time() - now_ts) * 1000.0, 1)))
+    except Exception:
+        pass
 
     _MACRO_INDICATORS_MEM_CACHE["data"] = res
     _MACRO_INDICATORS_MEM_CACHE["ts"] = now_ts
