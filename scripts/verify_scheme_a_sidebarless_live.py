@@ -25,7 +25,8 @@ def run_live_verification():
 
         page.goto("http://127.0.0.1:8501", timeout=60000)
         page.wait_for_load_state("networkidle")
-        time.sleep(3)
+        page.wait_for_selector('text=AGY2 智投', timeout=20000)
+        time.sleep(2)
 
         # 检查无全屏崩溃
         err_box = page.locator('.stAlert[data-baseweb="notification"]')
@@ -72,9 +73,9 @@ def run_live_verification():
         assert corridor_cfg.count() > 0 and corridor_cfg.first.is_visible(), "走廊必须包含 '⚙️' 配置 Popover"
         print("  [OK] 指数走廊 '⚙️' 定制入口正常展示")
 
-        rf_btn = page.locator('button[data-testid="stBaseButton-secondary"]:has-text("刷新")')
-        assert rf_btn.count() > 0 and rf_btn.first.is_visible(), "行情带必须包含 '刷新' 按钮"
-        print("  [OK] 核心行情带 '刷新' 按钮正常展示")
+        rf_btn = page.locator('button[data-testid="stBaseButton-secondary"]:has-text("🔄"), button[data-testid="stBaseButton-secondary"]:has-text("刷新")')
+        assert rf_btn.count() > 0 and rf_btn.first.is_visible(), "行情带必须包含 '🔄' 或 '刷新' 按钮"
+        print("  [OK] 核心行情带 '🔄' 刷新按钮正常展示")
 
         # 验证 3 张 Hero 卡存在
         hero_cards = page.locator('.main-metric-card')
@@ -94,7 +95,8 @@ def run_live_verification():
         page_m = context_m.new_page()
         page_m.goto("http://127.0.0.1:8501", timeout=60000)
         page_m.wait_for_load_state("networkidle")
-        time.sleep(3)
+        page_m.wait_for_selector('text=AGY2 智投', timeout=20000)
+        time.sleep(2)
 
         # 验证移动端同样无侧边栏遮挡
         sidebar_m = page_m.locator('[data-testid="stSidebar"]')

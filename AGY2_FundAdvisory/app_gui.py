@@ -1703,6 +1703,230 @@ safe_markdown_html(f"""
         white-space: nowrap !important;
     }}
 
+
+    /* =========================================================================
+       方案 A 高定无侧栏双端响应式规约 (Dual-Screen Harmony Invariants v2.0)
+       ========================================================================= */
+    /* 0. 专用标记容器物理归零（彻底消除空容器造成的垂直偏移） */
+    div.element-container:has(.topbar-outer-marker),
+    div.element-container:has(.topbar-actions-marker),
+    div.element-container:has(.ticker-strip-marker),
+    div.element-container:has(.prescription-action-marker),
+    div.element-container:has(.toolbar-6col-marker) {{
+        display: none !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }}
+
+    /* 1. 顶栏外层主容器：桌面端水平两极布局，移动端优雅垂直分层 */
+    div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) {{
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+        margin-bottom: 2px !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) > div[data-testid="column"]:first-child,
+    div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) > div[data-testid="stColumn"]:first-child {{
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) > div[data-testid="column"]:last-child,
+    div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) > div[data-testid="stColumn"]:last-child {{
+        flex: 0 0 460px !important;
+        min-width: 380px !important;
+        max-width: 500px !important;
+        width: 460px !important;
+    }}
+    @media (max-width: 768px) {{
+        div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) {{
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 8px !important;
+        }}
+        div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) > div[data-testid="column"]:first-child,
+        div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) > div[data-testid="stColumn"]:first-child {{
+            flex: 1 1 auto !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            margin-bottom: 4px !important;
+        }}
+        div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) > div[data-testid="column"]:last-child,
+        div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) > div[data-testid="stColumn"]:last-child {{
+            flex: 1 1 auto !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+        }}
+    }}
+
+    /* 2. 顶栏右侧内层操作行（账本选择器 + 🎨 + i + ↩️）：通过祖先选择器严格锁定内层，绝不误伤外层容器 */
+    div[data-testid="stHorizontalBlock"] div[data-testid="stHorizontalBlock"]:has(.topbar-actions-marker) {{
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        gap: 4px !important;
+        width: 100% !important;
+    }}
+    div[data-testid="stHorizontalBlock"] div[data-testid="stHorizontalBlock"]:has(.topbar-actions-marker) > div[data-testid="column"]:first-child,
+    div[data-testid="stHorizontalBlock"] div[data-testid="stHorizontalBlock"]:has(.topbar-actions-marker) > div[data-testid="stColumn"]:first-child {{
+        flex: 1 1 auto !important;
+        min-width: 180px !important;
+        max-width: none !important;
+        width: auto !important;
+    }}
+    div[data-testid="stHorizontalBlock"] div[data-testid="stHorizontalBlock"]:has(.topbar-actions-marker) > div[data-testid="column"]:not(:first-child),
+    div[data-testid="stHorizontalBlock"] div[data-testid="stHorizontalBlock"]:has(.topbar-actions-marker) > div[data-testid="stColumn"]:not(:first-child) {{
+        flex: 0 0 34px !important;
+        min-width: 34px !important;
+        max-width: 34px !important;
+        width: 34px !important;
+    }}
+    div[data-testid="stHorizontalBlock"] div[data-testid="stHorizontalBlock"]:has(.topbar-actions-marker) button {{
+        width: 32px !important;
+        min-width: 32px !important;
+        max-width: 32px !important;
+        height: 32px !important;
+        min-height: 32px !important;
+        padding: 0 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        border-radius: 6px !important;
+    }}
+
+    /* 3. 顶部单行指数行情横条专用布局（桌面与移动端统一不换行，左滑右固） */
+    div[data-testid="stHorizontalBlock"]:has(.ticker-strip-marker) {{
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        gap: 4px !important;
+        width: 100% !important;
+        margin-top: 2px !important;
+        margin-bottom: 6px !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.ticker-strip-marker) > div[data-testid="column"]:first-child,
+    div[data-testid="stHorizontalBlock"]:has(.ticker-strip-marker) > div[data-testid="stColumn"]:first-child {{
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        width: auto !important;
+        overflow-x: auto !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.ticker-strip-marker) > div[data-testid="column"]:not(:first-child),
+    div[data-testid="stHorizontalBlock"]:has(.ticker-strip-marker) > div[data-testid="stColumn"]:not(:first-child) {{
+        flex: 0 0 34px !important;
+        min-width: 34px !important;
+        max-width: 34px !important;
+        width: 34px !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.ticker-strip-marker) button {{
+        width: 32px !important;
+        min-width: 32px !important;
+        max-width: 32px !important;
+        height: 32px !important;
+        min-height: 32px !important;
+        padding: 0 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 13px !important;
+        border-radius: 6px !important;
+    }}
+    @media (max-width: 768px) {{
+        .top-index-pill .index-pill-val-badge {{
+            display: none !important;
+        }}
+        .top-index-pill {{
+            padding: 3px 6px !important;
+            font-size: 11px !important;
+            gap: 4px !important;
+        }}
+    }}
+
+    /* 4. 处方重塑单行条防膨胀规约 */
+    div[data-testid="stHorizontalBlock"]:has(.prescription-action-marker) {{
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        gap: 6px !important;
+        margin-bottom: 6px !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.prescription-action-marker) > div[data-testid="column"]:first-child,
+    div[data-testid="stHorizontalBlock"]:has(.prescription-action-marker) > div[data-testid="stColumn"]:first-child {{
+        flex: 0 0 auto !important;
+        min-width: 100px !important;
+        width: auto !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.prescription-action-marker) > div[data-testid="column"]:nth-child(2),
+    div[data-testid="stHorizontalBlock"]:has(.prescription-action-marker) > div[data-testid="stColumn"]:nth-child(2) {{
+        flex: 0 0 34px !important;
+        min-width: 34px !important;
+        max-width: 34px !important;
+        width: 34px !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.prescription-action-marker) > div[data-testid="column"]:last-child,
+    div[data-testid="stHorizontalBlock"]:has(.prescription-action-marker) > div[data-testid="stColumn"]:last-child {{
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        width: auto !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.prescription-action-marker) button[data-testid="stPopoverButton"] {{
+        width: 32px !important;
+        min-width: 32px !important;
+        max-width: 32px !important;
+        height: 32px !important;
+        min-height: 32px !important;
+        padding: 0 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }}
+
+    /* 5. 6 键操作工具栏：桌面端 6 列横排，移动端 2 行 3 列平铺 */
+    div[data-testid="stHorizontalBlock"]:has(.toolbar-6col-marker) {{
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        gap: 4px !important;
+        width: 100% !important;
+        margin-bottom: 4px !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.toolbar-6col-marker) > div[data-testid="column"],
+    div[data-testid="stHorizontalBlock"]:has(.toolbar-6col-marker) > div[data-testid="stColumn"] {{
+        flex: 1 1 16.666% !important;
+        min-width: 0 !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.toolbar-6col-marker) button {{
+        height: 34px !important;
+        min-height: 34px !important;
+        font-size: 12px !important;
+        padding: 0 4px !important;
+    }}
+    @media (max-width: 768px) {{
+        div[data-testid="stHorizontalBlock"]:has(.toolbar-6col-marker) {{
+            flex-wrap: wrap !important;
+        }}
+        div[data-testid="stHorizontalBlock"]:has(.toolbar-6col-marker) > div[data-testid="column"],
+        div[data-testid="stHorizontalBlock"]:has(.toolbar-6col-marker) > div[data-testid="stColumn"] {{
+            flex: 1 1 calc(33.333% - 4px) !important;
+            min-width: calc(33.333% - 4px) !important;
+            max-width: calc(33.333% - 4px) !important;
+        }}
+    }}
+
     /* 顶部紧凑单行指数走廊横条 (Top Compact Index Ticker Strip) */
     .top-index-strip {{
         display: flex;
@@ -2208,8 +2432,8 @@ safe_markdown_html(f"""
         div[data-testid="stHorizontalBlock"]:has([data-testid="stDataFrame"]) > div[data-testid="stColumn"],
         div[data-testid="stHorizontalBlock"]:has(.decision-card) > div[data-testid="column"],
         div[data-testid="stHorizontalBlock"]:has(.decision-card) > div[data-testid="stColumn"],
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stSelectbox"]) > div[data-testid="column"],
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stSelectbox"]) > div[data-testid="stColumn"] {{
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stSelectbox"]):not(:has(.topbar-actions-marker)) > div[data-testid="column"],
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stSelectbox"]):not(:has(.topbar-actions-marker)) > div[data-testid="stColumn"] {{
             flex: 1 1 100% !important;
             min-width: 100% !important;
             max-width: 100% !important;
@@ -2307,16 +2531,16 @@ safe_markdown_html(f"""
         }}
 
         /* 表格底部按钮组在手机端 2x2 网格流 */
-        div[data-testid="stHorizontalBlock"]:has(button:not([data-testid*="stNumberInput"])):not(:has(.main-metric-card)):not(:has([data-testid="stNumberInput"])):not(:has([data-testid="stSelectbox"])):not(:has([data-testid="stPlotlyChart"])),
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]):not(:has([data-testid="stNumberInput"])):not(:has([data-testid="stSelectbox"])):not(:has([data-testid="stPlotlyChart"])) {{
+        div[data-testid="stHorizontalBlock"]:has(button:not([data-testid*="stNumberInput"])):not(:has(.main-metric-card)):not(:has([data-testid="stNumberInput"])):not(:has([data-testid="stSelectbox"])):not(:has([data-testid="stPlotlyChart"])):not(:has(.ticker-strip-marker)):not(:has(.topbar-actions-marker)):not(:has(.prescription-action-marker)):not(:has(.toolbar-6col-marker)),
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]):not(:has([data-testid="stNumberInput"])):not(:has([data-testid="stSelectbox"])):not(:has([data-testid="stPlotlyChart"])):not(:has(.ticker-strip-marker)):not(:has(.topbar-actions-marker)):not(:has(.prescription-action-marker)):not(:has(.toolbar-6col-marker)) {{
             display: flex !important;
             flex-wrap: wrap !important;
             gap: 6px !important;
         }}
-        div[data-testid="stHorizontalBlock"]:has(button:not([data-testid*="stNumberInput"])):not(:has(.main-metric-card)):not(:has([data-testid="stNumberInput"])):not(:has([data-testid="stSelectbox"])):not(:has([data-testid="stPlotlyChart"])) > div[data-testid="column"],
-        div[data-testid="stHorizontalBlock"]:has(button:not([data-testid*="stNumberInput"])):not(:has(.main-metric-card)):not(:has([data-testid="stNumberInput"])):not(:has([data-testid="stSelectbox"])):not(:has([data-testid="stPlotlyChart"])) > div[data-testid="stColumn"],
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]):not(:has([data-testid="stNumberInput"])):not(:has([data-testid="stSelectbox"])):not(:has([data-testid="stPlotlyChart"])) > div[data-testid="column"],
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]):not(:has([data-testid="stNumberInput"])):not(:has([data-testid="stSelectbox"])):not(:has([data-testid="stPlotlyChart"])) > div[data-testid="stColumn"] {{
+        div[data-testid="stHorizontalBlock"]:has(button:not([data-testid*="stNumberInput"])):not(:has(.main-metric-card)):not(:has([data-testid="stNumberInput"])):not(:has([data-testid="stSelectbox"])):not(:has([data-testid="stPlotlyChart"])):not(:has(.ticker-strip-marker)):not(:has(.topbar-actions-marker)):not(:has(.prescription-action-marker)):not(:has(.toolbar-6col-marker)) > div[data-testid="column"],
+        div[data-testid="stHorizontalBlock"]:has(button:not([data-testid*="stNumberInput"])):not(:has(.main-metric-card)):not(:has([data-testid="stNumberInput"])):not(:has([data-testid="stSelectbox"])):not(:has([data-testid="stPlotlyChart"])):not(:has(.ticker-strip-marker)):not(:has(.topbar-actions-marker)):not(:has(.prescription-action-marker)):not(:has(.toolbar-6col-marker)) > div[data-testid="stColumn"],
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]):not(:has([data-testid="stNumberInput"])):not(:has([data-testid="stSelectbox"])):not(:has([data-testid="stPlotlyChart"])):not(:has(.ticker-strip-marker)):not(:has(.topbar-actions-marker)):not(:has(.prescription-action-marker)):not(:has(.toolbar-6col-marker)) > div[data-testid="column"],
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]):not(:has([data-testid="stNumberInput"])):not(:has([data-testid="stSelectbox"])):not(:has([data-testid="stPlotlyChart"])):not(:has(.ticker-strip-marker)):not(:has(.topbar-actions-marker)):not(:has(.prescription-action-marker)):not(:has(.toolbar-6col-marker)) > div[data-testid="stColumn"] {{
             flex: 1 1 calc(50% - 6px) !important;
             min-width: calc(50% - 6px) !important;
         }}
@@ -3498,10 +3722,12 @@ _idx_bar = " ｜ ".join([
 # 统一顶栏（彻底去除割裂侧栏，整合品牌/状态 + 账本选择 + 外观 + i详情 + 冷备撤回）
 col_t_b, col_t_l = st.columns([4.2, 5.8])
 with col_t_b:
+    safe_markdown_html('<span class="topbar-outer-marker"></span>')
     safe_markdown_html(f"""<div style="display:flex;align-items:center;gap:8px;padding-top:4px;flex-wrap:wrap;">
         <span style="font-size:15px;font-weight:800;color:var(--text-primary);white-space:nowrap;">AGY2 智投</span>
         <span style="font-size:11px;padding:2px 6px;border-radius:4px;background:rgba(37,99,235,0.08);color:var(--accent-primary);border:1px solid rgba(37,99,235,0.22);">{data_src_badge}</span>
         <span style="font-size:11px;color:var(--text-muted);font-family:monospace;white-space:nowrap;">底座: {latest_date}</span>
+        <span style="font-size:11px;padding:2px 6px;border-radius:4px;background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-subtle);white-space:nowrap;">⏰ {clock_title}（{market_status.countdown_str}）</span>
     </div>""")
 with col_t_l:
     def _fmt_topbar_ledger(lid: str) -> str:
@@ -3518,6 +3744,7 @@ with col_t_l:
     active_idx = next((i for i, l in enumerate(all_ledgers) if l["id"] == active_lid), 0)
     col_sel_ld, col_pop_theme, col_pop_info, col_pop_rv = st.columns([6.1, 1.3, 1.3, 1.3])
     with col_sel_ld:
+        safe_markdown_html('<span class="topbar-actions-marker"></span>')
         selected_lid = st.selectbox("当前激活账本", options=[l["id"] for l in all_ledgers], index=active_idx, format_func=_fmt_topbar_ledger, key=f"topbar_ledger_select_{active_lid}", label_visibility="collapsed")
         if selected_lid != active_lid:
             switch_active_ledger(selected_lid)
@@ -3622,6 +3849,7 @@ corridor_val_map = fetch_or_calc_index_valuations(force_refresh=False)
 
 col_idx_strip, col_idx_cfg, col_idx_rf = st.columns([8.4, 0.8, 0.8])
 with col_idx_strip:
+    safe_markdown_html('<span class="ticker-strip-marker"></span>')
     pills_html = []
     for idx_item in active_corridor_list:
         icode = idx_item["code"]
@@ -3741,7 +3969,7 @@ with col_idx_cfg:
                     st.error(f"代码/名称 {clean_query} 探针失败，未能获取有效盘中行情")
 
 with col_idx_rf:
-    if st.button("刷新", key="btn_refresh_all_live_quotes", help="极速刷新实时行情", use_container_width=True):
+    if st.button("🔄", key="btn_refresh_all_live_quotes", help="极速刷新实时行情", use_container_width=True):
         clear_realtime_cache()
         fetch_custom_realtime_indices(codes=st.session_state.sb_selected_corridor_indices, use_cache=False)
         fetch_market_turnover_and_sentiment(force_refresh=True)
@@ -6181,7 +6409,8 @@ with tab_holdings_and_rebalance:
 
             col_rx_btn1, col_rx_info, col_rx_cap = st.columns([3.0, 0.8, 6.2])
             with col_rx_btn1:
-                if st.button("一键重塑", key="btn_apply_combat29_rx", type="primary", use_container_width=True, help="三步瘦身重构：清扫19只免赎尾仓、011613 C转A置换、聚焦6只核心池"):
+                safe_markdown_html('<span class="prescription-action-marker"></span>')
+                if st.button("🧹 一键重塑", key="btn_apply_combat29_rx", type="secondary", use_container_width=True, help="三步瘦身重构：清扫19只免赎尾仓、011613 C转A置换、聚焦6只核心池"):
                     st.session_state.rad_tab2_scenario_mode = "🧹 尾部碎片与C类一键归拢 (清理<3%碎片与满期高费率C类至底仓)"
                     st.session_state.sel_sc_anchor = "002351 - 易方达裕祥回报债券A"
                     st.session_state.tab2_c_replace = "011613"
@@ -6220,13 +6449,10 @@ with tab_holdings_and_rebalance:
         # 【BLOCK 2】核心持仓与调仓执行清单表
         # ═════════════════════════════════════════════════════════════
         # 1. 顶部 6 键操作工具栏（极速录基、批量导入、截图导入、撤销修改、同步估值、账本管理）
-        if IS_MOBILE_VIEW:
-            col_act_quick, col_act_batch, col_act_ocr = st.columns(3)
-            col_act_undo, col_act_sync, col_act_mgr = st.columns(3)
-        else:
-            col_act_quick, col_act_batch, col_act_ocr, col_act_undo, col_act_sync, col_act_mgr = st.columns(6)
+        col_act_quick, col_act_batch, col_act_ocr, col_act_undo, col_act_sync, col_act_mgr = st.columns(6)
 
         with col_act_quick:
+            safe_markdown_html('<span class="toolbar-6col-marker"></span>')
             with st.popover("录基", use_container_width=True, help="录入单只基金并自动反算成本份额"):
                 st.markdown("##### ⚡ 极速录基（自动联网拉取净值并平账反算成本与份额）")
                 bar_fund_in = st.text_input("基金代码或中文名", value="", placeholder="如 005561 或 红利低波", key="bar_fund_input")
@@ -6465,6 +6691,7 @@ with tab_holdings_and_rebalance:
                                     st.rerun()
 
         with col_act_undo:
+            safe_markdown_html('<span class="toolbar-6col-marker"></span>')
             if st.button("撤销修改", use_container_width=True, key="btn_tab2_top_undo", help="撤销上一次持仓修改并回滚至上一历史快照"):
                 if pm.undo():
                     pm.save_state()
