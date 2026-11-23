@@ -1080,44 +1080,27 @@ safe_markdown_html(f"""
         visibility: visible !important;
     }}
 
-    /* 侧边栏展开/收起按钮 */
+    /* 彻底移除左侧边栏及其触点（方案 A：无侧栏全宽现代金融客户端） */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebarCollapseButton"],
     [data-testid="stExpandSidebarButton"],
     button[aria-label="Expand sidebar"],
-    [data-testid="collapsedControl"] {{
-        display: inline-flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        pointer-events: auto !important;
-        cursor: pointer !important;
-        position: fixed !important;
-        top: 10px !important;
-        left: 12px !important;
-        z-index: 999999 !important;
-        background: var(--bg-surface) !important;
-        border: 1px solid var(--border-subtle) !important;
-        border-radius: 8px !important;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12) !important;
-        padding: 4px 8px !important;
-        color: var(--text-primary) !important;
-        transition: all 0.2s ease !important;
+    button[aria-label="Collapse sidebar"],
+    [data-testid="collapsedControl"],
+    .stSidebar {{
+        display: none !important;
+        visibility: hidden !important;
+        width: 0 !important;
+        height: 0 !important;
+        pointer-events: none !important;
     }}
-    [data-testid="stExpandSidebarButton"]:hover,
-    button[aria-label="Expand sidebar"]:hover,
-    [data-testid="collapsedControl"]:hover {{
-        background: var(--bg-elevated) !important;
-        border-color: var(--accent-primary) !important;
-        color: var(--accent-primary) !important;
-        transform: scale(1.05) !important;
-    }}
-    [data-testid="stSidebarCollapseButton"],
-    button[aria-label="Collapse sidebar"] {{
-        display: inline-flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        pointer-events: auto !important;
-        cursor: pointer !important;
-        z-index: 999999 !important;
-        color: var(--text-primary) !important;
+
+    /* 主工作区 100% 宽度全宽舒展 */
+    .main .block-container {{
+        max-width: 100% !important;
+        padding-left: 1.5rem !important;
+        padding-right: 1.5rem !important;
+        padding-top: 0.8rem !important;
     }}
 
     /* 多列网格防截断与平滑撑开 (Anti-Truncation Invariant) */
@@ -1133,9 +1116,9 @@ safe_markdown_html(f"""
     }}
     .main .block-container, [data-testid="stMainBlockContainer"] {{
         max-width: 100% !important;
-        padding-top: 1.2rem !important;
-        padding-left: 2rem !important;
-        padding-right: 2rem !important;
+        padding-top: 0.8rem !important;
+        padding-left: 1.2rem !important;
+        padding-right: 1.2rem !important;
         box-sizing: border-box !important;
         overflow-x: hidden !important;
     }}
@@ -1718,6 +1701,61 @@ safe_markdown_html(f"""
         font-variant-numeric: tabular-nums;
         color: var(--text-muted);
         white-space: nowrap !important;
+    }}
+
+    /* 顶部紧凑单行指数走廊横条 (Top Compact Index Ticker Strip) */
+    .top-index-strip {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        overflow-x: auto;
+        white-space: nowrap;
+        padding: 4px 0;
+        margin-bottom: 6px;
+        scrollbar-width: thin;
+    }}
+    .top-index-strip::-webkit-scrollbar {{
+        height: 3px;
+    }}
+    .top-index-strip::-webkit-scrollbar-thumb {{
+        background: var(--border-subtle);
+        border-radius: 3px;
+    }}
+    .top-index-pill {{
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: 6px;
+        font-size: 12px;
+        flex: 0 0 auto;
+        transition: border-color 0.15s ease;
+    }}
+    .top-index-pill:hover {{
+        border-color: var(--accent-primary);
+    }}
+    .top-index-name {{
+        font-weight: 700;
+        color: var(--text-primary);
+    }}
+    .top-index-pt {{
+        font-family: monospace;
+        color: var(--text-secondary);
+        font-size: 11.5px;
+    }}
+    .top-index-chg-up {{
+        font-weight: 700;
+        color: var(--color-up, #ef4444);
+    }}
+    .top-index-chg-down {{
+        font-weight: 700;
+        color: var(--color-down, #10b981);
+    }}
+    .top-index-chg-flat {{
+        font-weight: 700;
+        color: var(--text-muted);
     }}
     
     /* 顶部行情带真实估值分位标签微胶囊 */
@@ -3391,18 +3429,101 @@ _t2_pnl_pct = (_t2_pnl / _t2_cost * 100.0) if _t2_cost > 0 else 0.0
 tot_pnl_color = active_co["color_up"] if _t2_pnl >= 0 else active_co["color_down"]
 
 # -------------------------------------------------------------
-# 侧边栏：【🧭 全局领航台】（仅保留外观色彩 + 市场状态与底座 + 核心指数行情走廊）
+# 方案 A 极简无侧栏架构：全局状态与自选行情走廊预设
 # -------------------------------------------------------------
-with st.sidebar:
-    if "app_view_layout_mode" not in st.session_state:
-        st.session_state.app_view_layout_mode = "📱 手机极简盯盘" if _is_mobile_viewport() else "🖥️ 桌面专业模式"
+if "app_view_layout_mode" not in st.session_state:
+    st.session_state.app_view_layout_mode = "📱 手机极简盯盘" if _is_mobile_viewport() else "🖥️ 桌面专业模式"
 
-    # 顶部第一行：标题与紧凑的 ⚙️ 外观 Popover，首屏直接聚焦市场状态与指数走廊
-    sb_head_c1, sb_head_c2 = st.columns([6.0, 4.0])
-    with sb_head_c1:
-        st.subheader("🧭 全局领航台")
-    with sb_head_c2:
-        with st.popover("外观", help="界面主题与涨跌色彩"):
+total_days = snapshot.get("total_days", 2142)
+latest_date = snapshot.get("latest_date", "2026-11-04")
+is_realtime_src = (
+    mb_data.get("is_realtime", False)
+    or any(k in str(mb_data.get("source", "")) for k in ["realtime", "eastmoney", "sina", "live"])
+)
+data_src_badge = "🟢 实时盘中源已连接" if is_realtime_src else "🟡 本地湖仓快照兜底"
+
+saved_watchlist = load_custom_watchlist()
+if "sb_corridor_display_limit" not in st.session_state:
+    st.session_state.sb_corridor_display_limit = saved_watchlist.get("display_limit", 6)
+if "sb_selected_corridor_indices" not in st.session_state:
+    st.session_state.sb_selected_corridor_indices = saved_watchlist.get("selected_codes", ["000300", "000688", "000922", "000905", "000852", "518880"])
+if "sb_custom_corridor_items" not in st.session_state:
+    st.session_state.sb_custom_corridor_items = saved_watchlist.get("custom_items", {})
+
+# -------------------------------------------------------------
+# 🌐 全局紧凑顶栏：系统品牌标识 + 行情源状态角标 + 「📂 当前激活账本」切换 + 🎨 外观 + i 详情 + ↩️ 冷备
+# -------------------------------------------------------------
+mlm_inst = st.session_state.get("mlm") or (MultiLedgerManager.get_instance() if MultiLedgerManager else None)
+all_ledgers = mlm_inst.list_ledgers() if mlm_inst else []
+avail_lids = [l["id"] for l in all_ledgers]
+active_lid = st.session_state.get("active_ledger_id", "main_live")
+if active_lid not in avail_lids:
+    active_lid = "main_live" if "main_live" in avail_lids else (avail_lids[0] if avail_lids else "main_live")
+    st.session_state.active_ledger_id = active_lid
+
+# 首次加载智能自动路由安全兜底 (持仓数 >= 10 只)
+if "_initial_ledger_routed" not in st.session_state:
+    st.session_state["_initial_ledger_routed"] = True
+    cur_pm_init = mlm_inst.get_pm(active_lid) if mlm_inst else pm
+    if cur_pm_init and len(cur_pm_init.holdings) >= 10:
+        st.session_state["sel_tab2_active_ledger"] = active_lid
+        st.session_state["tab2_view_mode"] = "💼 持仓诊断与智能调仓 (主流程)"
+        st.session_state["pending_cross_tab_jump"] = {
+            "tab_index": 0,
+            "tab_name": "持仓",
+            "action_name": "首次加载存量持仓",
+            "target_title": active_lid,
+            "detail": f"检测到【{active_lid}】包含 {len(cur_pm_init.holdings)} 只存量持仓，已自动聚焦持仓诊断与调仓工作区",
+            "timestamp": datetime.now().strftime("%H:%M:%S")
+        }
+        st.session_state["last_cross_tab_action"] = dict(st.session_state["pending_cross_tab_jump"])
+        st.session_state.tab2_diagnosed = True
+        st.session_state.tab2_rebalanced = True
+        st.session_state.tab2_trigger_diagnose = True
+        st.session_state.tab2_trigger_rebalance = True
+
+# 预计算时钟与指数概览（供顶栏 i 弹窗与首屏 Hero 共享）
+clock_color = active_co['color_up'] if market_status.is_golden_window else (active_co['color_down'] if market_status.is_after_market else active_th['accent_primary'])
+clock_title = "14:30黄金窗口" if market_status.is_golden_window else ("盘后已关账" if market_status.is_after_market else "盘中观察期")
+_plan_caliber = "存量瘦身重构" if active_lid == "combat_29_funds" else "动态股债平衡"
+_q_c300 = fetch_realtime_index_quote("sh000300", use_cache=True) or {}
+_q_kc50 = fetch_realtime_index_quote("sh000688", use_cache=True) or {}
+_q_hldb = fetch_realtime_index_quote("sh000922", use_cache=True) or {}
+_idx_bar = " ｜ ".join([
+    f"沪深300 {float(_q_c300.get('point') or c300_disp):,.1f} ({float(_q_c300.get('change_pct') or 0.0):+.2f}%)",
+    f"科创50 {float(_q_kc50.get('point') or 0.0):,.1f} ({float(_q_kc50.get('change_pct') or 0.0):+.2f}%)",
+    f"中证红利 {float(_q_hldb.get('point') or 0.0):,.1f} ({float(_q_hldb.get('change_pct') or 0.0):+.2f}%)",
+])
+
+# 统一顶栏（彻底去除割裂侧栏，整合品牌/状态 + 账本选择 + 外观 + i详情 + 冷备撤回）
+col_t_b, col_t_l = st.columns([4.2, 5.8])
+with col_t_b:
+    safe_markdown_html(f"""<div style="display:flex;align-items:center;gap:8px;padding-top:4px;flex-wrap:wrap;">
+        <span style="font-size:15px;font-weight:800;color:var(--text-primary);white-space:nowrap;">AGY2 智投</span>
+        <span style="font-size:11px;padding:2px 6px;border-radius:4px;background:rgba(37,99,235,0.08);color:var(--accent-primary);border:1px solid rgba(37,99,235,0.22);">{data_src_badge}</span>
+        <span style="font-size:11px;color:var(--text-muted);font-family:monospace;white-space:nowrap;">底座: {latest_date}</span>
+    </div>""")
+with col_t_l:
+    def _fmt_topbar_ledger(lid: str) -> str:
+        m = mlm_inst.get_ledger_meta(lid) or {}
+        tag = "[实盘]" if m.get("type") == "live" else ("[沙盒]" if m.get("type") == "sandbox" else "[家庭]")
+        name_str = str(m.get("name", lid))
+        if "¥" in name_str:
+            return f"{tag} {name_str}"
+        try:
+            eq = float(mlm_inst.get_pm(lid).total_equity)
+        except Exception:
+            eq = 0.0
+        return f"{tag} {name_str} (¥{eq:,.0f})"
+    active_idx = next((i for i, l in enumerate(all_ledgers) if l["id"] == active_lid), 0)
+    col_sel_ld, col_pop_theme, col_pop_info, col_pop_rv = st.columns([6.1, 1.3, 1.3, 1.3])
+    with col_sel_ld:
+        selected_lid = st.selectbox("当前激活账本", options=[l["id"] for l in all_ledgers], index=active_idx, format_func=_fmt_topbar_ledger, key=f"topbar_ledger_select_{active_lid}", label_visibility="collapsed")
+        if selected_lid != active_lid:
+            switch_active_ledger(selected_lid)
+            st.rerun()
+    with col_pop_theme:
+        with st.popover("🎨", help="界面主题与涨跌色彩定制"):
             st.caption("🎨 界面外观与色彩定制")
             th_display_names = [
                 "🏛️ 机构冷灰 (Institutional Slate)",
@@ -3451,302 +3572,6 @@ with st.sidebar:
                 on_change=_sync_color_mode_change,
                 help="自适应联动全站所有数字、行情带、持仓盈亏与穿透图表颜色"
             )
-
-    st.markdown("---")
-
-    # 2. 🕒 市场状态与底座 (G10: 精简为单行状态角标，消除与顶部4卡重复，提升首屏空间)
-    total_days = snapshot.get("total_days", 2142)
-    latest_date = snapshot.get("latest_date", "2026-11-04")
-    is_realtime_src = (
-        mb_data.get("is_realtime", False)
-        or any(k in str(mb_data.get("source", "")) for k in ["realtime", "eastmoney", "sina", "live"])
-    )
-    if is_realtime_src:
-        data_src_badge = "🟢 实时盘中源已连接"
-    else:
-        data_src_badge = "🟡 本地湖仓快照兜底" 
-
-    safe_markdown_html(f"""
-    <!-- ##### 🕒 市场状态与底座 -->
-    <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 4px 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
-        <span style="color: var(--text-secondary); white-space: nowrap;">行情源状态: <b style="color: var(--color-down);">{data_src_badge}</b></span>
-        <span style="color: var(--text-muted); font-family: monospace; white-space: nowrap;">底座: {latest_date}</span>
-    </div>
-    """)
-
-    st.markdown("---")
-
-    # 3. 核心指数行情走廊 (默认折叠，按需展开定制)
-    with st.expander("指数走廊", expanded=False):
-        col_sb_title, col_sb_opt, col_sb_rf = st.columns([5.5, 2.5, 2.0])
-        with col_sb_title:
-            st.markdown("##### 📊 核心指数行情走廊")
-    
-        # 读取持久化自选走廊配置
-        saved_watchlist = load_custom_watchlist()
-        if "sb_corridor_display_limit" not in st.session_state:
-            st.session_state.sb_corridor_display_limit = saved_watchlist.get("display_limit", 6)
-        if "sb_selected_corridor_indices" not in st.session_state:
-            st.session_state.sb_selected_corridor_indices = saved_watchlist.get("selected_codes", ["000300", "000688", "000922", "000905", "000852", "518880"])
-        if "sb_custom_corridor_items" not in st.session_state:
-            st.session_state.sb_custom_corridor_items = saved_watchlist.get("custom_items", {})
-    
-        with col_sb_opt:
-            with st.popover("⚙️", help="全市场自由定制与走廊配置"):
-                st.caption("⚙️ 核心指数走廊自由定制")
-                # 1. 3~15 展示数量滑块
-                cur_limit = int(st.session_state.sb_corridor_display_limit)
-                new_limit = st.slider(
-                    "走廊展示数量",
-                    min_value=3,
-                    max_value=15,
-                    value=cur_limit,
-                    step=1,
-                    key="sl_corridor_disp_limit",
-                    help="控制侧边栏卡片展示上限（3 至 15 只）"
-                )
-                if new_limit != cur_limit:
-                    st.session_state.sb_corridor_display_limit = new_limit
-                    saved_watchlist["display_limit"] = new_limit
-                    saved_watchlist["display_count"] = new_limit
-                    saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
-                    saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
-                    save_custom_watchlist(saved_watchlist)
-    
-                # 2. 全市场 38+ 目录 + 自定义项多选检索器 (支持拼音首字母/代码/名称三模检索并保持选择顺序)
-                combined_catalog = dict(INDEX_CATALOG_38)
-                combined_catalog.update(st.session_state.sb_custom_corridor_items)
-    
-                # 保证当前选中的代码均在 options 列表中
-                avail_options = []
-                for c in st.session_state.sb_selected_corridor_indices:
-                    if c not in avail_options:
-                        avail_options.append(c)
-                for c in combined_catalog.keys():
-                    if c not in avail_options:
-                        avail_options.append(c)
-    
-                def _fmt_option(k: str) -> str:
-                    item_info = combined_catalog.get(k, {})
-                    c_name = item_info.get("name", k)
-                    pinyin_str = item_info.get("pinyin", "")
-                    sec = item_info.get("sector", "")
-                    sec_tag = f"[{sec}] " if sec else ""
-                    return f"{sec_tag}{c_name} ({k}) [{pinyin_str}]"
-    
-                sel_corridor_keys = st.multiselect(
-                    "全市场自选列表 (支持拼音/代码/名称检索)",
-                    options=avail_options,
-                    default=st.session_state.sb_selected_corridor_indices,
-                    format_func=_fmt_option,
-                    key="ms_corridor_indices"
-                )
-                if sel_corridor_keys != st.session_state.sb_selected_corridor_indices:
-                    st.session_state.sb_selected_corridor_indices = sel_corridor_keys or ["000300", "000688", "000922", "000905", "000852", "518880"]
-                    saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
-                    saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
-                    saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
-                    saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
-                    save_custom_watchlist(saved_watchlist)
-    
-                # 3. 智能多模检索与标的接入 (支持拼音/代码/中文)
-                st.markdown("---")
-                st.caption("➕ 智能检索接入标的 (支持拼音首字母/汉字/代码，如 hldb、红利低波、H30269、510300)")
-                search_query = st.text_input("智能检索", placeholder="输入拼音/代码/中文 如 hldb、红利低波、H30269", label_visibility="collapsed", key="txt_add_custom_code")
-                clean_query = str(search_query).strip() if search_query else ""
-                cands = search_index_and_fund_candidates(clean_query, limit=8) if clean_query else []
-    
-                if cands:
-                    sel_cand = st.selectbox("选择匹配标的", options=cands, format_func=lambda x: str(x), key="sb_corridor_cand_select")
-                    if st.button("添加标的", key="btn_add_custom_code", type="primary", use_container_width=True, help="将选中标的加入自选指数走廊"):
-                        target_code = sel_cand.get("code")
-                        probe_res = validate_and_fetch_code(target_code) or dict(sel_cand)
-                        st.session_state.sb_custom_corridor_items[target_code] = probe_res
-                        if target_code not in st.session_state.sb_selected_corridor_indices:
-                            st.session_state.sb_selected_corridor_indices.insert(0, target_code)
-                        st.session_state["ms_corridor_indices"] = list(st.session_state.sb_selected_corridor_indices)
-                        saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
-                        saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
-                        saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
-                        saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
-                        save_custom_watchlist(saved_watchlist)
-                        st.success(f"已接入: {probe_res.get('name', target_code)} ({target_code})")
-                        st.rerun()
-                elif clean_query:
-                    if st.button("接入标的", key="btn_add_custom_code_direct", use_container_width=True):
-                        probe_res = validate_and_fetch_code(clean_query)
-                        if probe_res:
-                            target_code = probe_res.get("code", clean_query)
-                            st.session_state.sb_custom_corridor_items[target_code] = probe_res
-                            if target_code not in st.session_state.sb_selected_corridor_indices:
-                                st.session_state.sb_selected_corridor_indices.insert(0, target_code)
-                            st.session_state["ms_corridor_indices"] = list(st.session_state.sb_selected_corridor_indices)
-                            saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
-                            saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
-                            saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
-                            saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
-                            save_custom_watchlist(saved_watchlist)
-                            st.success(f"已接入: {probe_res.get('name', target_code)} ({target_code})")
-                            st.rerun()
-                        else:
-                            st.error(f"代码/名称 {clean_query} 探针失败，未能获取有效盘中行情")
-    
-        with col_sb_rf:
-            if st.button("刷新", key="btn_refresh_all_live_quotes", help="极速刷新实时行情", use_container_width=True):
-                clear_realtime_cache()
-                fetch_custom_realtime_indices(codes=st.session_state.sb_selected_corridor_indices, use_cache=False)
-                fetch_market_turnover_and_sentiment(force_refresh=True)
-                fetch_or_calc_index_valuations(force_refresh=False)  # 严格使用 False，彻底消除外部 PE 爬虫卡死！
-                if hasattr(pm, "holdings") and pm.holdings:
-                    prefetch_batch_fund_quotes(list(pm.holdings.keys()), force_refresh=True)  # 单次 HTTP 批量获取全量估值
-                pm.sync_holdings_live_nav(use_intraday_gsz=True)
-                st.session_state["_cached_session_intraday_pnl"] = None  # 强制使 60s 持仓盈亏缓存失效
-                st.session_state["_cached_session_intraday_pnl_ts"] = 0
-                StrategyBridge._cached_snapshot = None
-                st.rerun()
-    
-        # 根据展示数量滑块切片取前 N 只
-        display_limit = int(st.session_state.get("sb_corridor_display_limit", 6))
-        current_corridor_codes = st.session_state.get("sb_selected_corridor_indices", ["000300", "000688", "000922", "000905", "000852", "518880"])[:display_limit]
-    
-        # 拉取当前批次实时指数行情与估值
-        active_corridor_list = fetch_custom_realtime_indices(codes=current_corridor_codes, use_cache=True)
-        corridor_val_map = fetch_or_calc_index_valuations(force_refresh=False)
-    
-        rendered_count = 0
-        corridor_cards_html = []
-        for idx_item in active_corridor_list:
-            icode = idx_item["code"]
-            rendered_count += 1
-            c_pct = float(idx_item["change_pct"])
-            c_badge_cls = "sidebar-index-badge-up" if c_pct > 0 else ("sidebar-index-badge-down" if c_pct < 0 else "sidebar-index-badge-flat")
-            c_sign = "+" if c_pct > 0 else ""
-            is_small_pt = (idx_item["point"] < 100.0)
-            pt_fmt = f"{idx_item['point']:,.3f}" if is_small_pt else f"{idx_item['point']:,.2f}"
-    
-            # 估值分位标签
-            v_meta = corridor_val_map.get(icode) or corridor_val_map.get(idx_item.get("secid", "")) or {}
-            v_label = v_meta.get("label", "")
-            v_status = v_meta.get("status", "mid")
-            # 兼容连字符与下划线两种类名
-            val_cls_name = f"val-{v_status.replace('_', '-')}"
-            if not v_label:
-                v_label = "适中"
-                val_cls_name = "val-mid"
-            v_badge_html = f'<span class="index-pill-val-badge {val_cls_name}">{v_label}</span>'
-    
-            # 近 20 日累计涨跌幅
-            ret20 = float(idx_item.get("ret_20d", 0.0))
-            ret20_sign = "+" if ret20 > 0 else ""
-            ret20_color = "var(--color-up, #ef4444)" if ret20 > 0 else ("var(--color-down, #10b981)" if ret20 < 0 else "var(--text-muted)")
-    
-            # MA20 趋势与偏离状态
-            trend_status_text = idx_item.get("trend_status", "")
-            trend_color = idx_item.get("trend_color", "var(--text-secondary)")
-            ma20_fmt = idx_item.get("ma20_fmt", "")
-    
-            corridor_cards_html.append(f"""
-            <div class="sidebar-index-card">
-                <!-- 第 1 行：指数名称、代码、最新点位与涨跌幅防压扁胶囊 -->
-                <div class="sidebar-card-row-top">
-                    <div class="sidebar-card-title-box">
-                        <span class="sidebar-index-name">{idx_item['name']}</span>
-                        <span class="sidebar-index-code">{icode}</span>
-                    </div>
-                    <div class="sidebar-card-quote-box">
-                        <span class="sidebar-index-pt">{pt_fmt}</span>
-                        <span class="sidebar-index-badge {c_badge_cls}" style="flex: 0 0 auto !important; white-space: nowrap !important;">{c_sign}{c_pct:.2f}%</span>
-                    </div>
-                </div>
-    
-                <!-- 第 2 行：真实 PE/PB 估值分位数徽章 与 近20日累计涨跌幅 -->
-                <div class="sidebar-card-row-mid">
-                    {v_badge_html}
-                    <span class="sidebar-card-ret20" style="color: {ret20_color};">近20日 {ret20_sign}{ret20:.1f}%</span>
-                </div>
-    
-                <!-- 第 3 行：MA20 趋势生命线与乖离率攻防状态 -->
-                <div class="sidebar-card-row-bot">
-                    <span class="sidebar-card-trend-text" style="color: {trend_color};">{trend_status_text}</span>
-                    <span class="sidebar-card-ma-pt">MA20: {ma20_fmt}</span>
-                </div>
-            </div>
-            """)
-    
-        safe_markdown_html("\n".join(corridor_cards_html))
-        st.caption(f"💡 点击右上角 ⚙️ 可自由定制 38+ 全市场指数与任意 6 位代码。当前展示 {rendered_count}/{len(st.session_state.sb_selected_corridor_indices)} 只标的。")
-
-# -------------------------------------------------------------
-# 🌐 全局紧凑顶栏：系统品牌标识 + 行情源状态角标 + 「📂 当前激活账本」切换 + 「🖥️ 桌面专业 / 📱 手机盯盘」切换胶囊
-# -------------------------------------------------------------
-mlm_inst = st.session_state.get("mlm") or (MultiLedgerManager.get_instance() if MultiLedgerManager else None)
-all_ledgers = mlm_inst.list_ledgers() if mlm_inst else []
-avail_lids = [l["id"] for l in all_ledgers]
-active_lid = st.session_state.get("active_ledger_id", "main_live")
-if active_lid not in avail_lids:
-    active_lid = "main_live" if "main_live" in avail_lids else (avail_lids[0] if avail_lids else "main_live")
-    st.session_state.active_ledger_id = active_lid
-
-# 首次加载智能自动路由安全兜底 (持仓数 >= 10 只)
-if "_initial_ledger_routed" not in st.session_state:
-    st.session_state["_initial_ledger_routed"] = True
-    cur_pm_init = mlm_inst.get_pm(active_lid) if mlm_inst else pm
-    if cur_pm_init and len(cur_pm_init.holdings) >= 10:
-        st.session_state["sel_tab2_active_ledger"] = active_lid
-        st.session_state["tab2_view_mode"] = "💼 持仓诊断与智能调仓 (主流程)"
-        st.session_state["pending_cross_tab_jump"] = {
-            "tab_index": 0,
-            "tab_name": "持仓",
-            "action_name": "首次加载存量持仓",
-            "target_title": active_lid,
-            "detail": f"检测到【{active_lid}】包含 {len(cur_pm_init.holdings)} 只存量持仓，已自动聚焦持仓诊断与调仓工作区",
-            "timestamp": datetime.now().strftime("%H:%M:%S")
-        }
-        st.session_state["last_cross_tab_action"] = dict(st.session_state["pending_cross_tab_jump"])
-        st.session_state.tab2_diagnosed = True
-        st.session_state.tab2_rebalanced = True
-        st.session_state.tab2_trigger_diagnose = True
-        st.session_state.tab2_trigger_rebalance = True
-
-# 预计算时钟与指数概览（供顶栏 i 弹窗与首屏 Hero 共享）
-clock_color = active_co['color_up'] if market_status.is_golden_window else (active_co['color_down'] if market_status.is_after_market else active_th['accent_primary'])
-clock_title = "14:30黄金窗口" if market_status.is_golden_window else ("盘后已关账" if market_status.is_after_market else "盘中观察期")
-_plan_caliber = "存量瘦身重构" if active_lid == "combat_29_funds" else "动态股债平衡"
-_q_c300 = fetch_realtime_index_quote("sh000300", use_cache=True) or {}
-_q_kc50 = fetch_realtime_index_quote("sh000688", use_cache=True) or {}
-_q_hldb = fetch_realtime_index_quote("sh000922", use_cache=True) or {}
-_idx_bar = " ｜ ".join([
-    f"沪深300 {float(_q_c300.get('point') or c300_disp):,.1f} ({float(_q_c300.get('change_pct') or 0.0):+.2f}%)",
-    f"科创50 {float(_q_kc50.get('point') or 0.0):,.1f} ({float(_q_kc50.get('change_pct') or 0.0):+.2f}%)",
-    f"中证红利 {float(_q_hldb.get('point') or 0.0):,.1f} ({float(_q_hldb.get('change_pct') or 0.0):+.2f}%)",
-])
-
-# 统一顶栏（彻底去除割裂模式开关，整合账本选择 + i详情 + 冷备撤回）
-col_t_b, col_t_l = st.columns([4.4, 5.6])
-with col_t_b:
-    safe_markdown_html(f"""<div style="display:flex;align-items:center;gap:8px;padding-top:4px;flex-wrap:wrap;">
-        <span style="font-size:15px;font-weight:800;color:var(--text-primary);white-space:nowrap;">AGY2 智投</span>
-        <span style="font-size:11px;padding:2px 6px;border-radius:4px;background:rgba(37,99,235,0.08);color:var(--accent-primary);border:1px solid rgba(37,99,235,0.22);">{data_src_badge}</span>
-    </div>""")
-with col_t_l:
-    def _fmt_topbar_ledger(lid: str) -> str:
-        m = mlm_inst.get_ledger_meta(lid) or {}
-        tag = "[实盘]" if m.get("type") == "live" else ("[沙盒]" if m.get("type") == "sandbox" else "[家庭]")
-        name_str = str(m.get("name", lid))
-        if "¥" in name_str:
-            return f"{tag} {name_str}"
-        try:
-            eq = float(mlm_inst.get_pm(lid).total_equity)
-        except Exception:
-            eq = 0.0
-        return f"{tag} {name_str} (¥{eq:,.0f})"
-    active_idx = next((i for i, l in enumerate(all_ledgers) if l["id"] == active_lid), 0)
-    col_sel_ld, col_pop_info, col_pop_rv = st.columns([7.4, 1.3, 1.3])
-    with col_sel_ld:
-        selected_lid = st.selectbox("当前激活账本", options=[l["id"] for l in all_ledgers], index=active_idx, format_func=_fmt_topbar_ledger, key=f"topbar_ledger_select_{active_lid}", label_visibility="collapsed")
-        if selected_lid != active_lid:
-            switch_active_ledger(selected_lid)
-            st.rerun()
     with col_pop_info:
         with st.popover("i", help="查看时钟、估值与攻防详情"):
             st.markdown(f"**实时指数**：{_idx_bar}")
@@ -3787,7 +3612,148 @@ with col_t_l:
                 st.error(f"撤回失败: {_e}")
 
 # -------------------------------------------------------------
-# 首屏大字看板：3 张等宽 Hero 卡（总资产 + 今日盈亏 + 市场定调，零孤立空白）
+# 顶部紧凑单行指数走廊横条 (Top Compact Index Strip · 32px 高度)
+# -------------------------------------------------------------
+display_limit = int(st.session_state.get("sb_corridor_display_limit", 6))
+current_corridor_codes = st.session_state.get("sb_selected_corridor_indices", ["000300", "000688", "000922", "000905", "000852", "518880"])[:display_limit]
+
+active_corridor_list = fetch_custom_realtime_indices(codes=current_corridor_codes, use_cache=True)
+corridor_val_map = fetch_or_calc_index_valuations(force_refresh=False)
+
+col_idx_strip, col_idx_cfg, col_idx_rf = st.columns([8.4, 0.8, 0.8])
+with col_idx_strip:
+    pills_html = []
+    for idx_item in active_corridor_list:
+        icode = idx_item["code"]
+        c_pct = float(idx_item["change_pct"])
+        c_sign = "+" if c_pct > 0 else ""
+        c_cls = "top-index-chg-up" if c_pct > 0 else ("top-index-chg-down" if c_pct < 0 else "top-index-chg-flat")
+        is_small_pt = (idx_item["point"] < 100.0)
+        pt_fmt = f"{idx_item['point']:,.3f}" if is_small_pt else f"{idx_item['point']:,.2f}"
+
+        v_meta = corridor_val_map.get(icode) or corridor_val_map.get(idx_item.get("secid", "")) or {}
+        v_label = v_meta.get("label", "")
+        v_status = v_meta.get("status", "mid")
+        val_cls_name = f"val-{v_status.replace('_', '-')}"
+        if not v_label:
+            v_label = "适中"
+            val_cls_name = "val-mid"
+        v_badge_html = f'<span class="index-pill-val-badge {val_cls_name}">{v_label}</span>'
+
+        pills_html.append(f'<div class="top-index-pill"><span class="top-index-name">{idx_item["name"]}</span><span class="top-index-pt">{pt_fmt}</span><span class="{c_cls}">{c_sign}{c_pct:.2f}%</span>{v_badge_html}</div>')
+
+    safe_markdown_html(f'<div class="top-index-strip">{"".join(pills_html)}</div>')
+
+with col_idx_cfg:
+    with st.popover("⚙️", help="走廊展示数量、自选标的与多模检索定制"):
+        st.caption("⚙️ 核心指数走廊自由定制")
+        cur_limit = int(st.session_state.sb_corridor_display_limit)
+        new_limit = st.slider(
+            "走廊展示数量",
+            min_value=3,
+            max_value=15,
+            value=cur_limit,
+            step=1,
+            key="sl_corridor_disp_limit",
+            help="控制顶部单行卡片展示上限（3 至 15 只）"
+        )
+        if new_limit != cur_limit:
+            st.session_state.sb_corridor_display_limit = new_limit
+            saved_watchlist["display_limit"] = new_limit
+            saved_watchlist["display_count"] = new_limit
+            saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
+            saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
+            save_custom_watchlist(saved_watchlist)
+
+        combined_catalog = dict(INDEX_CATALOG_38)
+        combined_catalog.update(st.session_state.sb_custom_corridor_items)
+
+        avail_options = []
+        for c in st.session_state.sb_selected_corridor_indices:
+            if c not in avail_options:
+                avail_options.append(c)
+        for c in combined_catalog.keys():
+            if c not in avail_options:
+                avail_options.append(c)
+
+        def _fmt_option(k: str) -> str:
+            item_info = combined_catalog.get(k, {})
+            c_name = item_info.get("name", k)
+            pinyin_str = item_info.get("pinyin", "")
+            sec = item_info.get("sector", "")
+            sec_tag = f"[{sec}] " if sec else ""
+            return f"{sec_tag}{c_name} ({k}) [{pinyin_str}]"
+
+        sel_corridor_keys = st.multiselect(
+            "全市场自选列表 (支持拼音/代码/名称检索)",
+            options=avail_options,
+            default=st.session_state.sb_selected_corridor_indices,
+            format_func=_fmt_option,
+            key="ms_corridor_indices"
+        )
+        if sel_corridor_keys != st.session_state.sb_selected_corridor_indices:
+            st.session_state.sb_selected_corridor_indices = sel_corridor_keys or ["000300", "000688", "000922", "000905", "000852", "518880"]
+            saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
+            saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
+            saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
+            saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
+            save_custom_watchlist(saved_watchlist)
+
+        st.markdown("---")
+        st.caption("➕ 智能检索接入标的 (支持拼音首字母/汉字/代码，如 hldb、红利低波、H30269、510300)")
+        search_query = st.text_input("智能检索", placeholder="输入拼音/代码/中文 如 hldb、红利低波、H30269", label_visibility="collapsed", key="txt_add_custom_code")
+        clean_query = str(search_query).strip() if search_query else ""
+        cands = search_index_and_fund_candidates(clean_query, limit=8) if clean_query else []
+
+        if cands:
+            sel_cand = st.selectbox("选择匹配标的", options=cands, format_func=lambda x: str(x), key="sb_corridor_cand_select")
+            if st.button("添加标的", key="btn_add_custom_code", type="primary", use_container_width=True, help="将选中标的加入自选指数走廊"):
+                target_code = sel_cand.get("code")
+                probe_res = validate_and_fetch_code(target_code) or dict(sel_cand)
+                st.session_state.sb_custom_corridor_items[target_code] = probe_res
+                if target_code not in st.session_state.sb_selected_corridor_indices:
+                    st.session_state.sb_selected_corridor_indices.insert(0, target_code)
+                st.session_state["ms_corridor_indices"] = list(st.session_state.sb_selected_corridor_indices)
+                saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
+                saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
+                saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
+                saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
+                save_custom_watchlist(saved_watchlist)
+                st.success(f"已接入: {probe_res.get('name', target_code)} ({target_code})")
+                st.rerun()
+        elif clean_query:
+            if st.button("接入标的", key="btn_add_custom_code_direct", use_container_width=True):
+                probe_res = validate_and_fetch_code(clean_query)
+                if probe_res:
+                    target_code = probe_res.get("code", clean_query)
+                    st.session_state.sb_custom_corridor_items[target_code] = probe_res
+                    if target_code not in st.session_state.sb_selected_corridor_indices:
+                        st.session_state.sb_selected_corridor_indices.insert(0, target_code)
+                    st.session_state["ms_corridor_indices"] = list(st.session_state.sb_selected_corridor_indices)
+                    saved_watchlist["display_limit"] = st.session_state.sb_corridor_display_limit
+                    saved_watchlist["display_count"] = st.session_state.sb_corridor_display_limit
+                    saved_watchlist["selected_codes"] = st.session_state.sb_selected_corridor_indices
+                    saved_watchlist["custom_items"] = st.session_state.sb_custom_corridor_items
+                    save_custom_watchlist(saved_watchlist)
+                    st.success(f"已接入: {probe_res.get('name', target_code)} ({target_code})")
+                    st.rerun()
+                else:
+                    st.error(f"代码/名称 {clean_query} 探针失败，未能获取有效盘中行情")
+
+with col_idx_rf:
+    if st.button("刷新", key="btn_refresh_all_live_quotes", help="极速刷新实时行情", use_container_width=True):
+        clear_realtime_cache()
+        fetch_custom_realtime_indices(codes=st.session_state.sb_selected_corridor_indices, use_cache=False)
+        fetch_market_turnover_and_sentiment(force_refresh=True)
+        fetch_or_calc_index_valuations(force_refresh=False)  # 严格使用 False，彻底消除外部 PE 爬虫卡死！
+        if hasattr(pm, "holdings") and pm.holdings:
+            prefetch_batch_fund_quotes(list(pm.holdings.keys()), force_refresh=True)  # 单次 HTTP 批量获取全量估值
+        pm.sync_holdings_live_nav(use_intraday_gsz=True)
+        st.session_state["_cached_session_intraday_pnl"] = None  # 强制使 60s 持仓盈亏缓存失效
+        st.session_state["_cached_session_intraday_pnl_ts"] = 0
+        StrategyBridge._cached_snapshot = None
+        st.rerun()
+
 # -------------------------------------------------------------
 hero_c1, hero_c2, hero_c3 = st.columns(3)
 with hero_c1:

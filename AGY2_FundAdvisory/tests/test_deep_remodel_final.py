@@ -143,14 +143,11 @@ def test_ui_cleanliness_and_title_length():
     assert '[data-testid="stStatusWidget"]' in text
     assert '#MainMenu' in text
     
-    # 2. 检查侧边栏展开/收起按钮放行（Streamlit 1.66 属性）
-    assert '[data-testid="stExpandSidebarButton"]' in text
-    assert '[data-testid="stSidebarCollapseButton"]' in text
-    assert '[data-testid="collapsedControl"]' in text
-    
-    # 3. 检查侧边栏全局领航台已挂载
-    assert 'with st.sidebar:' in text
-    assert 'st.subheader("🧭 全局领航台")' in text
+    # 2. 检查彻底移除左侧边栏（方案 A：无侧栏全宽现代金融客户端）
+    assert '[data-testid="stSidebar"]' in text
+    assert 'with st.sidebar:' not in text
+    assert 'sb_theme_selector' in text
+    assert 'btn_refresh_all_live_quotes' in text
     
     # 4. 检查 3 栏深度归因大卡片
     assert '#### 🎯 方案核心归因' in text

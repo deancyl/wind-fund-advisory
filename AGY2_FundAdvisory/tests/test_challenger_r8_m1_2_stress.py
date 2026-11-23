@@ -399,9 +399,8 @@ class TestAppTestGeometryAndVisualIntegrity:
         assert not at.exception, f"AppTest threw exception: {at.exception}"
         assert len(at.error) == 0, f"AppTest reported errors: {[e.value for e in at.error]}"
 
-        # 验证侧边栏标题与核心走廊挂载
-        subheaders = [s.value for s in at.sidebar.subheader]
-        assert any("全局领航台" in s for s in subheaders), f"Sidebar subheader missing: {subheaders}"
+        # 验证核心走廊刷新按钮挂载
+        assert at.button(key="btn_refresh_all_live_quotes") is not None, "核心行情带必须含有完整的刷新按钮"
 
 
 # ==============================================================================
