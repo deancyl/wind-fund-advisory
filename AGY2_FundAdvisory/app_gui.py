@@ -3573,7 +3573,7 @@ with st.sidebar:
                         st.success(f"已接入: {probe_res.get('name', target_code)} ({target_code})")
                         st.rerun()
                 elif clean_query:
-                    if st.button("接入标的", key="btn_add_custom_code", use_container_width=True):
+                    if st.button("接入标的", key="btn_add_custom_code_direct", use_container_width=True):
                         probe_res = validate_and_fetch_code(clean_query)
                         if probe_res:
                             target_code = probe_res.get("code", clean_query)
@@ -6888,80 +6888,8 @@ with tab_holdings_and_rebalance:
             mae_str = f"{(sum(off_published_diffs) / off_count):.2f}%" if off_count > 0 else "待晚间公布"
             dual_mae_str = f"{(sum(dual_src_diffs) / len(dual_src_diffs)):.2f}%" if dual_src_diffs else "--"
 
-            st.caption(
-                f"📊 **估值精度双轨对账**：今日官方净值已出 **{off_count}/{total_h_cnt} 只** ｜ "
-                f"已出标的估算平均误差 (MAE): **{mae_str}** ｜ 基金级估值 vs 指数穿透平均分歧: **{dual_mae_str}**"
-            )
-            with st.expander("估值对账", expanded=False):
-                st.markdown("**估值 vs 官方逐基对账单**")
-                if _is_mobile_viewport():
-                    mc1, mc2 = st.columns(2)
-                    mc1.metric("官方净值已公布", f"{off_count}/{total_h_cnt} 只")
-                    mc2.metric("官方vs估算 MAE", mae_str)
-                    mc3, mc4 = st.columns(2)
-                    mc3.metric("双源平均分歧", dual_mae_str)
-                    mc4.metric("核算准则", "4位修约+C类日费")
-                else:
-                    mc1, mc2, mc3, mc4 = st.columns(4)
-                    mc1.metric("官方净值已公布", f"{off_count}/{total_h_cnt} 只")
-                    mc2.metric("官方vs估算 MAE", mae_str)
-                    mc3.metric("双源平均分歧", dual_mae_str)
-                    mc4.metric("核算准则", "4位修约+C类日费")
-                df_aud_all = pd.DataFrame(audit_rows)
-                if _is_mobile_viewport() and not df_aud_all.empty:
-                    m_cols = [c for c in ["基金名称", "当日综合估算(%)", "官方实际涨跌(%)", "偏差归因与来源"] if c in df_aud_all.columns]
-                    st.dataframe(df_aud_all[m_cols], use_container_width=True, hide_index=True)
-                else:
-                    st.dataframe(df_aud_all, use_container_width=True, hide_index=True)
-
         if sub_hold_view == "持仓明细":
             _render_daily_movers_strip(pm)
-
-            # 今日关键信息感知与调仓裁决卡 (去重精简 3 胶囊状态条，首屏直达表格)
-            tail_sub = f"可回收 ¥{t_cash:,.2f}" if t_count > 0 else "无碎片"
-            deep_sub = "浮亏 >10%" if d_loss_count > 0 else "无深套"
-            if active_lid == "combat_29_funds":
-                card6_val = "三阶重塑止血"
-                card6_sub = "清扫19尾仓·置换深套"
-            else:
-                card6_val = f"【{v_title}】"
-                card6_sub = "清扫尾仓·降本增效" if t_count > 0 else ("监控深套·适时置换" if d_loss_count > 0 else "平稳持有")
-            deep_col = "var(--color-up)" if d_loss_count > 0 else "var(--color-down)"
-
-            safe_markdown_html(f"""
-            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;margin-bottom:8px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:8px;">
-                <span style="font-size:12px;color:var(--text-primary);padding:2px 8px;border-radius:4px;background:var(--bg-elevated);">
-                    🧹 <b>免赎碎片尾仓</b>：<b style="color:var(--accent-primary);">{t_count} 只</b>（{tail_sub}）
-                </span>
-                <span style="font-size:12px;color:var(--text-primary);padding:2px 8px;border-radius:4px;background:var(--bg-elevated);">
-                    🩺 <b>深套出血点</b>：<b style="color:{deep_col};">{d_loss_count} 只</b>（{deep_sub}）
-                </span>
-                <span style="font-size:12px;color:var(--text-primary);padding:2px 8px;border-radius:4px;background:var(--bg-elevated);">
-                    🎯 <b>今日调仓裁决</b>：<b style="color:var(--accent-primary);">{card6_val}</b>（{card6_sub}）
-                </span>
-            </div>
-            """)
-
-            # 专属处方建议卡
-            if active_lid == "combat_29_funds":
-                col_rx_btn1, col_rx_info, col_rx_cap = st.columns([3.0, 0.8, 6.2])
-                with col_rx_btn1:
-                    if st.button("一键重塑", key="btn_apply_combat29_rx", type="primary", use_container_width=True, help="三步瘦身重构：清扫19只免赎尾仓、011613 C转A置换、聚焦6只核心池"):
-                        st.session_state.rad_tab2_scenario_mode = "🧹 尾部碎片与C类一键归拢 (清理<3%碎片与满期高费率C类至底仓)"
-                        st.session_state.sel_sc_anchor = "002351 - 易方达裕祥回报债券A"
-                        st.session_state.tab2_c_replace = "011613"
-                        st.session_state.tab2_diagnosed = True
-                        st.session_state.tab2_rebalanced = True
-                        st.session_state.tab2_trigger_rebalance = True
-                        st.session_state.tab2_rebal_cache = None
-                        st.rerun()
-                with col_rx_info:
-                    with st.popover("i", help="查看三步瘦身重塑方案"):
-                        st.markdown(f"1. **尾仓归拢**：清扫 {t_count} 只免赎尾仓，回收 **¥{cash_min:.2f}** 并入纯债底仓 `002351`；")
-                        st.markdown("2. **C转A省费**：`011613` 零赎回费转入 `011612`，年省销售服务费 0.40%；")
-                        st.markdown("3. **核心聚焦**：重构 6 只全天候底仓，压降极端回撤。")
-                with col_rx_cap:
-                    st.caption(f"可盘活现金 ¥{cash_min:.2f} ~ ¥{cash_max:.2f} 并聚焦 6 只核心底仓")
 
             # 实时持仓明细表
             if _is_mobile_viewport():
