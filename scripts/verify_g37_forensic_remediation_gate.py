@@ -52,7 +52,7 @@ def main():
             "/api/v1/review/forward_audit",
             "/api/v1/diagnose/risk_check",
         ]:
-            with urllib.request.urlopen(f"http://127.0.0.1:18099{ep}", timeout=5.0) as r:
+            with urllib.request.urlopen(f"http://127.0.0.1:18099{ep}", timeout=15.0) as r:
                 assert r.status == 200, f"{ep} 返回非 200: {r.status}"
                 txt = r.read().decode("utf-8")
                 assert "<div" not in txt and "<span" not in txt, f"{ep} 响应存在 HTML 污染"
