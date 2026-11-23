@@ -1,0 +1,27 @@
+[
+  {
+    "code": "161725",
+    "name": "中证白酒",
+    "asset_type": "fund"
+  },
+  {
+    "code": "512480",
+    "name": "半导体ETF",
+    "asset_type": "etf"
+  },
+  {
+    "code": "513180",
+    "name": "恒生科技ETF",
+    "asset_type": "etf"
+  },
+  {
+    "code": "005561",
+    "name": "红利低波",
+    "asset_type": "fund"
+  },
+  {
+    "code": "511260",
+    "name": "十年国债ETF",
+    "asset_type": "etf"
+  }
+]
