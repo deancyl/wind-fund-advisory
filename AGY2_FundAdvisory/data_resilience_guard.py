@@ -24,13 +24,13 @@ def _build_default_channels() -> Dict[str, Dict[str, Any]]:
             "is_critical": True,
         },
         "tiantian_fundgz": {
-            "name": "天天基金盘中实时估值",
+            "name": "天天基金估值热备",
             "status": "UNKNOWN",
             "latency_ms": None,
             "last_success": "",
             "last_checked": "",
             "consecutive_failures": 0,
-            "is_critical": True,
+            "is_critical": False,
         },
         "sina_fu": {
             "name": "新浪全球与场内ETF网关",
@@ -85,7 +85,7 @@ class DataSourceHealthRegistry:
 
     @classmethod
     def mark_channel_standby(cls, channel_key: str, note: str = "热备通道待命（主源已全覆盖）") -> None:
-        """主通道已全量覆盖时，将备用补漏通道标记为 STANDBY（待命正常态），禁止误报降级。"""
+        """主通道已全量覆盖或漏网标的无独立估值文件时，将备用补漏通道标记为 STANDBY（待命正常态），禁止误报降级。"""
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with cls._LOCK:
             if channel_key not in cls._HEALTH_RECORDS:
@@ -101,12 +101,12 @@ class DataSourceHealthRegistry:
                 }
             else:
                 rec = cls._HEALTH_RECORDS[channel_key]
-                if rec.get("status") in ("UNKNOWN", "STANDBY"):
-                    rec["status"] = "STANDBY"
-                    rec["last_checked"] = now_str
-                    rec["note"] = note
-                    if not rec.get("last_success"):
-                        rec["last_success"] = now_str
+                rec["status"] = "STANDBY"
+                rec["last_checked"] = now_str
+                rec["note"] = note
+                rec["consecutive_failures"] = 0
+                if not rec.get("last_success"):
+                    rec["last_success"] = now_str
 
     @classmethod
     def record_channel_ping(
@@ -131,7 +131,7 @@ class DataSourceHealthRegistry:
                     "last_success": "",
                     "last_checked": "",
                     "consecutive_failures": 0,
-                    "is_critical": channel_key in ("eastmoney_mnf", "tiantian_fundgz"),
+                    "is_critical": channel_key == "eastmoney_mnf",
                 }
             rec = cls._HEALTH_RECORDS[channel_key]
             rec["latency_ms"] = lat
@@ -171,7 +171,7 @@ class DataSourceHealthRegistry:
         if tt_status == "RED" and em_status != "GREEN":
             return (
                 True,
-                f"关键实时估值源【天天基金盘中实时估值(tiantian_fundgz)】已触发 RED 熔断且主源尚未确认健康，建议暂停激进调仓。",
+                f"关键实时估值源【天天基金估值热备(tiantian_fundgz)】已触发 RED 熔断且主源尚未确认健康，建议暂停激进调仓。",
             )
         if len(red_channels) >= 2:
             return (

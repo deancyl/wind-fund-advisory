@@ -4348,12 +4348,9 @@ if "pending_cross_tab_jump" in st.session_state and st.session_state["pending_cr
 # ── 静默记录每日样本外裁决快照 & 降级告警 ──
 try:
     _d_health = data_resilience_guard.DataSourceHealthRegistry.get_health_summary()
-    if int(_d_health.get("red_count", 0)) > 0:
-        _deg_names = "、".join(_d_health.get("degraded_channels", [])) or "核心源"
-        st.error(f"核心行情源异常：{_deg_names}（已切换本地缓存保护）")
-    elif int(_d_health.get("degraded_count", 0)) > 0:
-        _deg_names = "、".join(_d_health.get("degraded_names", [])) or "部分源"
-        st.warning(f"行情通道异常降级：{_deg_names}（已自动启用备用源）")
+    if bool(_d_health.get("pause_aggressive_rebalance", False)):
+        _pause_msg = str(_d_health.get("pause_reason") or "核心行情主源异常（已切换本地缓存保护）")
+        st.error(_pause_msg)
 
     _snap_d = snapshot or {}
     _td = str(_snap_d.get("date") or datetime.now().strftime("%Y-%m-%d"))

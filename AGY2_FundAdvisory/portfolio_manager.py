@@ -3869,18 +3869,20 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
 
         _tt_t0 = time.perf_counter()
         _tt_ok_flags: List[bool] = []
+        _tt_reachable_flags: List[bool] = []
+        _tt_net_errors: List[str] = []
 
         def _fetch_single_gz(c_code: str):
             try:
                 gz_url = f"http://fundgz.1234567.com.cn/js/{c_code}.js?rt={int(time.time()*1000)}"
                 gz_req = urllib.request.Request(
                     gz_url,
-                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "http://fund.eastmoney.com/"}
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "https://fund.eastmoney.com/"}
                 )
-                with urllib.request.urlopen(gz_req, timeout=1.5) as gz_resp:
+                with urllib.request.urlopen(gz_req, timeout=2.0) as gz_resp:
                     gz_txt = gz_resp.read().decode("utf-8", errors="ignore")
+                _tt_reachable_flags.append(True)
                 if "jsonpgz(" in gz_txt:
-                    _tt_ok_flags.append(True)
                     m = re.search(r'jsonpgz\((.+?)\);', gz_txt)
                     if m and m.group(1).strip():
                         gz_json = json.loads(m.group(1))
@@ -3889,14 +3891,31 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
                         g_sz_zl = float(gz_json.get("gszzl", 0.0))
                         if g_sz > 0 and (g_time.startswith(active_date_prefix) or active_short_date in g_time):
                             tiantian_fundgz_map[c_code] = (g_sz, g_sz_zl, g_time)
+                            _tt_ok_flags.append(True)
+            except urllib.error.HTTPError as he:
+                if he.code in (400, 404):
+                    # HTTP 404 说明 CDN 服务器正常在线，只是该单只基金（如 002352 或纯债）无盘中估值文件，绝不判为通道故障
+                    _tt_reachable_flags.append(True)
                 else:
-                    _tt_ok_flags.append(False)
-            except Exception:
-                _tt_ok_flags.append(False)
+                    _tt_net_errors.append(f"HTTP_{he.code}")
+            except Exception as e:
+                _tt_net_errors.append(type(e).__name__)
 
         with ThreadPoolExecutor(max_workers=min(4, len(unhit_codes))) as gz_exec:
             list(gz_exec.map(_fetch_single_gz, unhit_codes))
-        _record_data_channel_health("tiantian_fundgz", ok=any(_tt_ok_flags), latency_ms=(time.perf_counter() - _tt_t0) * 1000.0)
+
+        _tt_lat = (time.perf_counter() - _tt_t0) * 1000.0
+        if any(_tt_ok_flags):
+            _record_data_channel_health("tiantian_fundgz", ok=True, latency_ms=_tt_lat)
+        elif any(_tt_reachable_flags) and not _tt_net_errors:
+            # 服务器可达但本批漏网代码本身无盘中估值文件（例如 002352 或纯债），标记为 STANDBY 备用待命态
+            try:
+                from data_resilience_guard import DataSourceHealthRegistry
+                DataSourceHealthRegistry.mark_channel_standby("tiantian_fundgz", note="CDN在线·当前漏网标的为无估值债基")
+            except Exception:
+                pass
+        elif _tt_net_errors:
+            _record_data_channel_health("tiantian_fundgz", ok=False, latency_ms=_tt_lat)
 
     needed_syms = {"sh000300", "sh000922", "sh511380", "511260"}
     need_fx = False
@@ -4662,7 +4681,12 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True, sync_disk:
             if "jsonpgz(" in content_tt:
                 _record_data_channel_health("tiantian_fundgz", ok=True, latency_ms=(time.perf_counter() - _t0) * 1000.0)
             else:
-                _record_data_channel_health("tiantian_fundgz", ok=False, latency_ms=(time.perf_counter() - _t0) * 1000.0)
+                try:
+                    from data_resilience_guard import DataSourceHealthRegistry
+                    DataSourceHealthRegistry.mark_channel_standby("tiantian_fundgz", note="单基无天天估值文件·热备待命")
+                except Exception:
+                    pass
+                return None
             m_tt = re.search(r'jsonpgz\((.+?)\);?', content_tt)
             if m_tt and m_tt.group(1).strip():
                 tt_data = json.loads(m_tt.group(1).strip())
@@ -4687,6 +4711,16 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True, sync_disk:
                         return q
                     q = FundQuote(name=name_tt, dwjz=dwjz_tt, gsz=gsz_tt, gszzl=gszzl_tt, gztime=gztime_tt, fund_code=code, is_official_nav=False)
                     return q
+        except urllib.error.HTTPError as he:
+            if he.code in (400, 404):
+                try:
+                    from data_resilience_guard import DataSourceHealthRegistry
+                    DataSourceHealthRegistry.mark_channel_standby("tiantian_fundgz", note="单基404·热备待命")
+                except Exception:
+                    pass
+            else:
+                _record_data_channel_health("tiantian_fundgz", ok=False, latency_ms=(time.perf_counter() - _t0) * 1000.0)
+            return None
         except Exception:
             _record_data_channel_health("tiantian_fundgz", ok=False, latency_ms=(time.perf_counter() - _t0) * 1000.0)
             return None

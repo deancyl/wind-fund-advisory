@@ -79,6 +79,25 @@ def verify_registry_logic():
     assert s4["degraded_count"] == 1
     assert s4["is_degraded"] is True
 
+    # 模拟 G36 单基 404: unhit_codes 仅含 002352 时 mark_channel_standby
+    DataSourceHealthRegistry.reset()
+    DataSourceHealthRegistry.record_channel_ping("eastmoney_mnf", ok=True, latency_ms=100.0)
+    DataSourceHealthRegistry.record_channel_ping("sina_fu", ok=True, latency_ms=150.0)
+    DataSourceHealthRegistry.mark_channel_standby("tiantian_fundgz", note="CDN在线·当前漏网标的为无估值债基")
+    s5 = DataSourceHealthRegistry.get_health_summary()
+    assert s5["channels"]["tiantian_fundgz"]["status"] == "STANDBY"
+    assert s5["degraded_count"] == 0
+    pause_req, _ = DataSourceHealthRegistry.should_pause_aggressive_rebalance()
+    assert pause_req is False
+
+    # 模拟 tiantian_fundgz 发生真实 TimeoutError 进入 RED，但主力源正常，不应暂停激进调仓
+    DataSourceHealthRegistry.record_channel_ping("tiantian_fundgz", ok=False, latency_ms=2000.0)
+    DataSourceHealthRegistry.record_channel_ping("tiantian_fundgz", ok=False, latency_ms=2000.0)
+    s6 = DataSourceHealthRegistry.get_health_summary()
+    assert s6["channels"]["tiantian_fundgz"]["status"] == "RED"
+    pause_req2, _ = DataSourceHealthRegistry.should_pause_aggressive_rebalance()
+    assert pause_req2 is False, "tiantian_fundgz 作为热备通道熔断时，只要主力源正常，绝不触发激进调仓暂停"
+
     print("  -> 状态机与降级判定逻辑完全正确！")
 
 
