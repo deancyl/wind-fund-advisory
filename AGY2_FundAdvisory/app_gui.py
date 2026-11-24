@@ -4787,20 +4787,31 @@ except Exception:
 # -------------------------------------------------------------
 # 统一清爽四大主工作区：持仓 / 调仓 / 复盘 / 工具
 # -------------------------------------------------------------
-safe_markdown_html('<div class="hide-desktop-main-tabs"></div>')
-tab_holdings_and_rebalance, tab_rebalance_and_create, tab_backtest, tab_toolbox = st.tabs([
-    "持仓",
-    "调仓",
-    "复盘",
-    "工具",
-])
-
 if "active_tier_val" not in st.session_state:
     st.session_state.active_tier_val = "C3"
 if "target_return_val" not in st.session_state:
     st.session_state.target_return_val = 15.0
 
-with tab_rebalance_and_create:
+active_main_nav = st.session_state.get("desktop_nav_tab", "持仓")
+
+# 移动端顶部极简 Segmented 控制器（桌面端由左侧导航栏掌控，移动端在此无缝切换）
+if _is_mobile_viewport():
+    _m_opts = ["持仓", "调仓", "复盘", "工具"]
+    _m_idx = _m_opts.index(active_main_nav) if active_main_nav in _m_opts else 0
+    _m_sel = st.radio(
+        "移动主导航",
+        _m_opts,
+        index=_m_idx,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="rad_mobile_main_nav_tab"
+    )
+    if _m_sel != active_main_nav:
+        st.session_state["desktop_nav_tab"] = _m_sel
+        st.session_state["active_main_nav"] = _m_sel
+        active_main_nav = _m_sel
+
+if active_main_nav == "调仓":
     sub_rebal_view = st.radio(
         "调仓分段",
         ["今日调仓", "新钱定投", "存量重塑"],
@@ -4867,7 +4878,7 @@ with tab_rebalance_and_create:
     else:
         _should_render_reconstruction = False
 
-if locals().get("_should_render_reconstruction", False):
+if active_main_nav == "调仓" and locals().get("_should_render_reconstruction", False):
     try:
         active_tier = st.session_state.get("active_tier_val", "C3")
         cur_tier_meta = RISK_TIERS_CONFIG.get(active_tier, RISK_TIERS_CONFIG["C3"])
@@ -6420,7 +6431,7 @@ def _render_daily_movers_strip(pm_inst):
         pass
 
 
-with tab_holdings_and_rebalance:
+if active_main_nav == "持仓":
 
     try:
         active_tier = st.session_state.get("active_tier_val", "C3")
@@ -9502,7 +9513,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any], 
         _render_ac_fee_calculator()
 
 
-with tab_backtest:
+if active_main_nav == "复盘":
     try:
         # 彻底移除拦路按钮，切换即现场渲染
         render_tab3_backtest_content(pm, snapshot)
@@ -9512,7 +9523,7 @@ with tab_backtest:
 # =============================================================
 # Tab 4: 【🔍 穿透工具】（大类穿透/加权行业/重合热力图/底层排雷/AC算费/ETF溢价）
 # =============================================================
-with tab_toolbox:
+if active_main_nav == "工具":
     try:
         tb_view = st.radio(
             "工具分段",

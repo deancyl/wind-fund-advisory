@@ -133,20 +133,26 @@ def main():
     print("--- [Stage 6] Playwright 实机双端无头浏览器零异常验收 ---")
     try:
         from playwright.sync_api import sync_playwright
+        import urllib.request
+        target_port = 8501
+        try:
+            urllib.request.urlopen("http://127.0.0.1:8501", timeout=1)
+        except Exception:
+            target_port = 8585
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             for label, vp in [("desktop_1440", {"width": 1440, "height": 900}), ("mobile_390", {"width": 390, "height": 844})]:
                 page = browser.new_page(viewport=vp)
                 try:
-                    page.goto("http://127.0.0.1:8501", wait_until="networkidle", timeout=12000)
+                    page.goto(f"http://127.0.0.1:{target_port}", wait_until="networkidle", timeout=12000)
                 except Exception:
-                    page.goto("http://127.0.0.1:8501", timeout=12000)
+                    page.goto(f"http://127.0.0.1:{target_port}", timeout=12000)
                 page.wait_for_timeout(3000)
                 err_cnt = page.locator('[data-testid="stException"]').count()
                 assert err_cnt == 0, f"[{label}] 页面出现红框异常 (count={err_cnt})"
                 screenshot_path = ROOT / f"g39_{label}_verified.png"
                 page.screenshot(path=str(screenshot_path), full_page=False)
-                print(f"  [OK] [{label}] 视口实测通过: 0 红框报错，截图已保存至 {screenshot_path.name}")
+                print(f"  [OK] [{label}] 视口实测通过: 0 红框报错 (端口 {target_port})，截图已保存至 {screenshot_path.name}")
                 page.close()
             browser.close()
     except Exception as e:
