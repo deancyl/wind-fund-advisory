@@ -879,18 +879,18 @@ cur_color_mode = st.session_state.app_color_mode
 # 5套专业级金融终端主题字典
 THEME_PRESETS = {
     "light_slate": {
-        "name": "机构冷灰 (Institutional Slate)",
+        "name": "私人银行 · 曜石珍珠 (Private Wealth Navy & Pearl)",
         "is_dark": False,
-        "bg_canvas": "#F5F7FA",
+        "bg_canvas": "#EEF2F7",
         "bg_surface": "#FFFFFF",
-        "bg_elevated": "#f1f5f9",
-        "border_subtle": "#E5E9F0",
-        "border_hover": "#cbd5e1",
-        "text_primary": "#0f172a",
+        "bg_elevated": "#F8FAFC",
+        "border_subtle": "#DCE3ED",
+        "border_hover": "#CBD5E1",
+        "text_primary": "#0F172A",
         "text_secondary": "#475569",
-        "text_muted": "#94a3b8",
-        "accent_primary": "#1D4ED8",
-        "shadow_card": "0 1px 3px rgba(15, 23, 42, 0.04)"
+        "text_muted": "#64748B",
+        "accent_primary": "#1B365D",
+        "shadow_card": "0 1px 3px rgba(15, 23, 42, 0.05)"
     },
     "dark_terminal": {
         "name": "🌑 彭博暗黑 (Bloomberg Carbon)",
@@ -1048,20 +1048,174 @@ safe_markdown_html(f"""
         font-family: "Material Symbols Rounded" !important;
     }}
 
-    /* 全局画板与侧边栏底色穿透 */
+    /* 全局画板底色与私人银行曜石蓝侧边栏 */
     .stApp, [data-testid="stAppViewContainer"], .main {{
         background-color: var(--bg-canvas) !important;
         color: var(--text-primary) !important;
     }}
-    [data-testid="stSidebar"] {{
-        background-color: var(--bg-surface) !important;
-        border-right: 1px solid var(--border-subtle) !important;
+    
+    /* G40 私人银行曜石蓝深色侧边栏 + 桌面端绝对零滚动死锁 */
+    @media (min-width: 769px) {{
+        section[data-testid="stSidebar"],
+        [data-testid="stSidebar"],
+        [data-testid="stSidebar"] > div:first-child,
+        [data-testid="stSidebarContent"],
+        [data-testid="stSidebarUserContent"] {{
+            background-color: #0F1C2E !important;
+            background: #0F1C2E !important;
+        }}
+        section[data-testid="stSidebar"],
+        [data-testid="stSidebar"] {{
+            width: 256px !important;
+            min-width: 256px !important;
+            max-width: 256px !important;
+            border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+        }}
+        [data-testid="stSidebar"] > div:first-child {{
+            height: 100vh !important;
+            max-height: 100vh !important;
+            overflow-y: hidden !important;
+            padding: 14px 14px 12px 14px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            box-sizing: border-box !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
+            gap: 0.45rem !important;
+        }}
+        [data-testid="stSidebar"] h5,
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] span {{
+            color: #E2E8F0 !important;
+        }}
+        [data-testid="stSidebar"] .stCaption, [data-testid="stSidebar"] small {{
+            color: #94A3B8 !important;
+        }}
+        [data-testid="stSidebar"] button:not([kind="primary"]) {{
+            background: rgba(255, 255, 255, 0.06) !important;
+            border: 1px solid rgba(255, 255, 255, 0.14) !important;
+            color: #E2E8F0 !important;
+        }}
+        [data-testid="stSidebar"] button:not([kind="primary"]):hover {{
+            background: rgba(255, 255, 255, 0.12) !important;
+            border-color: rgba(255, 255, 255, 0.25) !important;
+        }}
+        [data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {{
+            background: rgba(255, 255, 255, 0.06) !important;
+            border: 1px solid rgba(255, 255, 255, 0.14) !important;
+            color: #E2E8F0 !important;
+        }}
     }}
-    [data-testid="stSidebar"] * {{
-        color: var(--text-primary);
+
+    /* 全局消灭 Streamlit 原生红色 radio 圆点 (#FF4B4B) */
+    /* 1. 彻底隐藏所有 radio 选项的原生圆点指示器 */
+    [data-testid="stRadioOption"] > div > div:first-child,
+    div[role="radiogroup"] label > div:first-child,
+    [data-testid="stRadioOption"] svg,
+    div[role="radiogroup"] svg {{
+        display: none !important;
     }}
-    [data-testid="stSidebar"] .stCaption, [data-testid="stSidebar"] small {{
-        color: var(--text-secondary) !important;
+
+    /* 2. 主区横向单选：精致分段胶囊条 (Segmented Control) */
+    .main [data-testid="stRadioGroup"][aria-orientation="horizontal"],
+    .main div[role="radiogroup"] {{
+        display: inline-flex !important;
+        flex-wrap: nowrap !important;
+        background: #E2E8F0 !important;
+        padding: 3px !important;
+        border-radius: 8px !important;
+        gap: 3px !important;
+        border: 1px solid #DCE3ED !important;
+    }}
+    .main [data-testid="stRadioOption"],
+    .main div[role="radiogroup"] label {{
+        background: transparent !important;
+        padding: 4px 12px !important;
+        border-radius: 6px !important;
+        margin: 0 !important;
+        cursor: pointer !important;
+        transition: all 0.15s ease !important;
+        display: flex !important;
+        align-items: center !important;
+    }}
+    .main [data-testid="stRadioOption"]:hover,
+    .main div[role="radiogroup"] label:hover {{
+        background: rgba(255, 255, 255, 0.6) !important;
+    }}
+    .main [data-testid="stRadioOption"][data-selected="true"],
+    .main div[role="radiogroup"] label:has(input:checked) {{
+        background: #FFFFFF !important;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08) !important;
+    }}
+    .main [data-testid="stRadioOption"] p,
+    .main div[role="radiogroup"] label p {{
+        color: #475569 !important;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        margin: 0 !important;
+    }}
+    .main [data-testid="stRadioOption"][data-selected="true"] p,
+    .main div[role="radiogroup"] label:has(input:checked) p {{
+        color: #1B365D !important;
+        font-weight: 700 !important;
+    }}
+
+    /* 3. 侧边栏主导航：深海曜石蓝专属菜单项 (选中带哑光金左指示条) */
+    [data-testid="stSidebar"] [data-testid="stRadioGroup"],
+    [data-testid="stSidebar"] div[role="radiogroup"] {{
+        gap: 4px !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stRadioOption"],
+    [data-testid="stSidebar"] div[role="radiogroup"] label {{
+        background: transparent !important;
+        border-radius: 7px !important;
+        padding: 7px 10px !important;
+        margin: 0 !important;
+        border-left: 3px solid transparent !important;
+        transition: background 0.15s ease !important;
+        cursor: pointer !important;
+        display: flex !important;
+        align-items: center !important;
+        width: 100% !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stRadioOption"]:hover,
+    [data-testid="stSidebar"] div[role="radiogroup"] label:hover {{
+        background: rgba(255, 255, 255, 0.08) !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] p,
+    [data-testid="stSidebar"] div[role="radiogroup"] label p {{
+        color: #CBD5E1 !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        margin: 0 !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stRadioOption"]:hover p,
+    [data-testid="stSidebar"] div[role="radiogroup"] label:hover p {{
+        color: #E2E8F0 !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"],
+    [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {{
+        background: rgba(194, 150, 72, 0.18) !important;
+        border-left: 3px solid #C29648 !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] p,
+    [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {{
+        color: #FFFFFF !important;
+        font-weight: 700 !important;
+    }}
+
+    /* 统一金融深海军蓝主按钮 */
+    .stButton > button[kind="primary"] {{
+        background-color: #1B365D !important;
+        border-color: #1B365D !important;
+        color: #FFFFFF !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+    }}
+    .stButton > button[kind="primary"]:hover {{
+        background-color: #132B52 !important;
+        border-color: #132B52 !important;
     }}
 
     /* 彻底隐藏 Stop / Deploy / 汉堡菜单等 Demo 痕迹 */
@@ -1094,10 +1248,6 @@ safe_markdown_html(f"""
     [data-testid="stSidebar"] {{
         display: block !important;
         visibility: visible !important;
-        min-width: 270px !important;
-        max-width: 300px !important;
-        background: var(--bg-surface) !important;
-        border-right: 1px solid var(--border-subtle) !important;
     }}
     @media (max-width: 768px) {{
         /* 移动端自动隐藏侧栏，确保持仓大表 100% 宽度不被遮挡 */
@@ -3773,19 +3923,25 @@ def _fmt_topbar_ledger(lid: str) -> str:
 # 方案 B：专业桌面端左侧主领航台 (Desktop Left Navigation & Market Corridor)
 # =============================================================================
 with st.sidebar:
-    st.markdown(f'''<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0 8px 0;">
-        <span style="font-size:17px;font-weight:900;color:var(--text-primary);">AGY2 智投</span>
-        <span style="font-size:11px;padding:2px 6px;border-radius:4px;background:rgba(37,99,235,0.08);color:var(--accent-primary);border:1px solid rgba(37,99,235,0.22);">{data_src_badge}</span>
+    st.markdown(f'''<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0 6px 0;">
+        <span style="font-size:16px;font-weight:900;color:#FFFFFF;letter-spacing:0.5px;">AGY2 智投</span>
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(21,128,61,0.18);color:#4ADE80;border:1px solid rgba(74,222,128,0.3);">{data_src_badge}</span>
     </div>''', unsafe_allow_html=True)
     st.caption(f"底座: {latest_date} ｜ {clock_title}（{market_status.countdown_str}）")
 
-    # 桌面端单一主导航 (Desktop Single Primary Navigation)
+    # 桌面端单一主导航 (Desktop Single Primary Navigation · 动词导向任务流)
     if "desktop_nav_tab" not in st.session_state:
         st.session_state["desktop_nav_tab"] = "持仓"
     if "active_main_nav" not in st.session_state:
         st.session_state["active_main_nav"] = st.session_state["desktop_nav_tab"]
 
     _nav_opts = ["持仓", "调仓", "复盘", "工具"]
+    _nav_labels = {
+        "持仓": "持仓 · 资产与体检",
+        "调仓": "调仓 · 清单与打卡",
+        "复盘": "复盘 · 回测与验真",
+        "工具": "诊断 · 深度穿透"
+    }
     _cur_nav = st.session_state.get("desktop_nav_tab", "持仓")
     _cur_idx = _nav_opts.index(_cur_nav) if _cur_nav in _nav_opts else 0
 
@@ -3793,6 +3949,7 @@ with st.sidebar:
         "主导航",
         _nav_opts,
         index=_cur_idx,
+        format_func=lambda x: _nav_labels.get(x, x),
         key="desktop_main_nav",
         label_visibility="collapsed"
     )
@@ -3802,90 +3959,68 @@ with st.sidebar:
         st.session_state["pending_cross_tab_jump"] = {"tab_index": _nav_opts.index(desktop_nav_tab), "tab_name": desktop_nav_tab}
         st.rerun()
 
-    st.markdown("---")
+    st.markdown("<hr style='margin:6px 0;border:none;border-top:1px solid rgba(255,255,255,0.08);' />", unsafe_allow_html=True)
 
-    # 1. 核心指数走廊
-    st.markdown("##### 核心指数")
-    _sb_c300 = fetch_realtime_index_quote("sh000300", use_cache=True) or {}
-    _sb_kc50 = fetch_realtime_index_quote("sh000688", use_cache=True) or {}
-    _sb_hldb = fetch_realtime_index_quote("sh000922", use_cache=True) or {}
+    # 2. 自定义板块与行业行情 (自选与行业板块 · 紧凑单行最多5条 · 零滚动设计)
+    c_sec_head, c_sec_pop = st.columns([7, 3])
+    with c_sec_head:
+        st.markdown("<div style='font-size:12px;font-weight:700;color:#94A3B8;margin-top:2px;'>自选与行业板块</div>", unsafe_allow_html=True)
+    with c_sec_pop:
+        with st.popover("＋", help="检索添加或管理自选板块"):
+            st.caption("检索添加自选板块与行业")
+            sec_input = st.text_input("代码/拼音/名称", placeholder="如 512880 或 证券", key="sb_sec_add_input")
+            if st.button("添加板块", type="primary", use_container_width=True, key="btn_sb_add_sec"):
+                if sec_input.strip():
+                    raw_s = sec_input.strip()
+                    cat_res = search_index_and_fund_candidates(raw_s, limit=5)
+                    if cat_res:
+                        first = cat_res[0]
+                        if isinstance(first, dict):
+                            n_code = str(first.get("code") or first.get("symbol") or "").strip()
+                            n_name = str(first.get("name") or first.get("label") or n_code).strip()
+                        elif isinstance(first, (list, tuple)) and len(first) >= 2:
+                            n_code, n_name = str(first[0]).strip(), str(first[1]).strip()
+                        else:
+                            n_code = str(getattr(first, "code", "")).strip()
+                            n_name = str(getattr(first, "name", n_code)).strip()
+                        if n_code:
+                            add_sector_item(n_code, n_name)
+                            st.success(f"已添加: {n_name} ({n_code})")
+                            st.rerun()
+                    else:
+                        st.warning(f"未能查到板块或基金: {raw_s}")
 
-    _core_indices_disp = [
-        ("沪深300", float(_sb_c300.get("point") or c300_disp), float(_sb_c300.get("change_pct") or 0.0)),
-        ("科创50", float(_sb_kc50.get("point") or 0.0), float(_sb_kc50.get("change_pct") or 0.0)),
-        ("中证红利", float(_sb_hldb.get("point") or 0.0), float(_sb_hldb.get("change_pct") or 0.0)),
-    ]
-    for _iname, _ipt, _ipct in _core_indices_disp:
-        _col_cls = "var(--color-up)" if _ipct > 0 else ("var(--color-down)" if _ipct < 0 else "var(--text-muted)")
-        _sign = "+" if _ipct > 0 else ""
-        st.markdown(f'''<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px;margin-bottom:4px;background:var(--bg-elevated);border-radius:6px;font-size:12px;">
-            <span style="font-weight:600;color:var(--text-primary);">{_iname}</span>
-            <span style="font-variant-numeric:tabular-nums;color:var(--text-secondary);">{_ipt:,.2f}</span>
-            <span style="font-weight:700;color:{_col_cls};font-variant-numeric:tabular-nums;">{_sign}{_ipct:.2f}%</span>
-        </div>''', unsafe_allow_html=True)
+            st.markdown("---")
+            st.caption("自选板块管理")
+            _sec_opts = [f"{x.get('code')} {x.get('name')}" for x in load_sector_watchlist()]
+            if _sec_opts:
+                sel_to_remove = st.selectbox("选择移除标的", _sec_opts, key="sb_sec_remove_sel")
+                c_rm, c_rst = st.columns(2)
+                with c_rm:
+                    if st.button("确认删除", use_container_width=True, key="btn_sb_remove_sec"):
+                        r_code = sel_to_remove.split(" ")[0]
+                        remove_sector_item(r_code)
+                        st.rerun()
+                with c_rst:
+                    if st.button("恢复默认", use_container_width=True, key="btn_sb_reset_sec"):
+                        reset_sector_watchlist()
+                        st.rerun()
 
-    # 2. 自定义板块与行业行情 (自选与行业板块)
-    st.markdown("##### 自选与行业板块")
-    _watchlist_items = load_sector_watchlist()
+    _watchlist_items = load_sector_watchlist()[:5]
     for _sec in _watchlist_items:
         _spct = fetch_sector_change_pct(_sec)
-        _scol = "var(--color-up)" if _spct > 0 else ("var(--color-down)" if _spct < 0 else "var(--text-muted)")
+        _scol = "#F87171" if _spct > 0 else ("#4ADE80" if _spct < 0 else "#94A3B8")
         _ssign = "+" if _spct > 0 else ""
-        st.markdown(f'''<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 8px;margin-bottom:3px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:6px;font-size:11px;">
-            <span style="font-weight:500;color:var(--text-primary);">{_sec.get('name', '')}</span>
-            <span style="font-variant-numeric:tabular-nums;color:var(--text-muted);font-size:10px;">{_sec.get('code', '')}</span>
+        st.markdown(f'''<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 8px;margin-bottom:2px;background:rgba(255,255,255,0.04);border-radius:4px;font-size:11px;line-height:22px;">
+            <span style="font-weight:500;color:#E2E8F0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;">{_sec.get('name', '')}</span>
+            <span style="font-variant-numeric:tabular-nums;color:#64748B;font-size:10px;">{_sec.get('code', '')}</span>
             <span style="font-weight:700;color:{_scol};font-variant-numeric:tabular-nums;">{_ssign}{_spct:.2f}%</span>
         </div>''', unsafe_allow_html=True)
 
-    # 侧边栏添加自选板块 Popover
-    with st.popover("+ 自选板块", help="检索添加或管理自选板块"):
-        st.caption("检索添加自选板块与行业")
-        sec_input = st.text_input("代码/拼音/名称", placeholder="如 512880 或 证券", key="sb_sec_add_input")
-        if st.button("添加板块", type="primary", use_container_width=True, key="btn_sb_add_sec"):
-            if sec_input.strip():
-                raw_s = sec_input.strip()
-                cat_res = search_index_and_fund_candidates(raw_s, limit=5)
-                if cat_res:
-                    first = cat_res[0]
-                    if isinstance(first, dict):
-                        n_code = str(first.get("code") or first.get("symbol") or "").strip()
-                        n_name = str(first.get("name") or first.get("label") or n_code).strip()
-                    elif isinstance(first, (list, tuple)) and len(first) >= 2:
-                        n_code, n_name = str(first[0]).strip(), str(first[1]).strip()
-                    else:
-                        n_code = str(getattr(first, "code", "")).strip()
-                        n_name = str(getattr(first, "name", n_code)).strip()
-                    if n_code:
-                        add_sector_item(n_code, n_name)
-                        st.success(f"已添加: {n_name} ({n_code})")
-                        st.rerun()
-                else:
-                    st.warning(f"未能查到板块或基金: {raw_s}")
+    st.markdown("<hr style='margin:6px 0;border:none;border-top:1px solid rgba(255,255,255,0.08);' />", unsafe_allow_html=True)
 
-        st.markdown("---")
-        st.caption("自选板块管理")
-        _sec_opts = [f"{x.get('code')} {x.get('name')}" for x in _watchlist_items]
-        if _sec_opts:
-            sel_to_remove = st.selectbox("选择移除标的", _sec_opts, key="sb_sec_remove_sel")
-            c_rm, c_rst = st.columns(2)
-            with c_rm:
-                if st.button("确认删除", use_container_width=True, key="btn_sb_remove_sec"):
-                    r_code = sel_to_remove.split(" ")[0]
-                    remove_sector_item(r_code)
-                    st.rerun()
-            with c_rst:
-                if st.button("恢复默认", use_container_width=True, key="btn_sb_reset_sec"):
-                    reset_sector_watchlist()
-                    st.rerun()
-        else:
-            if st.button("恢复默认", use_container_width=True, key="btn_sb_reset_sec_empty"):
-                reset_sector_watchlist()
-                st.rerun()
-
-    st.markdown("---")
-
-    # 3. 底部当前激活账本与外观设置
-    st.markdown("##### 账本与设置")
+    # 3. 底部常驻区：当前激活账本 + 外观/刷新微按钮 (贴底布局)
+    st.markdown("<div style='font-size:11px;font-weight:600;color:#94A3B8;margin-bottom:2px;'>账本与设置</div>", unsafe_allow_html=True)
     active_idx_sb = next((i for i, l in enumerate(all_ledgers) if l["id"] == active_lid), 0)
     sb_sel_lid = st.selectbox(
         "当前账本",
@@ -3904,7 +4039,7 @@ with st.sidebar:
         with st.popover("外观", help="切换界面主题风格与涨跌红绿"):
             st.caption("主题与色彩")
             th_display_names = [
-                "机构冷灰",
+                "私人银行曜石",
                 "彭博暗黑",
                 "金融暖卷",
                 "深海钛金",
@@ -3926,17 +4061,25 @@ with st.sidebar:
 # =============================================================================
 # 极简主顶栏 (Sleek Minimalist Topbar · 44px 高度 · 零重复控件)
 # =============================================================================
-col_top_title, col_top_actions = st.columns([6.0, 4.0])
+col_top_title, col_top_actions = st.columns([7.2, 2.8])
 with col_top_title:
     safe_markdown_html('<span class="topbar-outer-marker"></span>')
     _cur_page_name = st.session_state.get("desktop_nav_tab", "持仓")
     _active_m = mlm_inst.get_ledger_meta(active_lid) or {}
     _l_tag = "[实盘]" if _active_m.get("type") == "live" else ("[沙盒]" if _active_m.get("type") == "sandbox" else "[家庭]")
     _l_name = str(_active_m.get("name", active_lid))
-    safe_markdown_html(f"""<div style="display:flex;align-items:center;gap:8px;padding-top:4px;">
-        <span style="font-size:16px;font-weight:700;color:var(--text-primary);">{_cur_page_name}工作台</span>
+    _guide_map = {
+        "持仓": "查看今日盈亏、核对估值与体检风险",
+        "调仓": "照单执行买卖、一键小抄与打卡追踪",
+        "复盘": "Point-in-Time 历史时光机与前瞻验真",
+        "工具": "资产穿透、行业重叠与全天候体检"
+    }
+    _cur_guide = _guide_map.get(_cur_page_name, "智能投顾工作台")
+    safe_markdown_html(f"""<div style="display:flex;align-items:center;gap:8px;padding-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+        <span style="font-size:15px;font-weight:700;color:var(--text-primary);">{_cur_page_name}工作台</span>
         <span style="font-size:12px;color:var(--text-muted);">·</span>
         <span style="font-size:12px;color:var(--text-secondary);font-weight:500;">{_l_tag} {_l_name}</span>
+        <span style="font-size:11px;color:var(--text-muted);margin-left:4px;">｜ {_cur_guide}</span>
     </div>""")
 
 with col_top_actions:
@@ -6421,12 +6564,12 @@ def _render_daily_movers_strip(pm_inst):
         cols = st.columns(2)
         with cols[0]:
             if gainers:
-                g_str = " ".join([f"<span style='color:#ef4444;background:rgba(239,68,68,0.1);padding:2px 6px;border-radius:4px;font-size:12px;'>▲ {x['name'][:5]} {x['chg']:+.2f}%</span>" for x in gainers])
-                safe_markdown_html(f"<div style='margin-bottom:6px;'><span style='font-size:12px;font-weight:600;margin-right:8px;'>今日贡献 Top 3:</span>{g_str}</div>")
+                g_str = " ".join([f"<span style='color:#DC2626;background:rgba(220,38,38,0.08);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap;'>▲ {x['name'][:4]} {x['chg']:+.2f}%</span>" for x in gainers[:3]])
+                safe_markdown_html(f"<div style='margin-bottom:6px;display:flex;align-items:center;white-space:nowrap;overflow:hidden;gap:6px;'><span style='font-size:11.5px;font-weight:700;color:var(--text-secondary);flex-shrink:0;'>今日贡献 Top:</span><div style='display:flex;gap:4px;overflow:hidden;'>{g_str}</div></div>")
         with cols[1]:
             if losers:
-                l_str = " ".join([f"<span style='color:#10b981;background:rgba(16,185,129,0.1);padding:2px 6px;border-radius:4px;font-size:12px;'>▼ {x['name'][:5]} {x['chg']:+.2f}%</span>" for x in losers])
-                safe_markdown_html(f"<div style='margin-bottom:6px;text-align:right;'><span style='font-size:12px;font-weight:600;margin-right:8px;'>领跌拖累:</span>{l_str}</div>")
+                l_str = " ".join([f"<span style='color:#15803D;background:rgba(21,128,61,0.08);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap;'>▼ {x['name'][:4]} {x['chg']:+.2f}%</span>" for x in losers[:3]])
+                safe_markdown_html(f"<div style='margin-bottom:6px;display:flex;align-items:center;justify-content:flex-end;white-space:nowrap;overflow:hidden;gap:6px;'><span style='font-size:11.5px;font-weight:700;color:var(--text-secondary);flex-shrink:0;'>领跌拖累:</span><div style='display:flex;gap:4px;overflow:hidden;'>{l_str}</div></div>")
     except Exception:
         pass
 
@@ -6735,7 +6878,7 @@ if active_main_nav == "持仓":
                         )
                     col_op1, col_op2, col_op3 = st.columns([4, 3, 3])
                     with col_op1:
-                        if st.button("保存修改", type="primary", use_container_width=True, key="btn_save_holdings_tab2", help="保存持仓表格人工编辑结果"):
+                        if st.button("保存修改", use_container_width=True, key="btn_save_holdings_tab2", help="保存持仓表格人工编辑结果"):
                             if "edited_table" in locals() and edited_table is not None:
                                 _commit_edited_holdings_table(edited_table, pm)
                             st.session_state.tab2_diag_cache = None
@@ -6891,6 +7034,22 @@ if active_main_nav == "持仓":
                         on_change=_sync_tab2_rebal_buffer_change,
                         help="控制调仓裁决与温和调仓过滤的最小偏离阈值。低于此阈值的微小偏离将自动维持现状，杜绝无效换仓摩擦"
                     )
+
+                # 今日操作路线（3步）导流闭环卡（填补右栏留白并指引用户行动）
+                safe_markdown_html("""
+                <div style="background:#FFFFFF;border:1px solid #DCE3ED;border-radius:10px;padding:12px 14px;margin-top:10px;box-shadow:0 1px 3px rgba(15,23,42,0.04);">
+                    <div style="font-size:12px;font-weight:700;color:#0F172A;margin-bottom:8px;">今日操作路线（3步）</div>
+                    <div style="font-size:11.5px;color:#15803D;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+                        <span>✅</span><span>1. 同步最新持仓与实时双轨估值</span>
+                    </div>
+                    <div style="font-size:11.5px;color:#C29648;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+                        <span>⚡</span><span>2. 查看风控哨与三阶重塑方案（当前）</span>
+                    </div>
+                    <div style="font-size:11.5px;color:#64748B;display:flex;align-items:center;gap:6px;">
+                        <span>⏳</span><span>3. 前往调仓页执行打卡与小抄复制</span>
+                    </div>
+                </div>
+                """)
 
         else:
             # ─────────────────────────────────────────────────────────
@@ -7807,17 +7966,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
                 st.rerun()
         return
 
-    # ── 课题 7: 样本外前瞻验真记分牌 (真实未来行情打分·零过拟合) ──
-    with st.expander("前瞻验真", expanded=False):
-        oos_eval = forward_audit_logger.evaluate_forward_performance()
-        o_c1, o_c2, o_c3, o_c4 = st.columns(4)
-        o_c1.metric("前瞻验真样本数", f"{oos_eval['sample_count']} 期")
-        o_c2.metric("平均前瞻收益率", f"{oos_eval['avg_forward_return_pct']:+.2f}%")
-        o_c3.metric("沪深300同期基准", f"{oos_eval['avg_hs300_return_pct']:+.2f}%")
-        o_c4.metric("超额 Alpha / 胜率", f"{oos_eval['excess_alpha_pct']:+.2f}%", f"胜率 {oos_eval['win_rate_pct']:.1f}%")
-        st.caption(oos_eval["status_summary"])
-        if oos_eval.get("eval_records"):
-            st.dataframe(pd.DataFrame(oos_eval["eval_records"]), use_container_width=True, hide_index=True)
+
     cur_meta = mlm_inst.get_ledger_meta(active_lid) if mlm_inst else {"name": "主实盘账本"}
     cur_pm = mlm_inst.get_pm(active_lid) if mlm_inst else pm
 
@@ -7830,7 +7979,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
         rebal_w = {"005561": 0.30, "100032": 0.25, "000216": 0.20, "518880": 0.15, "011613": 0.10}
 
     # ── 顶部置顶：🕰️ 历史任意时点时光机盲测验证（检验投顾真赚钱能力，默认收起防文字墙） ──
-    with st.expander("历史时光机", expanded=False):
+    with st.expander("历史时光机", expanded=True):
         st.caption("真实买方投顾验金石：严格切断所选日期之后的所有数据（Point-in-Time 零未来函数），现场重演当时投顾引擎配置方案，"
                    "并全额计入 0.12% 申购费、阶梯赎回费(未满7天1.50%)、C类日计提销售服务费与资金到账延迟，铁证检验策略成色。")
 

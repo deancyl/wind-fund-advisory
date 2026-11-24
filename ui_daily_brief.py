@@ -114,9 +114,22 @@ def render_rebalance_action_section(
                     fn = str(x.get("fund_name", x.get("name", "")))
                     amt = float(x.get("diff_amount") or x.get("amount") or 0.0)
                     dir_txt = "买入A" if amt > 0 else "卖出C"
-                    chk_flag = "✅ 已办" if fc in checked_codes else "⏳ 待办"
-                    rows.append({"代码": fc, "名称": fn, "方向": dir_txt, "金额": f"¥{abs(amt):,.2f}", "打卡": chk_flag})
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                    is_done = bool(fc in checked_codes)
+                    rows.append({"已下单": is_done, "代码": fc, "名称": fn, "方向": dir_txt, "金额": f"¥{abs(amt):,.2f}"})
+                df_c = pd.DataFrame(rows)
+                st.data_editor(
+                    df_c,
+                    column_config={
+                        "已下单": st.column_config.CheckboxColumn("已下单", default=False),
+                        "代码": st.column_config.TextColumn("代码", disabled=True),
+                        "名称": st.column_config.TextColumn("名称", disabled=True),
+                        "方向": st.column_config.TextColumn("方向", disabled=True),
+                        "金额": st.column_config.TextColumn("金额", disabled=True),
+                    },
+                    use_container_width=True,
+                    hide_index=True,
+                    key="editor_c_replace_checkin"
+                )
 
         if len(grouped["core_trades"]) > 0:
             k_grp = grouped["core_trades"]
