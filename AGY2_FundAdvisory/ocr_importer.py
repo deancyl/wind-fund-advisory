@@ -12,16 +12,10 @@ import numpy as np
 import pandas as pd
 
 import runtime_paths
+from domain_models import CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG
+from valuation_engine import fetch_realtime_fund_quote
 
 WORKSPACE_ROOT = runtime_paths.get_workspace_root()
-
-
-def _pm_deps():
-    try:
-        import portfolio_manager as _pm
-    except ImportError:
-        from AGY2_FundAdvisory import portfolio_manager as _pm
-    return _pm.CORE_STRATEGY_POOL, _pm.EXTENDED_FUND_CATALOG, _pm.fetch_realtime_fund_quote
 
 
 _LOCAL_FUND_CATALOG_CACHE: Optional[pd.DataFrame] = None
@@ -38,7 +32,7 @@ def search_funds_in_catalog(keyword: str, limit: int = 10) -> List[Dict[str, str
     kw = str(keyword).strip().upper()
 
     if _LOCAL_FUND_CATALOG_CACHE is None:
-        cat_file = WORKSPACE_ROOT / "data/master/fund_catalog.parquet"
+        cat_file = runtime_paths.resolve_data_file("master/fund_catalog.parquet")
         if cat_file.exists():
             try:
                 _LOCAL_FUND_CATALOG_CACHE = pd.read_parquet(cat_file)
@@ -50,7 +44,6 @@ def search_funds_in_catalog(keyword: str, limit: int = 10) -> List[Dict[str, str
     results: List[Dict[str, str]] = []
 
     # 1. 优先查核心池与扩展池
-    CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG, _ = _pm_deps()
     combined_pool = {**CORE_STRATEGY_POOL, **EXTENDED_FUND_CATALOG}
     for code, meta in combined_pool.items():
         fname = meta.get("fund_name", "")
@@ -175,7 +168,6 @@ def parse_smart_text_holdings(text: str, catalog_df: Optional[pd.DataFrame] = No
     lines = aggregated_blocks
 
     parsed_results = []
-    CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG, _ = _pm_deps()
     combined_pool = {**CORE_STRATEGY_POOL, **EXTENDED_FUND_CATALOG}
 
     for line in lines:
@@ -509,8 +501,6 @@ def fuzzy_match_fund_by_name(
     """
     if not raw_name or not str(raw_name).strip():
         return {}
-
-    CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG, fetch_realtime_fund_quote = _pm_deps()
     raw_str = str(raw_name).strip()
 
     # 1. 优先提取 6 位基金代码
@@ -695,8 +685,6 @@ def parse_screenshot_ocr_holdings(image_bytes: bytes) -> List[Dict[str, Any]]:
     """
     if not image_bytes:
         return []
-
-    _, _, fetch_realtime_fund_quote = _pm_deps()
     slices = slice_long_screenshot_for_ocr(image_bytes, target_height=1000, overlap=150)
     if not slices:
         return []

@@ -20,6 +20,15 @@ import numpy as np
 import pandas as pd
 
 import runtime_paths
+from domain_models import (
+    CORE_STRATEGY_POOL,
+    EXTENDED_FUND_CATALOG,
+    SECTOR_FUND_SELECTION,
+    HoldingBatch,
+    _CLASSIFY_ASSET_CLASS_CACHE,
+    _safe_float,
+    get_fund_short_alias,
+)
 from trading_clock_fee import FeeMatrixCalculator
 from valuation_engine import fetch_realtime_fund_quota
 
@@ -477,8 +486,6 @@ class LookthroughAnalyzerMixin:
         严禁使用假股票名欺骗矩阵；未获取到重仓股的主动基明确标记为待穿透
         支持传入 holdings_override
         """
-        __pm_mod = _get_pm_mod()
-        get_fund_short_alias = __pm_mod.get_fund_short_alias
         target_holdings = holdings_override if holdings_override is not None else self.holdings
         tot_mv = sum(getattr(h, "market_value", 0.0) for h in target_holdings.values())
 
@@ -860,13 +867,11 @@ class LookthroughAnalyzerMixin:
         自动将任意基金动态归类至标准资产类别。
         支持类级别与实例级别灵活调用。
         """
-        __pm_mod = _get_pm_mod()
-        _CLASSIFY_ASSET_CLASS_CACHE = __pm_mod._CLASSIFY_ASSET_CLASS_CACHE
         code_s = str(fund_code or "").strip().zfill(6)
         name_s = fund_name
         if not name_s and hasattr(self_or_cls, "holdings") and code_s in self_or_cls.holdings:
             name_s = self_or_cls.holdings[code_s].fund_name
-        return _CLASSIFY_ASSET_CLASS_CACHE.get((code_s, name_s or "")) or _get_pm_cls()._do_classify_asset_class(code_s, name_s)
+        return _CLASSIFY_ASSET_CLASS_CACHE.get((code_s, name_s or "")) or LookthroughAnalyzerMixin._do_classify_asset_class(code_s, name_s)
 
     @classmethod
     def _do_classify_asset_class(
@@ -874,8 +879,6 @@ class LookthroughAnalyzerMixin:
         fund_code: str,
         fund_name: Optional[str] = None
     ) -> str:
-        __pm_mod = _get_pm_mod()
-        _CLASSIFY_ASSET_CLASS_CACHE = __pm_mod._CLASSIFY_ASSET_CLASS_CACHE
         code = str(fund_code or "").strip().zfill(6) if fund_code else ""
         name = str(fund_name or "").strip()
         cache_key = (code, name)
@@ -897,9 +900,6 @@ class LookthroughAnalyzerMixin:
         """
         9 大标准资产大类精准映射与反查 (与优化器及 AI 目标配置 100% 对齐)
         """
-        __pm_mod = _get_pm_mod()
-        CORE_STRATEGY_POOL = __pm_mod.CORE_STRATEGY_POOL
-        EXTENDED_FUND_CATALOG = __pm_mod.EXTENDED_FUND_CATALOG
         code = str(code or "").strip().zfill(6)
         name = str(name or "").strip()
 
@@ -1010,8 +1010,6 @@ class LookthroughAnalyzerMixin:
         snapshot: Optional[Dict[str, Any]] = None,
         tier: str = "",
     ) -> Dict[str, Any]:
-        __pm_mod = _get_pm_mod()
-        _safe_float = __pm_mod._safe_float
         code = str(fund_code).strip().zfill(6)
         if snapshot is None:
             try:
@@ -1026,7 +1024,7 @@ class LookthroughAnalyzerMixin:
         alpha_score = 88.0
         try:
             import duckdb
-            db_p = WORKSPACE_ROOT / "data" / "storage.duckdb"
+            db_p = runtime_paths.resolve_data_file("storage.duckdb")
             if db_p.exists():
                 conn = duckdb.connect(str(db_p), read_only=True)
                 q_sc = conn.execute(
@@ -1055,7 +1053,7 @@ class LookthroughAnalyzerMixin:
         fee_score = 90.0
         try:
             import duckdb
-            db_p = WORKSPACE_ROOT / "data" / "storage.duckdb"
+            db_p = runtime_paths.resolve_data_file("storage.duckdb")
             if db_p.exists():
                 conn = duckdb.connect(str(db_p), read_only=True)
                 q_fee = conn.execute(
@@ -1077,7 +1075,7 @@ class LookthroughAnalyzerMixin:
         smart_money_score = 88.0
         try:
             import duckdb
-            db_p = WORKSPACE_ROOT / "data" / "storage.duckdb"
+            db_p = runtime_paths.resolve_data_file("storage.duckdb")
             if db_p.exists():
                 conn = duckdb.connect(str(db_p), read_only=True)
                 q_nb = conn.execute(
@@ -1186,10 +1184,6 @@ class LookthroughAnalyzerMixin:
         - 纯债 (如 002351)、黄金 ETF 联接 (如 000216)、海外 QDII (如 050025)
           免疫 A 股财务造假与质押暴雷风险，穿透风险得分为 0.0，评级为 🟢 健康。
         """
-        __pm_mod = _get_pm_mod()
-        CORE_STRATEGY_POOL = __pm_mod.CORE_STRATEGY_POOL
-        EXTENDED_FUND_CATALOG = __pm_mod.EXTENDED_FUND_CATALOG
-        _safe_float = __pm_mod._safe_float
         code = str(fund_code).strip().zfill(6)
         if code in _MODULE_FUND_LOOK_THROUGH_RISK_CACHE:
             return copy.deepcopy(_MODULE_FUND_LOOK_THROUGH_RISK_CACHE[code])
@@ -1350,7 +1344,7 @@ class LookthroughAnalyzerMixin:
             if not fin_data and (symbol or stock_name):
                 try:
                     import duckdb
-                    db_p = WORKSPACE_ROOT / "data" / "storage.duckdb"
+                    db_p = runtime_paths.resolve_data_file("storage.duckdb")
                     if db_p.exists():
                         c_sql = duckdb.connect(str(db_p), read_only=True)
                         q_df = c_sql.execute("SELECT * FROM v_financial_risk_screen WHERE symbol = ? OR symbol = ? OR stock_name = ? LIMIT 1", (symbol, clean_stock_code, stock_name)).df()
@@ -1368,7 +1362,7 @@ class LookthroughAnalyzerMixin:
             if not industry_str:
                 try:
                     import duckdb
-                    db_p = WORKSPACE_ROOT / "data" / "storage.duckdb"
+                    db_p = runtime_paths.resolve_data_file("storage.duckdb")
                     if db_p.exists():
                         c_sql = duckdb.connect(str(db_p), read_only=True)
                         ind_df = c_sql.execute("SELECT industry FROM v_research_reports WHERE (symbol = ? OR symbol = ? OR stock_name = ?) AND industry IS NOT NULL LIMIT 1", (symbol, clean_stock_code, stock_name)).df()
@@ -1382,7 +1376,7 @@ class LookthroughAnalyzerMixin:
             if cfo_val is None:
                 try:
                     import duckdb
-                    db_p = WORKSPACE_ROOT / "data" / "storage.duckdb"
+                    db_p = runtime_paths.resolve_data_file("storage.duckdb")
                     if db_p.exists():
                         c_sql = duckdb.connect(str(db_p), read_only=True)
                         cfo_df = c_sql.execute("SELECT ocf_per_share FROM v_stock_financials WHERE symbol = ? OR symbol = ? OR stock_name = ? ORDER BY report_date DESC LIMIT 1", (symbol, clean_stock_code, stock_name)).df()
@@ -1674,9 +1668,6 @@ class LookthroughAnalyzerMixin:
         获取公募基金底层量价微观结构与四象限拥挤度研判 (2024.08 新规合规版)
         完全基于本地历史净值与真实市场行情，杜绝虚假北向数据与写死常数。
         """
-        __pm_mod = _get_pm_mod()
-        CORE_STRATEGY_POOL = __pm_mod.CORE_STRATEGY_POOL
-        EXTENDED_FUND_CATALOG = __pm_mod.EXTENDED_FUND_CATALOG
         if fund_code is None:
             code = "000000"
         else:
@@ -2589,7 +2580,7 @@ class LookthroughAnalyzerMixin:
         }
 
     def calculate_qdii_fx_hedged_arbitrage_instance(self, fund_code: str, **kwargs) -> Dict[str, Any]:
-        return _get_pm_cls().calculate_qdii_fx_hedged_arbitrage(fund_code=fund_code, **kwargs)
+        return LookthroughAnalyzerMixin.calculate_qdii_fx_hedged_arbitrage(fund_code=fund_code, **kwargs)
 
     @staticmethod
     def evaluate_all_qdii_fx_arbitrage(
@@ -2614,7 +2605,7 @@ class LookthroughAnalyzerMixin:
         results = []
         for c in codes:
             p_val = premiums.get(c)
-            res = _get_pm_cls().calculate_qdii_fx_hedged_arbitrage(
+            res = LookthroughAnalyzerMixin.calculate_qdii_fx_hedged_arbitrage(
                 fund_code=c,
                 spot_usdcnh=spot_usdcnh,
                 forward_swap_points=forward_swap_points,
@@ -2777,7 +2768,7 @@ class LookthroughAnalyzerMixin:
         }
 
     def schedule_large_dca_batches_instance(self, order_amount: float, fund_code: str, **kwargs) -> Dict[str, Any]:
-        return _get_pm_cls().schedule_large_dca_batches(order_amount=order_amount, fund_code=fund_code, **kwargs)
+        return LookthroughAnalyzerMixin.schedule_large_dca_batches(order_amount=order_amount, fund_code=fund_code, **kwargs)
 
 
     def evaluate_rebalance_audit(self) -> Dict[str, Any]:
@@ -3028,8 +3019,6 @@ class LookthroughAnalyzerMixin:
         一键跟单打卡：将前端调仓执行单行结果真实记账入库，完成投后闭环
         具备先进先出 (FIFO) 批次扣减与增量新批次安全锁定
         """
-        __pm_mod = _get_pm_mod()
-        HoldingBatch = __pm_mod.HoldingBatch
         updated_count = 0
         today_s = datetime.now().strftime("%Y-%m-%d")
 

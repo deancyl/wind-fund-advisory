@@ -22,8 +22,9 @@ import pandas as pd
 import duckdb
 
 # 确保父目录（工作区根目录）位于 sys.path 以加载 src 模块
-CURRENT_DIR = Path(__file__).resolve().parent
-WORKSPACE_ROOT = CURRENT_DIR.parent if CURRENT_DIR.name == "AGY2_FundAdvisory" else CURRENT_DIR
+import runtime_paths
+CURRENT_DIR = runtime_paths.get_bundle_root()
+WORKSPACE_ROOT = runtime_paths.get_workspace_root()
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 if str(WORKSPACE_ROOT) not in sys.path:
@@ -37,18 +38,11 @@ if "src" in sys.modules and hasattr(sys.modules["src"], "__path__"):
 
 from src.parsers.calendar_parser import CalendarParser
 
-# 兼容根目录与 AGY2_FundAdvisory 子目录运行时的 data 路径
-if (WORKSPACE_ROOT / "data/processed").exists():
-    CACHE_DIR = WORKSPACE_ROOT / "data/processed"
-elif Path("data/processed").exists():
-    CACHE_DIR = Path("data/processed")
-else:
-    CACHE_DIR = WORKSPACE_ROOT / "data/processed"
-
-MATRIX_CACHE_FILE = CACHE_DIR / "aligned_matrix_total_return.parquet"
+MATRIX_CACHE_FILE = runtime_paths.resolve_data_file("processed/aligned_matrix_total_return.parquet")
+CACHE_DIR = MATRIX_CACHE_FILE.parent
 
 # 持久化缓存目录与文件定位
-PERSISTENT_CACHE_DIR = WORKSPACE_ROOT / "data" / "cache"
+PERSISTENT_CACHE_DIR = runtime_paths.get_cache_dir()
 MARKET_BREADTH_CACHE_FILE = PERSISTENT_CACHE_DIR / "market_breadth.json"
 INDEX_VALUATION_CACHE_FILE = PERSISTENT_CACHE_DIR / "index_valuation.json"
 CUSTOM_WATCHLIST_FILE = PERSISTENT_CACHE_DIR / "custom_watchlist.json"
@@ -554,7 +548,7 @@ class IndexValuationEngine:
             {"code": "H11009", "secid": "0.H11009", "name": "纯债固收", "type": "bond", "parquet": "data/processed/csindex_H11009.parquet", "aliases": ["930609"]}
         ]
 
-        duck_db_path = WORKSPACE_ROOT / "data" / "storage.duckdb"
+        duck_db_path = runtime_paths.resolve_data_file("storage.duckdb")
         duck_con = None
         if duck_db_path.exists():
             try:
@@ -564,7 +558,7 @@ class IndexValuationEngine:
 
         # 加载全局指数表与大盘矩阵供 fallback 查询
         global_df = None
-        global_p = WORKSPACE_ROOT / "data/global/global_indices.parquet"
+        global_p = runtime_paths.resolve_data_file("global/global_indices.parquet")
         if global_p.exists():
             try:
                 global_df = pd.read_parquet(global_p)
@@ -573,10 +567,10 @@ class IndexValuationEngine:
 
         mat_df = None
         for m_p in [
-            WORKSPACE_ROOT / "data/processed/aligned_matrix_total_return.parquet",
-            WORKSPACE_ROOT / "data/processed/aligned_market_matrix.parquet",
-            WORKSPACE_ROOT / "data/processed/aligned_matrix.parquet",
-            WORKSPACE_ROOT / "data/processed/market_matrix.parquet"
+            runtime_paths.resolve_data_file("processed/aligned_matrix_total_return.parquet"),
+            runtime_paths.resolve_data_file("processed/aligned_market_matrix.parquet"),
+            runtime_paths.resolve_data_file("processed/aligned_matrix.parquet"),
+            runtime_paths.resolve_data_file("processed/market_matrix.parquet")
         ]:
             if m_p.exists():
                 try:
@@ -595,7 +589,7 @@ class IndexValuationEngine:
 
             if itype == "commodity":
                 s = None
-                p_f = WORKSPACE_ROOT / it.get("parquet", "")
+                p_f = runtime_paths.resolve_data_file(it.get("parquet", ""))
                 if p_f.exists():
                     try:
                         df_p = pd.read_parquet(p_f)
@@ -656,7 +650,7 @@ class IndexValuationEngine:
                         pass
 
                 if pct_val is None and it.get("parquet"):
-                    p_f = WORKSPACE_ROOT / it["parquet"]
+                    p_f = runtime_paths.resolve_data_file(it["parquet"])
                     if p_f.exists():
                         try:
                             df_p = pd.read_parquet(p_f)
@@ -682,7 +676,7 @@ class IndexValuationEngine:
                     pe_val = float(df_cs['市盈率1'].iloc[-1])
                 except Exception:
                     pass
-                p_f = WORKSPACE_ROOT / it["parquet"]
+                p_f = runtime_paths.resolve_data_file(it["parquet"])
                 if p_f.exists():
                     try:
                         df_p = pd.read_parquet(p_f)
@@ -698,7 +692,7 @@ class IndexValuationEngine:
                         pass
 
             elif itype == "sector_parquet":
-                p_f = WORKSPACE_ROOT / it["parquet"]
+                p_f = runtime_paths.resolve_data_file(it["parquet"])
                 if p_f.exists():
                     try:
                         df_p = pd.read_parquet(p_f)
@@ -1562,7 +1556,7 @@ class DataLoader:
         带本地 24h TTL 缓存至 data/cache/funds/{code}_top5_adv.json。
         """
         code = str(fund_code).strip().zfill(6)
-        cache_path = WORKSPACE_ROOT / "data" / "cache" / "funds" / f"{code}_top5_adv.json"
+        cache_path = runtime_paths.get_cache_dir() / "funds" / f"{code}_top5_adv.json"
         if not force_refresh and cache_path.exists():
             try:
                 mtime = cache_path.stat().st_mtime
@@ -1973,7 +1967,7 @@ def search_index_and_fund_candidates(query: str, limit: int = 8) -> List[Dict[st
 
     # 3. DuckDB 湖仓补充检索
     if len(candidates) < limit:
-        duck_db_path = WORKSPACE_ROOT / "data" / "storage.duckdb"
+        duck_db_path = runtime_paths.resolve_data_file("storage.duckdb")
         if duck_db_path.exists():
             try:
                 import duckdb
@@ -2084,7 +2078,7 @@ def validate_and_fetch_code(code_str: str) -> Optional[Dict[str, Any]]:
             pass
 
     # 尝试 duckdb 离线库查询
-    duck_db_path = WORKSPACE_ROOT / "data" / "storage.duckdb"
+    duck_db_path = runtime_paths.resolve_data_file("storage.duckdb")
     if duck_db_path.exists():
         try:
             con = duckdb.connect(str(duck_db_path), read_only=True)
@@ -2176,7 +2170,7 @@ def calc_offline_2day_return(code: str) -> Optional[Tuple[float, float, float]]:
                     off_pt = None
                     # 对于 ETF，优先从 DuckDB v_etfs 提取实际单价
                     if is_etf:
-                        duck_db_path = WORKSPACE_ROOT / "data" / "storage.duckdb"
+                        duck_db_path = runtime_paths.resolve_data_file("storage.duckdb")
                         if duck_db_path.exists():
                             try:
                                 con = duckdb.connect(str(duck_db_path), read_only=True)
@@ -2257,7 +2251,7 @@ def calc_offline_2day_return(code: str) -> Optional[Tuple[float, float, float]]:
                 pass
 
     # 4. 检查 duckdb v_etfs
-    duck_db_path = WORKSPACE_ROOT / "data" / "storage.duckdb"
+    duck_db_path = runtime_paths.resolve_data_file("storage.duckdb")
     if duck_db_path.exists():
         try:
             con = duckdb.connect(str(duck_db_path), read_only=True)
@@ -2791,7 +2785,7 @@ def fetch_realtime_usdcnh_fx(
 
     # 优先从本地外汇湖仓获取最新真实基线截面
     try:
-        fx_lake_p = WORKSPACE_ROOT / "data/global/fx_rates.parquet"
+        fx_lake_p = runtime_paths.resolve_data_file("global/fx_rates.parquet")
         if not fx_lake_p.exists():
             fx_lake_p = Path("data/global/fx_rates.parquet")
         if fx_lake_p.exists():
@@ -3254,7 +3248,7 @@ def fetch_macro_cross_market_indicators(
     treasury_source = "数据待同步"
 
     try:
-        rate_p = WORKSPACE_ROOT / "data/macro/bond_zh_us_rate.parquet"
+        rate_p = runtime_paths.resolve_data_file("macro/bond_zh_us_rate.parquet")
         if not rate_p.exists():
             rate_p = Path("data/macro/bond_zh_us_rate.parquet")
         if rate_p.exists():
@@ -3317,7 +3311,7 @@ def fetch_macro_cross_market_indicators(
 
     # 读取本地湖仓 AU9999 现货基线
     try:
-        au_p = WORKSPACE_ROOT / "data/processed/aligned_matrix_total_return.parquet"
+        au_p = runtime_paths.resolve_data_file("processed/aligned_matrix_total_return.parquet")
         if not au_p.exists():
             au_p = Path("data/processed/aligned_matrix_total_return.parquet")
         if au_p.exists():
@@ -3343,7 +3337,7 @@ def fetch_macro_cross_market_indicators(
     hstech_bias_20 = -6.32
 
     try:
-        gi_p = WORKSPACE_ROOT / "data/global/global_indices.parquet"
+        gi_p = runtime_paths.resolve_data_file("global/global_indices.parquet")
         if not gi_p.exists():
             gi_p = Path("data/global/global_indices.parquet")
         if gi_p.exists():
@@ -3608,7 +3602,7 @@ def auto_heal_sector_parquets(
     进行去重、按日期排序后通过 .tmp 临时文件原子替换写回原路径，
     彻底消除均线与波动率计算的日期断层。
     """
-    mat_path = WORKSPACE_ROOT / "data/processed/aligned_matrix_total_return.parquet"
+    mat_path = runtime_paths.resolve_data_file("processed/aligned_matrix_total_return.parquet")
     target_latest_date = None
     target_dates_set = set()
     df_mat = None
@@ -3627,12 +3621,12 @@ def auto_heal_sector_parquets(
         target_latest_date = datetime.now().date().strftime("%Y-%m-%d")
 
     files_to_check = [
-        WORKSPACE_ROOT / "data/processed/indices/000685.SH.parquet",
-        WORKSPACE_ROOT / "data/processed/indices/000933.SH.parquet",
-        WORKSPACE_ROOT / "data/processed/indices/000932.SH.parquet",
-        WORKSPACE_ROOT / "data/processed/indices/399986.SZ.parquet",
-        WORKSPACE_ROOT / "data/processed/csindex_H00300.parquet",
-        WORKSPACE_ROOT / "data/processed/csindex_H30269.parquet",
+        runtime_paths.resolve_data_file("processed/indices/000685.SH.parquet"),
+        runtime_paths.resolve_data_file("processed/indices/000933.SH.parquet"),
+        runtime_paths.resolve_data_file("processed/indices/000932.SH.parquet"),
+        runtime_paths.resolve_data_file("processed/indices/399986.SZ.parquet"),
+        runtime_paths.resolve_data_file("processed/csindex_H00300.parquet"),
+        runtime_paths.resolve_data_file("processed/csindex_H30269.parquet"),
     ]
     if target_dir:
         t_path = Path(target_dir) if not isinstance(target_dir, Path) else target_dir
@@ -3808,11 +3802,11 @@ def sync_macro_and_fx_parquet_if_stale(
         if now_ts - _LAKE_SYNC_MEM_CACHE["ts"] < 3600.0:
             return _LAKE_SYNC_MEM_CACHE["data"]
 
-    rate_p = WORKSPACE_ROOT / "data/macro/bond_zh_us_rate.parquet"
+    rate_p = runtime_paths.resolve_data_file("macro/bond_zh_us_rate.parquet")
     if not rate_p.exists():
         rate_p = Path("data/macro/bond_zh_us_rate.parquet")
 
-    fx_p = WORKSPACE_ROOT / "data/global/fx_rates.parquet"
+    fx_p = runtime_paths.resolve_data_file("global/fx_rates.parquet")
     if not fx_p.exists():
         fx_p = Path("data/global/fx_rates.parquet")
 

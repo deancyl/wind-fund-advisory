@@ -61,11 +61,17 @@ def get_backup_dir() -> Path:
 
 
 def resolve_data_file(filename: str) -> Path:
-    """解析 data 目录下指定文件路径，兼容 AGY2_FundAdvisory/data 旧路径回退读取。"""
-    primary = get_data_dir() / filename
+    """解析 data 目录下指定文件路径：优先取 get_data_dir()，只读回退至工作区/内嵌包 data/，新建写入落盘至 get_data_dir()。"""
+    clean = str(filename or "").replace("\\", "/").lstrip("/")
+    if clean.startswith("data/"):
+        clean = clean[5:]
+    primary = get_data_dir() / clean
     if primary.exists():
         return primary
-    legacy = get_bundle_root() / "data" / filename
+    ws_fallback = get_workspace_root() / "data" / clean
+    if ws_fallback.exists():
+        return ws_fallback
+    legacy = get_bundle_root() / "data" / clean
     if legacy.exists():
         return legacy
     return primary

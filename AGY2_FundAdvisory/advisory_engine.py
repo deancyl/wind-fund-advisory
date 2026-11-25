@@ -21,8 +21,9 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-CURRENT_DIR = Path(__file__).resolve().parent
-WORKSPACE_ROOT = CURRENT_DIR.parent if CURRENT_DIR.name == "AGY2_FundAdvisory" else CURRENT_DIR
+import runtime_paths
+CURRENT_DIR = runtime_paths.get_bundle_root()
+WORKSPACE_ROOT = runtime_paths.get_workspace_root()
 
 
 class FlexTuple(tuple):
@@ -254,7 +255,7 @@ def _get_index_valuation_cache() -> Dict[str, Any]:
         return _VALUATION_CACHE_DICT
     val_cache = {}
     try:
-        val_p = WORKSPACE_ROOT / "data/cache/index_valuation.json"
+        val_p = runtime_paths.get_cache_dir() / "index_valuation.json"
         if val_p.exists():
             with open(val_p, "r", encoding="utf-8") as vf:
                 val_cache = json.load(vf)
@@ -345,7 +346,7 @@ class OnlineHeuristicFactorEvolver:
 
         mat_path = None
         for p in [
-            WORKSPACE_ROOT / "data/processed/aligned_matrix_total_return.parquet",
+            runtime_paths.resolve_data_file("processed/aligned_matrix_total_return.parquet"),
             WORKSPACE_ROOT / "data/aligned_matrix_total_return.parquet",
             WORKSPACE_ROOT / "AGY2_FundAdvisory/data/aligned_matrix_total_return.parquet"
         ]:
@@ -363,7 +364,7 @@ class OnlineHeuristicFactorEvolver:
             target_dates = base_dates[-window_days:]
 
         global_df = None
-        global_path = WORKSPACE_ROOT / "data/global/global_indices.parquet"
+        global_path = runtime_paths.resolve_data_file("global/global_indices.parquet")
         if global_path.exists():
             try:
                 global_df = pd.read_parquet(global_path)
@@ -376,7 +377,7 @@ class OnlineHeuristicFactorEvolver:
             # 1. 优先读取独立日线 parquet
             fb = meta.get("fallback_parquet")
             if fb:
-                fb_p = WORKSPACE_ROOT / fb if not os.path.isabs(fb) else Path(fb)
+                fb_p = runtime_paths.resolve_data_file(fb) if not os.path.isabs(fb) else Path(fb)
                 if fb_p.exists():
                     try:
                         fdf = pd.read_parquet(fb_p)
@@ -412,7 +413,7 @@ class OnlineHeuristicFactorEvolver:
                 top_code = meta.get("top_fund_code") or meta.get("default_fund", {}).get("code")
                 if top_code:
                     for nc_p in [
-                        WORKSPACE_ROOT / "data/cache/market_screener/nav_cache" / f"{top_code}.parquet",
+                        runtime_paths.get_cache_dir() / "market_screener" / "nav_cache" / f"{top_code}.parquet",
                         WORKSPACE_ROOT / "data/nav_cache" / f"{top_code}.parquet",
                         WORKSPACE_ROOT / "AGY2_FundAdvisory/data/nav_cache" / f"{top_code}.parquet"
                     ]:
@@ -1065,10 +1066,7 @@ class OpportunityRadarEngine:
 
     @staticmethod
     def _resolve_cache_dir() -> str:
-        for p in [WORKSPACE_ROOT / "data" / "cache", WORKSPACE_ROOT / "AGY2_FundAdvisory" / "data" / "cache"]:
-            if p.exists():
-                return str(p)
-        return str(WORKSPACE_ROOT / "data" / "cache")
+        return str(runtime_paths.get_cache_dir())
 
     def _load_realtime_quotes(self) -> Dict[str, Dict[str, Any]]:
         """批量获取 14 大赛道实时行情（点位、涨跌幅、涨跌额），带高速缓存与离线兜底"""
@@ -1110,7 +1108,7 @@ class OpportunityRadarEngine:
         try:
             mat_path = None
             for p in [
-                WORKSPACE_ROOT / "data/processed/aligned_matrix_total_return.parquet",
+                runtime_paths.resolve_data_file("processed/aligned_matrix_total_return.parquet"),
                 WORKSPACE_ROOT / "data/aligned_matrix_total_return.parquet",
                 WORKSPACE_ROOT / "AGY2_FundAdvisory/data/aligned_matrix_total_return.parquet"
             ]:
@@ -1121,7 +1119,7 @@ class OpportunityRadarEngine:
             cols = df_mat.columns.tolist() if df_mat is not None else []
 
             global_df = None
-            global_path = WORKSPACE_ROOT / "data/global/global_indices.parquet"
+            global_path = runtime_paths.resolve_data_file("global/global_indices.parquet")
             if global_path.exists():
                 try:
                     global_df = pd.read_parquet(global_path)
@@ -1134,7 +1132,7 @@ class OpportunityRadarEngine:
                 # 1. 优先读取细分行业/赛道独立日线 parquet (如 000685 半导体、000933 医药、000932 白酒、399986 银行)
                 fb = meta.get("fallback_parquet")
                 if fb:
-                    fb_p = WORKSPACE_ROOT / fb if not os.path.isabs(fb) else Path(fb)
+                    fb_p = runtime_paths.resolve_data_file(fb) if not os.path.isabs(fb) else Path(fb)
                     if fb_p.exists():
                         try:
                             fdf = pd.read_parquet(fb_p)
@@ -1150,7 +1148,7 @@ class OpportunityRadarEngine:
                     top_code = meta.get("top_fund_code") or meta.get("default_fund", {}).get("code")
                     if top_code:
                         for nc_p in [
-                            WORKSPACE_ROOT / "data/cache/market_screener/nav_cache" / f"{top_code}.parquet",
+                            runtime_paths.get_cache_dir() / "market_screener" / "nav_cache" / f"{top_code}.parquet",
                             WORKSPACE_ROOT / "data/nav_cache" / f"{top_code}.parquet",
                             WORKSPACE_ROOT / "AGY2_FundAdvisory/data/nav_cache" / f"{top_code}.parquet"
                         ]:
@@ -1170,7 +1168,7 @@ class OpportunityRadarEngine:
                 if (s is None or len(s) < 25):
                     try:
                         import duckdb
-                        db_path = WORKSPACE_ROOT / "data/storage.duckdb"
+                        db_path = runtime_paths.resolve_data_file("storage.duckdb")
                         if db_path.exists():
                             top_code = meta.get("top_fund_code") or meta.get("default_fund", {}).get("code")
                             if top_code:
@@ -1370,7 +1368,7 @@ class OpportunityRadarEngine:
         # 本地行情日线动态精算分位数 (历史3年滚动分位数 / 去趋势年线中枢)
         fb = meta.get("fallback_parquet")
         if fb:
-            fb_p = WORKSPACE_ROOT / fb if not os.path.isabs(fb) else Path(fb)
+            fb_p = runtime_paths.resolve_data_file(fb) if not os.path.isabs(fb) else Path(fb)
             if fb_p.exists():
                 try:
                     fdf = pd.read_parquet(fb_p)
@@ -1386,10 +1384,10 @@ class OpportunityRadarEngine:
         m_col = meta.get("matrix_col")
         if m_col:
             for p in [
-                WORKSPACE_ROOT / "data/processed/aligned_matrix_total_return.parquet",
-                WORKSPACE_ROOT / "data/processed/aligned_market_matrix.parquet",
-                WORKSPACE_ROOT / "data/processed/aligned_matrix.parquet",
-                WORKSPACE_ROOT / "data/processed/market_matrix.parquet"
+                runtime_paths.resolve_data_file("processed/aligned_matrix_total_return.parquet"),
+                runtime_paths.resolve_data_file("processed/aligned_market_matrix.parquet"),
+                runtime_paths.resolve_data_file("processed/aligned_matrix.parquet"),
+                runtime_paths.resolve_data_file("processed/market_matrix.parquet")
             ]:
                 if p.exists():
                     try:
@@ -2132,7 +2130,7 @@ class ActiveRiskSentry:
     """主动风险预警哨：十三维主动风险巡检与本地预警哨持久化"""
 
     def __init__(self, watchdog_path: Optional[str] = None):
-        self.watchdog_path = watchdog_path or "data/portfolio_watchdog.json"
+        self.watchdog_path = watchdog_path or str(runtime_paths.get_data_dir() / "portfolio_watchdog.json")
 
     def inspect_portfolio(
         self,
@@ -3349,7 +3347,7 @@ class SmartExecutionDCAEngine:
                 pass
 
         # 1. 第一顺位：单只基金专属净值湖仓 (data/processed/funds/{clean_code}.OF.parquet)
-        f_p = WORKSPACE_ROOT / "data" / "processed" / "funds" / f"{clean_code}.OF.parquet"
+        f_p = runtime_paths.resolve_data_file(f"processed/funds/{clean_code}.OF.parquet")
         if f_p.exists():
             try:
                 df_f = pd.read_parquet(f_p)
@@ -3398,7 +3396,7 @@ class SmartExecutionDCAEngine:
         }
         target_parquet = INDEX_MAP.get(clean_code)
         if target_parquet:
-            pq_p = WORKSPACE_ROOT / "data" / "processed" / target_parquet
+            pq_p = runtime_paths.resolve_data_file(f"processed/{target_parquet}")
             if pq_p.exists():
                 try:
                     df_idx = pd.read_parquet(pq_p)
@@ -3421,7 +3419,7 @@ class SmartExecutionDCAEngine:
                     pass
 
         # 3. 第三顺位：全收益跨市场对齐矩阵 (aligned_matrix_total_return.parquet)
-        mat_path = WORKSPACE_ROOT / "data" / "processed" / "aligned_matrix_total_return.parquet"
+        mat_path = runtime_paths.resolve_data_file("processed/aligned_matrix_total_return.parquet")
         if mat_path.exists():
             try:
                 df_mat = pd.read_parquet(mat_path)
@@ -4624,7 +4622,7 @@ def generate_chief_advisor_memo(
         erp_stance = "中性平衡区"
         erp_advice = "股债比价均衡，维持攻防兼备的哑铃配置"
 
-    news_cache_file = Path(WORKSPACE_ROOT) / "data" / "cache" / "realtime_news.json"
+    news_cache_file = runtime_paths.get_cache_dir() / "realtime_news.json"
     picked_title = ""
     if news_cache_file.exists():
         try:

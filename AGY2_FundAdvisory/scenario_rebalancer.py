@@ -15,6 +15,8 @@ import os
 
 import pandas as pd
 
+import runtime_paths
+from domain_models import CORE_STRATEGY_POOL, FundHolding, HoldingBatch, HoldingItem, PendingOrder
 from trading_clock_fee import FeeMatrixCalculator
 from valuation_engine import (
     _REALTIME_QUOTE_CACHE,
@@ -22,14 +24,6 @@ from valuation_engine import (
     fetch_realtime_fund_quote,
     prefetch_batch_fund_quotes,
 )
-
-
-def _get_pm_mod():
-    try:
-        import portfolio_manager as _pm
-    except ImportError:
-        from AGY2_FundAdvisory import portfolio_manager as _pm
-    return _pm
 
 
 class ScenarioRebalanceMixin:
@@ -52,8 +46,6 @@ class ScenarioRebalanceMixin:
         3. withdraw_cash_only: 🏧 智能低损耗提现 (零买入，阶梯费率/意愿赎回，避开<7天惩罚)
         4. sweep_tail_and_c_class: 🧹 尾部碎片与C类一键归拢至核心底仓
         """
-        __pm_mod = _get_pm_mod()
-        CORE_STRATEGY_POOL = __pm_mod.CORE_STRATEGY_POOL
         self._recalculate_totals()
         cur_reserved = getattr(self, "reserved_batch_cash", 0.0)
 
@@ -641,9 +633,6 @@ class ScenarioRebalanceMixin:
         """
         确认已下单并正式写入 `pending_orders` 在途队列与扣减现金/份额
         """
-        __pm_mod = _get_pm_mod()
-        FundHolding = __pm_mod.FundHolding
-        PendingOrder = __pm_mod.PendingOrder
         created_order_ids = []
         now_dt = datetime.now()
         settlement = self.clock.calculate_settlement_dates(now_dt)
@@ -809,9 +798,6 @@ class ScenarioRebalanceMixin:
         """
         次日 (T+1) 拉取真实基金净值后，一键完成真实确认份额与尾款校准
         """
-        __pm_mod = _get_pm_mod()
-        FundHolding = __pm_mod.FundHolding
-        HoldingBatch = __pm_mod.HoldingBatch
         target_order = None
         for o in self.pending_orders:
             if o.order_id == order_id:
@@ -931,8 +917,6 @@ class ScenarioRebalanceMixin:
         - 现金分红 (cash): 自动计入可用现金池，同时平滑调低各批次成本净值，实现 0 赎回费自然降仓，严防虚假暴跌触发止损；
         - 红利再投资 (reinvest): 自动以除权净值追加免申购费批次。
         """
-        __pm_mod = _get_pm_mod()
-        HoldingBatch = __pm_mod.HoldingBatch
         code = str(fund_code).strip().zfill(6)
         if code not in self.holdings:
             raise ValueError(f"持仓中不存在基金代码 {code}")
@@ -995,9 +979,8 @@ class ScenarioRebalanceMixin:
         else:
             # 优先从本地 Wind 湖仓读取真实行情并使用正确折算口径
             quotes = {}
-            workspace_root = Path(__file__).resolve().parent.parent if Path(__file__).resolve().parent.name == "AGY2_FundAdvisory" else Path(__file__).resolve().parent
-            flows_file = workspace_root / "data/mart/etf_flows.parquet"
-            cat_file = workspace_root / "data/master/etf_catalog.parquet"
+            flows_file = runtime_paths.resolve_data_file("mart/etf_flows.parquet")
+            cat_file = runtime_paths.resolve_data_file("master/etf_catalog.parquet")
 
             if flows_file.exists() and cat_file.exists():
                 try:
@@ -1091,8 +1074,6 @@ class ScenarioRebalanceMixin:
         4. 在途赎回单 (T+2 到账追踪中)
         5. 核心策略底仓与可用现金
         """
-        __pm_mod = _get_pm_mod()
-        PendingOrder = __pm_mod.PendingOrder
         today_dt = datetime.now().date()
         today_str = today_dt.strftime("%Y-%m-%d")
 

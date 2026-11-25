@@ -12,15 +12,26 @@ import json
 from datetime import datetime, date
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from runtime_paths import get_data_dir
 
-PRIMARY_LOG_PATH = Path("data/forward_decision_audit.jsonl")
-SECONDARY_LOG_PATH = Path("data/oos_verdict_ledger.jsonl")
+_DEFAULT_PRIMARY_LOG_PATH = get_data_dir() / "forward_decision_audit.jsonl"
+_DEFAULT_SECONDARY_LOG_PATH = get_data_dir() / "oos_verdict_ledger.jsonl"
+PRIMARY_LOG_PATH = _DEFAULT_PRIMARY_LOG_PATH
+SECONDARY_LOG_PATH = _DEFAULT_SECONDARY_LOG_PATH
 
 HORIZON_BUCKETS = ("<30天观察期", "30天验真", "90天验真", "180天+验真")
 
 
+def _resolve_primary_log() -> Path:
+    return PRIMARY_LOG_PATH if PRIMARY_LOG_PATH != _DEFAULT_PRIMARY_LOG_PATH else (get_data_dir() / "forward_decision_audit.jsonl")
+
+
+def _resolve_secondary_log() -> Path:
+    return SECONDARY_LOG_PATH if SECONDARY_LOG_PATH != _DEFAULT_SECONDARY_LOG_PATH else (get_data_dir() / "oos_verdict_ledger.jsonl")
+
+
 def _ensure_data_dir() -> None:
-    PRIMARY_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _resolve_primary_log().parent.mkdir(parents=True, exist_ok=True)
 
 
 def _classify_horizon_bucket(days_elapsed: int) -> str:
@@ -64,10 +75,11 @@ def _extract_numeric_nav(val: Any) -> Optional[float]:
 
 def load_decision_audit_log(filepath: Optional[Path] = None) -> List[Dict[str, Any]]:
     """加载历史已冻结的每日裁决快照列表"""
-    target = filepath or PRIMARY_LOG_PATH
+    p_log, s_log = _resolve_primary_log(), _resolve_secondary_log()
+    target = filepath or p_log
     if not target.exists():
-        if filepath is None and SECONDARY_LOG_PATH.exists():
-            target = SECONDARY_LOG_PATH
+        if filepath is None and s_log.exists():
+            target = s_log
         else:
             return []
     records = []
@@ -91,7 +103,7 @@ def append_daily_decision_snapshot(record: Dict[str, Any]) -> bool:
     t_date = str(record.get("date") or record.get("trade_date") or datetime.now().strftime("%Y-%m-%d"))
 
     # 查重：若当日已有记录，原样保护退出
-    existing = load_decision_audit_log(PRIMARY_LOG_PATH)
+    existing = load_decision_audit_log(_resolve_primary_log())
     for r in existing:
         r_d = str(r.get("date") or r.get("trade_date") or "")
         if r_d == t_date:
@@ -110,7 +122,7 @@ def append_daily_decision_snapshot(record: Dict[str, Any]) -> bool:
         "data_health_status": record.get("data_health_status", {"all_passed": True}),
     }
 
-    for p in [PRIMARY_LOG_PATH, SECONDARY_LOG_PATH]:
+    for p in [_resolve_primary_log(), _resolve_secondary_log()]:
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "a", encoding="utf-8") as f:
             f.write(json.dumps(clean_rec, ensure_ascii=False) + "\n")

@@ -12,14 +12,25 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
+from runtime_paths import get_data_dir
 
-BENCHMARK_FILE = Path("data/shadow_benchmarks.json")
-BASELINE_DIR = Path("data/frozen_shadow_baselines")
+_DEFAULT_BENCHMARK_FILE = get_data_dir() / "shadow_benchmarks.json"
+_DEFAULT_BASELINE_DIR = get_data_dir() / "frozen_shadow_baselines"
+BENCHMARK_FILE = _DEFAULT_BENCHMARK_FILE
+BASELINE_DIR = _DEFAULT_BASELINE_DIR
+
+
+def _resolve_benchmark_file() -> Path:
+    return BENCHMARK_FILE if BENCHMARK_FILE != _DEFAULT_BENCHMARK_FILE else (get_data_dir() / "shadow_benchmarks.json")
+
+
+def _resolve_baseline_dir() -> Path:
+    return BASELINE_DIR if BASELINE_DIR != _DEFAULT_BASELINE_DIR else (get_data_dir() / "frozen_shadow_baselines")
 
 
 def _ensure_dir() -> None:
-    BENCHMARK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    BASELINE_DIR.mkdir(parents=True, exist_ok=True)
+    _resolve_benchmark_file().parent.mkdir(parents=True, exist_ok=True)
+    _resolve_baseline_dir().mkdir(parents=True, exist_ok=True)
 
 
 def _read_pos_float(obj: Any, field: str) -> Optional[float]:
@@ -91,20 +102,21 @@ def freeze_shadow_baseline(
     }
 
     # 1. 写入独立专属文件
-    spec_path = BASELINE_DIR / f"{ledger_id}_baseline.json"
+    spec_path = _resolve_baseline_dir() / f"{ledger_id}_baseline.json"
     with open(spec_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
     # 2. 同步写入总索引文件
     all_benchmarks = {}
-    if BENCHMARK_FILE.exists():
+    bm_file = _resolve_benchmark_file()
+    if bm_file.exists():
         try:
-            with open(BENCHMARK_FILE, "r", encoding="utf-8") as f:
+            with open(bm_file, "r", encoding="utf-8") as f:
                 all_benchmarks = json.load(f)
         except Exception:
             all_benchmarks = {}
     all_benchmarks[str(ledger_id)] = payload
-    with open(BENCHMARK_FILE, "w", encoding="utf-8") as f:
+    with open(bm_file, "w", encoding="utf-8") as f:
         json.dump(all_benchmarks, f, ensure_ascii=False, indent=2)
 
     return spec_path
@@ -112,7 +124,7 @@ def freeze_shadow_baseline(
 
 def get_shadow_baseline(ledger_id: str) -> Optional[Dict[str, Any]]:
     """读取指定账本的冻结躺平基准"""
-    spec_path = BASELINE_DIR / f"{ledger_id}_baseline.json"
+    spec_path = _resolve_baseline_dir() / f"{ledger_id}_baseline.json"
     if spec_path.exists():
         try:
             with open(spec_path, "r", encoding="utf-8") as f:
@@ -120,9 +132,10 @@ def get_shadow_baseline(ledger_id: str) -> Optional[Dict[str, Any]]:
         except Exception:
             pass
 
-    if BENCHMARK_FILE.exists():
+    bm_file = _resolve_benchmark_file()
+    if bm_file.exists():
         try:
-            with open(BENCHMARK_FILE, "r", encoding="utf-8") as f:
+            with open(bm_file, "r", encoding="utf-8") as f:
                 all_b = json.load(f)
             return all_b.get(str(ledger_id))
         except Exception:

@@ -24,18 +24,11 @@ import numpy as np
 import pandas as pd
 
 import runtime_paths
+from domain_models import CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG, FundQuote
 from trading_clock_fee import TradingClock
 
 CURRENT_DIR = runtime_paths.get_bundle_root()
 WORKSPACE_ROOT = runtime_paths.get_workspace_root()
-
-
-def _get_fund_pools() -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
-    try:
-        import portfolio_manager as _pm
-    except ImportError:
-        from AGY2_FundAdvisory import portfolio_manager as _pm
-    return _pm.CORE_STRATEGY_POOL, _pm.EXTENDED_FUND_CATALOG
 
 
 # =====================================================================
@@ -51,7 +44,7 @@ _REALTIME_QUOTE_CACHE: Dict[str, Tuple[float, "FundQuote"]] = getattr(sys, "_AGY
 _REALTIME_INDEX_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = getattr(sys, "_AGY2_SHARED_REALTIME_INDEX_CACHE")
 
 # 磁盘持久化快照文件路径（在 FundQuote 类定义完成后自动加载，实现冷启动 0ms 瞬间秒开）
-_DISK_QUOTE_CACHE_FILE = WORKSPACE_ROOT / "data" / "cache" / "realtime_quotes.json"
+_DISK_QUOTE_CACHE_FILE = runtime_paths.get_cache_dir() / "realtime_quotes.json"
 
 
 def _sync_realtime_quotes_to_disk():
@@ -607,179 +600,10 @@ def fetch_batch_realtime_indices(use_cache: bool = True) -> List[Dict[str, Any]]
     return final_list
 
 
-class FundQuote(dict):
-    """
-    兼容字典索引、属性访问与 5 元组解构的基金实时行情数据模型 (G26 双轨对账增强版)
-    同时独立承载：
-    1. 当日实时估算轨 (est_gsz, est_gszzl, tiantian_gszzl, penetration_gszzl, est_source)
-    2. 官方公布净值轨 (official_nav, official_chg_pct/official_chg, prev_official_chg_pct, official_pdate/official_date, is_official_nav)
-    3. 官方 vs 估算对比摘要 (est_diff, val_compare_str)
-    """
-    def __init__(
-        self,
-        name: str,
-        dwjz: float,
-        gsz: float,
-        gszzl: float,
-        gztime: str,
-        fund_code: str = "",
-        valuation_corrected: bool = False,
-        is_official_nav: bool = False,
-        real_tiantian_live: bool = False,
-        est_gsz: Optional[float] = None,
-        est_gszzl: Optional[float] = None,
-        tiantian_gszzl: Optional[float] = None,
-        penetration_gszzl: Optional[float] = None,
-        official_nav: Optional[float] = None,
-        official_chg_pct: Optional[float] = None,
-        official_chg: Optional[float] = None,
-        prev_official_chg_pct: Optional[float] = None,
-        official_pdate: str = "",
-        official_date: str = "",
-        est_source: str = "",
-        val_compare_str: str = "",
-        is_dividend_event: bool = False,
-        accum_nav: Optional[float] = None
-    ):
-        _gsz_f = float(gsz)
-        _gszzl_f = float(gszzl)
-        _est_gsz_f = float(est_gsz) if est_gsz is not None else _gsz_f
-        _est_gszzl_f = round(float(est_gszzl), 2) if est_gszzl is not None else round(_gszzl_f, 2)
-        # 反作弊守卫：当官方净值公布且未显式传入 est_gszzl 时，优先从盘中定格估算归档检索，绝不默认退化为官方涨跌制造假0误差
-        if est_gszzl is None and is_official_nav and fund_code and hasattr(sys, "_AGY2_SHARED_TODAY_EST_ARCHIVE"):
-            _arch_map = getattr(sys, "_AGY2_SHARED_TODAY_EST_ARCHIVE", {})
-            if fund_code in _arch_map:
-                _arch = _arch_map[fund_code]
-                _est_gsz_f = float(_arch[1])
-                _est_gszzl_f = round(float(_arch[2]), 2)
-                if not est_source and len(_arch) > 3 and _arch[3]:
-                    est_source = str(_arch[3])
-        _off_nav_f = float(official_nav) if official_nav is not None else float(dwjz)
-        _raw_off_chg = official_chg_pct if official_chg_pct is not None else official_chg
-        _off_chg_f = round(float(_raw_off_chg), 2) if _raw_off_chg is not None else (round(_gszzl_f, 2) if is_official_nav else None)
-        _prev_off_f = round(float(prev_official_chg_pct), 2) if prev_official_chg_pct is not None else (_off_chg_f if _off_chg_f is not None else None)
-        _pdate_s = str(official_pdate or official_date or "")
-
-        # 计算同日估算偏差 est_diff = round(est_gszzl - official_chg, 2)（仅当今日官方净值已公布时有值）
-        _est_diff_f: Optional[float] = None
-        if is_official_nav and _off_chg_f is not None:
-            _est_diff_f = round(_est_gszzl_f - _off_chg_f, 2)
-
-        if not val_compare_str:
-            if is_official_nav and _off_chg_f is not None and _est_diff_f is not None:
-                _abs_d = abs(_est_diff_f)
-                _badge = "🟢" if _abs_d <= 0.15 else ("🟡" if _abs_d <= 0.40 else "🔴")
-                val_compare_str = f"{_badge} {_off_chg_f:+.2f}% (差{_est_diff_f:+.2f}%)"
-            else:
-                _p_tag = _pdate_s[-5:] if len(_pdate_s) >= 5 else "待更"
-                if _prev_off_f is not None:
-                    val_compare_str = f"⏳待出 ({_p_tag}官 {_prev_off_f:+.2f}%)"
-                else:
-                    val_compare_str = f"⏳待出 ({_p_tag})"
-
-        super().__init__(
-            name=name,
-            dwjz=float(dwjz),
-            gsz=_gsz_f,
-            gszzl=_gszzl_f,
-            gztime=str(gztime),
-            fund_code=str(fund_code),
-            valuation_corrected=bool(valuation_corrected),
-            is_official_nav=bool(is_official_nav),
-            real_tiantian_live=bool(real_tiantian_live),
-            est_gsz=_est_gsz_f,
-            est_gszzl=_est_gszzl_f,
-            tiantian_gszzl=round(float(tiantian_gszzl), 2) if tiantian_gszzl is not None else None,
-            penetration_gszzl=round(float(penetration_gszzl), 2) if penetration_gszzl is not None else None,
-            official_nav=_off_nav_f,
-            official_chg_pct=_off_chg_f,
-            official_chg=_off_chg_f if _off_chg_f is not None else (_prev_off_f if _prev_off_f is not None else 0.0),
-            prev_official_chg_pct=_prev_off_f,
-            official_pdate=_pdate_s,
-            official_date=_pdate_s,
-            est_diff=_est_diff_f,
-            est_source=str(est_source or ""),
-            val_compare_str=str(val_compare_str),
-            is_dividend_event=bool(is_dividend_event),
-            accum_nav=float(accum_nav) if accum_nav is not None else None
-        )
-
-    @property
-    def accum_nav(self) -> Optional[float]: return self.get("accum_nav")
-    @property
-    def name(self) -> str: return str(self.get("name", ""))
-    @property
-    def dwjz(self) -> float: return float(self.get("dwjz", 1.0))
-    @property
-    def gsz(self) -> float: return float(self.get("gsz", 1.0))
-    @property
-    def gszzl(self) -> float: return float(self.get("gszzl", 0.0))
-    @property
-    def gztime(self) -> str: return str(self.get("gztime", ""))
-    @property
-    def fund_code(self) -> str: return str(self.get("fund_code", ""))
-    @property
-    def valuation_corrected(self) -> bool: return bool(self.get("valuation_corrected", False))
-    @property
-    def is_official_nav(self) -> bool: return bool(self.get("is_official_nav", False))
-    @property
-    def real_tiantian_live(self) -> bool: return bool(self.get("real_tiantian_live", False))
-    @property
-    def est_gsz(self) -> float: return float(self.get("est_gsz", self.gsz))
-    @property
-    def est_gszzl(self) -> float: return float(self.get("est_gszzl", self.gszzl))
-    @property
-    def tiantian_gszzl(self) -> Optional[float]:
-        v = self.get("tiantian_gszzl")
-        return float(v) if v is not None else None
-    @property
-    def penetration_gszzl(self) -> Optional[float]:
-        v = self.get("penetration_gszzl")
-        return float(v) if v is not None else None
-    @property
-    def official_nav(self) -> float: return float(self.get("official_nav", self.dwjz))
-    @property
-    def official_chg_pct(self) -> Optional[float]:
-        v = self.get("official_chg_pct")
-        return float(v) if v is not None else None
-    @property
-    def official_chg(self) -> float:
-        v = self.get("official_chg")
-        return float(v) if v is not None else 0.0
-    @property
-    def prev_official_chg_pct(self) -> Optional[float]:
-        v = self.get("prev_official_chg_pct")
-        return float(v) if v is not None else None
-    @property
-    def official_pdate(self) -> str: return str(self.get("official_pdate", ""))
-    @property
-    def official_date(self) -> str: return str(self.get("official_date", self.get("official_pdate", "")))
-    @property
-    def est_diff(self) -> Optional[float]:
-        v = self.get("est_diff")
-        return float(v) if v is not None else None
-    @property
-    def est_source(self) -> str: return str(self.get("est_source", ""))
-    @property
-    def val_compare_str(self) -> str: return str(self.get("val_compare_str", ""))
-    @property
-    def is_dividend_event(self) -> bool: return bool(self.get("is_dividend_event", False))
-
-    def __iter__(self):
-        return iter([self.name, self.dwjz, self.gsz, self.gszzl, self.gztime])
-
-    def __getitem__(self, key):
-        if isinstance(key, int):
-            return [self.name, self.dwjz, self.gsz, self.gszzl, self.gztime][key]
-        return super().__getitem__(key)
-
-    def to_list(self) -> List[Any]:
-        return [self.name, self.dwjz, self.gsz, self.gszzl, self.gztime]
-
 
 # 进程级当日定格估算存档：确保晚间官方净值公布后，当日盘中估算值 est_gszzl 绝不被覆盖丢失
 _DAILY_EST_ARCHIVE_FILE = CURRENT_DIR / "data" / "daily_intraday_est_archive.json"
-_ROOT_DAILY_EST_ARCHIVE_FILE = WORKSPACE_ROOT / "data" / "daily_intraday_est_archive.json"
+_ROOT_DAILY_EST_ARCHIVE_FILE = runtime_paths.get_data_dir() / "daily_intraday_est_archive.json"
 
 if not hasattr(sys, "_AGY2_SHARED_TODAY_EST_ARCHIVE"):
     setattr(sys, "_AGY2_SHARED_TODAY_EST_ARCHIVE", {})
@@ -896,7 +720,7 @@ def get_calibrated_feeder_beta(fund_code: str, target_sym: str, default_beta: fl
     try:
         duck_db_path = CURRENT_DIR / "data" / "storage.duckdb"
         if not duck_db_path.exists():
-            duck_db_path = WORKSPACE_ROOT / "data" / "storage.duckdb"
+            duck_db_path = runtime_paths.resolve_data_file("storage.duckdb")
 
         if duck_db_path.exists():
             import duckdb
@@ -919,7 +743,7 @@ def get_calibrated_feeder_beta(fund_code: str, target_sym: str, default_beta: fl
                 else:
                     matrix_path = CURRENT_DIR / "data" / "processed" / "aligned_matrix_total_return.parquet"
                     if not matrix_path.exists():
-                        matrix_path = WORKSPACE_ROOT / "data" / "processed" / "aligned_matrix_total_return.parquet"
+                        matrix_path = runtime_paths.resolve_data_file("processed/aligned_matrix_total_return.parquet")
                     if matrix_path.exists():
                         df_idx = pd.read_parquet(matrix_path)
                         _ALIGNED_MATRIX_CACHE = (today_k, df_idx)
@@ -1111,7 +935,6 @@ def evaluate_four_tier_realtime_valuation(fund_code: str, base_quote: Optional[F
     3. 第三级：海外 QDII 基金 (外盘指数 * 0.95 + 今日离岸人民币 USD/CNH 实时汇率变动率纠偏)
     4. 第四级：主动权益基金 (仅当天天基金返回的 gztime 严格等于今日日期时采用其 gszzl，否则使用前十大重仓股实时行情加权计算)
     """
-    CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG = _get_fund_pools()
     code = str(fund_code).strip().zfill(6)
     q = base_quote
     if q is None:
@@ -1414,7 +1237,6 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
     仅用 1 次 HTTP 请求（< 200ms）批量获取最多 100 只基金的最新官方净值(NAV/PDATE/NAVCHGRT)
     与官方盘中实时估值(GSZ/GSZZL/GZTIME)，彻底终结 29 只基金串行请求导致的页面卡死！
     """
-    CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG = _get_fund_pools()
     clean_codes = []
     for c in (fund_codes or []):
         sc = str(c).strip().zfill(6)
@@ -2147,7 +1969,6 @@ def fetch_realtime_fund_quote(fund_code: str, use_cache: bool = True, sync_disk:
     [基金真实全称, 昨日官方单位净值(dwjz), 今日盘中实时估算净值(gsz), 今日实时估算涨跌幅(gszzl%), 估值更新时间(gztime)]
     若遇纯债/QDII无盘中估值，则自动回退取最新官方净值及对应跟踪指数的盘中实时涨跌幅估算。
     """
-    CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG = _get_fund_pools()
     code = str(fund_code).strip().zfill(6)
     now_ts = time.time()
     is_test_env = bool(os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("STREAMLIT_APPTEST"))
@@ -2543,7 +2364,6 @@ class _MemConnectionProxy:
 
 def _get_sector_alternatives(code: str, meta: Optional[Dict[str, Any]] = None) -> List[str]:
     """根据赛道与配置风格获取备选基金有序优先级列表"""
-    CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG = _get_fund_pools()
     code = str(code).strip().zfill(6)
     alts: List[str] = []
     if meta is None:
@@ -2605,7 +2425,6 @@ def replace_restricted_funds_with_alternatives(
     将其平滑替换为同赛道无限制（或限额 >= min_limit）备选标的。
     返回: (new_weights, replaced_map)
     """
-    CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG = _get_fund_pools()
     if min_limit <= 0 or not weights:
         return dict(weights), {}
 

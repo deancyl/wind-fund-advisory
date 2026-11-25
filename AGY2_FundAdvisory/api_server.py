@@ -1295,22 +1295,56 @@ def api_v1_backtest_summary(ledger_id: Optional[str] = None) -> Dict[str, Any]:
     })
 
 
-def _serialize_watchlist_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    out = []
-    for it in items:
-        chg = sector_watchlist.fetch_sector_change_pct(it)
-        out.append({
+_SECTORS_QUOTE_CACHE: Dict[str, Any] = {"ts": 0.0, "key": "", "data": []}
+_SECTORS_CACHE_LOCK = threading.Lock()
+_SECTORS_CACHE_TTL_SEC = 30.0
+
+
+def _fetch_sectors_with_quotes_cached(items: List[Dict[str, Any]], force_refresh: bool = False) -> List[Dict[str, Any]]:
+    now = time.time()
+    cache_key = ",".join(f"{it.get('code', '')}:{it.get('name', '')}" for it in items)
+    with _SECTORS_CACHE_LOCK:
+        if (
+            not force_refresh
+            and _SECTORS_QUOTE_CACHE["key"] == cache_key
+            and (now - float(_SECTORS_QUOTE_CACHE["ts"])) < _SECTORS_CACHE_TTL_SEC
+            and _SECTORS_QUOTE_CACHE["data"]
+        ):
+            return list(_SECTORS_QUOTE_CACHE["data"])
+
+    if not items:
+        with _SECTORS_CACHE_LOCK:
+            _SECTORS_QUOTE_CACHE["ts"] = now
+            _SECTORS_QUOTE_CACHE["key"] = ""
+            _SECTORS_QUOTE_CACHE["data"] = []
+        return []
+
+    def _one(it: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            chg = float(sector_watchlist.fetch_sector_change_pct(it) or 0.0)
+        except Exception:
+            chg = 0.0
+        return {
             "code": it.get("code", ""),
             "name": it.get("name", ""),
             "asset_type": it.get("asset_type", "ETF"),
-            "change_pct": round(float(chg), 2),
-        })
+            "change_pct": round(chg, 2),
+        }
+
+    workers = min(6, max(1, len(items)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        out = list(pool.map(_one, items))
+
+    with _SECTORS_CACHE_LOCK:
+        _SECTORS_QUOTE_CACHE["ts"] = time.time()
+        _SECTORS_QUOTE_CACHE["key"] = cache_key
+        _SECTORS_QUOTE_CACHE["data"] = out
     return out
 
 
 @app.get("/api/v1/watchlist")
 def api_v1_get_watchlist() -> Dict[str, Any]:
-    out = _serialize_watchlist_items(sector_watchlist.load_sector_watchlist())
+    out = _fetch_sectors_with_quotes_cached(sector_watchlist.load_sector_watchlist(), force_refresh=False)
     return _sanitize_v1_payload({"count": len(out), "items": out})
 
 
@@ -1326,14 +1360,14 @@ def api_v1_update_watchlist(req: WatchlistUpdateRequest) -> Dict[str, Any]:
             items = sector_watchlist.reset_sector_watchlist()
         else:
             items = sector_watchlist.load_sector_watchlist()
-        out = _serialize_watchlist_items(items)
+        out = _fetch_sectors_with_quotes_cached(items, force_refresh=True)
         return _sanitize_v1_payload({"status": "ok", "count": len(out), "items": out})
 
 
 @app.delete("/api/v1/watchlist/{code}")
 def api_v1_delete_watchlist_item(code: str) -> Dict[str, Any]:
     with _LEDGER_WRITE_LOCK:
-        out = _serialize_watchlist_items(sector_watchlist.remove_sector_item(code))
+        out = _fetch_sectors_with_quotes_cached(sector_watchlist.remove_sector_item(code), force_refresh=True)
         return _sanitize_v1_payload({"status": "ok", "count": len(out), "items": out})
 
 

@@ -33,6 +33,9 @@ for p in [str(CURRENT_DIR), str(WORKSPACE_ROOT), str(AGY2_DIR)]:
 
 from islands.island_ensemble import strategy_fn, PARAMS
 from islands import island_momentum, island_erp, island_breadth
+import runtime_paths
+from domain_models import CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG, SECTOR_FUND_SELECTION, HoldingBatch, FundHolding, HoldingItem
+from valuation_engine import fetch_realtime_fund_quote, fetch_realtime_index_quote, replace_restricted_funds_with_alternatives
 from data_loader import DataLoader
 
 # WindToolkit 投顾统一工具包与衍生品模块接入
@@ -47,12 +50,12 @@ except Exception:
     DerivativesCollector = None
 
 # 数据路径定义
-CACHE_DIR = WORKSPACE_ROOT / "data/processed" if (WORKSPACE_ROOT / "data/processed").exists() else CURRENT_DIR / "data/processed"
-MATRIX_FILE = CACHE_DIR / "aligned_matrix_total_return.parquet"
-BOND_FILE = WORKSPACE_ROOT / "data/macro/chinabond_yield_curve.parquet"
-RATE_FILE = WORKSPACE_ROOT / "data/macro/bond_zh_us_rate.parquet"
-VALUATION_FILE = WORKSPACE_ROOT / "data/mart/index_valuations.parquet"
-EVOLUTION_DB_FILE = CURRENT_DIR / "evolution.db"
+MATRIX_FILE = runtime_paths.resolve_data_file("processed/aligned_matrix_total_return.parquet")
+CACHE_DIR = MATRIX_FILE.parent
+BOND_FILE = runtime_paths.resolve_data_file("macro/chinabond_yield_curve.parquet")
+RATE_FILE = runtime_paths.resolve_data_file("macro/bond_zh_us_rate.parquet")
+VALUATION_FILE = runtime_paths.resolve_data_file("mart/index_valuations.parquet")
+EVOLUTION_DB_FILE = runtime_paths.get_bundle_root() / "evolution.db"
 
 # 指数至公募基金真实代码映射表
 # 常驻底仓映射 A 类；波段进攻仓强制映射 C 类（0申购费+满30天0赎回费）
@@ -1007,7 +1010,7 @@ class OnlineExpertWeightUpdater:
             if 'date' in history_df.columns:
                 try:
                     last_date = pd.to_datetime(history_df['date'].iloc[-1])
-                    ib_file = WORKSPACE_ROOT / "data/macro/interbank_rates.parquet"
+                    ib_file = runtime_paths.resolve_data_file("macro/interbank_rates.parquet")
                     if ib_file.exists():
                         df_ib = pd.read_parquet(ib_file)
                         df_ib['date'] = pd.to_datetime(df_ib['date'])
@@ -2111,7 +2114,7 @@ class StrategyBridge:
 
         # 优先从本地预计算快照载入 C1~C5 基准序列（毫秒级响应，消除 43 秒等待）
         if not force_reload:
-            snapshot_path = WORKSPACE_ROOT / "data/cache/tier_base_backtests.pkl"
+            snapshot_path = runtime_paths.get_cache_dir() / "tier_base_backtests.pkl"
             if not all(k in cls._cached_tier_backtests for k in ["C1", "C2", "C3", "C4", "C5"]) and snapshot_path.exists():
                 try:
                     with open(snapshot_path, "rb") as _sf:
@@ -2301,7 +2304,6 @@ class StrategyBridge:
             return df, False
 
         try:
-            from portfolio_manager import fetch_realtime_index_quote
 
             q_300 = fetch_realtime_index_quote("sh000300", use_cache=True)
             q_500 = fetch_realtime_index_quote("sh000905", use_cache=True)
@@ -2404,8 +2406,6 @@ class StrategyBridge:
         m20_tr = float(c300_series.tail(ma_fast).mean())
         m60_tr = float(c300_series.tail(60).mean()) if n >= 60 else m20_tr
         m120_tr = float(c300_series.tail(120).mean()) if n >= 120 else m60_tr
-
-        from portfolio_manager import fetch_realtime_index_quote
         q_300 = fetch_realtime_index_quote("sh000300", use_cache=True)
         c300_price = float(q_300.get("point", 4053.0)) if q_300.get("point", 0) > 0 else 4053.0
 
@@ -2593,7 +2593,7 @@ class StrategyBridge:
                 df_fb, df_ov = None, None
 
         if df_fb is None or df_fb.empty:
-            fb_path = WORKSPACE_ROOT / "data/derivatives/futures_basis.parquet"
+            fb_path = runtime_paths.resolve_data_file("derivatives/futures_basis.parquet")
             if fb_path.exists():
                 try:
                     df_fb = pd.read_parquet(fb_path)
@@ -2601,7 +2601,7 @@ class StrategyBridge:
                     df_fb = None
 
         if df_ov is None or df_ov.empty:
-            ov_path = WORKSPACE_ROOT / "data/derivatives/option_volatility.parquet"
+            ov_path = runtime_paths.resolve_data_file("derivatives/option_volatility.parquet")
             if ov_path.exists():
                 try:
                     df_ov = pd.read_parquet(ov_path)
@@ -2777,8 +2777,6 @@ class StrategyBridge:
 
         m120_prev = float(c300_series.iloc[-140:-20].mean()) if n >= 140 else m120
         m120_slope = float((m120 / m120_prev - 1.0) * 100.0) if m120_prev > 0 else 0.0
-
-        from portfolio_manager import fetch_realtime_index_quote
         q_300 = fetch_realtime_index_quote("sh000300", use_cache=True)
         c300_price = float(q_300.get("point", 4053.0)) if q_300.get("point", 0) > 0 else 4053.0
         # 真实均线同比例折算：以最新价格点位 c300_price 与全收益最新点位 c300 对齐量纲 (彻底铲除假常数)
@@ -4174,7 +4172,6 @@ class StrategyBridge:
 
             # 盘中实时估值与官方净值双轨对账字段透传
             try:
-                from portfolio_manager import fetch_realtime_fund_quote
                 q = fetch_realtime_fund_quote(code)
                 realtime_gszzl = q.gszzl
                 est_gszzl = float(getattr(q, "est_gszzl", q.gszzl))
@@ -4857,7 +4854,7 @@ class StrategyBridge:
 
         # 尝试结合 MarketScreener 真实目录扩展候选池
         total_market_count = 28177
-        cat_file = WORKSPACE_ROOT / "data/master/fund_catalog.parquet"
+        cat_file = runtime_paths.resolve_data_file("master/fund_catalog.parquet")
         if cat_file.exists():
             try:
                 total_market_count = len(pd.read_parquet(cat_file))
@@ -4977,7 +4974,6 @@ class StrategyBridge:
                 _limit_th = 5000.0
 
         if _limit_th > 0:
-            from portfolio_manager import replace_restricted_funds_with_alternatives
             opt_weights, _ = replace_restricted_funds_with_alternatives(opt_weights, min_limit=_limit_th)
 
         # 归一化权重确保总和严格 1.0000
@@ -5288,7 +5284,7 @@ class StrategyBridge:
         """
         t = str(tier).upper().strip() if tier else "C3"
         total_count = 28177
-        cat_file = WORKSPACE_ROOT / "data/master/fund_catalog.parquet"
+        cat_file = runtime_paths.resolve_data_file("master/fund_catalog.parquet")
         if cat_file.exists():
             try:
                 df_cat = pd.read_parquet(cat_file)
@@ -5665,8 +5661,6 @@ class StrategyBridge:
         snapshot = cls.get_latest_market_snapshot()
         df_raw = cls.load_matrix()
         df, _ = cls.stitch_today_live_tail(df_raw)
-
-        from portfolio_manager import fetch_realtime_index_quote
         from trading_clock_fee import TradingClock
         clock = TradingClock()
         now_dt = datetime.now()
@@ -6102,8 +6096,6 @@ class StrategyBridge:
         tot_cap = float(capital if capital is not None else total_capital)
         if tot_cap <= 0:
             tot_cap = 26615.10
-
-        from portfolio_manager import CORE_STRATEGY_POOL, EXTENDED_FUND_CATALOG
 
         # 1. 资产与份额统计
         fund_count = len(weights)

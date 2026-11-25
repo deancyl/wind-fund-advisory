@@ -11,11 +11,14 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
 import json
+import os
+import sys
 import uuid
 import pandas as pd
+import runtime_paths
 
-CURRENT_DIR = Path(__file__).resolve().parent
-WORKSPACE_ROOT = CURRENT_DIR.parent if CURRENT_DIR.name == "AGY2_FundAdvisory" else CURRENT_DIR
+CURRENT_DIR = runtime_paths.get_bundle_root()
+WORKSPACE_ROOT = runtime_paths.get_workspace_root()
 
 
 class MultiLedgerManager:
@@ -42,9 +45,18 @@ class MultiLedgerManager:
         index_file: Optional[Union[str, Path]] = None,
         ledgers_dir: Optional[Union[str, Path]] = None
     ):
-        self.root = Path(workspace_root).resolve() if workspace_root else WORKSPACE_ROOT
-        self.ledgers_dir = Path(ledgers_dir).resolve() if ledgers_dir else (self.root / "data" / "ledgers")
-        self.index_file = Path(index_file).resolve() if index_file else (self.root / "data" / "ledgers_index.json")
+        self._using_isolated_data_dir = bool(workspace_root is None and (os.environ.get("AGY2_DATA_DIR", "").strip() or getattr(sys, "frozen", False)))
+        if workspace_root is not None:
+            self.root = Path(workspace_root).resolve()
+            base_data = self.root / "data"
+        elif self._using_isolated_data_dir:
+            base_data = runtime_paths.get_data_dir()
+            self.root = base_data
+        else:
+            self.root = WORKSPACE_ROOT
+            base_data = runtime_paths.get_data_dir()
+        self.ledgers_dir = Path(ledgers_dir).resolve() if ledgers_dir else (base_data / "ledgers")
+        self.index_file = Path(index_file).resolve() if index_file else (base_data / "ledgers_index.json")
         self.main_file = self.root / "portfolio_ledger.json"
         self.main_db = self.root / "portfolio_state.db"
 
@@ -53,6 +65,15 @@ class MultiLedgerManager:
 
         self._pm_cache: Dict[str, Any] = {}
         self._ensure_index_initialized()
+
+    def _resolve_meta_path(self, rel_str: str) -> Path:
+        p = Path(rel_str)
+        if p.is_absolute():
+            return p
+        norm = str(rel_str).replace("\\", "/")
+        if getattr(self, "_using_isolated_data_dir", False) and norm.startswith("data/"):
+            return self.root / norm[5:]
+        return self.root / rel_str
 
     def _get_default_main_meta(self) -> Dict[str, Any]:
         """主实盘账本默认元数据"""
@@ -150,8 +171,8 @@ class MultiLedgerManager:
             if is_ghost:
                 # 物理删除幽灵文件
                 try:
-                    f_path = (self.root / l.get("file", "")).resolve()
-                    db_path = (self.root / l.get("db_file", "")).resolve()
+                    f_path = self._resolve_meta_path(l.get("file", "")).resolve()
+                    db_path = self._resolve_meta_path(l.get("db_file", "")).resolve()
                     if f_path.exists() and f_path != self.main_file.resolve():
                         f_path.unlink(missing_ok=True)
                     if db_path.exists() and db_path != self.main_db.resolve():
@@ -375,8 +396,8 @@ class MultiLedgerManager:
         json_rel_path = f"data/ledgers/{ledger_id}.json"
         db_rel_path = f"data/ledgers/{ledger_id}.db"
 
-        json_abs_path = self.root / json_rel_path
-        db_abs_path = self.root / db_rel_path
+        json_abs_path = self._resolve_meta_path(json_rel_path)
+        db_abs_path = self._resolve_meta_path(db_rel_path)
         json_abs_path.parent.mkdir(parents=True, exist_ok=True)
 
         # 初始持仓与资金构建
@@ -451,7 +472,7 @@ class MultiLedgerManager:
         if not src_meta:
             raise KeyError(f"未找到待克隆的源账本 ID: {src_id}")
 
-        src_json_path = self.root / src_meta["file"]
+        src_json_path = self._resolve_meta_path(src_meta["file"])
         if not src_json_path.exists():
             # 若源文件不存在但有缓存的 PM 实例，则先保存一次
             if src_id in self._pm_cache:
@@ -472,8 +493,8 @@ class MultiLedgerManager:
         json_rel_path = f"data/ledgers/{target_id}.json"
         db_rel_path = f"data/ledgers/{target_id}.db"
 
-        target_json_path = self.root / json_rel_path
-        target_db_path = self.root / db_rel_path
+        target_json_path = self._resolve_meta_path(json_rel_path)
+        target_db_path = self._resolve_meta_path(db_rel_path)
         target_json_path.parent.mkdir(parents=True, exist_ok=True)
 
         # 写入克隆 JSON
@@ -546,8 +567,8 @@ class MultiLedgerManager:
             raise PermissionError(f"受保护账本禁止删除: {ledger_id}")
 
         # 物理清理文件 (使用 .resolve() 严防路径遍历别名误删主实盘)
-        f_path = (self.root / target.get("file", "")).resolve()
-        db_path = (self.root / target.get("db_file", "")).resolve()
+        f_path = self._resolve_meta_path(target.get("file", "")).resolve()
+        db_path = self._resolve_meta_path(target.get("db_file", "")).resolve()
         main_file_res = self.main_file.resolve()
         main_db_res = self.main_db.resolve()
 
@@ -599,8 +620,8 @@ class MultiLedgerManager:
         except ImportError:
             from AGY2_FundAdvisory.portfolio_manager import PortfolioManager
 
-        json_path = self.root / meta.get("file", "portfolio_ledger.json")
-        db_path = self.root / meta.get("db_file", "portfolio_state.db")
+        json_path = self._resolve_meta_path(meta.get("file", "portfolio_ledger.json"))
+        db_path = self._resolve_meta_path(meta.get("db_file", "portfolio_state.db"))
 
         pm = PortfolioManager(
             db_path=str(db_path),

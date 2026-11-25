@@ -8,10 +8,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List
 
-# 定位统一工作区根目录下的 data 目录
-_CUR_DIR = Path(__file__).resolve().parent
-_DATA_DIR = _CUR_DIR.parent / "data" if _CUR_DIR.name == "AGY2_FundAdvisory" else _CUR_DIR / "data"
-CHECKLIST_FILE = _DATA_DIR / "daily_execution_checklist.json"
+import runtime_paths
+_DEFAULT_CHECKLIST_FILE = runtime_paths.get_data_dir() / "daily_execution_checklist.json"
+CHECKLIST_FILE = _DEFAULT_CHECKLIST_FILE
+
+def _active_checklist_file() -> Path:
+    return CHECKLIST_FILE if CHECKLIST_FILE != _DEFAULT_CHECKLIST_FILE else (runtime_paths.get_data_dir() / "daily_execution_checklist.json")
 
 
 class IntentGroup(list):
@@ -115,10 +117,11 @@ def group_rebalance_orders_by_intent(items: List[Dict[str, Any]]) -> Dict[str, A
 def load_daily_checkin(date_str: str = "") -> Dict[str, Any]:
     """读取指定交易日的下单打卡状态。"""
     day = date_str or datetime.now().strftime("%Y-%m-%d")
-    if not CHECKLIST_FILE.exists():
+    chk_f = _active_checklist_file()
+    if not chk_f.exists():
         return {"date": day, "checked_codes": {}}
     try:
-        data = json.loads(CHECKLIST_FILE.read_text(encoding="utf-8"))
+        data = json.loads(chk_f.read_text(encoding="utf-8"))
         return data.get(day, {"date": day, "checked_codes": {}})
     except Exception:
         return {"date": day, "checked_codes": {}}
@@ -129,11 +132,12 @@ def save_daily_checkin(fund_code: str, action: str, amount: float, checked: bool
     if not date_str and "target_date_str" in kwargs:
         date_str = str(kwargs["target_date_str"] or "")
     day = date_str or datetime.now().strftime("%Y-%m-%d")
-    CHECKLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    chk_f = _active_checklist_file()
+    chk_f.parent.mkdir(parents=True, exist_ok=True)
     all_data = {}
-    if CHECKLIST_FILE.exists():
+    if chk_f.exists():
         try:
-            all_data = json.loads(CHECKLIST_FILE.read_text(encoding="utf-8"))
+            all_data = json.loads(chk_f.read_text(encoding="utf-8"))
         except Exception:
             all_data = {}
     bucket = all_data.get(day, {"date": day, "checked_codes": {}})
@@ -152,5 +156,5 @@ def save_daily_checkin(fund_code: str, action: str, amount: float, checked: bool
     # 仅保留最近 30 天记录
     keep_days = sorted(all_data.keys())[-30:]
     all_data = {k: all_data[k] for k in keep_days}
-    CHECKLIST_FILE.write_text(json.dumps(all_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    chk_f.write_text(json.dumps(all_data, ensure_ascii=False, indent=2), encoding="utf-8")
     return bucket

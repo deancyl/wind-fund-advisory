@@ -2909,6 +2909,13 @@ safe_markdown_html(f"""
         fill: #CBD5E1 !important;
     }}
 
+    /* 侧边栏小节标题与标签高对比度保障 (G46 A11y >= 4.5) */
+    [data-testid="stSidebar"] .stMarkdown p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .sidebar-section-label {{
+        color: #CBD5E1 !important;
+    }}
+
     /* 自选板块涨跌红绿语义色高亮 (G41) */
     .sec-chg-up, [data-testid="stSidebar"] .sec-chg-up {{
         color: #F87171 !important;
@@ -4234,7 +4241,7 @@ with st.sidebar:
     st.markdown("<hr style='margin:6px 0;border:none;border-top:1px solid rgba(255,255,255,0.08);' />", unsafe_allow_html=True)
 
     # 3. 底部常驻区：当前激活账本 + 外观/刷新微按钮 (贴底布局 · 4px上边距彻底防重叠)
-    st.markdown("<div style='font-size:11px;font-weight:600;color:#94A3B8 !important;margin:4px 0 6px 0;line-height:1.4;display:block;'>账本与设置</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sidebar-section-label' style='font-size:11px;font-weight:600;color:#CBD5E1;margin:4px 0 6px 0;line-height:1.4;display:block;'>账本与设置</div>", unsafe_allow_html=True)
     active_idx_sb = next((i for i, l in enumerate(all_ledgers) if l["id"] == active_lid), 0)
     sb_sel_lid = st.selectbox(
         "当前账本",

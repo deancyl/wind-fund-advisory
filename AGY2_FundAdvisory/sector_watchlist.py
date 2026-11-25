@@ -8,10 +8,15 @@ import sys
 from pathlib import Path
 from typing import List, Dict, Any
 
-CURRENT_DIR = Path(__file__).resolve().parent
-WORKSPACE_ROOT = CURRENT_DIR.parent if CURRENT_DIR.name == "AGY2_FundAdvisory" else CURRENT_DIR
-WATCHLIST_FILE = WORKSPACE_ROOT / "data" / "custom_sector_watchlist.json"
-ALT_WATCHLIST_FILE = WORKSPACE_ROOT / "AGY2_FundAdvisory" / "data" / "custom_sector_watchlist.json"
+import runtime_paths
+CURRENT_DIR = runtime_paths.get_bundle_root()
+WORKSPACE_ROOT = runtime_paths.get_workspace_root()
+_DEFAULT_WATCHLIST_FILE = runtime_paths.get_data_dir() / "custom_sector_watchlist.json"
+WATCHLIST_FILE = _DEFAULT_WATCHLIST_FILE
+ALT_WATCHLIST_FILE = CURRENT_DIR / "data" / "custom_sector_watchlist.json"
+
+def _active_watchlist_file() -> Path:
+    return WATCHLIST_FILE if WATCHLIST_FILE != _DEFAULT_WATCHLIST_FILE else (runtime_paths.get_data_dir() / "custom_sector_watchlist.json")
 
 DEFAULT_SECTORS: List[Dict[str, str]] = [
     {"code": "161725", "name": "中证白酒", "asset_type": "fund"},
@@ -32,7 +37,10 @@ def infer_asset_type(code: str, name: str = "") -> str:
 
 
 def load_sector_watchlist() -> List[Dict[str, str]]:
-    for target in [WATCHLIST_FILE, ALT_WATCHLIST_FILE]:
+    targets = [_active_watchlist_file()]
+    if not os.environ.get("AGY2_DATA_DIR", "").strip():
+        targets.append(ALT_WATCHLIST_FILE)
+    for target in targets:
         if target and target.exists():
             try:
                 data = json.loads(target.read_text(encoding="utf-8"))
@@ -45,7 +53,10 @@ def load_sector_watchlist() -> List[Dict[str, str]]:
 
 def save_sector_watchlist(items: List[Dict[str, str]]) -> None:
     content = json.dumps(items, ensure_ascii=False, indent=2)
-    for target in [WATCHLIST_FILE, ALT_WATCHLIST_FILE]:
+    targets = [_active_watchlist_file()]
+    if not os.environ.get("AGY2_DATA_DIR", "").strip():
+        targets.append(ALT_WATCHLIST_FILE)
+    for target in targets:
         if target:
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
