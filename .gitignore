@@ -97,3 +97,15 @@ AGY2_FundAdvisory/data/portfolio_watchdog.json
 
 # Modern React Web Frontend dependencies
 web/node_modules/
+
+# Personal portfolio holdings, ledgers, backups & screenshots (Privacy / Desensitization)
+portfolio_ledger.json
+AGY2_FundAdvisory/portfolio_ledger.json
+data/ledgers/
+data/ledgers_index.json
+data/backups/
+data/frozen_shadow_baselines/
+data/shadow_benchmarks.json
+data/screenshots/
+docs/AGY2_G45_External_Audit_Bundle.zip
+docs/g45_audit_bundle/

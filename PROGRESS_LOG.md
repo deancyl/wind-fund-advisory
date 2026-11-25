@@ -1417,3 +1417,13 @@
   4. **全量门禁与双端验证**：
      - 新增并持久化保存 `scripts/verify_g33_concise_ui_and_api_gate.py`，AST 文案扫描、API v1 全部 7 组接口契约与零污染校验、Playwright 桌面/移动双端真机渲染全绿通过；
      - 连续通过 G25~G29、G31~G32 门禁与 `tests/test_infra.py` (14 passed)、`tests/test_streamlit_apptest_run.py` (37 passed)；四大只读裁判文件 SHA256 绝对一致。
+
+---
+
+## [v2.0.0] 现代前后端解耦、10 维度基金详情与目标驱动多因子引擎发布 (2026-11-25)
+- **架构演进**：完成 G46 洁净分层收口（Layer-0 `domain_models.py` + `runtime_paths.py`），并正式落地现代 React 19 + TypeScript + Tailwind + ECharts 前端（`web/`），由 FastAPI（`127.0.0.1:8000`）单端口一体化托管。
+- **核心新增**：
+  1. `fund_detail_service.py` + `FundDetailPage.tsx`：全站一键进入 10 维度基金深度详情页（走势/净值图、历史业绩与净值、自定义金额定投测算、4大类8小类量化指标雷达图、持仓分布、历任基金经理、档案/公告/交易规则）。
+  2. `goal_driven_selector.py`：引入「目标时间区间 × 目标收益率」全历史滚动达标概率测算、风险-收益碰撞提醒及基金详情多因子量化打分倾斜，贯穿空仓选基与持仓调仓决策。
+  3. 4 套量化配置模型切换 + 5 档多周期联动回测 + 10 项高价值功能补齐 + 全站术语专业直白化重构。
+- **脱敏与发布**：从 Git 索引全面剥离个人持仓账本、冷备快照及含持仓截图，仓库更名为 `agy2-fund-advisory`，同步更新 README、Wiki 并发布正式 Release `v2.0.0`。

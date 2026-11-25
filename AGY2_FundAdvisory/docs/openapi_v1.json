@@ -1,8 +1,8 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "AGY2 Local Advisory Engine API",
-    "version": "5.22-G43"
+    "title": "AGY2-FundAdvisory Local Quant API",
+    "version": "2.0.0"
   },
   "paths": {
     "/api/health": {

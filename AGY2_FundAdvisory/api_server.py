@@ -95,7 +95,7 @@ async def _lifespan(app_inst: FastAPI):
     yield
 
 
-app = FastAPI(title="AGY2 Local Advisory Engine API", version="5.22-G43", lifespan=_lifespan)
+app = FastAPI(title="AGY2-FundAdvisory Local Quant API", version="2.0.0", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_CORS_ORIGINS,
