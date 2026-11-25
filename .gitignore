@@ -109,3 +109,15 @@ data/shadow_benchmarks.json
 data/screenshots/
 docs/AGY2_G45_External_Audit_Bundle.zip
 docs/g45_audit_bundle/
+
+# Non-AGY2 workspace projects, AI agent artifacts & legacy archives (excluded from GitHub repo)
+.agents/
+李大霄/
+src/
+wind_cli.py
+reports/
+artifacts/
+data/audit_screenshots_g14/
+scripts/archive/
+/*.png
+release_notes_v1.0.*.md
