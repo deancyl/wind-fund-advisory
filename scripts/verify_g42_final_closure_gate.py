@@ -31,6 +31,8 @@ def run_g42_gate():
     gui_txt = (BASE / "app_gui.py").read_text(encoding="utf-8")
     sb_txt = (BASE / "strategy_bridge.py").read_text(encoding="utf-8")
     pm_txt = (AGY2_DIR / "portfolio_manager.py").read_text(encoding="utf-8") if (AGY2_DIR / "portfolio_manager.py").exists() else (ROOT / "portfolio_manager.py").read_text(encoding="utf-8")
+    ve_path = AGY2_DIR / "valuation_engine.py"
+    ve_txt = ve_path.read_text(encoding="utf-8") if ve_path.exists() else ""
     api_txt = (BASE / "api_server.py").read_text(encoding="utf-8")
 
     # 1. AST 语法全绿
@@ -40,7 +42,7 @@ def run_g42_gate():
     # 2. 验证 3 处隐蔽 Bug 已真实修复
     assert "_pending_desktop_nav_redirect" in gui_txt, "app_gui.py 尚未修复立即执行跳转 widget key 锁死 Bug"
     assert "fetch_realtime_fund_quota" in sb_txt and "FundMetadataManager" in sb_txt, "strategy_bridge.py 买前安检尚未接入真实限额与元数据"
-    assert "persisted_prev_nav" in pm_txt, "portfolio_manager.py 分红除权检测尚未改用持久化昨日净值基准"
+    assert "persisted_prev_nav" in (pm_txt + ve_txt), "valuation_engine/portfolio_manager 分红除权检测尚未改用持久化昨日净值基准"
 
     # 3. 验证 docs/openapi_v1.json 已落盘且包含全部跨端必备路由
     oa_path = (BASE / "docs" / "openapi_v1.json") if (BASE / "docs" / "openapi_v1.json").exists() else (ROOT / "docs" / "openapi_v1.json")
