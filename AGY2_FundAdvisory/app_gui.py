@@ -1147,18 +1147,26 @@ safe_markdown_html(f"""
         color: #E2E8F0 !important;
     }}
     @media (min-width: 769px) {{
-        section[data-testid="stSidebar"],
-        [data-testid="stSidebar"] {{
-            width: 256px !important;
-            min-width: 256px !important;
-            max-width: 256px !important;
+        section[data-testid="stSidebar"][aria-expanded="true"],
+        [data-testid="stSidebar"][aria-expanded="true"] {{
+            width: 276px !important;
+            min-width: 276px !important;
+            max-width: 276px !important;
             border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+        }}
+        section[data-testid="stSidebar"][aria-expanded="false"],
+        [data-testid="stSidebar"][aria-expanded="false"] {{
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 0 !important;
+            border-right: none !important;
+            overflow: hidden !important;
         }}
         [data-testid="stSidebar"] > div:first-child {{
             height: 100vh !important;
             max-height: 100vh !important;
-            overflow-y: hidden !important;
-            padding: 14px 14px 12px 14px !important;
+            overflow-y: auto !important;
+            padding: 18px 16px 16px 16px !important;
             display: flex !important;
             flex-direction: column !important;
             box-sizing: border-box !important;
@@ -1290,7 +1298,7 @@ safe_markdown_html(f"""
     }}
     header[data-testid="stHeader"], .stAppHeader {{
         background: transparent !important;
-        z-index: 99 !important;
+        z-index: 9998 !important;
         height: 2.8rem !important;
         pointer-events: none !important;
     }}
@@ -1301,22 +1309,35 @@ safe_markdown_html(f"""
         visibility: visible !important;
     }}
 
+    /* 全端（桌面端 + 窄屏）保留侧边栏展开/收起按钮交互，彻底修复桌面端收起后无法重新打开的 Bug */
+    [data-testid="stExpandSidebarButton"],
+    [data-testid="collapsedControl"],
+    button[aria-label="Expand sidebar"],
+    [data-testid="stSidebarCollapseButton"] {{
+        display: flex !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+        z-index: 9999 !important;
+    }}
+    [data-testid="stExpandSidebarButton"] {{
+        background-color: #0F1C2E !important;
+        color: #F8FAFC !important;
+        border: 1px solid rgba(255, 255, 255, 0.16) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 2px 8px rgba(15, 28, 46, 0.28) !important;
+        margin: 6px 0 0 8px !important;
+    }}
+    [data-testid="stExpandSidebarButton"] svg {{
+        color: #F8FAFC !important;
+        fill: #F8FAFC !important;
+    }}
+
     /* 桌面端专业侧边栏 (方案 B：Windows .exe 桌面客户端质感) */
     [data-testid="stSidebar"] {{
         display: block !important;
         visibility: visible !important;
     }}
     @media (max-width: 768px) {{
-        /* G43 Fix 3: 窄屏保留侧边栏展开/收起按钮与深色抽屉交互，严禁非移动 UA 陷入无导航死局 */
-        [data-testid="stExpandSidebarButton"],
-        [data-testid="collapsedControl"],
-        button[aria-label="Expand sidebar"],
-        [data-testid="stSidebarCollapseButton"] {{
-            display: flex !important;
-            visibility: visible !important;
-            pointer-events: auto !important;
-            z-index: 9999 !important;
-        }}
         section[data-testid="stSidebar"],
         [data-testid="stSidebar"] {{
             max-width: 82vw !important;
@@ -1385,11 +1406,14 @@ safe_markdown_html(f"""
         box-sizing: border-box !important;
         overflow: visible !important;
     }}
-    .main .block-container, [data-testid="stMainBlockContainer"] {{
+    section[data-testid="stMain"] > div,
+    .main .block-container,
+    [data-testid="stMainBlockContainer"] {{
         max-width: 100% !important;
+        width: 100% !important;
         padding-top: 0.8rem !important;
-        padding-left: 1.2rem !important;
-        padding-right: 1.2rem !important;
+        padding-left: 1.25rem !important;
+        padding-right: 1.25rem !important;
         box-sizing: border-box !important;
         overflow-x: hidden !important;
     }}
@@ -2992,14 +3016,14 @@ safe_markdown_html(f"""
     }}
 
     @media (min-width: 769px) {{
-        /* 侧边栏防滚动与间距微调（杜绝账本标题被下拉框遮盖） */
+        /* 侧边栏舒展间距与自适应滚动（900px 桌面端零滚动，小屏可平滑滚动不裁切） */
         [data-testid="stSidebar"] > div:first-child {{
             height: 100vh !important;
             max-height: 100vh !important;
-            overflow-y: hidden !important;
+            overflow-y: auto !important;
         }}
         [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
-            gap: 0.38rem !important;
+            gap: 0.52rem !important;
         }}
     }}
 
@@ -4672,29 +4696,46 @@ with col_idx_rf:
         st.rerun()
 
 # -------------------------------------------------------------
-hero_c1, hero_c2, hero_c3 = st.columns(3)
-with hero_c1:
+# 首页展示完整 3 张大 KPI 卡；调仓/复盘/诊断页收敛为单行 36px 紧凑摘要条，释放 ~150px 首屏有效工作区
+# -------------------------------------------------------------
+_is_home_holdings_page = (st.session_state.get("desktop_nav_tab", "持仓") == "持仓")
+if _is_home_holdings_page:
+    hero_c1, hero_c2, hero_c3 = st.columns(3)
+    with hero_c1:
+        safe_markdown_html(f"""
+        <div class="main-metric-card">
+            <div class="metric-card-title"><span>总资产</span></div>
+            <div class="metric-value-huge" style="color: var(--text-primary); font-size: 20px;">¥{total_cur_equity:,.2f}</div>
+            <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">现金 ¥{pm.available_cash:,.2f} ｜ 在途 ¥{pm.in_transit_cash:,.2f}</div>
+        </div>
+        """)
+    with hero_c2:
+        safe_markdown_html(f"""
+        <div class="main-metric-card">
+            <div class="metric-card-title"><span>今日盈亏</span></div>
+            <div class="metric-value-huge" style="color: {pnl_color}; font-size: 20px;">{est_pnl_pct:+.2f}% <span style="font-size: 13px;">(¥{est_pnl:+,.2f})</span></div>
+            <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">累计盈亏 <b style="color: {tot_pnl_color};">{_t2_pnl_pct:+.2f}% (¥{_t2_pnl:+,.2f})</b></div>
+        </div>
+        """)
+    with hero_c3:
+        safe_markdown_html(f"""
+        <div class="main-metric-card">
+            <div class="metric-card-title"><span>市场定调</span></div>
+            <div class="metric-value-huge" style="color: {st_color}; font-size: 18px;">{vernacular_state}</div>
+            <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">方案: {_plan_caliber} ｜ {clock_title}</div>
+        </div>
+        """)
+else:
     safe_markdown_html(f"""
-    <div class="main-metric-card">
-        <div class="metric-card-title"><span>总资产</span></div>
-        <div class="metric-value-huge" style="color: var(--text-primary); font-size: 20px;">¥{total_cur_equity:,.2f}</div>
-        <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">现金 ¥{pm.available_cash:,.2f} ｜ 在途 ¥{pm.in_transit_cash:,.2f}</div>
-    </div>
-    """)
-with hero_c2:
-    safe_markdown_html(f"""
-    <div class="main-metric-card">
-        <div class="metric-card-title"><span>今日盈亏</span></div>
-        <div class="metric-value-huge" style="color: {pnl_color}; font-size: 20px;">{est_pnl_pct:+.2f}% <span style="font-size: 13px;">(¥{est_pnl:+,.2f})</span></div>
-        <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">累计盈亏 <b style="color: {tot_pnl_color};">{_t2_pnl_pct:+.2f}% (¥{_t2_pnl:+,.2f})</b></div>
-    </div>
-    """)
-with hero_c3:
-    safe_markdown_html(f"""
-    <div class="main-metric-card">
-        <div class="metric-card-title"><span>市场定调</span></div>
-        <div class="metric-value-huge" style="color: {st_color}; font-size: 18px;">{vernacular_state}</div>
-        <div class="metric-card-sub" style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">方案: {_plan_caliber} ｜ {clock_title}</div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;background:#FFFFFF;border:1px solid #E2E8F0;border-radius:8px;padding:7px 14px;margin:2px 0 8px 0;font-size:12.5px;">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+            <span><span style="color:#64748B;">总资产</span> <b style="color:#0F172A;">¥{total_cur_equity:,.2f}</b> <span style="color:#94A3B8;font-size:11px;">(现金 ¥{pm.available_cash:,.0f})</span></span>
+            <span style="color:#CBD5E1;">|</span>
+            <span><span style="color:#64748B;">今日盈亏</span> <b style="color:{pnl_color};">{est_pnl_pct:+.2f}% (¥{est_pnl:+,.2f})</b></span>
+            <span style="color:#CBD5E1;">|</span>
+            <span><span style="color:#64748B;">市场定调</span> <b style="color:{st_color};">{vernacular_state}</b></span>
+        </div>
+        <span style="font-size:11px;color:#64748B;">仅提供量化分析与调仓参考，不涉及任何实盘交易</span>
     </div>
     """)
 
@@ -5306,12 +5347,7 @@ def render_rebalance_action_section(
     holdings = getattr(pm, "holdings", {})
     avail_cash = float(getattr(pm, "available_cash", 0.0))
 
-    t_l, t_r = st.columns([9.2, 0.8])
-    with t_l:
-        st.markdown("##### 今日调仓")
-    with t_r:
-        with st.popover("i", help="查看调仓分组说明"):
-            st.markdown("调仓清单已自动分为四类：清理尾仓（免赎碎片回收）、C转A省费（年省约 0.40%）、核心调仓（权重再平衡）、维持持仓（缓冲带内免折腾）。")
+    # 顶部标题行已合并至下方首屏进度工具栏（避免重复大标题占位）
 
     rebal_items = []
     if ai_orders_res and isinstance(ai_orders_res, dict) and "items" in ai_orders_res:
@@ -5332,11 +5368,45 @@ def render_rebalance_action_section(
     total_actions = len(actionable)
     completed_actions = sum(1 for it in actionable if str(it.get("fund_code", it.get("code", ""))) in checked_codes)
 
-    # 进度条
+    # 顶部进度与高频工具栏（首屏直接可见：复制参考清单 / 全部标记已记录 / 说明）
+    t_l, t_c1, t_c2, t_r = st.columns([5.2, 2.0, 2.0, 0.8])
+    with t_l:
+        st.caption(
+            f"今日参考清单记录进度：已记录 {completed_actions} / {total_actions} 笔（仅本地记账参考，不涉及任何实盘交易）"
+            if total_actions > 0 else "当前持仓已处于目标平衡区间，今日无需调整。"
+        )
+    with t_c1:
+        _top_copy_clicked = st.button("复制参考清单", use_container_width=True, key=f"btn_simple_copy_cheat_sheet_{include_nav_buttons}", help="生成纯文本调仓参考清单，方便在常用基金 App 对照操作")
+    with t_c2:
+        if st.button("全部标记已记录", use_container_width=True, key=f"btn_mark_all_done_{include_nav_buttons}", help="将今日参考清单全部标记为已自行核对/操作"):
+            for it in actionable:
+                fc = str(it.get("fund_code", it.get("code", "")))
+                amt = float(it.get("diff_amount") or it.get("amount") or 0.0)
+                act_s = "BUY" if amt > 0 else "SELL"
+                save_daily_checkin(fc, act_s, abs(amt), True)
+            try:
+                ledger_backup_vault.LedgerBackupVault.create_snapshot(reason="daily_checkin")
+            except Exception:
+                pass
+            st.rerun()
+    with t_r:
+        with st.popover("i", help="查看调仓分组说明"):
+            st.markdown("调仓参考清单分为四类：清理尾仓（免赎碎片回收）、C转A省费（年省约 0.40%）、核心调仓（权重再平衡）、维持持仓（缓冲带内免折腾）。本工具仅提供量化分析建议，不承担任何交易功能。")
+
+    if _top_copy_clicked:
+        lines_out = []
+        for idx, it in enumerate(actionable, 1):
+            c_code = str(it.get("fund_code", it.get("code", "")))
+            c_name = str(it.get("fund_name", it.get("name", "")))
+            amt = float(it.get("diff_amount") or it.get("amount") or 0.0)
+            act_s = "买入参考" if amt > 0 else "卖出参考"
+            chk_s = "[已记]" if c_code in checked_codes else "[待办]"
+            lines_out.append(f"{idx}. {chk_s} {c_code} {c_name} {act_s} ¥{abs(amt):,.2f}")
+        st.code("\n".join(lines_out) if lines_out else "今日无需调整。", language="text")
+
     if total_actions > 0:
         prog = min(1.0, max(0.0, completed_actions / total_actions))
         st.progress(prog)
-        st.caption(f"今日执行进度：已完成 {completed_actions} / {total_actions} 笔下单")
 
     if grouped["is_empty"]:
         st.success("今日无需操作，安心持有。")
@@ -5398,36 +5468,7 @@ def render_rebalance_action_section(
                 rows = [{"代码": x.get("fund_code", x.get("code", "")), "名称": x.get("fund_name", x.get("name", "")), "状态": "维持"} for x in h_grp["items"]]
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    with st.expander("新钱定投", expanded=False):
-        new_inc_cash = st.number_input("新增资金", min_value=0.0, max_value=500000.0, value=3000.0, step=500.0, key=f"num_simple_new_cash_{include_nav_buttons}")
-        tw_plan = target_weights or dict(snap.get("target_weights_funds") or {})
-        if new_inc_cash > 0 and cashflow_planner and tw_plan:
-            _live_nav_map = {}
-            for _c, _h in (holdings or {}).items():
-                _q = fetch_realtime_fund_quote(_c, use_cache=True) if fetch_realtime_fund_quote else None
-                _live_nav_map[_c] = _q if _q is not None else {"official_nav": float(getattr(_h, "latest_nav", getattr(_h, "current_nav", 1.0)) or 1.0)}
-            _res_amt = float(st.session_state.get("tab2_liquidity_redline_reserve", 0.0) or 0.0)
-            _eff_cash = cashflow_planner.enforce_liquidity_redline(avail_cash, _res_amt)["investable_cash"] if _res_amt > 0 else avail_cash
-            inc_plan = cashflow_planner.plan_incremental_investment(
-                current_holdings=holdings,
-                available_cash=_eff_cash,
-                target_weights=tw_plan,
-                monthly_new_cash=new_inc_cash,
-                plan_months=1,
-                quotes_or_nav_map=_live_nav_map,
-            )
-            if inc_plan.get("allocations"):
-                _inc_rows = []
-                for _r in inc_plan["allocations"]:
-                    _fc_i = str(_r.get("基金代码", _r.get("fund_code", "")))
-                    _row_out = {"基金代码": _fc_i, "基金名称": resolve_fund_display_name(_fc_i, pm)}
-                    for _k, _v in _r.items():
-                        if _k not in ("基金代码", "fund_code", "基金名称"):
-                            _row_out[_k] = _v
-                    _inc_rows.append(_row_out)
-                st.dataframe(pd.DataFrame(_inc_rows), use_container_width=True, hide_index=True)
-
-    # 限购标的自动拆单日历
+    # 限购标的自动拆单日历（新钱定投已独立于上方「新钱定投」分段标签，不再底部重复堆叠）
     if execution_tracker:
         _qdii_limits = {"017436": 100.0, "050025": 500.0, "013402": 1000.0, "000216": 5000.0}
         _split_rows = []
@@ -5443,31 +5484,6 @@ def render_rebalance_action_section(
         if _split_rows:
             with st.expander(f"限购拆单 ({len(_split_rows)}只)", expanded=False):
                 st.dataframe(pd.DataFrame(_split_rows), use_container_width=True, hide_index=True)
-
-    cols = st.columns([2.5, 2.5, 5])
-    with cols[0]:
-        if st.button("复制小抄", use_container_width=True, key=f"btn_simple_copy_cheat_sheet_{include_nav_buttons}"):
-            lines_out = []
-            for idx, it in enumerate(actionable, 1):
-                c_code = str(it.get("fund_code", it.get("code", "")))
-                c_name = str(it.get("fund_name", it.get("name", "")))
-                amt = float(it.get("diff_amount") or it.get("amount") or 0.0)
-                act_s = "买入" if amt > 0 else "卖出"
-                chk_s = "[已办]" if c_code in checked_codes else "[待办]"
-                lines_out.append(f"{idx}. {chk_s} {c_code} {c_name} {act_s} ¥{abs(amt):,.2f}")
-            st.code("\n".join(lines_out) if lines_out else "今日无需买卖操作。", language="text")
-    with cols[1]:
-        if st.button("全部打卡", use_container_width=True, key=f"btn_mark_all_done_{include_nav_buttons}"):
-            for it in actionable:
-                fc = str(it.get("fund_code", it.get("code", "")))
-                amt = float(it.get("diff_amount") or it.get("amount") or 0.0)
-                act_s = "BUY" if amt > 0 else "SELL"
-                save_daily_checkin(fc, act_s, abs(amt), True)
-            try:
-                ledger_backup_vault.LedgerBackupVault.create_snapshot(reason="daily_checkin")
-            except Exception:
-                pass
-            st.rerun()
 
 
 if active_main_nav == "调仓":
@@ -5648,14 +5664,16 @@ if active_main_nav == "调仓" and locals().get("_should_render_reconstruction",
             col_l1_cap, col_l1_tier, col_l1_rhythm, col_l1_adv, col_l1_btn = st.columns([2.5, 2.0, 2.0, 1.3, 2.2])
 
         with col_l1_cap:
+            _default_cap = round(float(total_cur_equity), -2) if float(total_cur_equity or 0.0) >= 1000.0 else 100000.0
             plan_capital = st.number_input(
-                "拟投资总本金 (元)",
+                "拟配置参考本金 (元)",
                 min_value=1000.0,
                 max_value=100000000.0,
-                value=float(st.session_state.get("plan_capital_input", 100000.0)),
-                step=10000.0,
+                value=float(st.session_state.get("plan_capital_input", _default_cap)),
+                step=5000.0,
                 format="%.0f",
-                key="plan_capital_input"
+                key="plan_capital_input",
+                help="空仓用户可填计划投入金额；已持仓用户默认同步当前账本总资产，仅做选基与配置推演"
             )
             plan_cap = plan_capital
             st.caption(f"核对: {format_chinese_amount(plan_cap)}")
@@ -7360,7 +7378,7 @@ if active_main_nav == "持仓":
             # ─────────────────────────────────────────────────────────
             # 桌面端 70/30 真双栏布局 (Desktop 70:30 Dual-Column Workspace)
             # ─────────────────────────────────────────────────────────
-            col_main, col_rail = st.columns([7.0, 3.0], gap="medium")
+            col_main, col_rail = st.columns([7.3, 2.7], gap="medium")
             with col_main:
                 sub_hold_view = st.radio(
                     "持仓分段",
@@ -7406,7 +7424,7 @@ if active_main_nav == "持仓":
                             num_rows="dynamic",
                             key="main_holdings_editor_tab2"
                         )
-                    col_op1, col_op2, col_op3, _col_op_blank = st.columns([1.4, 1.2, 1.4, 6.0])
+                    col_op1, col_op2, col_op3, _col_op_blank = st.columns([2.2, 2.0, 2.2, 3.6])
                     with col_op1:
                         if st.button("保存修改", use_container_width=True, key="btn_save_holdings_tab2", help="保存持仓表格人工编辑结果"):
                             if "edited_table" in locals() and edited_table is not None:
@@ -7683,6 +7701,7 @@ if active_main_nav == "持仓":
                     st.info("当前账本暂无在途交割订单。")
 
 
+        safe_markdown_html("<div style='clear:both;height:14px;border-top:1px solid #E2E8F0;margin-top:14px;'></div>")
         with st.expander("影子账本", expanded=False):
             cur_lid = getattr(pm, "ledger_id", "combat_29_funds")
             current_quotes_map = {
@@ -10162,7 +10181,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any], 
         except Exception as e_opt_gui:
             st.caption(f"（期权波动率哨加载提示: {e_opt_gui}）")
 
-    elif active_subview == "投顾底稿":
+    elif active_subview in ("套利与费率工具", "投顾底稿"):
         st.caption("🧭 实时对比场内热门 ETF 市价与参考净值(IOPV)：溢价高于 +1.0% 说明场内买贵了，建议买场外联接基金；折价低于 -1.0% 说明场内打折，可优先场内低吸。")
         try:
             arb_sensors = DataLoader.fetch_etf_feeder_arbitrage_sensors(use_cache=True)
@@ -10274,7 +10293,7 @@ if active_main_nav == "工具":
     try:
         tb_view = st.radio(
             "工具分段",
-            ["风险体检", "资产敞口", "重仓重叠", "极端承压", "投顾底稿"],
+            ["风险体检", "资产敞口", "重仓重叠", "极端承压", "套利与费率工具"],
             index=0,
             horizontal=True,
             label_visibility="collapsed",
