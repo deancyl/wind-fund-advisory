@@ -73,7 +73,7 @@ margin-bottom: 18px;
 <div class="agy2-boot-splash">
 <div class="agy2-boot-ring"></div>
 <div class="agy2-boot-title">AGY2 智能投顾工作台</div>
-<div class="agy2-boot-sub">正在同步宏观状态机、实时盘中行情与持仓估值…</div>
+<div class="agy2-boot-sub">正在加载今日市场信号、实时行情与持仓盈亏…</div>
 </div>
 """.splitlines() if line.strip())
     _boot_splash.markdown(_boot_html, unsafe_allow_html=True)
@@ -4251,7 +4251,8 @@ with st.sidebar:
         <span style="font-size:16px;font-weight:900;color:#FFFFFF;letter-spacing:0.5px;">AGY2 智投</span>
         <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(21,128,61,0.18);color:#4ADE80;border:1px solid rgba(74,222,128,0.3);">{data_src_badge}</span>
     </div>''', unsafe_allow_html=True)
-    st.caption(f"底座: {latest_date} ｜ {clock_title}（{market_status.countdown_str}）")
+    _cd_txt = f"（距收盘 {market_status.countdown_str}）" if (market_status.countdown_str and market_status.countdown_str != "00:00") else ""
+    st.caption(f"数据截至 {latest_date} ｜ {clock_title}{_cd_txt}")
 
     # 桌面端单一主导航 (Desktop Single Primary Navigation · 动词导向任务流)
     if "desktop_nav_tab" not in st.session_state:
@@ -4396,18 +4397,20 @@ col_top_title, col_top_actions = st.columns([6.2, 3.8])
 with col_top_title:
     safe_markdown_html('<span class="topbar-outer-marker"></span>')
     _cur_page_name = st.session_state.get("desktop_nav_tab", "持仓")
+    _page_title_map = {"持仓": "持仓工作台", "调仓": "调仓工作台", "复盘": "复盘工作台", "工具": "诊断工作台"}
+    _cur_page_title = _page_title_map.get(_cur_page_name, f"{_cur_page_name}工作台")
     _active_m = mlm_inst.get_ledger_meta(active_lid) or {}
     _l_tag = "[实盘]" if _active_m.get("type") == "live" else ("[沙盒]" if _active_m.get("type") == "sandbox" else "[家庭]")
     _l_name = str(_active_m.get("name", active_lid))
     _guide_map = {
         "持仓": "查看今日盈亏、核对估值与体检风险",
         "调仓": "照单执行买卖、一键小抄与打卡追踪",
-        "复盘": "Point-in-Time 历史时光机与前瞻验真",
+        "复盘": "历史回测对比与实盘样本外验真",
         "工具": "资产穿透、行业重叠与全天候体检"
     }
     _cur_guide = _guide_map.get(_cur_page_name, "智能投顾工作台")
     safe_markdown_html(f"""<div style="display:flex;align-items:center;gap:8px;padding-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-        <span style="font-size:15px;font-weight:700;color:var(--text-primary);">{_cur_page_name}工作台</span>
+        <span style="font-size:15px;font-weight:700;color:var(--text-primary);">{_cur_page_title}</span>
         <span style="font-size:12px;color:var(--text-muted);">·</span>
         <span style="font-size:12px;color:var(--text-secondary);font-weight:500;">{_l_tag} {_l_name}</span>
         <span style="font-size:11px;color:var(--text-muted);margin-left:4px;">｜ {_cur_guide}</span>
@@ -4472,39 +4475,44 @@ with col_top_actions:
                             "盈亏": float(x.get("floating_pnl", 0.0)),
                         } for x in ocr_list])
                         st.dataframe(df_preview, use_container_width=True, hide_index=True)
-                        if st.button("确认入库", key="btn_top_ocr_confirm", type="primary", use_container_width=True):
+                        if st.button("确认添加持仓", key="btn_top_ocr_confirm", type="primary", use_container_width=True):
                             ledger_backup_vault.create_ledger_cold_backup(reason="ocr_import")
                             pm.import_from_smart_text(ocr_list, replace_existing=False)
                             pm.save_state(record_snapshot=True)
-                            st.success(f"已入库 {len(ocr_list)} 只基金")
+                            st.success(f"已添加 {len(ocr_list)} 只基金到当前账本")
                             st.rerun()
                     else:
                         st.warning("未识别到有效持仓文字，请确认图片清晰或改用批量文本粘贴。")
     with col_pop_ops:
-        with st.popover("运维", help="账本运维：撤销修改 / 同步估值 / 冷备回滚"):
-            st.markdown("##### 账本运维与工具")
-            if st.button("撤销修改", use_container_width=True, key="btn_top_ops_undo", help="回滚至上一快照"):
+        with st.popover("运维", help="账本日常工具：撤销刚做的修改 / 手动同步最新估值 / 手动备份账本"):
+            st.markdown("##### 账本管理与同步")
+            if st.button("撤销上一步修改", use_container_width=True, key="btn_top_ops_undo", help="撤销当前会话中刚做的持仓改动"):
                 if pm.undo():
                     pm.save_state()
-                    st.success("已撤销修改！")
+                    st.success("已撤销上一步修改！")
                     st.rerun()
                 else:
-                    st.info("无历史快照可撤销")
-            if st.button("同步估值", use_container_width=True, key="btn_top_ops_sync", help="强制全量同步估值"):
+                    st.info("暂无可撤销的修改记录")
+            if st.button("强制同步估值", use_container_width=True, key="btn_top_ops_sync", help="立即重新拉取所有持仓基金的最新净值与盘中估值"):
                 clear_realtime_cache()
                 pm.sync_holdings_live_nav(use_intraday_gsz=True)
                 pm.save_state()
                 st.success("估值同步完成！")
                 st.rerun()
-            if st.button("立即备份", use_container_width=True, key="btn_top_ops_backup", help="创建冷备份"):
+            if st.button("立即备份账本", use_container_width=True, key="btn_top_ops_backup", help="保存一份当前账本的本地安全备份，随时可在右侧「撤回」还原"):
                 ledger_backup_vault.create_ledger_cold_backup(reason="manual_topbar")
-                st.success("不可变冷备份已创建！")
+                st.success("账本安全备份已创建！")
     with col_pop_rv:
-        with st.popover("撤回", help="撤回至最近冷备快照"):
-            st.caption("冷备还原")
+        with st.popover("撤回", help="防误操作保险箱：将账本还原到最近一次本地安全备份"):
+            st.caption("历史安全备份还原（防误操作）")
             try:
                 from ledger_backup_vault import LedgerBackupVault
-                snaps = [s for s in LedgerBackupVault.list_snapshots() if not s.get("snapshot_id", "").startswith("test_")]
+                snaps = [
+                    s for s in LedgerBackupVault.list_snapshots()
+                    if not str(s.get("snapshot_id", "")).startswith("test_")
+                    and "gate_test" not in str(s.get("snapshot_id", "")).lower()
+                    and "gate_test" not in str(s.get("reason", "")).lower()
+                ]
                 if snaps:
                     last_s = snaps[0]
                     st.markdown(f"**快照**：`{last_s.get('snapshot_id')}`\n\n**时间**：{last_s.get('timestamp')}\n\n**原因**：{last_s.get('reason', '自动冷备')}")
@@ -5409,7 +5417,15 @@ def render_rebalance_action_section(
                 quotes_or_nav_map=_live_nav_map,
             )
             if inc_plan.get("allocations"):
-                st.dataframe(pd.DataFrame(inc_plan["allocations"]), use_container_width=True, hide_index=True)
+                _inc_rows = []
+                for _r in inc_plan["allocations"]:
+                    _fc_i = str(_r.get("基金代码", _r.get("fund_code", "")))
+                    _row_out = {"基金代码": _fc_i, "基金名称": resolve_fund_display_name(_fc_i, pm)}
+                    for _k, _v in _r.items():
+                        if _k not in ("基金代码", "fund_code", "基金名称"):
+                            _row_out[_k] = _v
+                    _inc_rows.append(_row_out)
+                st.dataframe(pd.DataFrame(_inc_rows), use_container_width=True, hide_index=True)
 
     # 限购标的自动拆单日历
     if execution_tracker:
@@ -5503,7 +5519,15 @@ if active_main_nav == "调仓":
 
             st.markdown(f"**💡 规划结论**：{cfp_plan['summary_text']}")
             if cfp_plan["allocations"]:
-                st.dataframe(pd.DataFrame(cfp_plan["allocations"]), use_container_width=True, hide_index=True)
+                _cfp_rows = []
+                for _r in cfp_plan["allocations"]:
+                    _fc_i = str(_r.get("基金代码", _r.get("fund_code", "")))
+                    _row_out = {"基金代码": _fc_i, "基金名称": resolve_fund_display_name(_fc_i, pm)}
+                    for _k, _v in _r.items():
+                        if _k not in ("基金代码", "fund_code", "基金名称"):
+                            _row_out[_k] = _v
+                    _cfp_rows.append(_row_out)
+                st.dataframe(pd.DataFrame(_cfp_rows), use_container_width=True, hide_index=True)
 
             cur_pt_bullet = float(st.session_state.get("c300_point", 3950.0) or 3950.0)
             bullet_plan = cashflow_planner.generate_left_side_bullet_plan(
@@ -6403,7 +6427,7 @@ if active_main_nav == "调仓" and locals().get("_should_render_reconstruction",
                 cur_pending_count = len(pm.pending_orders)
                 plan_cap_val = float(blueprint.get("total_capital", plan_capital))
 
-                with st.popover("覆盖账本", use_container_width=True, help=f"覆盖写入当前账本：{cur_name}"):
+                with st.popover("覆盖账本", use_container_width=True, help=f"⚠️ 将用上方新方案替换当前账本【{cur_name}】的全部持仓（执行前自动留存备份，支持撤回）"):
                     st.markdown(f"##### ⚠️ 覆盖写入确认【{cur_name}】")
                     safe_markdown_html(f"""
                     <div style="background: rgba(239, 68, 68, 0.08); border-left: 3px solid var(--color-up); padding: 8px 12px; margin-bottom: 8px; border-radius: 4px; font-size: 12px;">
@@ -6443,7 +6467,7 @@ if active_main_nav == "调仓" and locals().get("_should_render_reconstruction",
                         st.rerun()
 
             with col_act_new:
-                with st.popover("另存账本", use_container_width=True, help="另存为全新独立账本"):
+                with st.popover("另存账本", use_container_width=True, help="新建一个独立模拟/实盘账本保存上方方案，完全不影响你当前的真实持仓"):
                     st.markdown("##### 🆕 另存为全新独立账本")
                     st.caption("创建新账本并直接将本次建仓方案写入，绝不影响主实盘或其他存量账本。")
                     save_new_name = st.text_input("新账本名称", value=f"新资建仓_{datetime.now().strftime('%m%d_%H%M')}", key="t1_save_new_name")
@@ -7470,7 +7494,16 @@ if active_main_nav == "持仓":
                     q_plan = execution_tracker.split_quota_dca_calendar(q_code, "目标基金", q_amt, daily_limit=q_lim)
                     if q_plan.get("needs_split"):
                         st.success(f"{q_plan.get('summary')}")
-                        st.dataframe(pd.DataFrame(q_plan.get("schedule", [])), use_container_width=True, hide_index=True)
+                        _q_sched_cn = [
+                            {
+                                "执行顺序": f"第 {r.get('day_index', i + 1)} 天",
+                                "定投节奏": r.get("day_label", ""),
+                                "单日买入金额(元)": f"¥{float(r.get('amount', 0.0)):,.2f}",
+                                "当前状态": "⏳ 待执行" if str(r.get("status", "")).upper() == "PENDING" else str(r.get("status", "")),
+                            }
+                            for i, r in enumerate(q_plan.get("schedule", []))
+                        ]
+                        st.dataframe(pd.DataFrame(_q_sched_cn), use_container_width=True, hide_index=True)
                     else:
                         st.info(f"买入金额未超单日限额 ¥{q_lim:,.2f}，可单日一次性申购完成。")
 
@@ -7666,6 +7699,11 @@ if active_main_nav == "持仓":
             sc2.metric("实盘跟单总市值", f"¥{shadow_comp['live_current_market_val']:,.2f}", f"{shadow_comp['live_return_pct']:+.2f}%")
             sc3.metric("跟单累计超额", f"¥{shadow_comp['excess_rmb']:+,.2f}", f"{shadow_comp['excess_pct']:+.2f}%")
             st.caption(shadow_comp["summary"])
+            if not shadow_comp.get("has_baseline", True):
+                if st.button("立即冻结当前持仓为躺平基准", key="btn_freeze_shadow_tab1_inline", help="保存当前持仓快照，作为未来对比调仓是否跑赢躺平的起点"):
+                    shadow_portfolio_tracker.freeze_shadow_baseline(cur_lid, pm.holdings)
+                    st.success("已冻结当前持仓为躺平对照基准！")
+                    st.rerun()
 
         # ═════════════════════════════════════════════════════════════
         # 【BLOCK 3】底部折叠抽屉：展开底层投研与十维风控验算底稿
@@ -7793,7 +7831,7 @@ if active_main_nav == "持仓":
 
                 primary_driver = brinson_attr.get("primary_driver", "大类资产配置效应")
                 val_add = audit_res.get('rebalance_value_add', 0.0)
-                st.info(f"💡 **买方投顾穿透复盘点评**：本次实盘调仓相比接管基准取得超额增厚 {val_add:+,.2f} 元，核心驱动力为<b>【{primary_driver}】</b>，AI 风控累计为您拦截 ¥{fric_yuan:,.2f} 的刚性赎回惩罚。")
+                st.info(f"💡 **买方投顾穿透复盘点评**：本次实盘调仓相比接管基准取得超额增厚 {val_add:+,.2f} 元，核心驱动力为**【{primary_driver}】**，AI 风控累计为您拦截 ¥{fric_yuan:,.2f} 的刚性赎回惩罚。")
             except Exception as e_brinson:
                 st.caption(f"（Brinson 归因账单生成提示: {e_brinson}）")
 
@@ -7843,7 +7881,10 @@ if active_main_nav == "持仓":
                 danger_indicator="跨公司强赎需收取 0.5%~1.5% 惩罚性赎回费且 T+3 资金脱机"
             )
             try:
-                same_co_plan = pm.optimize_same_company_conversions(rebalance_plan=ai_orders_res.get("pm_plan"))
+                same_co_plan = pm.optimize_same_company_conversions(
+                    rebalance_plan=(st.session_state.get("tab2_rebal_cache") or {}).get("pm_plan")
+                    if isinstance(st.session_state.get("tab2_rebal_cache"), dict) else None
+                )
                 if same_co_plan.get("has_conversions"):
                     st.success(f"⚡ 已识别内部极速转换方案：预计节省费率 ¥{same_co_plan.get('total_saved_yuan', 0.0):,.2f} ({same_co_plan.get('avg_saved_bps', 0.0):.1f} bps)")
                     conv_rows = [
@@ -8537,6 +8578,18 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
                 elif en_k in df_oos.columns:
                     clean_oos_df[cn_k] = df_oos[en_k]
             if not clean_oos_df.empty:
+                if "市场定调" in clean_oos_df.columns:
+                    _regime_cn_map = {
+                        "BEAR": "熊市防守期",
+                        "DEFENSE": "防守避险期",
+                        "NEUTRAL": "震荡平衡期",
+                        "BULL": "进攻上行期",
+                        "GROWTH_BULL": "科技主升浪",
+                        "STRUCTURAL_500": "结构慢牛期",
+                    }
+                    clean_oos_df["市场定调"] = clean_oos_df["市场定调"].map(
+                        lambda x: _regime_cn_map.get(str(x).strip().upper(), str(x))
+                    )
                 st.dataframe(clean_oos_df, use_container_width=True, hide_index=True)
         return
 
@@ -9523,11 +9576,11 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any], 
 
             gap_rows.append({
                 "资产大类": cat,
-                "当前市值(元)": c_val,
-                "当前占比(%)": c_pct,
-                "目标占比(%)": t_pct,
-                "配置缺口(元)": -diff_val,
-                "偏离百分比(%)": -diff_pct,
+                "当前市值(元)": round(float(c_val), 2),
+                "当前占比(%)": round(float(c_pct), 2),
+                "目标占比(%)": round(float(t_pct), 2),
+                "配置缺口(元)": round(float(-diff_val), 2),
+                "偏离百分比(%)": round(float(-diff_pct), 2),
                 "配置建议": action_advice
             })
 
@@ -9658,7 +9711,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any], 
             safe_markdown_html(f"""
             <div style="background: var(--bg-surface); border-left: 4px solid var(--color-down); border-radius: 8px; padding: 10px 14px 12px 14px; margin-bottom: 12px; box-shadow: var(--shadow-card); height: auto !important; overflow: visible !important;">
                 <div style="font-size: 13px; font-weight: 700; color: var(--color-down); margin-bottom: 2px;">
-                    🟢【相关性解耦健康】红利类资产与周期权重股相关系数为 {cur_corr:.2f} (< 0.75 警戒线)
+                    🟢【相关性解耦健康】红利类资产与周期权重股相关系数为 {cur_corr:.2f}（低于 0.75 警戒线）
                 </div>
                 <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.5;">
                     底层资产具备良好的资产配置对冲效应，红利低波与周期资产未见同向踩踏共振，无需触发集中度降级。
@@ -10110,7 +10163,7 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any], 
             st.caption(f"（期权波动率哨加载提示: {e_opt_gui}）")
 
     elif active_subview == "投顾底稿":
-        st.caption("🧭 毫秒级监测场内核心 ETF（黄金/沪深300/科创50/芯片/标普500/恒生科技）市价与实时 IOPV。溢价 > +1.0% 提示场外低成本申购，折价 < -1.0% 提示场内折价低吸。")
+        st.caption("🧭 实时对比场内热门 ETF 市价与参考净值(IOPV)：溢价高于 +1.0% 说明场内买贵了，建议买场外联接基金；折价低于 -1.0% 说明场内打折，可优先场内低吸。")
         try:
             arb_sensors = DataLoader.fetch_etf_feeder_arbitrage_sensors(use_cache=True)
             arb_rows = []
