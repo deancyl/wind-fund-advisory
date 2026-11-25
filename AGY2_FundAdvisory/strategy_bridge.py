@@ -2737,23 +2737,35 @@ class StrategyBridge:
             if now_ts - getattr(cls, "_snapshot_last_refresh_time", 0.0) < 60.0:
                 return cls._cached_snapshot
             cls._snapshot_last_refresh_time = now_ts
-            cls._refresh_liquidity_thermometer(cls._cached_snapshot)
-            cls._refresh_derivatives_data(cls._cached_snapshot)
-            cached_snap = cls._cached_snapshot
-            m_code = cached_snap.get("market_state_code", "")
-            is_off = (m_code in ["GROWTH_BULL", "STRUCTURAL_500"]) or (cached_snap.get("dual_track_radar", {}).get("trend_stance") == "BULL")
-            is_crd = bool(cached_snap.get("crowding_warning", False)) or (cached_snap.get("crowding_degree") == "极度拥挤") or (float(cached_snap.get("crowding_score", 90.0)) < 60.0)
-            is_acc = (float(cached_snap.get("mom_accel", 0.0)) <= -2.0)
-            cur_ivix = float(cached_snap.get("ivix_index", 19.5))
-            cur_opt_iv = float(cached_snap.get("option_iv_pct", cached_snap.get("option_iv", 19.4)))
-            cur_delta_ivix = float(cached_snap.get("delta_ivix", 0.0))
-            is_iv_jump = (cur_ivix >= 24.0) or (cur_delta_ivix >= 1.5) or (cur_opt_iv >= 26.0)
-            if is_off and is_crd and is_acc and is_iv_jump:
-                cached_snap["momentum_exhaustion_warning"] = True
-                cached_snap["momentum_exhaustion_text"] = "⚡ 动量衰竭预警：暂停追高进攻标的，新增资金转入红利/纯债缓冲"
-            else:
-                cached_snap["momentum_exhaustion_warning"] = False
-                cached_snap["momentum_exhaustion_text"] = ""
+            # 异步后台静默刷新流动性与衍生品截面，避免新开网页/闲置后访问阻塞首屏渲染
+            if not getattr(cls, "_snapshot_bg_refreshing", False):
+                import threading
+                cls._snapshot_bg_refreshing = True
+
+                def _bg_refresh_snap(snap_ref: Dict[str, Any]) -> None:
+                    try:
+                        cls._refresh_liquidity_thermometer(snap_ref)
+                        cls._refresh_derivatives_data(snap_ref)
+                        m_code = snap_ref.get("market_state_code", "")
+                        is_off = (m_code in ["GROWTH_BULL", "STRUCTURAL_500"]) or (snap_ref.get("dual_track_radar", {}).get("trend_stance") == "BULL")
+                        is_crd = bool(snap_ref.get("crowding_warning", False)) or (snap_ref.get("crowding_degree") == "极度拥挤") or (float(snap_ref.get("crowding_score", 90.0)) < 60.0)
+                        is_acc = (float(snap_ref.get("mom_accel", 0.0)) <= -2.0)
+                        cur_ivix = float(snap_ref.get("ivix_index", 19.5))
+                        cur_opt_iv = float(snap_ref.get("option_iv_pct", snap_ref.get("option_iv", 19.4)))
+                        cur_delta_ivix = float(snap_ref.get("delta_ivix", 0.0))
+                        is_iv_jump = (cur_ivix >= 24.0) or (cur_delta_ivix >= 1.5) or (cur_opt_iv >= 26.0)
+                        if is_off and is_crd and is_acc and is_iv_jump:
+                            snap_ref["momentum_exhaustion_warning"] = True
+                            snap_ref["momentum_exhaustion_text"] = "⚡ 动量衰竭预警：暂停追高进攻标的，新增资金转入红利/纯债缓冲"
+                        else:
+                            snap_ref["momentum_exhaustion_warning"] = False
+                            snap_ref["momentum_exhaustion_text"] = ""
+                    except Exception:
+                        pass
+                    finally:
+                        cls._snapshot_bg_refreshing = False
+
+                threading.Thread(target=_bg_refresh_snap, args=(cls._cached_snapshot,), daemon=True).start()
             return cls._cached_snapshot
 
         df_raw = cls.load_matrix(force_reload=force_reload, auto_sync=auto_sync)

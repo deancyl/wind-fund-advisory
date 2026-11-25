@@ -15,11 +15,74 @@ import time
 import hashlib
 from pathlib import Path
 from datetime import datetime, date, timedelta
+import streamlit as st
+
+
+def _detect_mobile_early() -> bool:
+    try:
+        if hasattr(st, "session_state"):
+            if st.session_state.get("is_mobile_view") is True or st.session_state.get("app_view_layout_mode") == "📱 手机极简盯盘":
+                return True
+        if hasattr(st, "query_params") and st.query_params:
+            vp = str(st.query_params.get("view", "")).lower()
+            if vp in ("mobile", "phone", "m"):
+                return True
+            if vp in ("desktop", "pc", "d"):
+                return False
+        if hasattr(st, "context") and hasattr(st.context, "headers") and st.context.headers:
+            ua = str(st.context.headers.get("User-Agent", "")).lower()
+            if any(k in ua for k in ("iphone", "android", "mobile", "ipad", "harmonyos")):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+# 极速首屏配置与品牌呼吸加载动画：置于 pandas/plotly/strategy_bridge 重依赖导入之前，确保冷启动 0.3s 内即刻出画面
+st.set_page_config(
+    page_title="AGY2 智能投顾与实盘组合接管工作台",
+    page_icon="🧭",
+    layout="wide",
+    initial_sidebar_state="expanded" if not _detect_mobile_early() else "collapsed"
+)
+
+_boot_splash = None
+if not st.session_state.get("_boot_completed", False):
+    _boot_splash = st.empty()
+    _boot_html = "\n".join(line.strip() for line in """
+<style>
+@keyframes agy2-spin { to { transform: rotate(360deg); } }
+@keyframes agy2-pulse { 0%, 100% { opacity: 0.58; } 50% { opacity: 1; } }
+.agy2-boot-splash {
+position: fixed; inset: 0; z-index: 999999;
+display: flex; flex-direction: column; align-items: center; justify-content: center;
+background: linear-gradient(135deg, #0F1C2E 0%, #162842 100%);
+color: #F8FAFC;
+font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.agy2-boot-ring {
+width: 44px; height: 44px; border-radius: 50%;
+border: 3px solid rgba(203, 213, 225, 0.22);
+border-top-color: #38BDF8;
+animation: agy2-spin 0.85s linear infinite;
+margin-bottom: 18px;
+}
+.agy2-boot-title { font-size: 18px; font-weight: 700; letter-spacing: 0.6px; color: #FFFFFF; }
+.agy2-boot-sub { font-size: 12.5px; color: #CBD5E1; margin-top: 8px; animation: agy2-pulse 1.6s ease-in-out infinite; }
+</style>
+<div class="agy2-boot-splash">
+<div class="agy2-boot-ring"></div>
+<div class="agy2-boot-title">AGY2 智能投顾工作台</div>
+<div class="agy2-boot-sub">正在同步宏观状态机、实时盘中行情与持仓估值…</div>
+</div>
+""".splitlines() if line.strip())
+    _boot_splash.markdown(_boot_html, unsafe_allow_html=True)
+    time.sleep(0.02)
+
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import streamlit as st
 import streamlit.components.v1 as components
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -857,12 +920,7 @@ def _has_uncommitted_holdings_changes(edited_df, current_df_or_pm) -> Uncommitte
 # -------------------------------------------------------------
 # 页面基础配置与高颜值深色质感样式
 # -------------------------------------------------------------
-st.set_page_config(
-    page_title="AGY2 智能投顾与实盘组合接管工作台",
-    page_icon="🧭",
-    layout="wide",
-    initial_sidebar_state="expanded" if not _is_mobile_viewport() else "collapsed"
-)
+# 页面配置与首屏加载动画已提前至文件顶部（重模块导入之前）执行
 
 # 自定义 CSS 强化桌面客户端质感（含彻底隐藏 Stop / Deploy / 汉堡菜单）
 # -------------------------------------------------------------
@@ -3963,8 +4021,71 @@ def switch_active_ledger(target_ledger_id: str):
         st.session_state.tab2_trigger_rebalance = False
     st.rerun()
 
-# 实时拉取最新策略大脑快照 (首屏 auto_sync=False 纯本地秒级直开)
-snapshot = StrategyBridge.get_latest_market_snapshot(force_reload=False, auto_sync=False) or {}
+# 进程级侧栏自选板块 30s TTL 并发缓存，彻底消灭 5 条串行网络阻塞
+_SIDEBAR_WL_CACHE: Dict[str, Any] = {"ts": 0.0, "key": "", "pcts": {}}
+
+
+def _fetch_sidebar_watchlist_pcts_concurrent(items: List[Dict[str, Any]], force_refresh: bool = False) -> Dict[str, float]:
+    now_t = time.time()
+    ck = ",".join(str(x.get("code", "")) for x in items)
+    if (
+        not force_refresh
+        and _SIDEBAR_WL_CACHE["key"] == ck
+        and (now_t - float(_SIDEBAR_WL_CACHE["ts"])) < 30.0
+        and _SIDEBAR_WL_CACHE["pcts"]
+    ):
+        return _SIDEBAR_WL_CACHE["pcts"]
+    if not items:
+        return {}
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _one(sec: Dict[str, Any]) -> Tuple[str, float]:
+        try:
+            return str(sec.get("code", "")), float(fetch_sector_change_pct(sec) or 0.0)
+        except Exception:
+            return str(sec.get("code", "")), 0.0
+
+    with ThreadPoolExecutor(max_workers=min(5, max(1, len(items)))) as _pool:
+        pcts = dict(_pool.map(_one, items))
+    _SIDEBAR_WL_CACHE["ts"] = time.time()
+    _SIDEBAR_WL_CACHE["key"] = ck
+    _SIDEBAR_WL_CACHE["pcts"] = pcts
+    return pcts
+
+
+# 首屏多源并发预取（将宏观快照、盘中盈亏、市场情绪、三大指数与自选板块重叠并发，大幅压缩首屏等待时间）
+from concurrent.futures import ThreadPoolExecutor as _BootPool
+
+_now_sec = time.time()
+_pnl_cache = st.session_state.get("_cached_session_intraday_pnl")
+_pnl_ts = st.session_state.get("_cached_session_intraday_pnl_ts", 0)
+_pnl_h_sig = hash(tuple((c, getattr(h, "shares", 0), round(getattr(h, "market_value", 0), 2)) for c, h in sorted(pm.holdings.items())))
+_last_sig = st.session_state.get("_cached_session_intraday_pnl_sig")
+_need_pnl_calc = not (_pnl_cache and (_now_sec - _pnl_ts < 60.0) and (_last_sig == _pnl_h_sig) and not st.session_state.get("force_refresh_market", False))
+_watchlist_items = load_sector_watchlist()[:5]
+
+with _BootPool(max_workers=6) as _bp:
+    _f_snap = _bp.submit(StrategyBridge.get_latest_market_snapshot, False, True, False, False)
+    _f_mb = _bp.submit(fetch_market_turnover_and_sentiment)
+    _f_pnl = _bp.submit(pm.calculate_intraday_pnl) if _need_pnl_calc else None
+    _f_c300 = _bp.submit(fetch_realtime_index_quote, "sh000300", True)
+    _f_kc50 = _bp.submit(fetch_realtime_index_quote, "sh000688", True)
+    _f_hldb = _bp.submit(fetch_realtime_index_quote, "sh000922", True)
+    _f_wl = _bp.submit(_fetch_sidebar_watchlist_pcts_concurrent, _watchlist_items, False)
+
+    snapshot = _f_snap.result() or {}
+    mb_data = _f_mb.result() or {}
+    if _f_pnl is not None:
+        pnl_today = _f_pnl.result()
+        st.session_state["_cached_session_intraday_pnl"] = pnl_today
+        st.session_state["_cached_session_intraday_pnl_ts"] = _now_sec
+        st.session_state["_cached_session_intraday_pnl_sig"] = _pnl_h_sig
+    else:
+        pnl_today = _pnl_cache
+    _q_c300 = _f_c300.result() or {}
+    _q_kc50 = _f_kc50.result() or {}
+    _q_hldb = _f_hldb.result() or {}
+    _sidebar_wl_pcts = _f_wl.result() or {}
 
 # 统一攻防红线数据源（单源同真：优先 trigger_lines，其次 snapshot 顶级字段，兜底现价计算）
 _trig_lines = snapshot.get("trigger_lines") or {}
@@ -3992,20 +4113,7 @@ if pm.total_equity <= 0:
     pm._recalculate_totals()
 total_cur_equity = float(getattr(pm, "total_equity", 0.0))
 
-# 会话级持仓盘中估值高速缓存（60s 有效期，持仓未变且未强制刷新时 0ms 秒开）
-_now_sec = time.time()
-_pnl_cache = st.session_state.get("_cached_session_intraday_pnl")
-_pnl_ts = st.session_state.get("_cached_session_intraday_pnl_ts", 0)
-_pnl_h_sig = hash(tuple((c, getattr(h, "shares", 0), round(getattr(h, "market_value", 0), 2)) for c, h in sorted(pm.holdings.items())))
-_last_sig = st.session_state.get("_cached_session_intraday_pnl_sig")
-
-if _pnl_cache and (_now_sec - _pnl_ts < 60.0) and (_last_sig == _pnl_h_sig) and not st.session_state.get("force_refresh_market", False):
-    pnl_today = _pnl_cache
-else:
-    pnl_today = pm.calculate_intraday_pnl()
-    st.session_state["_cached_session_intraday_pnl"] = pnl_today
-    st.session_state["_cached_session_intraday_pnl_ts"] = _now_sec
-    st.session_state["_cached_session_intraday_pnl_sig"] = _pnl_h_sig
+# pnl_today 已由上方首屏并发预取池统一计算并写入 session_state 缓存
 
 est_pnl = pnl_today.get("total_est_pnl", 0.0)
 est_pnl_pct = pnl_today.get("total_est_pnl_pct", 0.0)
@@ -4040,7 +4148,7 @@ else:
     vernacular_state = f"{raw_mkt_state[:6]}"
 st_color = snapshot.get('state_color', active_co['color_down'])
 
-mb_data = fetch_market_turnover_and_sentiment()
+# mb_data 已由上方首屏并发预取池获取
 t_str = mb_data.get("turnover_str", "-- 亿")
 u_pct = mb_data.get("up_pct", 50.0)
 u_cnt = mb_data.get("up_count", 0)
@@ -4110,9 +4218,7 @@ if "_initial_ledger_routed" not in st.session_state:
 clock_color = active_co['color_up'] if market_status.is_golden_window else (active_co['color_down'] if market_status.is_after_market else active_th['accent_primary'])
 clock_title = "14:30黄金窗口" if market_status.is_golden_window else ("盘后已关账" if market_status.is_after_market else "盘中观察期")
 _plan_caliber = "存量瘦身重构" if active_lid == "combat_29_funds" else "动态股债平衡"
-_q_c300 = fetch_realtime_index_quote("sh000300", use_cache=True) or {}
-_q_kc50 = fetch_realtime_index_quote("sh000688", use_cache=True) or {}
-_q_hldb = fetch_realtime_index_quote("sh000922", use_cache=True) or {}
+# _q_c300 / _q_kc50 / _q_hldb 已由上方首屏并发预取池获取
 _idx_bar = " ｜ ".join([
     f"沪深300 {float(_q_c300.get('point') or c300_disp):,.1f} ({float(_q_c300.get('change_pct') or 0.0):+.2f}%)",
     f"科创50 {float(_q_kc50.get('point') or 0.0):,.1f} ({float(_q_kc50.get('change_pct') or 0.0):+.2f}%)",
@@ -4136,6 +4242,10 @@ def _fmt_topbar_ledger(lid: str) -> str:
 # =============================================================================
 # 方案 B：专业桌面端左侧主领航台 (Desktop Left Navigation & Market Corridor)
 # =============================================================================
+if _boot_splash is not None:
+    _boot_splash.empty()
+st.session_state["_boot_completed"] = True
+
 with st.sidebar:
     st.markdown(f'''<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0 6px 0;">
         <span style="font-size:16px;font-weight:900;color:#FFFFFF;letter-spacing:0.5px;">AGY2 智投</span>
@@ -4226,9 +4336,8 @@ with st.sidebar:
                         reset_sector_watchlist()
                         st.rerun()
 
-    _watchlist_items = load_sector_watchlist()[:5]
     for _sec in _watchlist_items:
-        _spct = fetch_sector_change_pct(_sec)
+        _spct = float(_sidebar_wl_pcts.get(str(_sec.get("code", "")), 0.0))
         _scol = "#F87171" if _spct > 0 else ("#4ADE80" if _spct < 0 else "#94A3B8")
         _scls = "sec-chg-up" if _spct > 0 else ("sec-chg-down" if _spct < 0 else "sec-chg-flat")
         _ssign = "+" if _spct > 0 else ""
@@ -4276,6 +4385,7 @@ with st.sidebar:
     with c_sb_rf:
         if st.button("刷新", use_container_width=True, key="btn_sb_refresh_data", help="极速刷新实时盘中行情与估值"):
             clear_realtime_cache()
+            _SIDEBAR_WL_CACHE["ts"] = 0.0
             st.toast("盘中行情已极速同步！")
             st.rerun()
 
