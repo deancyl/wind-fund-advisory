@@ -1482,10 +1482,530 @@
           }
         }
       }
+    },
+    "/api/v1/ledgers": {
+      "get": {
+        "summary": "Api V1 List Ledgers",
+        "operationId": "api_v1_list_ledgers_api_v1_ledgers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 List Ledgers Api V1 Ledgers Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Api V1 Create Ledger",
+        "operationId": "api_v1_create_ledger_api_v1_ledgers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLedgerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 Create Ledger Api V1 Ledgers Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ledgers/active": {
+      "post": {
+        "summary": "Api V1 Set Active Ledger",
+        "operationId": "api_v1_set_active_ledger_api_v1_ledgers_active_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActiveLedgerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 Set Active Ledger Api V1 Ledgers Active Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/holdings/{fund_code}": {
+      "delete": {
+        "summary": "Api V1 Delete Holding",
+        "operationId": "api_v1_delete_holding_api_v1_holdings__fund_code__delete",
+        "parameters": [
+          {
+            "name": "fund_code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Fund Code"
+            }
+          },
+          {
+            "name": "ledger_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ledger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Delete Holding Api V1 Holdings  Fund Code  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/holdings/cash": {
+      "post": {
+        "summary": "Api V1 Update Cash",
+        "operationId": "api_v1_update_cash_api_v1_holdings_cash_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCashRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 Update Cash Api V1 Holdings Cash Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/recommend/blueprint": {
+      "get": {
+        "summary": "Api V1 Recommend Blueprint",
+        "operationId": "api_v1_recommend_blueprint_api_v1_recommend_blueprint_get",
+        "parameters": [
+          {
+            "name": "risk_level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "C3",
+              "title": "Risk Level"
+            }
+          },
+          {
+            "name": "amount",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 50000.0,
+              "title": "Amount"
+            }
+          },
+          {
+            "name": "fund_count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 6,
+              "title": "Fund Count"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "all_weather",
+              "title": "Model"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Recommend Blueprint Api V1 Recommend Blueprint Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/charts/backtest_curves": {
+      "get": {
+        "summary": "Api V1 Charts Backtest Curves",
+        "operationId": "api_v1_charts_backtest_curves_api_v1_charts_backtest_curves_get",
+        "parameters": [
+          {
+            "name": "tier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "C3",
+              "title": "Tier"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "preset_combat_29_vs_6",
+              "title": "Mode"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Charts Backtest Curves Api V1 Charts Backtest Curves Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/charts/crowding_quadrant": {
+      "get": {
+        "summary": "Api V1 Charts Crowding Quadrant",
+        "operationId": "api_v1_charts_crowding_quadrant_api_v1_charts_crowding_quadrant_get",
+        "parameters": [
+          {
+            "name": "ledger_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ledger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Charts Crowding Quadrant Api V1 Charts Crowding Quadrant Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/charts/scenario_backtest": {
+      "get": {
+        "summary": "Api V1 Charts Scenario Backtest",
+        "operationId": "api_v1_charts_scenario_backtest_api_v1_charts_scenario_backtest_get",
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "2024-09-18",
+              "title": "Start Date"
+            }
+          },
+          {
+            "name": "tier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "C3",
+              "title": "Tier"
+            }
+          },
+          {
+            "name": "capital",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 100000.0,
+              "title": "Capital"
+            }
+          },
+          {
+            "name": "dynamic_rebalance",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Dynamic Rebalance"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Charts Scenario Backtest Api V1 Charts Scenario Backtest Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/etf_premiums": {
+      "get": {
+        "summary": "Api V1 Tools Etf Premiums",
+        "operationId": "api_v1_tools_etf_premiums_api_v1_tools_etf_premiums_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 Tools Etf Premiums Api V1 Tools Etf Premiums Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/dividend_advice": {
+      "get": {
+        "summary": "Api V1 Tools Dividend Advice",
+        "operationId": "api_v1_tools_dividend_advice_api_v1_tools_dividend_advice_get",
+        "parameters": [
+          {
+            "name": "ledger_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ledger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Tools Dividend Advice Api V1 Tools Dividend Advice Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ActiveLedgerRequest": {
+        "properties": {
+          "ledger_id": {
+            "type": "string",
+            "title": "Ledger Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ledger_id"
+        ],
+        "title": "ActiveLedgerRequest"
+      },
       "CashflowPlanRequest": {
         "properties": {
           "ledger_id": {
@@ -1572,6 +2092,29 @@
           "fund_code"
         ],
         "title": "CheckinItemRequest"
+      },
+      "CreateLedgerRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "initial_cash": {
+            "type": "number",
+            "title": "Initial Cash",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CreateLedgerRequest"
       },
       "HTTPValidationError": {
         "properties": {
@@ -1780,6 +2323,30 @@
         },
         "type": "object",
         "title": "ShadowFreezeRequest"
+      },
+      "UpdateCashRequest": {
+        "properties": {
+          "ledger_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ledger Id"
+          },
+          "available_cash": {
+            "type": "number",
+            "title": "Available Cash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available_cash"
+        ],
+        "title": "UpdateCashRequest"
       },
       "ValidationError": {
         "properties": {

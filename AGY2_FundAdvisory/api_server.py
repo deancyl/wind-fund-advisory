@@ -108,6 +108,29 @@ app.add_middleware(
 _OVERVIEW_CACHE: Dict[str, Any] = {}
 _OVERVIEW_CACHE_LOCK = threading.Lock()
 _OVERVIEW_TTL_SEC = 30.0
+_BACKTEST_CURVES_CACHE: Dict[str, Any] = {}
+_BACKTEST_CURVES_LOCK = threading.Lock()
+
+
+def _invalidate_overview_cache(lid: Optional[str] = None) -> None:
+    with _OVERVIEW_CACHE_LOCK:
+        if lid:
+            _OVERVIEW_CACHE.pop(lid, None)
+        else:
+            _OVERVIEW_CACHE.clear()
+
+
+def _detect_c_replace_code(lid: str, holdings: Dict[str, Any]) -> Optional[str]:
+    """动态识别当前账本中满 30 天且可零费率 C 转 A 的标的，消除 combat_29_funds 硬编码。"""
+    if lid == "combat_29_funds":
+        return "011613"
+    h = (holdings or {}).get("011613")
+    if h is not None:
+        days = int(getattr(h, "holding_days", 0) or 0)
+        mv = float(getattr(h, "market_value", 0.0) or 0.0)
+        if days >= 30 and mv >= 200.0:
+            return "011613"
+    return None
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _EMOJI_RE = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F\u200D]")
@@ -543,6 +566,7 @@ def api_v1_holdings(ledger_id: Optional[str] = None) -> Dict[str, Any]:
         rows.append({
             "fund_code": code,
             "fund_name": getattr(h, "fund_name", code),
+            "asset_class": pm.classify_fund_asset_class(code, getattr(h, "fund_name", code)),
             "share_class": s_cls,
             "shares": round(sh, 4),
             "current_nav": round(nav, 4),
@@ -574,7 +598,7 @@ def api_v1_rebalance(ledger_id: Optional[str] = None, min_buffer_pct: float = 3.
         pm=pm,
         mode="gentle",
         min_buffer_pct=min_buffer_pct,
-        c_replace="011613" if lid == "combat_29_funds" else None,
+        c_replace=_detect_c_replace_code(lid, pm.holdings),
         core_anchor_code="002351",
     )
     items = res.get("items", [])
@@ -750,7 +774,12 @@ def api_v1_shadow_freeze(req: ShadowFreezeRequest) -> Dict[str, Any]:
 
 @app.get("/api/v1/backups")
 def api_v1_list_backups() -> Dict[str, Any]:
-    snaps = LedgerBackupVault.list_snapshots()
+    raw_snaps = LedgerBackupVault.list_snapshots()
+    snaps = [
+        s for s in raw_snaps
+        if "g29_gate_test" not in str(s.get("reason", "")).lower()
+        and "g29_gate_test" not in str(s.get("snapshot_id", "")).lower()
+    ]
     return _sanitize_v1_payload({"count": len(snaps), "snapshots": snaps})
 
 
@@ -760,6 +789,7 @@ def api_v1_restore_backup(req: RestoreBackupRequest) -> Dict[str, Any]:
         ok = LedgerBackupVault.restore_snapshot(req.snapshot_id)
         if not ok:
             raise HTTPException(status_code=400, detail=f"快照恢复失败: {req.snapshot_id}")
+        _invalidate_overview_cache()
         return _sanitize_v1_payload({"restored": True, "snapshot_id": req.snapshot_id})
 
 
@@ -779,6 +809,7 @@ def api_v1_import_text(req: ImportTextRequest) -> Dict[str, Any]:
                 replace_existing=(req.mode == "overwrite"),
             )
             pm.save_state()
+            _invalidate_overview_cache(lid)
             applied = True
         return _sanitize_v1_payload({
             "ledger_id": lid,
@@ -841,6 +872,7 @@ def api_v1_import_ocr(request: Request) -> Dict[str, Any]:
             LedgerBackupVault.create_snapshot(reason=f"api_import_ocr_{lid}")
             pm.import_from_smart_text(parsed, available_cash=pm.available_cash, replace_existing=(mode == "overwrite"))
             pm.save_state()
+            _invalidate_overview_cache(lid)
             applied = True
 
         return _sanitize_v1_payload({
@@ -899,6 +931,7 @@ def api_v1_holdings_reconcile(req: HoldingsReconcileRequest) -> Dict[str, Any]:
                         current_nav=float(upd.get("current_nav", upd.get("cost_price", 1.0))),
                     )
             pm.save_state()
+            _invalidate_overview_cache(lid)
             applied = True
 
         return _sanitize_v1_payload({
@@ -1185,6 +1218,17 @@ def api_v1_diagnose_subview(subview: str, ledger_id: Optional[str] = None) -> Di
                 ind_pct = float(row.get("暴露占比(%)", 0.0) or 0.0)
                 if ind_name:
                     top_industries[ind_name] = round(ind_pct / 100.0, 4)
+        tw = _target_weights_for_ledger(lid, snapshot)
+        tgt_cats: Dict[str, float] = {}
+        for tcode, tw_val in (tw or {}).items():
+            tname = (CORE_STRATEGY_POOL.get(tcode) or {}).get("fund_name", tcode)
+            tcat = pm.classify_fund_asset_class(tcode, tname)
+            tgt_cats[tcat] = tgt_cats.get(tcat, 0.0) + float(tw_val or 0.0)
+        target_classes = {
+            k: round(v, 4)
+            for k, v in sorted(tgt_cats.items(), key=lambda x: x[1], reverse=True)
+            if v > 1e-4
+        }
         return _sanitize_v1_payload({
             "subview": "exposure",
             "ledger_id": lid,
@@ -1192,6 +1236,7 @@ def api_v1_diagnose_subview(subview: str, ledger_id: Optional[str] = None) -> Di
             "holdings_count": len(holdings),
             "total_equity": round(total_mv, 2),
             "asset_classes": asset_classes,
+            "target_classes": target_classes,
             "top_industries": top_industries,
         })
 
@@ -1407,6 +1452,626 @@ def api_v1_funds_search(q: str = "", limit: int = 8) -> Dict[str, Any]:
             "sector": str(it.get("sector", "")),
         })
     return _sanitize_v1_payload({"query": clean_q, "count": len(items), "items": items})
+
+
+class ActiveLedgerRequest(BaseModel):
+    ledger_id: str
+
+
+class CreateLedgerRequest(BaseModel):
+    name: str
+    description: str = ""
+    initial_cash: float = 0.0
+
+
+class UpdateCashRequest(BaseModel):
+    ledger_id: Optional[str] = None
+    available_cash: float
+
+
+@app.get("/api/v1/ledgers")
+def api_v1_list_ledgers() -> Dict[str, Any]:
+    mlm = MultiLedgerManager.get_instance()
+    active_id = mlm.get_active_ledger_id() or "combat_29_funds"
+    items = []
+    for meta in mlm.list_ledgers():
+        lid = str(meta.get("id", ""))
+        try:
+            pm = mlm.get_pm(lid)
+            cnt = len(getattr(pm, "holdings", {}) or {})
+            eq = round(float(getattr(pm, "total_equity", 0.0) or 0.0), 2)
+        except Exception:
+            cnt = 0
+            eq = 0.0
+        items.append({
+            "id": lid,
+            "name": str(meta.get("name", lid)),
+            "description": str(meta.get("description", "")),
+            "is_demo": lid == "combat_29_funds",
+            "holding_count": cnt,
+            "total_equity": eq,
+            "is_active": lid == active_id,
+        })
+    return _sanitize_v1_payload({"active_ledger_id": active_id, "count": len(items), "items": items})
+
+
+@app.post("/api/v1/ledgers/active")
+def api_v1_set_active_ledger(req: ActiveLedgerRequest) -> Dict[str, Any]:
+    with _LEDGER_WRITE_LOCK:
+        mlm = MultiLedgerManager.get_instance()
+        ok = mlm.set_active_ledger_id(req.ledger_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"账本不存在: {req.ledger_id}")
+        _invalidate_overview_cache()
+        return _sanitize_v1_payload({"active_ledger_id": req.ledger_id, "switched": True})
+
+
+@app.post("/api/v1/ledgers")
+def api_v1_create_ledger(req: CreateLedgerRequest) -> Dict[str, Any]:
+    name = str(req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="账本名称不能为空")
+    with _LEDGER_WRITE_LOCK:
+        mlm = MultiLedgerManager.get_instance()
+        new_id = mlm.create_ledger(name=name, description=req.description or "用户自建实盘账本")
+        if req.initial_cash and float(req.initial_cash) > 0:
+            pm = mlm.get_pm(new_id)
+            pm.available_cash = float(req.initial_cash)
+            pm.save_state()
+        mlm.set_active_ledger_id(new_id)
+        _invalidate_overview_cache()
+        return _sanitize_v1_payload({"ledger_id": new_id, "name": name, "created": True})
+
+
+@app.delete("/api/v1/holdings/{fund_code}")
+def api_v1_delete_holding(fund_code: str, ledger_id: Optional[str] = None) -> Dict[str, Any]:
+    code = str(fund_code or "").strip().zfill(6)
+    with _LEDGER_WRITE_LOCK:
+        _, lid, pm, _ = _get_active_context(ledger_id)
+        if code not in pm.holdings:
+            raise HTTPException(status_code=404, detail=f"账本 {lid} 中未找到基金 {code}")
+        LedgerBackupVault.create_snapshot(reason=f"api_delete_holding_{lid}_{code}")
+        del pm.holdings[code]
+        pm.save_state()
+        _invalidate_overview_cache(lid)
+        return _sanitize_v1_payload({"ledger_id": lid, "fund_code": code, "deleted": True})
+
+
+@app.post("/api/v1/holdings/cash")
+def api_v1_update_cash(req: UpdateCashRequest) -> Dict[str, Any]:
+    cash_val = max(0.0, float(req.available_cash))
+    with _LEDGER_WRITE_LOCK:
+        _, lid, pm, _ = _get_active_context(req.ledger_id)
+        LedgerBackupVault.create_snapshot(reason=f"api_update_cash_{lid}")
+        pm.available_cash = round(cash_val, 2)
+        pm.save_state()
+        _invalidate_overview_cache(lid)
+        return _sanitize_v1_payload({"ledger_id": lid, "available_cash": pm.available_cash, "updated": True})
+
+
+_RISK_TIER_META: Dict[str, Dict[str, str]] = {
+    "C1": {"label": "C1 稳健型", "drawdown_hint": "历史最大回撤约 3%~6%", "desc": "以纯债与高股息底仓为主，严控波动，适合稳健理财替代资金"},
+    "C2": {"label": "C2 偏稳型", "drawdown_hint": "历史最大回撤约 6%~11%", "desc": "固收打底 + 红利增强，兼顾抗跌与温和增值"},
+    "C3": {"label": "C3 均衡型", "drawdown_hint": "历史最大回撤约 12%~17%", "desc": "全天候攻守兼备，红利/宽基/债/海外/黄金多元分散，适合 1 年以上资金"},
+    "C4": {"label": "C4 进取型", "drawdown_hint": "历史最大回撤约 18%~24%", "desc": "提高权益与科技弹性权重，博取中长期超额回报"},
+    "C5": {"label": "C5 积极型", "drawdown_hint": "历史最大回撤约 24%+", "desc": "高弹性权益配置，适合能承受较大短期波动的长期资金"},
+}
+
+_FUND_PLAIN_WHY: Dict[str, Dict[str, str]] = {
+    "005561": {"role": "红利低波主锚", "why": "高股息叠加低波动筛选，震荡市与防御期的核心抗跌收益来源"},
+    "100032": {"role": "红利增强底仓", "why": "聚焦高分红蓝筹并叠加量化增强，长期复利稳健"},
+    "110020": {"role": "A股核心宽基", "why": "覆盖A股最核心大盘资产，费率低廉，稳稳捕捉估值修复"},
+    "002351": {"role": "固收安全垫", "why": "稳健债券底仓，在权益大幅波动时提供正收益缓冲与补仓弹药"},
+    "000086": {"role": "纯债压舱石", "why": "高信用等级债券配置，有效平滑组合净值波动"},
+    "017436": {"role": "美股科技对冲", "why": "与A股低相关，分散单一市场风险，共享全球科技龙头的长期成长"},
+    "050025": {"role": "美股宽基对冲", "why": "追踪标普500核心美股资产，与国内权益形成跨市场互补"},
+    "011612": {"role": "硬核科技进攻", "why": "A类份额适合长期持有，低估值区间布局国产科技成长弹性"},
+    "011613": {"role": "硬核科技进攻", "why": "紧跟硬核科技成长板块，低位分批布局放大反弹弹性"},
+    "000216": {"role": "黄金避险气垫", "why": "对冲地缘与汇率波动风险，进一步压低组合整体最大回撤"},
+}
+
+
+_QUANT_MODELS_META: Dict[str, Dict[str, str]] = {
+    "all_weather": {
+        "id": "all_weather",
+        "name": "全天候动态均衡模型",
+        "tag": "默认推荐",
+        "scenario": "适用场景：不确定牛熊拐点、希望跨周期稳健复利的大多数投资者",
+        "principle": "结合十维宏观估值/趋势信号与波动率缩放，动态平衡红利、宽基、纯债、海外与黄金。",
+    },
+    "risk_parity": {
+        "id": "risk_parity",
+        "name": "风险平价抗跌模型",
+        "tag": "严控回撤",
+        "scenario": "适用场景：熊市/震荡防御期、厌恶大回撤、追求稳健持有体验的资金",
+        "principle": "按各资产近 60 日真实波动率倒数分配权重，让债券/黄金/权益贡献均衡风险预算。",
+    },
+    "dividend_defense": {
+        "id": "dividend_defense",
+        "name": "高股息红利防御模型",
+        "tag": "现金流防御",
+        "scenario": "适用场景：利率下行期、市场震荡筑底、偏好高股息与纯债吃息的稳健配置",
+        "principle": "重点倾斜中证红利低波、红利增强与纯债底仓，大幅压降高波动成长敞口。",
+    },
+    "barbell_growth": {
+        "id": "barbell_growth",
+        "name": "杠铃攻守策略模型",
+        "tag": "低位博弹性",
+        "scenario": "适用场景：科技估值处于历史低位、愿意“重债保底 + 科技/美股搏反弹”的进取配置",
+        "principle": "一端用纯债与黄金锁住安全垫，另一端集中布局科创50与纳指100高弹性进攻。",
+    },
+}
+
+_MODEL_CANDIDATE_POOL: List[str] = [
+    "005561",  # 红利低波
+    "002351",  # 固收安全垫
+    "110020",  # 沪深300
+    "017436",  # 纳斯达克100
+    "000216",  # 黄金
+    "011612",  # 科创50A
+    "100032",  # 红利增强
+    "000086",  # 纯债压舱石
+]
+
+
+def _build_model_weights(model_id: str, tier: str, snap: Dict[str, Any], fund_count: int) -> Dict[str, float]:
+    """根据用户选择的量化模型、风险档位与期望基金数量，动态计算总和严格为 1.0 的权重字典。"""
+    import numpy as np
+
+    base_res = StrategyBridge.compute_dynamic_tier_weights(tier=tier, market_snapshot=snap)
+    base_w: Dict[str, float] = dict(base_res.get("weights", base_res) if isinstance(base_res, dict) else {})
+    # 将 011613(C) 在空仓建仓推荐中统一优先映射到 011612(A) 避免长期持有C类高费率
+    if "011613" in base_w:
+        w_c = base_w.pop("011613")
+        base_w["011612"] = round(base_w.get("011612", 0.0) + w_c, 4)
+
+    # 风险档位对应的权益系数（用于调整非默认模型的进攻/防御倾斜）
+    eq_scale_map = {"C1": 0.45, "C2": 0.72, "C3": 1.0, "C4": 1.25, "C5": 1.45}
+    eq_s = eq_scale_map.get(tier, 1.0)
+
+    if model_id == "risk_parity":
+        # 按真实历史 60 日波动率倒数分配风险预算
+        col_map = {
+            "005561": "H30269", "100032": "H00922", "110020": "H00300",
+            "002351": "BOND_CBA", "000086": "BOND_CBA", "017436": "SPX",
+            "011612": "KC50", "000216": "GOLD",
+        }
+        vols: Dict[str, float] = {}
+        try:
+            df_mat = StrategyBridge.load_matrix()
+            for code, col in col_map.items():
+                if col in df_mat.columns:
+                    s = df_mat[col].dropna().tail(61)
+                    if len(s) >= 20:
+                        v = float(s.pct_change().dropna().std() * np.sqrt(250))
+                        if v > 0.005:
+                            vols[code] = v
+        except Exception:
+            pass
+        # 防御类适当控上限，避免纯债 90% 独大，保留多元分散
+        raw = {}
+        for code in _MODEL_CANDIDATE_POOL:
+            v = vols.get(code, 0.16)
+            inv_v = 1.0 / max(v, 0.04)
+            is_bond = code in ("002351", "000086")
+            raw[code] = inv_v * (0.55 / eq_s if is_bond else eq_s)
+        # 避免两只纯债重复，保留主锚 002351 除非用户选 8 只
+        if fund_count < 8:
+            raw.pop("000086", None)
+        weights = raw
+    elif model_id == "dividend_defense":
+        weights = {
+            "005561": 0.34 * eq_s,
+            "002351": 0.32 / eq_s,
+            "100032": 0.16 * eq_s,
+            "000216": 0.10,
+            "110020": 0.08 * eq_s,
+            "000086": 0.10 / eq_s,
+            "017436": 0.06 * eq_s,
+            "011612": 0.03 * eq_s,
+        }
+    elif model_id == "barbell_growth":
+        weights = {
+            "002351": 0.36 / eq_s,
+            "011612": 0.22 * eq_s,
+            "017436": 0.20 * eq_s,
+            "000216": 0.12,
+            "005561": 0.10 * eq_s,
+            "110020": 0.08 * eq_s,
+            "100032": 0.05 * eq_s,
+            "000086": 0.08 / eq_s,
+        }
+    else:
+        # all_weather: 以 StrategyBridge.compute_dynamic_tier_weights 为主体，按需补足候选池供大 N 选择
+        weights = dict(base_w)
+        fallback_fill = {"005561": 0.12, "110020": 0.10, "002351": 0.18, "017436": 0.10, "011612": 0.08, "000216": 0.08, "100032": 0.07, "000086": 0.06}
+        for c, fw in fallback_fill.items():
+            if len(weights) >= fund_count:
+                break
+            if c not in weights:
+                weights[c] = fw
+
+    # 过滤掉极小权重并按权重降序裁剪到用户指定的 fund_count
+    cleaned = [(c, float(w)) for c, w in weights.items() if float(w) > 1e-4]
+    cleaned.sort(key=lambda x: x[1], reverse=True)
+    selected = cleaned[: max(2, min(8, int(fund_count)))]
+    tot = sum(w for _, w in selected) or 1.0
+    norm: Dict[str, float] = {}
+    acc = 0.0
+    for idx, (c, w) in enumerate(selected):
+        if idx == len(selected) - 1:
+            norm[c] = round(max(0.0, 1.0 - acc), 4)
+        else:
+            nw = round(w / tot, 4)
+            norm[c] = nw
+            acc += nw
+    return norm
+
+
+@app.get("/api/v1/recommend/blueprint")
+def api_v1_recommend_blueprint(
+    risk_level: str = "C3",
+    amount: float = 50000.0,
+    fund_count: int = 6,
+    model: str = "all_weather",
+) -> Dict[str, Any]:
+    tier = str(risk_level or "C3").upper().strip()
+    if tier not in _RISK_TIER_META:
+        tier = "C3"
+    model_id = str(model or "all_weather").strip().lower()
+    if model_id not in _QUANT_MODELS_META:
+        model_id = "all_weather"
+    n_funds = max(3, min(8, int(fund_count or 6)))
+    cap = max(1000.0, float(amount or 50000.0))
+
+    _, _, pm, snap = _get_active_context(None)
+    target_w = _build_model_weights(model_id, tier, snap, n_funds)
+    bp = StrategyBridge.generate_zero_start_blueprint(
+        total_capital=cap,
+        target_weights_funds=target_w,
+        tier=tier,
+    ) or {}
+    raw_items = bp.get("items") or []
+
+    # 按 fund_code 聚合（若某标的因限购拆单，保持清晰展示同时确保权重来自真实 target_weight_pct / allocated_amount）
+    items = []
+    regime_label = str(snap.get("market_state") or snap.get("regime") or "中性均衡")
+    for it in raw_items:
+        code = str(it.get("fund_code") or it.get("code") or "").strip().zfill(6)
+        w_pct = float(it.get("target_weight_pct") or it.get("weight_pct") or 0.0)
+        if w_pct <= 0 and code in target_w:
+            w_pct = round(target_w[code] * 100.0, 2)
+        buy_amt = float(it.get("allocated_amount") or it.get("amount") or it.get("buy_amount") or 0.0)
+        if buy_amt <= 0 and w_pct > 0:
+            buy_amt = round(cap * w_pct / 100.0, 2)
+
+        meta = _FUND_PLAIN_WHY.get(code, {})
+        pool_m = CORE_STRATEGY_POOL.get(code, {})
+        # 结合真实量价四象限生成动态入选理由
+        quant_signal = ""
+        try:
+            cr = pm.get_fund_smart_money_crowding(code) or {}
+            b20 = float(cr.get("bias_20", 0.0) or 0.0)
+            q_tag = _clean_text(cr.get("quadrant_tag") or "")
+            if q_tag:
+                quant_signal = f"当前处于【{q_tag}】（MA20乖离 {b20:+.1f}%），"
+        except Exception:
+            pass
+
+        role_text = str(meta.get("role") or it.get("role_desc") or pool_m.get("asset_class") or "核心配置")
+        base_why = str(meta.get("why") or it.get("role_desc") or "符合当前量化风险预算与资产分散目标")
+        quant_reason = f"在「{_QUANT_MODELS_META[model_id]['name']}」与当前{regime_label}下，{quant_signal}分配 {w_pct:.1f}% 权重以平衡组合收益与回撤。"
+        fee_note = str(it.get("why_share_class") or "底仓首选A类，长期持有免每日计提销售服务费")
+        action_guide = str(it.get("action_guide") or "不限购，可按建议金额分批或一次配置")
+
+        items.append({
+            "fund_code": code,
+            "fund_name": str(it.get("fund_name") or pool_m.get("fund_name") or code),
+            "role": role_text,
+            "why": base_why,
+            "quant_reason": quant_reason,
+            "fee_note": fee_note,
+            "action_guide": action_guide,
+            "weight_pct": round(w_pct, 2),
+            "suggested_amount": round(buy_amt, 2),
+            "daily_limit": float(pool_m.get("daily_limit", 1e8)),
+        })
+
+    items.sort(key=lambda x: x["weight_pct"], reverse=True)
+    # 保证展示占比总和精确校准到 100.0%
+    sum_w = sum(x["weight_pct"] for x in items)
+    if items and abs(sum_w - 100.0) > 0.05 and sum_w > 0:
+        scale = 100.0 / sum_w
+        acc_w = 0.0
+        for idx, x in enumerate(items):
+            if idx == len(items) - 1:
+                x["weight_pct"] = round(max(0.0, 100.0 - acc_w), 1)
+            else:
+                x["weight_pct"] = round(x["weight_pct"] * scale, 1)
+                acc_w += x["weight_pct"]
+            x["suggested_amount"] = round(cap * x["weight_pct"] / 100.0, 2)
+
+    return _sanitize_v1_payload({
+        "risk_level": tier,
+        "risk_meta": _RISK_TIER_META[tier],
+        "all_risk_levels": _RISK_TIER_META,
+        "model": model_id,
+        "model_meta": _QUANT_MODELS_META[model_id],
+        "all_models": list(_QUANT_MODELS_META.values()),
+        "fund_count": n_funds,
+        "total_amount": round(cap, 2),
+        "market_regime": regime_label,
+        "count": len(items),
+        "items": items,
+    })
+
+
+@app.get("/api/v1/charts/backtest_curves")
+def api_v1_charts_backtest_curves(tier: str = "C3", mode: str = "preset_combat_29_vs_6") -> Dict[str, Any]:
+    clean_tier = str(tier or "C3").upper().strip()
+    if clean_tier not in _RISK_TIER_META:
+        clean_tier = "C3"
+    cache_key = f"{clean_tier}:{mode}"
+    with _BACKTEST_CURVES_LOCK:
+        cached = _BACKTEST_CURVES_CACHE.get(cache_key)
+        if cached and (time.time() - cached[0]) < 600.0:
+            return cached[1]
+
+    preset = StrategyBridge.get_combat_29_vs_reconstructed_6_preset() or {}
+    if mode == "preset_combat_29_vs_6" and preset.get("reconstructed_6_weights"):
+        primary_w = dict(preset["reconstructed_6_weights"])
+        secondary_w = dict(preset.get("raw_29_weights") or {})
+        primary_name = "投顾重构 6 基核心组合"
+        secondary_name = "原始 29 基存量组合"
+    else:
+        snap = StrategyBridge.get_latest_market_snapshot(force_reload=False)
+        tw_res = StrategyBridge.compute_dynamic_tier_weights(tier=clean_tier, market_snapshot=snap)
+        primary_w = dict(tw_res.get("weights", tw_res) if isinstance(tw_res, dict) else {})
+        secondary_w = None
+        primary_name = f"{clean_tier} 策略推荐组合"
+        secondary_name = ""
+
+    df_bt = StrategyBridge.build_custom_portfolio_backtest(
+        fund_weights=primary_w,
+        secondary_weights=secondary_w if secondary_w else None,
+        tier=clean_tier,
+        target_return_pct=15.0,
+    )
+    if df_bt is None or df_bt.empty:
+        return _sanitize_v1_payload({"status": "empty", "dates": []})
+
+    n_rows = len(df_bt)
+    step = max(1, n_rows // 320)
+    idx_list = list(range(0, n_rows, step))
+    if idx_list[-1] != n_rows - 1:
+        idx_list.append(n_rows - 1)
+    df_s = df_bt.iloc[idx_list]
+
+    def _cagr(series_col: str) -> Optional[float]:
+        if series_col not in df_bt.columns or len(df_bt) < 2:
+            return None
+        val = float(df_bt[series_col].iloc[-1])
+        if val <= 0:
+            return None
+        return round((val ** (252.0 / len(df_bt)) - 1.0) * 100.0, 2)
+
+    def _col_list(col: str, mult: float = 1.0, digits: int = 3) -> List[float]:
+        if col not in df_s.columns:
+            return []
+        return [round(float(x) * mult, digits) for x in df_s[col].fillna(0.0).tolist()]
+
+    dates = [str(d)[:10] for d in df_s["date"].tolist()]
+    slices = [
+        {"start": "2018-01-02", "end": "2018-12-28", "label": "去杠杆熊市", "color": "rgba(239, 68, 68, 0.08)"},
+        {"start": "2019-01-02", "end": "2020-12-31", "label": "核心资产牛市", "color": "rgba(16, 185, 129, 0.08)"},
+        {"start": "2021-01-04", "end": "2021-12-31", "label": "赛道股分化", "color": "rgba(245, 158, 11, 0.08)"},
+        {"start": "2022-01-04", "end": "2022-12-30", "label": "加息杀估值", "color": "rgba(239, 68, 68, 0.08)"},
+        {"start": "2023-01-03", "end": "2024-08-30", "label": "高股息避险", "color": "rgba(56, 189, 248, 0.08)"},
+        {"start": "2024-09-02", "end": "2025-06-30", "label": "924大转向", "color": "rgba(16, 185, 129, 0.08)"},
+        {"start": "2025-07-01", "end": dates[-1] if dates else "2026-10-27", "label": "盲测金库", "color": "rgba(139, 92, 246, 0.10)"},
+    ]
+
+    payload = _sanitize_v1_payload({
+        "status": "ready",
+        "tier": clean_tier,
+        "mode": mode,
+        "primary_name": primary_name,
+        "secondary_name": secondary_name,
+        "dates": dates,
+        "nav": {
+            "primary": _col_list("strategy_nav", 1.0, 4),
+            "primary_otc": _col_list("strategy_nav_otc", 1.0, 4),
+            "secondary": _col_list("secondary_nav", 1.0, 4),
+            "hs300": _col_list("bm_nav_沪深300", 1.0, 4),
+            "dividend": _col_list("bm_nav_红利低波", 1.0, 4),
+            "bond": _col_list("bm_nav_纯债指数", 1.0, 4),
+        },
+        "cagr": {
+            "primary": _cagr("strategy_nav"),
+            "primary_otc": _cagr("strategy_nav_otc"),
+            "secondary": _cagr("secondary_nav"),
+            "hs300": _cagr("bm_nav_沪深300"),
+            "dividend": _cagr("bm_nav_红利低波"),
+            "bond": _cagr("bm_nav_纯债指数"),
+        },
+        "drawdown": {
+            "primary": _col_list("strategy_drawdown", 1.0, 2),
+            "secondary": _col_list("secondary_drawdown", 1.0, 2),
+            "hs300": _col_list("h300_drawdown", 1.0, 2),
+        },
+        "allocation": {
+            "ashare": _col_list("weight_ashare", 100.0, 1),
+            "bond": _col_list("weight_bond", 100.0, 1),
+            "gold": _col_list("weight_gold", 100.0, 1),
+            "spx": _col_list("weight_spx", 100.0, 1),
+        },
+        "slices": slices,
+    })
+    with _BACKTEST_CURVES_LOCK:
+        _BACKTEST_CURVES_CACHE[cache_key] = (time.time(), payload)
+    return payload
+
+
+@app.get("/api/v1/charts/crowding_quadrant")
+def api_v1_charts_crowding_quadrant(ledger_id: Optional[str] = None) -> Dict[str, Any]:
+    _, lid, pm, _ = _get_active_context(ledger_id)
+    holdings = getattr(pm, "holdings", {}) or {}
+    # 若持仓为空，展示 6 只核心推荐标的的四象限位置；否则展示核心持仓（市值 >= 200）及核心池
+    core_codes = [c for c, h in sorted(holdings.items(), key=lambda x: -float(getattr(x[1], "market_value", 0.0) or 0.0)) if float(getattr(h, "market_value", 0.0) or 0.0) >= 200.0]
+    if not core_codes:
+        core_codes = ["005561", "110020", "002351", "017436", "011612", "000216"]
+    else:
+        for c in ("005561", "110020", "002351", "017436", "011612", "000216"):
+            if c not in core_codes and len(core_codes) < 12:
+                core_codes.append(c)
+
+    points = []
+    for code in core_codes[:12]:
+        try:
+            d = pm.get_fund_smart_money_crowding(code) or {}
+            points.append({
+                "fund_code": code,
+                "fund_name": str(d.get("fund_name") or code),
+                "short_name": str(d.get("short_name") or d.get("fund_name") or code)[:10],
+                "bias_20": round(float(d.get("bias_20", 0.0) or 0.0), 2),
+                "crowding_score": round(float(d.get("crowding_score", 50.0) or 50.0), 1),
+                "ret_20d": round(float(d.get("ret_20d", 0.0) or 0.0), 2),
+                "quadrant": str(d.get("quadrant_tag") or "温和复苏区"),
+                "advisory_tip": str(d.get("advisory_tip") or ""),
+                "in_holdings": code in holdings,
+            })
+        except Exception:
+            continue
+
+    return _sanitize_v1_payload({"ledger_id": lid, "count": len(points), "points": points})
+
+
+@app.get("/api/v1/charts/scenario_backtest")
+def api_v1_charts_scenario_backtest(
+    start_date: str = "2024-09-18",
+    tier: str = "C3",
+    capital: float = 100000.0,
+    dynamic_rebalance: bool = True,
+) -> Dict[str, Any]:
+    clean_tier = str(tier or "C3").upper().strip()
+    if clean_tier not in _RISK_TIER_META:
+        clean_tier = "C3"
+    clean_date = str(start_date or "2024-09-18").strip()[:10]
+    cap = max(1000.0, float(capital or 100000.0))
+
+    res = StrategyBridge.run_historical_time_machine_backtest(
+        target_date=clean_date,
+        tier=clean_tier,
+        capital=cap,
+        dynamic_rebalance=bool(dynamic_rebalance),
+    ) or {}
+    curve_df = res.get("curve_df")
+    dates: List[str] = []
+    strat_nav: List[float] = []
+    h300_nav: List[float] = []
+    bm50_nav: List[float] = []
+    if curve_df is not None and not curve_df.empty:
+        n_rows = len(curve_df)
+        step = max(1, n_rows // 240)
+        idx_list = list(range(0, n_rows, step))
+        if idx_list[-1] != n_rows - 1:
+            idx_list.append(n_rows - 1)
+        df_s = curve_df.iloc[idx_list]
+        dates = [str(d)[:10] for d in df_s["date"].tolist()]
+        strat_nav = [round(float(x), 4) for x in df_s["strategy_net_nav"].fillna(1.0).tolist()]
+        h300_nav = [round(float(x), 4) for x in df_s["h300_nav"].fillna(1.0).tolist()]
+        if "benchmark_nav" in df_s.columns:
+            bm50_nav = [round(float(x), 4) for x in df_s["benchmark_nav"].fillna(1.0).tolist()]
+
+    return _sanitize_v1_payload({
+        "start_date": clean_date,
+        "tier": clean_tier,
+        "dynamic_rebalance": bool(dynamic_rebalance),
+        "kpis": {
+            "m3": res.get("kpi_3m"),
+            "m6": res.get("kpi_6m"),
+            "y1": res.get("kpi_1y"),
+            "all": res.get("kpi_all"),
+        },
+        "dates": dates,
+        "strategy_nav": strat_nav,
+        "hs300_nav": h300_nav,
+        "balanced_nav": bm50_nav,
+    })
+
+
+@app.get("/api/v1/tools/etf_premiums")
+def api_v1_tools_etf_premiums() -> Dict[str, Any]:
+    _, _, pm, _ = _get_active_context(None)
+    try:
+        alerts = pm.check_etf_premiums() or []
+    except Exception as exc:
+        logger.warning("check_etf_premiums 异常: %s", exc)
+        alerts = []
+    items = [
+        {
+            "code": str(a.get("code", "")),
+            "name": str(a.get("name", "")),
+            "price": float(a.get("price", 0.0) or 0.0),
+            "iopv": float(a.get("iopv", 0.0) or 0.0),
+            "premium_pct": round(float(a.get("premium_pct", 0.0) or 0.0), 2),
+            "advice": "场内溢价超过 0.8% 安全线，建议改用场外联接基金或等待溢价回落，避免高位接盘。",
+        }
+        for a in alerts
+    ]
+    return _sanitize_v1_payload({"alert_count": len(items), "items": items})
+
+
+@app.get("/api/v1/tools/dividend_advice")
+def api_v1_tools_dividend_advice(ledger_id: Optional[str] = None) -> Dict[str, Any]:
+    _, lid, pm, snap = _get_active_context(ledger_id)
+    cur_erp = round(float(snap.get("erp_percentile", 75.0) or 75.0), 1)
+    if cur_erp >= 70.0:
+        rec_mode = "reinvest"
+        rec_label = "红利再投资"
+        summary = f"当前股债性价比（ERP）历史分位达 {cur_erp:.1f}%，处于偏低估区间：建议基金分红方式优先设为【红利再投资】，免申购费自动积累更多份额。"
+    elif cur_erp <= 35.0:
+        rec_mode = "cash"
+        rec_label = "现金分红"
+        summary = f"当前股债性价比（ERP）历史分位为 {cur_erp:.1f}%，处于偏高估区间：建议基金分红方式优先设为【现金分红】，零赎回费落袋为安。"
+    else:
+        rec_mode = "neutral"
+        rec_label = "红利基金选再投资，成长基金选现金分红"
+        summary = f"当前股债性价比（ERP）历史分位为 {cur_erp:.1f}%，处于中性均衡区间：红利与宽基底仓可设为【红利再投资】，高波动成长基金可设为【现金分红】。"
+
+    return _sanitize_v1_payload({
+        "ledger_id": lid,
+        "erp_percentile": cur_erp,
+        "recommended_mode": rec_mode,
+        "recommended_label": rec_label,
+        "summary": summary,
+    })
+
+
+# =====================================================================
+# 单端口静态前端托管（当 web/dist 构建产物存在时自动挂载）
+# =====================================================================
+_WEB_DIST_DIR = ROOT_DIR / "web" / "dist"
+if (_WEB_DIST_DIR / "index.html").exists():
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    _assets_dir = _WEB_DIST_DIR / "assets"
+    if _assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="web_assets")
+
+    @app.get("/", include_in_schema=False)
+    def _serve_spa_root():
+        return FileResponse(str(_WEB_DIST_DIR / "index.html"))
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def _serve_spa_fallback(full_path: str):
+        if full_path.startswith("api/") or full_path in ("docs", "redoc", "openapi.json"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        candidate = _WEB_DIST_DIR / full_path
+        if candidate.is_file():
+            return FileResponse(str(candidate))
+        return FileResponse(str(_WEB_DIST_DIR / "index.html"))
 
 
 def export_openapi_contract(output_path: Optional[Path] = None) -> Path:

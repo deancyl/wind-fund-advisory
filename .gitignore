@@ -94,3 +94,6 @@ AGY2_FundAdvisory/data/daily_*.json
 AGY2_FundAdvisory/data/portfolio_watchdog.json
 *_verified.png
 
+
+# Modern React Web Frontend dependencies
+web/node_modules/
