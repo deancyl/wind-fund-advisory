@@ -1,0 +1,15 @@
+# AGY2 跨平台无头 API 后端核心依赖（纯跨平台运行环境，无 Windows/GUI 依赖）
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7.0
+python-multipart>=0.0.9
+orjson>=3.10.0
+pandas>=2.2.0
+polars>=1.0.0
+numpy>=1.26.0
+scipy>=1.13.0
+duckdb>=1.0.0
+requests>=2.32.0
+urllib3>=2.2.0
+httpx>=0.27.0
+akshare>=1.14.0

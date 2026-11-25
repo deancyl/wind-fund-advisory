@@ -666,10 +666,10 @@ def render_chief_advisor_memo_card(memo_data: Dict[str, Any], title: str = "🧭
 </div>
 
 <!-- 4. 持仓病灶 / 拟建仓结构校验 -->
-<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid var(--color-up, #ef4444); border-radius: 5px; padding: 4px 6px; box-sizing: border-box; overflow: hidden;">
-<div style="display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; font-weight: 700; color: var(--color-up, #ef4444); white-space: nowrap;">
-<span>{path_label}</span>
-<span style="font-size: 9.5px; font-weight: 600;">{path_badge_title}</span>
+<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid var(--color-up, #ef4444); border-radius: 5px; padding: 4px 6px; box-sizing: border-box; overflow: hidden; min-width: 0;">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; color: var(--color-up, #ef4444); white-space: nowrap; min-width: 0; overflow: hidden;">
+<span style="flex-shrink: 0;">{path_label}</span>
+<span style="font-size: 9.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis;">{path_badge_title}</span>
 </div>
 <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
 {path_capsule_sub}
@@ -677,10 +677,10 @@ def render_chief_advisor_memo_card(memo_data: Dict[str, Any], title: str = "🧭
 </div>
 
 <!-- 5. 今日行动准则 (14:30尾盘) -->
-<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid {act_color}; border-radius: 5px; padding: 4px 6px; box-sizing: border-box; overflow: hidden;">
-<div style="display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; font-weight: 700; color: {act_color}; white-space: nowrap;">
-<span>🎯 今日行动准则</span>
-<span style="font-size: 9.5px; font-weight: 600;">{act_verdict}</span>
+<div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-top: 2px solid {act_color}; border-radius: 5px; padding: 4px 6px; box-sizing: border-box; overflow: hidden; min-width: 0;">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; color: {act_color}; white-space: nowrap; min-width: 0; overflow: hidden;">
+<span style="flex-shrink: 0;">🎯 今日行动准则</span>
+<span style="font-size: 9.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis;">{act_verdict}</span>
 </div>
 <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
 {action_capsule_sub}
@@ -1054,16 +1054,41 @@ safe_markdown_html(f"""
         color: var(--text-primary) !important;
     }}
     
-    /* G40 私人银行曜石蓝深色侧边栏 + 桌面端绝对零滚动死锁 */
+    /* G40/G43 私人银行曜石蓝深色侧边栏（全视口生效） + 桌面端零滚动定高锁定 */
+    section[data-testid="stSidebar"],
+    [data-testid="stSidebar"],
+    [data-testid="stSidebar"] > div:first-child,
+    [data-testid="stSidebarContent"],
+    [data-testid="stSidebarUserContent"] {{
+        background-color: #0F1C2E !important;
+        background: #0F1C2E !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
+        gap: 0.45rem !important;
+    }}
+    [data-testid="stSidebar"] h5,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] label {{
+        color: #E2E8F0 !important;
+    }}
+    [data-testid="stSidebar"] .stCaption, [data-testid="stSidebar"] small {{
+        color: #94A3B8 !important;
+    }}
+    [data-testid="stSidebar"] button:not([kind="primary"]) {{
+        background: rgba(255, 255, 255, 0.06) !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+        color: #E2E8F0 !important;
+    }}
+    [data-testid="stSidebar"] button:not([kind="primary"]):hover {{
+        background: rgba(255, 255, 255, 0.12) !important;
+        border-color: rgba(255, 255, 255, 0.25) !important;
+    }}
+    [data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {{
+        background: rgba(255, 255, 255, 0.06) !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+        color: #E2E8F0 !important;
+    }}
     @media (min-width: 769px) {{
-        section[data-testid="stSidebar"],
-        [data-testid="stSidebar"],
-        [data-testid="stSidebar"] > div:first-child,
-        [data-testid="stSidebarContent"],
-        [data-testid="stSidebarUserContent"] {{
-            background-color: #0F1C2E !important;
-            background: #0F1C2E !important;
-        }}
         section[data-testid="stSidebar"],
         [data-testid="stSidebar"] {{
             width: 256px !important;
@@ -1079,31 +1104,6 @@ safe_markdown_html(f"""
             display: flex !important;
             flex-direction: column !important;
             box-sizing: border-box !important;
-        }}
-        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
-            gap: 0.45rem !important;
-        }}
-        [data-testid="stSidebar"] h5,
-        [data-testid="stSidebar"] p,
-        [data-testid="stSidebar"] label {{
-            color: #E2E8F0 !important;
-        }}
-        [data-testid="stSidebar"] .stCaption, [data-testid="stSidebar"] small {{
-            color: #94A3B8 !important;
-        }}
-        [data-testid="stSidebar"] button:not([kind="primary"]) {{
-            background: rgba(255, 255, 255, 0.06) !important;
-            border: 1px solid rgba(255, 255, 255, 0.14) !important;
-            color: #E2E8F0 !important;
-        }}
-        [data-testid="stSidebar"] button:not([kind="primary"]):hover {{
-            background: rgba(255, 255, 255, 0.12) !important;
-            border-color: rgba(255, 255, 255, 0.25) !important;
-        }}
-        [data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {{
-            background: rgba(255, 255, 255, 0.06) !important;
-            border: 1px solid rgba(255, 255, 255, 0.14) !important;
-            color: #E2E8F0 !important;
         }}
     }}
 
@@ -1249,19 +1249,62 @@ safe_markdown_html(f"""
         visibility: visible !important;
     }}
     @media (max-width: 768px) {{
-        /* 移动端自动隐藏侧栏，确保持仓大表 100% 宽度不被遮挡 */
-        [data-testid="stSidebar"],
-        [data-testid="stSidebarCollapseButton"],
+        /* G43 Fix 3: 窄屏保留侧边栏展开/收起按钮与深色抽屉交互，严禁非移动 UA 陷入无导航死局 */
         [data-testid="stExpandSidebarButton"],
-        button[aria-label="Expand sidebar"],
-        button[aria-label="Collapse sidebar"],
         [data-testid="collapsedControl"],
-        .stSidebar {{
-            display: none !important;
-            visibility: hidden !important;
-            width: 0 !important;
-            height: 0 !important;
-            pointer-events: none !important;
+        button[aria-label="Expand sidebar"],
+        [data-testid="stSidebarCollapseButton"] {{
+            display: flex !important;
+            visibility: visible !important;
+            pointer-events: auto !important;
+            z-index: 9999 !important;
+        }}
+        section[data-testid="stSidebar"],
+        [data-testid="stSidebar"] {{
+            max-width: 82vw !important;
+            z-index: 9998 !important;
+        }}
+        [data-testid="stSidebar"] > div:first-child {{
+            max-height: 100vh !important;
+            overflow-y: auto !important;
+            padding: 12px 12px 16px 12px !important;
+        }}
+        .main .block-container, [data-testid="stMainBlockContainer"] {{
+            padding-left: 0.75rem !important;
+            padding-right: 0.75rem !important;
+            overflow-x: hidden !important;
+        }}
+        /* 主工作区双栏在窄屏下强制纵向堆叠（排除指标卡与微型按钮行） */
+        div[data-testid="stHorizontalBlock"]:not(:has(.main-metric-card)):not(:has(.topbar-outer-marker)) {{
+            flex-wrap: wrap !important;
+            gap: 0.5rem !important;
+        }}
+        div[data-testid="stHorizontalBlock"]:has(> div > div > div[data-testid="stDataEditor"]),
+        div[data-testid="stHorizontalBlock"]:has(.decision-card) {{
+            flex-direction: column !important;
+        }}
+        div[data-testid="stHorizontalBlock"]:has(> div > div > div[data-testid="stDataEditor"]) > div[data-testid="column"],
+        div[data-testid="stHorizontalBlock"]:has(> div > div > div[data-testid="stDataEditor"]) > div[data-testid="stColumn"],
+        div[data-testid="stHorizontalBlock"]:has(.decision-card) > div[data-testid="column"],
+        div[data-testid="stHorizontalBlock"]:has(.decision-card) > div[data-testid="stColumn"] {{
+            min-width: 100% !important;
+            width: 100% !important;
+            flex: 1 1 100% !important;
+        }}
+        /* 分段胶囊在窄屏支持横向顺滑滚动且不断词 */
+        [data-testid="stMain"] div[role="radiogroup"],
+        [data-testid="stMain"] [data-testid="stRadioGroup"][aria-orientation="horizontal"] {{
+            max-width: 100% !important;
+            overflow-x: auto !important;
+            white-space: nowrap !important;
+        }}
+        [data-testid="stMain"] div[role="radiogroup"] label p,
+        [data-testid="stMain"] [data-testid="stRadioOption"] p {{
+            white-space: nowrap !important;
+        }}
+        .main * {{
+            max-width: 100% !important;
+            box-sizing: border-box !important;
         }}
     }}
 
@@ -2779,111 +2822,111 @@ safe_markdown_html(f"""
     }}
 
     /* ========================================================================= */
-    /* 🏛️ G41 终极视觉精度与对比度修复层（最高层叠优先级，置于 style 最末尾） */
+    /* 🏛️ G41/G43 终极视觉精度与对比度修复层（全视口生效，桌面端锁定 100vh 防滚动） */
     /* ========================================================================= */
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label p,
+    [data-testid="stSidebar"] div[role="radiogroup"] label p,
+    [data-testid="stSidebar"] [data-testid="stRadioOption"] p {{
+        color: #CBD5E1 !important;
+        opacity: 1 !important;
+    }}
+    [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:hover p,
+    [data-testid="stSidebar"] div[role="radiogroup"] label:hover p,
+    [data-testid="stSidebar"] [data-testid="stRadioOption"]:hover p {{
+        color: #FFFFFF !important;
+    }}
+    [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:has(input:checked),
+    [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] {{
+        background: rgba(194, 150, 72, 0.22) !important;
+        border-left: 3px solid #C29648 !important;
+    }}
+    [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:has(input:checked) p,
+    [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] p,
+    [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p {{
+        color: #FFFFFF !important;
+        font-weight: 700 !important;
+    }}
+
+    /* 侧边栏所有普通按钮 & Popover 按钮（外观 / 刷新 / ＋）强制亮白字 + 透明深灰底 */
+    [data-testid="stSidebar"] button:not([kind="primary"]),
+    [data-testid="stSidebar"] button[data-testid="stPopoverButton"] {{
+        background-color: rgba(255, 255, 255, 0.08) !important;
+        border: 1px solid rgba(255, 255, 255, 0.18) !important;
+        color: #F1F5F9 !important;
+        border-radius: 7px !important;
+        min-height: 32px !important;
+        padding: 4px 10px !important;
+    }}
+    [data-testid="stSidebar"] button:not([kind="primary"]) p,
+    [data-testid="stSidebar"] button:not([kind="primary"]) span,
+    [data-testid="stSidebar"] button[data-testid="stPopoverButton"] p,
+    [data-testid="stSidebar"] button[data-testid="stPopoverButton"] span,
+    [data-testid="stSidebar"] button[data-testid="stPopoverButton"] svg,
+    [data-testid="stSidebar"] button:not([kind="primary"]) svg {{
+        color: #F1F5F9 !important;
+        fill: #CBD5E1 !important;
+        font-weight: 500 !important;
+    }}
+    [data-testid="stSidebar"] button:not([kind="primary"]):hover,
+    [data-testid="stSidebar"] button[data-testid="stPopoverButton"]:hover {{
+        background-color: rgba(255, 255, 255, 0.16) !important;
+        border-color: rgba(255, 255, 255, 0.32) !important;
+    }}
+
+    /* 侧边栏账本下拉框：全面覆盖 BaseWeb 与 React Aria 两种 DOM 结构（彻底消灭刺眼白底） */
+    [data-testid="stSidebar"] div[data-baseweb="select"],
+    [data-testid="stSidebar"] div[data-baseweb="select"] > div,
+    [data-testid="stSidebar"] [data-testid="stSelectbox"] div[role="group"],
+    [data-testid="stSidebar"] div.react-aria-ComboBox,
+    [data-testid="stSidebar"] [data-testid="stSelectbox"] div:has(> input[role="combobox"]) {{
+        background-color: #182942 !important;
+        background: #182942 !important;
+        border: 1px solid rgba(255, 255, 255, 0.18) !important;
+        border-radius: 7px !important;
+        color: #F8FAFC !important;
+        min-height: 34px !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stSelectbox"] input[role="combobox"] {{
+        background: transparent !important;
+        background-color: transparent !important;
+        color: #F8FAFC !important;
+        border: none !important;
+        font-size: 12px !important;
+    }}
+    [data-testid="stSidebar"] div[data-baseweb="select"] span,
+    [data-testid="stSidebar"] div[data-baseweb="select"] div,
+    [data-testid="stSidebar"] [data-testid="stSelectbox"] span,
+    [data-testid="stSidebar"] [data-testid="stSelectbox"] div {{
+        color: #F8FAFC !important;
+        font-size: 12px !important;
+    }}
+    [data-testid="stSidebar"] div[data-baseweb="select"] svg,
+    [data-testid="stSidebar"] [data-testid="stSelectbox"] svg {{
+        color: #CBD5E1 !important;
+        fill: #CBD5E1 !important;
+    }}
+
+    /* 自选板块涨跌红绿语义色高亮 (G41) */
+    .sec-chg-up, [data-testid="stSidebar"] .sec-chg-up {{
+        color: #F87171 !important;
+    }}
+    .sec-chg-down, [data-testid="stSidebar"] .sec-chg-down {{
+        color: #4ADE80 !important;
+    }}
+    .sec-chg-flat, [data-testid="stSidebar"] .sec-chg-flat {{
+        color: #94A3B8 !important;
+    }}
+
+    /* 侧边栏折叠箭头 << 强制亮白可见 */
+    [data-testid="stSidebarCollapseButton"] svg {{
+        color: #CBD5E1 !important;
+        fill: #CBD5E1 !important;
+    }}
+
     @media (min-width: 769px) {{
-        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
-        [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
-        [data-testid="stSidebar"] label,
-        [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label p,
-        [data-testid="stSidebar"] div[role="radiogroup"] label p,
-        [data-testid="stSidebar"] [data-testid="stRadioOption"] p {{
-            color: #CBD5E1 !important;
-            opacity: 1 !important;
-        }}
-        [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:hover p,
-        [data-testid="stSidebar"] div[role="radiogroup"] label:hover p,
-        [data-testid="stSidebar"] [data-testid="stRadioOption"]:hover p {{
-            color: #FFFFFF !important;
-        }}
-        [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:has(input:checked),
-        [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] {{
-            background: rgba(194, 150, 72, 0.22) !important;
-            border-left: 3px solid #C29648 !important;
-        }}
-        [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:has(input:checked) p,
-        [data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] p,
-        [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p {{
-            color: #FFFFFF !important;
-            font-weight: 700 !important;
-        }}
-
-        /* 侧边栏所有普通按钮 & Popover 按钮（外观 / 刷新 / ＋）强制亮白字 + 透明深灰底 */
-        [data-testid="stSidebar"] button:not([kind="primary"]),
-        [data-testid="stSidebar"] button[data-testid="stPopoverButton"] {{
-            background-color: rgba(255, 255, 255, 0.08) !important;
-            border: 1px solid rgba(255, 255, 255, 0.18) !important;
-            color: #F1F5F9 !important;
-            border-radius: 7px !important;
-            min-height: 32px !important;
-            padding: 4px 10px !important;
-        }}
-        [data-testid="stSidebar"] button:not([kind="primary"]) p,
-        [data-testid="stSidebar"] button:not([kind="primary"]) span,
-        [data-testid="stSidebar"] button[data-testid="stPopoverButton"] p,
-        [data-testid="stSidebar"] button[data-testid="stPopoverButton"] span,
-        [data-testid="stSidebar"] button[data-testid="stPopoverButton"] svg,
-        [data-testid="stSidebar"] button:not([kind="primary"]) svg {{
-            color: #F1F5F9 !important;
-            fill: #CBD5E1 !important;
-            font-weight: 500 !important;
-        }}
-        [data-testid="stSidebar"] button:not([kind="primary"]):hover,
-        [data-testid="stSidebar"] button[data-testid="stPopoverButton"]:hover {{
-            background-color: rgba(255, 255, 255, 0.16) !important;
-            border-color: rgba(255, 255, 255, 0.32) !important;
-        }}
-
-        /* 侧边栏账本下拉框：全面覆盖 BaseWeb 与 React Aria 两种 DOM 结构（彻底消灭刺眼白底） */
-        [data-testid="stSidebar"] div[data-baseweb="select"],
-        [data-testid="stSidebar"] div[data-baseweb="select"] > div,
-        [data-testid="stSidebar"] [data-testid="stSelectbox"] div[role="group"],
-        [data-testid="stSidebar"] div.react-aria-ComboBox,
-        [data-testid="stSidebar"] [data-testid="stSelectbox"] div:has(> input[role="combobox"]) {{
-            background-color: #182942 !important;
-            background: #182942 !important;
-            border: 1px solid rgba(255, 255, 255, 0.18) !important;
-            border-radius: 7px !important;
-            color: #F8FAFC !important;
-            min-height: 34px !important;
-        }}
-        [data-testid="stSidebar"] [data-testid="stSelectbox"] input[role="combobox"] {{
-            background: transparent !important;
-            background-color: transparent !important;
-            color: #F8FAFC !important;
-            border: none !important;
-            font-size: 12px !important;
-        }}
-        [data-testid="stSidebar"] div[data-baseweb="select"] span,
-        [data-testid="stSidebar"] div[data-baseweb="select"] div,
-        [data-testid="stSidebar"] [data-testid="stSelectbox"] span,
-        [data-testid="stSidebar"] [data-testid="stSelectbox"] div {{
-            color: #F8FAFC !important;
-            font-size: 12px !important;
-        }}
-        [data-testid="stSidebar"] div[data-baseweb="select"] svg,
-        [data-testid="stSidebar"] [data-testid="stSelectbox"] svg {{
-            color: #CBD5E1 !important;
-            fill: #CBD5E1 !important;
-        }}
-
-                /* 自选板块涨跌红绿语义色高亮 (G41) */
-        .sec-chg-up, [data-testid="stSidebar"] .sec-chg-up {{
-            color: #F87171 !important;
-        }}
-        .sec-chg-down, [data-testid="stSidebar"] .sec-chg-down {{
-            color: #4ADE80 !important;
-        }}
-        .sec-chg-flat, [data-testid="stSidebar"] .sec-chg-flat {{
-            color: #94A3B8 !important;
-        }}
-        
-        /* 侧边栏折叠箭头 << 强制亮白可见 */
-        [data-testid="stSidebarCollapseButton"] svg {{
-            color: #CBD5E1 !important;
-            fill: #CBD5E1 !important;
-        }}
-
         /* 侧边栏防滚动与间距微调（杜绝账本标题被下拉框遮盖） */
         [data-testid="stSidebar"] > div:first-child {{
             height: 100vh !important;
@@ -8269,16 +8312,81 @@ if active_main_nav == "持仓":
 # =============================================================
 # Tab 3: 【📈 组合回测】（穿透回测新建仓组合/当前持仓/调仓前后，9大基准自由多选）
 # =============================================================
+def _render_rolling_dca_3y_section() -> None:
+    """渲染近 3 年滚动发车盲测胜率实证表与双期指标卡 (G43 视图隔离独立函数)"""
+    st.markdown("##### 🚀 近 3 年滚动发车盲测胜率实证表 (Point-in-Time 零未来函数·全真交易摩擦)")
+    st.caption("统计过去 3 年所有历史截面按双月 (18期) 或季度 (12期) 滚动发车，持有满 180天、365天的真实到手净收益、正收益胜率与相对沪深300超额收益（全额扣除申购费0.12%、管理托管费0.75%/250与阶梯赎回费）。")
+    c_rf_ctrl1, _ = st.columns([3, 7])
+    with c_rf_ctrl1:
+        sel_dca_freq = st.radio(
+            "发车采样频率",
+            ["双月发车 (18期)", "季度发车 (12期)"],
+            horizontal=True,
+            key="rad_rolling_dca_freq"
+        )
+    dca_freq_param = "quarterly" if "季度" in sel_dca_freq else "bi-monthly"
+    dca_res = _cached_rolling_dca_3y_backtest(frequency=dca_freq_param, tier=st.session_state.get("active_tier_val", "C3"))
+    if dca_res:
+        c_dca_1, c_dca_2 = st.columns(2)
+        with c_dca_1:
+            w180_col = "var(--color-down)" if dca_res["win_rate_180d_pct"] >= 70.0 else "#f59e0b"
+            safe_markdown_html(f"""
+            <div class="decision-card" style="padding: 10px 14px; border-left: 3px solid {w180_col}; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px;">
+                <div style="font-size: 12px; font-weight: 700; color: var(--text-primary);">📅 滚动发车 · 持有 180 天 (半年期)</div>
+                <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 4px 0;">
+                    <div style="font-size: 20px; font-weight: 800; color: {w180_col};">胜率 {dca_res['win_rate_180d_pct']:.1f}%</div>
+                    <div style="font-size: 13px; font-weight: 700; color: {'var(--color-down)' if dca_res['avg_net_return_180d_pct'] >= 0 else 'var(--color-up)'};">平均到手净收益: {dca_res['avg_net_return_180d_pct']:+.2f}%</div>
+                </div>
+                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">
+                    同期沪深300平均: <b>{dca_res['avg_h300_return_180d_pct']:+.2f}%</b> | 
+                    相对超额 Alpha: <b style="color: {'var(--color-down)' if dca_res['alpha_vs_csi300_180d'] >= 0 else 'var(--color-up)'};">{dca_res['alpha_vs_csi300_180d']:+.2f}%</b> | 
+                    平均最大回撤: <b>{dca_res['mdd_180d_avg_pct']:.2f}%</b>
+                </div>
+            </div>
+            """)
+        with c_dca_2:
+            w365_col = "var(--color-down)" if dca_res["win_rate_365d_pct"] >= 70.0 else "#f59e0b"
+            safe_markdown_html(f"""
+            <div class="decision-card" style="padding: 10px 14px; border-left: 3px solid {w365_col}; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px;">
+                <div style="font-size: 12px; font-weight: 700; color: var(--text-primary);">🏆 滚动发车 · 持有 365 天 (一年期)</div>
+                <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 4px 0;">
+                    <div style="font-size: 20px; font-weight: 800; color: {w365_col};">胜率 {dca_res['win_rate_365d_pct']:.1f}%</div>
+                    <div style="font-size: 13px; font-weight: 700; color: {'var(--color-down)' if dca_res['avg_net_return_365d_pct'] >= 0 else 'var(--color-up)'};">平均到手净收益: {dca_res['avg_net_return_365d_pct']:+.2f}%</div>
+                </div>
+                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">
+                    同期沪深300平均: <b>{dca_res['avg_h300_return_365d_pct']:+.2f}%</b> | 
+                    相对超额 Alpha: <b style="color: {'var(--color-down)' if dca_res['alpha_vs_csi300_365d'] >= 0 else 'var(--color-up)'};">{dca_res['alpha_vs_csi300_365d']:+.2f}%</b> | 
+                    平均最大回撤: <b>{dca_res['mdd_365d_avg_pct']:.2f}%</b>
+                </div>
+            </div>
+            """)
+
+        rows_dca = []
+        for r in dca_res.get("periods", []):
+            rows_dca.append({
+                "发车期数": f"第 {r['period_idx']} 期",
+                "发车时刻 T": r["launch_date"],
+                "180天到手净收益": f"{r['return_180d_pct']:+.2f}%" if r["return_180d_pct"] is not None else "--",
+                "180天沪深300": f"{r['h300_return_180d_pct']:+.2f}%" if r["h300_return_180d_pct"] is not None else "--",
+                "180天超额Alpha": f"{r['alpha_180d_pct']:+.2f}%" if r["alpha_180d_pct"] is not None else "--",
+                "365天到手净收益": f"{r['return_365d_pct']:+.2f}%" if r["return_365d_pct"] is not None else "--",
+                "365天沪深300": f"{r['h300_return_365d_pct']:+.2f}%" if r["h300_return_365d_pct"] is not None else "--",
+                "365天超额Alpha": f"{r['alpha_365d_pct']:+.2f}%" if r["alpha_365d_pct"] is not None else "--",
+                "评定": f"{r['verdict_180d']} / {r['verdict_365d']}"
+            })
+        if rows_dca:
+            st.dataframe(pd.DataFrame(rows_dca), use_container_width=True, hide_index=True)
+
+
 def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any]):
     bt_view = st.radio(
         "复盘分段",
-        ["历史时光机", "近三年胜率", "样本外前瞻", "影子账本"],
+        ["历史时光机", "近三年胜率", "全周期PK", "样本外前瞻", "影子账本"],
         index=0,
         horizontal=True,
         label_visibility="collapsed",
         key="rad_backtest_single_view"
     )
-    trial29_kpi = StrategyBridge.load_trial29_metrics()
     mlm_inst = st.session_state.get("mlm") or (MultiLedgerManager.get_instance() if MultiLedgerManager else None)
     active_lid = st.session_state.get("active_ledger_id", "main_live")
     all_ledgers = mlm_inst.list_ledgers() if mlm_inst else []
@@ -8292,8 +8400,27 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
         o_c3.metric("沪深300同期基准", f"{oos_eval['avg_hs300_return_pct']:+.2f}%")
         o_c4.metric("超额 Alpha / 胜率", f"{oos_eval['excess_alpha_pct']:+.2f}%", f"胜率 {oos_eval['win_rate_pct']:.1f}%")
         st.caption(oos_eval["status_summary"])
-        if oos_eval.get("eval_records"):
-            st.dataframe(pd.DataFrame(oos_eval["eval_records"]), use_container_width=True, hide_index=True)
+        records = oos_eval.get("eval_records") or []
+        if records:
+            df_oos = pd.DataFrame(records)
+            cn_col_map = [
+                ("裁决日期", "date"),
+                ("市场定调", "market_regime"),
+                ("已过天数", "days_elapsed"),
+                ("验真窗口", "horizon_bucket"),
+                ("前瞻收益(%)", "portfolio_return_pct"),
+                ("同期沪深300(%)", "benchmark_return_pct"),
+                ("超额Alpha(%)", "excess_alpha_pct"),
+                ("胜负裁定", "eval_status"),
+            ]
+            clean_oos_df = pd.DataFrame()
+            for cn_k, en_k in cn_col_map:
+                if cn_k in df_oos.columns:
+                    clean_oos_df[cn_k] = df_oos[cn_k]
+                elif en_k in df_oos.columns:
+                    clean_oos_df[cn_k] = df_oos[en_k]
+            if not clean_oos_df.empty:
+                st.dataframe(clean_oos_df, use_container_width=True, hide_index=True)
         return
 
     if bt_view == "影子账本":
@@ -8321,6 +8448,12 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
                 st.rerun()
         return
 
+    if bt_view == "近三年胜率":
+        try:
+            _render_rolling_dca_3y_section()
+        except Exception as _e_dca:
+            st.error(f"近三年滚动胜率加载异常: {_e_dca}")
+        return
 
     cur_meta = mlm_inst.get_ledger_meta(active_lid) if mlm_inst else {"name": "主实盘账本"}
     cur_pm = mlm_inst.get_pm(active_lid) if mlm_inst else pm
@@ -8333,8 +8466,7 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
     if not rebal_w:
         rebal_w = {"005561": 0.30, "100032": 0.25, "000216": 0.20, "518880": 0.15, "011613": 0.10}
 
-    # ── 顶部置顶：🕰️ 历史任意时点时光机盲测验证（检验投顾真赚钱能力，默认收起防文字墙） ──
-    with st.expander("历史时光机", expanded=True):
+    if bt_view == "历史时光机":
         st.caption("真实买方投顾验金石：严格切断所选日期之后的所有数据（Point-in-Time 零未来函数），现场重演当时投顾引擎配置方案，"
                    "并全额计入 0.12% 申购费、阶梯赎回费(未满7天1.50%)、C类日计提销售服务费与资金到账延迟，铁证检验策略成色。")
 
@@ -8436,83 +8568,12 @@ def render_tab3_backtest_content(pm: PortfolioManager, snapshot: Dict[str, Any])
             except Exception as _e_tmfb:
                 pass
 
-            # G19 Feature 9: 近 3 年滚动发车盲测胜率实证表与双期指标卡
-            try:
-                st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
-                st.markdown("##### 🚀 近 3 年滚动发车盲测胜率实证表 (Point-in-Time 零未来函数·全真交易摩擦)")
-                st.caption("统计过去 3 年所有历史截面按双月 (18期) 或季度 (12期) 滚动发车，持有满 180天、365天的真实到手净收益、正收益胜率与相对沪深300超额收益（全额扣除申购费0.12%、管理托管费0.75%/250与阶梯赎回费）。")
-
-                c_rf_ctrl1, c_rf_ctrl2 = st.columns([3, 7])
-                with c_rf_ctrl1:
-                    sel_dca_freq = st.radio(
-                        "发车采样频率",
-                        ["双月发车 (18期)", "季度发车 (12期)"],
-                        horizontal=True,
-                        key="rad_rolling_dca_freq"
-                    )
-                dca_freq_param = "quarterly" if "季度" in sel_dca_freq else "bi-monthly"
-                dca_res = _cached_rolling_dca_3y_backtest(frequency=dca_freq_param, tier=st.session_state.get("active_tier_val", "C3"))
-
-                if dca_res:
-                    # 1. 双期胜率与超额卡片
-                    c_dca_1, c_dca_2 = st.columns(2)
-                    with c_dca_1:
-                        w180_col = "var(--color-down)" if dca_res["win_rate_180d_pct"] >= 70.0 else "#f59e0b"
-                        safe_markdown_html(f"""
-                        <div class="decision-card" style="padding: 10px 14px; border-left: 3px solid {w180_col}; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px;">
-                            <div style="font-size: 12px; font-weight: 700; color: var(--text-primary);">📅 滚动发车 · 持有 180 天 (半年期)</div>
-                            <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 4px 0;">
-                                <div style="font-size: 20px; font-weight: 800; color: {w180_col};">胜率 {dca_res['win_rate_180d_pct']:.1f}%</div>
-                                <div style="font-size: 13px; font-weight: 700; color: {'var(--color-down)' if dca_res['avg_net_return_180d_pct'] >= 0 else 'var(--color-up)'};">平均到手净收益: {dca_res['avg_net_return_180d_pct']:+.2f}%</div>
-                            </div>
-                            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">
-                                同期沪深300平均: <b>{dca_res['avg_h300_return_180d_pct']:+.2f}%</b> | 
-                                相对超额 Alpha: <b style="color: {'var(--color-down)' if dca_res['alpha_vs_csi300_180d'] >= 0 else 'var(--color-up)'};">{dca_res['alpha_vs_csi300_180d']:+.2f}%</b> | 
-                                平均最大回撤: <b>{dca_res['mdd_180d_avg_pct']:.2f}%</b>
-                            </div>
-                        </div>
-                        """)
-                    with c_dca_2:
-                        w365_col = "var(--color-down)" if dca_res["win_rate_365d_pct"] >= 70.0 else "#f59e0b"
-                        safe_markdown_html(f"""
-                        <div class="decision-card" style="padding: 10px 14px; border-left: 3px solid {w365_col}; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px;">
-                            <div style="font-size: 12px; font-weight: 700; color: var(--text-primary);">🏆 滚动发车 · 持有 365 天 (一年期)</div>
-                            <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 4px 0;">
-                                <div style="font-size: 20px; font-weight: 800; color: {w365_col};">胜率 {dca_res['win_rate_365d_pct']:.1f}%</div>
-                                <div style="font-size: 13px; font-weight: 700; color: {'var(--color-down)' if dca_res['avg_net_return_365d_pct'] >= 0 else 'var(--color-up)'};">平均到手净收益: {dca_res['avg_net_return_365d_pct']:+.2f}%</div>
-                            </div>
-                            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">
-                                同期沪深300平均: <b>{dca_res['avg_h300_return_365d_pct']:+.2f}%</b> | 
-                                相对超额 Alpha: <b style="color: {'var(--color-down)' if dca_res['alpha_vs_csi300_365d'] >= 0 else 'var(--color-up)'};">{dca_res['alpha_vs_csi300_365d']:+.2f}%</b> | 
-                                平均最大回撤: <b>{dca_res['mdd_365d_avg_pct']:.2f}%</b>
-                            </div>
-                        </div>
-                        """)
-
-                    # 2. 详细实证期次表格
-                    rows_dca = []
-                    for r in dca_res.get("periods", []):
-                        rows_dca.append({
-                            "发车期数": f"第 {r['period_idx']} 期",
-                            "发车时刻 T": r["launch_date"],
-                            "180天到手净收益": f"{r['return_180d_pct']:+.2f}%" if r["return_180d_pct"] is not None else "--",
-                            "180天沪深300": f"{r['h300_return_180d_pct']:+.2f}%" if r["h300_return_180d_pct"] is not None else "--",
-                            "180天超额Alpha": f"{r['alpha_180d_pct']:+.2f}%" if r["alpha_180d_pct"] is not None else "--",
-                            "365天到手净收益": f"{r['return_365d_pct']:+.2f}%" if r["return_365d_pct"] is not None else "--",
-                            "365天沪深300": f"{r['h300_return_365d_pct']:+.2f}%" if r["h300_return_365d_pct"] is not None else "--",
-                            "365天超额Alpha": f"{r['alpha_365d_pct']:+.2f}%" if r["alpha_365d_pct"] is not None else "--",
-                            "评定": f"{r['verdict_180d']} / {r['verdict_365d']}"
-                        })
-                    if rows_dca:
-                        df_dca_table = pd.DataFrame(rows_dca)
-                        st.dataframe(df_dca_table, use_container_width=True, hide_index=True)
-            except Exception as _e_dca:
-                pass
-
         except Exception as e_tm:
             st.error(f"历史时点盲测推演异常: {e_tm}")
+        return
 
-    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+    # bt_view == "全周期PK" 时才按需加载 trial29_kpi 与全周期对比
+    trial29_kpi = StrategyBridge.load_trial29_metrics()
 
     c_bt_mode, c_bt_obj, c_bt_bench = st.columns([3.2, 3.4, 3.4])
     with c_bt_mode:
@@ -9246,6 +9307,19 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any], 
 
     total_cur_equity = total_examine_equity
 
+    # G43 Fix 1: 统一在所有子视图分支前构建 _h_items，彻底消除重仓重叠与极端承压的 UnboundLocalError
+    _h_items = tuple(
+        sorted(
+            (
+                str(c),
+                str(getattr(h, "fund_name", c)),
+                float(getattr(h, "shares", 0.0) or 0.0),
+                float(getattr(h, "cost_price", getattr(h, "cost_nav", 1.0)) or 1.0),
+                float(getattr(h, "current_nav", 1.0) or 1.0),
+            )
+            for c, h in (active_examine_holdings or {}).items()
+        )
+    )
 
     if active_subview == "资产敞口":
         st.markdown("#### 🎯 资产大类缺口")
@@ -9304,7 +9378,6 @@ def render_tab4_toolbox_content(pm: PortfolioManager, snapshot: Dict[str, Any], 
 
         with col_chart_right:
             st.markdown("##### 🏭 行业穿透暴露")
-            _h_items = tuple(sorted((c, getattr(h, "fund_name", c), float(getattr(h, "shares", 0.0)), float(getattr(h, "cost_price", getattr(h, "cost_nav", 1.0))), float(getattr(h, "current_nav", 1.0))) for c, h in active_examine_holdings.items()))
             df_ind = _cached_look_through_industry(_h_items)
             if not df_ind.empty:
                 fig_ind_b = px.bar(df_ind, x="暴露占比(%)", y="行业", orientation="h", color="暴露占比(%)", color_continuous_scale="Viridis", text_auto=".1f%")

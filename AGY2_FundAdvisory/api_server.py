@@ -6,22 +6,30 @@ AGY2 Cross-Platform Local API Server (v5.13-G33)
 """
 
 import base64
+from contextlib import asynccontextmanager
+import logging
+import os
 import re
 import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+import anyio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 CURRENT_DIR = Path(__file__).resolve().parent
 ROOT_DIR = CURRENT_DIR if (CURRENT_DIR / "AGY2_FundAdvisory").exists() else CURRENT_DIR.parent
-AGY2_DIR = ROOT_DIR / "AGY2_FundAdvisory"
+AGY2_DIR = CURRENT_DIR if CURRENT_DIR.name == "AGY2_FundAdvisory" else (ROOT_DIR / "AGY2_FundAdvisory")
 
-for p in [str(ROOT_DIR), str(AGY2_DIR)]:
+for p in [str(AGY2_DIR), str(ROOT_DIR)]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
+import runtime_paths
 from multi_ledger_manager import MultiLedgerManager
 from strategy_bridge import StrategyBridge
 from portfolio_manager import (
@@ -30,7 +38,7 @@ from portfolio_manager import (
     prefetch_batch_fund_quotes,
     HoldingItem,
 )
-from advisory_engine import ActiveRiskSentry
+from advisory_engine import ActiveRiskSentry, compute_ten_dimension_votes
 import sector_watchlist
 import cashflow_planner
 import execution_tracker
@@ -40,13 +48,66 @@ import forward_audit_logger
 from ledger_backup_vault import LedgerBackupVault
 from rebalance_grouping import group_rebalance_orders_by_intent, load_daily_checkin, save_daily_checkin
 
-app = FastAPI(title="AGY2 Local Advisory Engine API", version="5.13-G33")
+logger = logging.getLogger("agy2.api")
+_LEDGER_WRITE_LOCK = threading.RLock()
+
+_EXTRA_CORS_ORIGINS = [
+    o.strip() for o in os.environ.get("AGY2_CORS_ORIGINS", "").split(",") if o.strip()
+]
+_ALLOWED_CORS_ORIGINS = [
+    "http://localhost",
+    "https://localhost",
+    "http://127.0.0.1",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:1420",
+    "http://localhost:8501",
+    "http://127.0.0.1:8501",
+    "http://localhost:8585",
+    "http://127.0.0.1:8585",
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "capacitor://localhost",
+] + _EXTRA_CORS_ORIGINS
+
+def _warmup_engine_background() -> None:
+    """后台异步预热引擎快照与活跃持仓批量行情，避免首个客户端请求承受冷启动阻塞"""
+    try:
+        mlm = MultiLedgerManager.get_instance()
+        lid = mlm.get_active_ledger_id() or "combat_29_funds"
+        pm = mlm.get_pm(lid)
+        StrategyBridge.get_latest_market_snapshot(force_reload=False)
+        codes = list((getattr(pm, "holdings", {}) or {}).keys())
+        if codes:
+            prefetch_batch_fund_quotes(codes)
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            for sym in ("sh000300", "sh000688", "sh000922"):
+                pool.submit(fetch_realtime_index_quote, sym, True)
+    except Exception:
+        pass
+
+
+@asynccontextmanager
+async def _lifespan(app_inst: FastAPI):
+    threading.Thread(target=_warmup_engine_background, name="agy2-api-warmup", daemon=True).start()
+    yield
+
+
+app = FastAPI(title="AGY2 Local Advisory Engine API", version="5.22-G43", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_ALLOWED_CORS_ORIGINS,
+    allow_origin_regex=r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$",
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-AGY2-Client"],
 )
+
+_OVERVIEW_CACHE: Dict[str, Any] = {}
+_OVERVIEW_CACHE_LOCK = threading.Lock()
+_OVERVIEW_TTL_SEC = 30.0
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _EMOJI_RE = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F\u200D]")
@@ -73,7 +134,7 @@ def _sanitize_v1_payload(obj: Any) -> Any:
 
 
 def _get_active_context(ledger_id: Optional[str] = None):
-    mlm = MultiLedgerManager()
+    mlm = MultiLedgerManager.get_instance()
     lid = ledger_id or mlm.get_active_ledger_id() or "combat_29_funds"
     try:
         pm = mlm.get_pm(lid)
@@ -320,29 +381,79 @@ def api_forward_audit() -> Dict[str, Any]:
 # Structured v1 Endpoints (Zero HTML, Zero Emoji, Full 8-Topic Coverage)
 # =====================================================================
 
+def _compute_intraday_pnl_from_quotes(holdings: Dict[str, Any], quotes_map: Dict[str, Any]) -> Dict[str, float]:
+    """复用已批量预取的 FundQuote.gszzl 直接计算当日估算盈亏，避免二次调用 calculate_intraday_pnl"""
+    total_mv = 0.0
+    total_pnl = 0.0
+    for code, h in (holdings or {}).items():
+        sh = float(getattr(h, "shares", 0.0) or 0.0)
+        mv = float(getattr(h, "market_value", 0.0) or 0.0)
+        if mv <= 0.0 and sh > 0.0:
+            mv = sh * float(getattr(h, "current_nav", 1.0) or 1.0)
+        if sh <= 0.0 or mv <= 0.0:
+            continue
+        total_mv += mv
+        q = quotes_map.get(code)
+        gszzl = 0.0
+        if q is not None:
+            try:
+                raw_g = getattr(q, "gszzl", None)
+                if raw_g is None and isinstance(q, dict):
+                    raw_g = q.get("gszzl")
+                gszzl = float(raw_g or 0.0)
+            except Exception:
+                gszzl = 0.0
+        total_pnl += round(mv * (gszzl / 100.0), 2)
+    total_pnl = round(total_pnl, 2)
+    pnl_pct = round((total_pnl / total_mv * 100.0), 2) if total_mv > 0 else 0.0
+    return {"total_est_pnl": total_pnl, "total_est_pnl_pct": pnl_pct}
+
+
 @app.get("/api/v1/overview")
-def api_v1_overview(ledger_id: Optional[str] = None) -> Dict[str, Any]:
-    _, lid, pm, snap = _get_active_context(ledger_id)
+def api_v1_overview(ledger_id: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
+    mlm = MultiLedgerManager.get_instance()
+    req_lid = ledger_id or mlm.get_active_ledger_id() or "combat_29_funds"
+    now_ts = time.time()
+    if not force:
+        with _OVERVIEW_CACHE_LOCK:
+            cached = _OVERVIEW_CACHE.get(req_lid)
+            if cached and (now_ts - cached[0]) < _OVERVIEW_TTL_SEC:
+                return cached[1]
+
+    _, lid, pm, snap = _get_active_context(req_lid)
     holdings = getattr(pm, "holdings", {}) or {}
     codes = list(holdings.keys())
-    quotes_map = prefetch_batch_fund_quotes(codes) if codes else {}
+
+    idx_specs = [("sh000300", "沪深300"), ("sh000688", "科创50"), ("sh000922", "中证红利")]
+    quotes_map: Dict[str, Any] = {}
+    indices: Dict[str, Any] = {}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        q_fut = pool.submit(prefetch_batch_fund_quotes, codes) if codes else None
+        idx_futs = {pool.submit(fetch_realtime_index_quote, sym, True): (sym, name) for sym, name in idx_specs}
+        if q_fut is not None:
+            try:
+                quotes_map = q_fut.result(timeout=8.0) or {}
+            except Exception:
+                quotes_map = {}
+        for fut, (sym, name) in idx_futs.items():
+            try:
+                q = fut.result(timeout=4.0) or {}
+            except Exception:
+                q = {}
+            indices[sym] = {
+                "name": q.get("name", name),
+                "point": q.get("point"),
+                "change_pct": q.get("change_pct"),
+                "is_fallback": bool(q.get("is_fallback", False)),
+            }
+
     mae_stats = _compute_mae_stats(quotes_map, len(codes))
-    pnl = pm.calculate_intraday_pnl() if hasattr(pm, "calculate_intraday_pnl") else {}
+    pnl = _compute_intraday_pnl_from_quotes(holdings, quotes_map)
 
     mkt_val = sum(float(getattr(h, "shares", 0.0)) * float(getattr(h, "current_nav", 1.0)) for h in holdings.values())
     cost_val = sum(float(getattr(h, "shares", 0.0)) * float(getattr(h, "cost_price", getattr(h, "current_nav", 1.0))) for h in holdings.values())
     cum_pnl = round(mkt_val - cost_val, 2)
     cum_pnl_pct = round((cum_pnl / cost_val * 100.0) if cost_val > 0 else 0.0, 2)
-
-    indices = {}
-    for sym, name in [("sh000300", "沪深300"), ("sh000688", "科创50"), ("sh000922", "中证红利")]:
-        q = fetch_realtime_index_quote(sym, use_cache=True) or {}
-        indices[sym] = {
-            "name": q.get("name", name),
-            "point": q.get("point"),
-            "change_pct": q.get("change_pct"),
-            "is_fallback": bool(q.get("is_fallback", False)),
-        }
 
     state_code = str(snap.get("market_state_code") or snap.get("regime") or "NEUTRAL").upper()
     action_tag = "分批进攻" if ("BULL" in state_code or "OFFENSIVE" in state_code) else ("防守控仓" if ("BEAR" in state_code or "DEFENSE" in state_code or "RISK" in state_code) else "安心持仓")
@@ -387,7 +498,10 @@ def api_v1_overview(ledger_id: Optional[str] = None) -> Dict[str, Any]:
         "valuation_mae": mae_stats,
         "top_risk_alert": top_alert,
     }
-    return _sanitize_v1_payload(payload)
+    sanitized = _sanitize_v1_payload(payload)
+    with _OVERVIEW_CACHE_LOCK:
+        _OVERVIEW_CACHE[lid] = (time.time(), sanitized)
+    return sanitized
 
 
 @app.get("/api/v1/holdings")
@@ -526,32 +640,33 @@ def api_v1_rebalance(ledger_id: Optional[str] = None, min_buffer_pct: float = 3.
 
 @app.post("/api/v1/rebalance/execute")
 def api_v1_rebalance_execute(req: RebalanceExecuteRequest) -> Dict[str, Any]:
-    mlm, lid, pm, snap = _get_active_context(req.ledger_id)
-    if req.confirm_backup:
-        try:
-            LedgerBackupVault.create_snapshot(reason=f"rebalance_execute_{lid}")
-        except Exception:
-            pass
-    tw = _target_weights_for_ledger(lid, snap)
-    res = StrategyBridge.generate_ai_rebalance_orders(
-        pm.holdings,
-        pm.available_cash,
-        tw,
-        pm=pm,
-        mode=req.mode or "gentle",
-        min_buffer_pct=3.0,
-        c_replace="011613" if lid == "combat_29_funds" else None,
-        core_anchor_code="002351",
-    )
-    items = res.get("items", []) if isinstance(res, dict) else []
-    return _sanitize_v1_payload({
-        "status": "ready",
-        "ledger_id": lid,
-        "mode": req.mode or "gentle",
-        "order_count": len(items),
-        "items": items,
-        "summary": res.get("summary", ""),
-    })
+    with _LEDGER_WRITE_LOCK:
+        mlm, lid, pm, snap = _get_active_context(req.ledger_id)
+        if req.confirm_backup:
+            try:
+                LedgerBackupVault.create_snapshot(reason=f"rebalance_execute_{lid}")
+            except Exception as exc:
+                logger.warning("rebalance/execute 备份快照跳过 (%s): %s", lid, exc)
+        tw = _target_weights_for_ledger(lid, snap)
+        res = StrategyBridge.generate_ai_rebalance_orders(
+            pm.holdings,
+            pm.available_cash,
+            tw,
+            pm=pm,
+            mode=req.mode or "gentle",
+            min_buffer_pct=3.0,
+            c_replace="011613" if lid == "combat_29_funds" else None,
+            core_anchor_code="002351",
+        )
+        items = res.get("items", []) if isinstance(res, dict) else []
+        return _sanitize_v1_payload({
+            "status": "ready",
+            "ledger_id": lid,
+            "mode": req.mode or "gentle",
+            "order_count": len(items),
+            "items": items,
+            "summary": res.get("summary", ""),
+        })
 
 
 @app.post("/api/v1/cashflow/plan")
@@ -613,23 +728,24 @@ def api_v1_audit_trackers(ledger_id: Optional[str] = None) -> Dict[str, Any]:
 
 @app.post("/api/v1/shadow/freeze")
 def api_v1_shadow_freeze(req: ShadowFreezeRequest) -> Dict[str, Any]:
-    _, lid, pm, _ = _get_active_context(req.ledger_id)
-    holdings = getattr(pm, "holdings", {}) or {}
-    if not holdings:
-        raise HTTPException(status_code=400, detail=f"账本持仓为空，无法冻结躺平影子基准: {lid}")
-    b_name = req.baseline_name or f"{lid} 原始躺平基准线"
-    spec_path = shadow_portfolio_tracker.freeze_shadow_baseline(lid, holdings, baseline_name=b_name)
-    baseline = shadow_portfolio_tracker.get_shadow_baseline(lid) or {}
-    return _sanitize_v1_payload({
-        "frozen": True,
-        "ledger_id": lid,
-        "baseline_name": baseline.get("baseline_name", b_name),
-        "frozen_date": baseline.get("frozen_date", ""),
-        "frozen_timestamp": baseline.get("frozen_timestamp", ""),
-        "holdings_count": int(baseline.get("holdings_count", len(holdings))),
-        "initial_total_market_value": float(baseline.get("initial_total_market_value", 0.0)),
-        "baseline_path": str(spec_path),
-    })
+    with _LEDGER_WRITE_LOCK:
+        _, lid, pm, _ = _get_active_context(req.ledger_id)
+        holdings = getattr(pm, "holdings", {}) or {}
+        if not holdings:
+            raise HTTPException(status_code=400, detail=f"账本持仓为空，无法冻结躺平影子基准: {lid}")
+        b_name = req.baseline_name or f"{lid} 原始躺平基准线"
+        spec_path = shadow_portfolio_tracker.freeze_shadow_baseline(lid, holdings, baseline_name=b_name)
+        baseline = shadow_portfolio_tracker.get_shadow_baseline(lid) or {}
+        return _sanitize_v1_payload({
+            "frozen": True,
+            "ledger_id": lid,
+            "baseline_name": baseline.get("baseline_name", b_name),
+            "frozen_date": baseline.get("frozen_date", ""),
+            "frozen_timestamp": baseline.get("frozen_timestamp", ""),
+            "holdings_count": int(baseline.get("holdings_count", len(holdings))),
+            "initial_total_market_value": float(baseline.get("initial_total_market_value", 0.0)),
+            "baseline_path": str(spec_path),
+        })
 
 
 @app.get("/api/v1/backups")
@@ -640,39 +756,40 @@ def api_v1_list_backups() -> Dict[str, Any]:
 
 @app.post("/api/v1/backups/restore")
 def api_v1_restore_backup(req: RestoreBackupRequest) -> Dict[str, Any]:
-    ok = LedgerBackupVault.restore_snapshot(req.snapshot_id)
-    if not ok:
-        raise HTTPException(status_code=400, detail=f"快照恢复失败: {req.snapshot_id}")
-    return _sanitize_v1_payload({"restored": True, "snapshot_id": req.snapshot_id})
+    with _LEDGER_WRITE_LOCK:
+        ok = LedgerBackupVault.restore_snapshot(req.snapshot_id)
+        if not ok:
+            raise HTTPException(status_code=400, detail=f"快照恢复失败: {req.snapshot_id}")
+        return _sanitize_v1_payload({"restored": True, "snapshot_id": req.snapshot_id})
 
 
 @app.post("/api/v1/import/text")
 def api_v1_import_text(req: ImportTextRequest) -> Dict[str, Any]:
     if not str(req.text or "").strip():
         raise HTTPException(status_code=400, detail="导入文本不能为空")
-    _, lid, pm, _ = _get_active_context(req.ledger_id)
-    parsed = pm.parse_smart_text_holdings(req.text)
-    applied = False
-    if req.mode in ("merge", "overwrite") and parsed:
-        LedgerBackupVault.create_snapshot(reason=f"api_import_text_{lid}")
-        pm.import_from_smart_text(
-            parsed,
-            available_cash=float(req.available_cash if req.available_cash is not None else pm.available_cash),
-            replace_existing=(req.mode == "overwrite"),
-        )
-        pm.save_state()
-        applied = True
-    return _sanitize_v1_payload({
-        "ledger_id": lid,
-        "mode": req.mode,
-        "applied": applied,
-        "parsed_count": len(parsed),
-        "items": parsed,
-    })
+    with _LEDGER_WRITE_LOCK:
+        _, lid, pm, _ = _get_active_context(req.ledger_id)
+        parsed = pm.parse_smart_text_holdings(req.text)
+        applied = False
+        if req.mode in ("merge", "overwrite") and parsed:
+            LedgerBackupVault.create_snapshot(reason=f"api_import_text_{lid}")
+            pm.import_from_smart_text(
+                parsed,
+                available_cash=float(req.available_cash if req.available_cash is not None else pm.available_cash),
+                replace_existing=(req.mode == "overwrite"),
+            )
+            pm.save_state()
+            applied = True
+        return _sanitize_v1_payload({
+            "ledger_id": lid,
+            "mode": req.mode,
+            "applied": applied,
+            "parsed_count": len(parsed),
+            "items": parsed,
+        })
 
 
-@app.post("/api/v1/import/ocr")
-async def api_v1_import_ocr(request: Request) -> Dict[str, Any]:
+async def _extract_ocr_request_inputs(request: Request):
     ctype = str(request.headers.get("content-type", "")).lower()
     ledger_id: Optional[str] = None
     mode = "preview"
@@ -689,8 +806,8 @@ async def api_v1_import_ocr(request: Request) -> Dict[str, Any]:
     else:
         try:
             body = await request.json()
-        except Exception:
-            body = {}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"无效的 JSON 请求体: {exc}")
         if isinstance(body, dict):
             ledger_id = body.get("ledger_id")
             mode = str(body.get("mode", "preview"))
@@ -702,30 +819,37 @@ async def api_v1_import_ocr(request: Request) -> Dict[str, Any]:
                     image_bytes = base64.b64decode(b64)
                 except Exception:
                     raise HTTPException(status_code=400, detail="无效的 image_base64 编码")
+    return ledger_id, mode, image_bytes
 
+
+@app.post("/api/v1/import/ocr")
+def api_v1_import_ocr(request: Request) -> Dict[str, Any]:
+    ledger_id, mode, image_bytes = anyio.from_thread.run(_extract_ocr_request_inputs, request)
     if not image_bytes:
         raise HTTPException(status_code=400, detail="未上传有效的截图文件")
 
-    _, lid, pm, _ = _get_active_context(ledger_id)
-    try:
-        parsed = pm.parse_screenshot_ocr_holdings(image_bytes)
-    except Exception:
-        parsed = []
+    with _LEDGER_WRITE_LOCK:
+        _, lid, pm, _ = _get_active_context(ledger_id)
+        try:
+            parsed = pm.parse_screenshot_ocr_holdings(image_bytes)
+        except Exception as exc:
+            logger.exception("OCR 截图解析失败 (%s): %s", lid, exc)
+            raise HTTPException(status_code=422, detail=f"截图 OCR 解析异常: {exc}")
 
-    applied = False
-    if mode in ("merge", "overwrite") and parsed:
-        LedgerBackupVault.create_snapshot(reason=f"api_import_ocr_{lid}")
-        pm.import_from_smart_text(parsed, available_cash=pm.available_cash, replace_existing=(mode == "overwrite"))
-        pm.save_state()
-        applied = True
+        applied = False
+        if mode in ("merge", "overwrite") and parsed:
+            LedgerBackupVault.create_snapshot(reason=f"api_import_ocr_{lid}")
+            pm.import_from_smart_text(parsed, available_cash=pm.available_cash, replace_existing=(mode == "overwrite"))
+            pm.save_state()
+            applied = True
 
-    return _sanitize_v1_payload({
-        "ledger_id": lid,
-        "mode": mode,
-        "applied": applied,
-        "parsed_count": len(parsed),
-        "items": parsed,
-    })
+        return _sanitize_v1_payload({
+            "ledger_id": lid,
+            "mode": mode,
+            "applied": applied,
+            "parsed_count": len(parsed),
+            "items": parsed,
+        })
 
 
 class HoldingsReconcileRequest(BaseModel):
@@ -736,55 +860,55 @@ class HoldingsReconcileRequest(BaseModel):
 
 @app.post("/api/v1/holdings/reconcile")
 def api_v1_holdings_reconcile(req: HoldingsReconcileRequest) -> Dict[str, Any]:
-    _, lid, pm, _ = _get_active_context(req.ledger_id)
-    raw_updates = req.updates
-    norm_updates: Dict[str, Dict[str, Any]] = {}
-    if isinstance(raw_updates, list):
-        for item in raw_updates:
-            if isinstance(item, dict):
-                c = str(item.get("fund_code") or item.get("code") or "").strip().zfill(6)
-                if c:
-                    norm_updates[c] = item
-    elif isinstance(raw_updates, dict):
-        for k, v in raw_updates.items():
-            c = str(k).strip().zfill(6)
-            if isinstance(v, dict):
-                norm_updates[c] = v
-            elif isinstance(v, (int, float)):
-                norm_updates[c] = {"shares": float(v)}
+    with _LEDGER_WRITE_LOCK:
+        _, lid, pm, _ = _get_active_context(req.ledger_id)
+        raw_updates = req.updates
+        norm_updates: Dict[str, Dict[str, Any]] = {}
+        if isinstance(raw_updates, list):
+            for item in raw_updates:
+                if isinstance(item, dict):
+                    c = str(item.get("fund_code") or item.get("code") or "").strip().zfill(6)
+                    if c:
+                        norm_updates[c] = item
+        elif isinstance(raw_updates, dict):
+            for k, v in raw_updates.items():
+                c = str(k).strip().zfill(6)
+                if isinstance(v, dict):
+                    norm_updates[c] = v
+                elif isinstance(v, (int, float)):
+                    norm_updates[c] = {"shares": float(v)}
 
-    diff_res = execution_tracker.reconcile_incremental_holdings_diff(getattr(pm, "holdings", {}), norm_updates)
+        diff_res = execution_tracker.reconcile_incremental_holdings_diff(getattr(pm, "holdings", {}), norm_updates)
 
-    applied = False
-    if not req.dry_run and diff_res.get("modified_count", 0) > 0:
-        LedgerBackupVault.create_snapshot(reason=f"api_reconcile_{lid}")
-        for code, upd in norm_updates.items():
-            curr = pm.holdings.get(code)
-            if curr:
-                if "shares" in upd:
-                    curr.shares = float(upd["shares"])
-                if "cost_price" in upd:
-                    curr.cost_price = float(upd["cost_price"])
-            else:
-                from portfolio_manager import HoldingItem
-                pm.holdings[code] = HoldingItem(
-                    fund_code=code,
-                    fund_name=upd.get("fund_name", code),
-                    shares=float(upd.get("shares", 0.0)),
-                    cost_price=float(upd.get("cost_price", 1.0)),
-                    current_nav=float(upd.get("current_nav", upd.get("cost_price", 1.0))),
-                )
-        pm.save_state()
-        applied = True
+        applied = False
+        if not req.dry_run and diff_res.get("modified_count", 0) > 0:
+            LedgerBackupVault.create_snapshot(reason=f"api_reconcile_{lid}")
+            for code, upd in norm_updates.items():
+                curr = pm.holdings.get(code)
+                if curr:
+                    if "shares" in upd:
+                        curr.shares = float(upd["shares"])
+                    if "cost_price" in upd:
+                        curr.cost_price = float(upd["cost_price"])
+                else:
+                    pm.holdings[code] = HoldingItem(
+                        fund_code=code,
+                        fund_name=upd.get("fund_name", code),
+                        shares=float(upd.get("shares", 0.0)),
+                        cost_price=float(upd.get("cost_price", 1.0)),
+                        current_nav=float(upd.get("current_nav", upd.get("cost_price", 1.0))),
+                    )
+            pm.save_state()
+            applied = True
 
-    return _sanitize_v1_payload({
-        "ledger_id": lid,
-        "dry_run": req.dry_run,
-        "applied": applied,
-        "total_checked": diff_res.get("total_checked", 0),
-        "modified_count": diff_res.get("modified_count", 0),
-        "diff_items": diff_res.get("diff_items", []),
-    })
+        return _sanitize_v1_payload({
+            "ledger_id": lid,
+            "dry_run": req.dry_run,
+            "applied": applied,
+            "total_checked": diff_res.get("total_checked", 0),
+            "modified_count": diff_res.get("modified_count", 0),
+            "diff_items": diff_res.get("diff_items", []),
+        })
 
 
 @app.get("/api/v1/ledger/export")
@@ -822,56 +946,58 @@ def api_v1_ledger_export(ledger_id: Optional[str] = None) -> Dict[str, Any]:
 
 @app.post("/api/v1/ledger/import")
 def api_v1_ledger_import(req: LedgerImportRequest) -> Dict[str, Any]:
-    mlm, lid, pm, _ = _get_active_context(req.ledger_id)
-    try:
-        LedgerBackupVault.create_snapshot(reason=f"cross_device_sync_{lid}")
-    except Exception:
-        pass
-
-    h_items = req.holdings
-    if isinstance(h_items, dict):
-        h_items = list(h_items.values())
-    elif not isinstance(h_items, list):
-        h_items = []
-
-    if req.replace_existing:
-        pm.holdings.clear()
-
-    for item in h_items:
-        if not isinstance(item, dict):
-            continue
-        code = str(item.get("fund_code") or item.get("code") or "").strip()
-        if not code:
-            continue
-        name = str(item.get("fund_name") or item.get("name") or code)
-        shares = float(item.get("shares") or item.get("vol") or 0.0)
-        nav = float(item.get("current_nav") or item.get("nav") or item.get("cost_price") or 1.0)
-        cost = float(item.get("cost_price") or item.get("cost") or nav)
-        s_class = str(item.get("share_class") or "A")
-        holding = HoldingItem(
-            fund_code=code,
-            fund_name=name,
-            shares=shares,
-            cost_price=cost,
-            current_nav=nav,
-            share_class=s_class,
-        )
-        pm.holdings[code] = holding
-
-    if req.available_cash is not None:
-        pm.available_cash = float(req.available_cash)
-
-    if hasattr(pm, "save_state"):
+    with _LEDGER_WRITE_LOCK:
+        mlm, lid, pm, _ = _get_active_context(req.ledger_id)
         try:
-            pm.save_state(record_snapshot=True)
-        except Exception:
-            pass
+            LedgerBackupVault.create_snapshot(reason=f"cross_device_sync_{lid}")
+        except Exception as exc:
+            logger.warning("ledger/import 备份快照失败 (%s): %s", lid, exc)
 
-    return _sanitize_v1_payload({
-        "status": "ok",
-        "ledger_id": lid,
-        "holdings_count": len(pm.holdings),
-    })
+        h_items = req.holdings
+        if isinstance(h_items, dict):
+            h_items = list(h_items.values())
+        elif not isinstance(h_items, list):
+            h_items = []
+
+        if req.replace_existing:
+            pm.holdings.clear()
+
+        for item in h_items:
+            if not isinstance(item, dict):
+                continue
+            code = str(item.get("fund_code") or item.get("code") or "").strip()
+            if not code:
+                continue
+            name = str(item.get("fund_name") or item.get("name") or code)
+            shares = float(item.get("shares") or item.get("vol") or 0.0)
+            nav = float(item.get("current_nav") or item.get("nav") or item.get("cost_price") or 1.0)
+            cost = float(item.get("cost_price") or item.get("cost") or nav)
+            s_class = str(item.get("share_class") or "A")
+            holding = HoldingItem(
+                fund_code=code,
+                fund_name=name,
+                shares=shares,
+                cost_price=cost,
+                current_nav=nav,
+                share_class=s_class,
+            )
+            pm.holdings[code] = holding
+
+        if req.available_cash is not None:
+            pm.available_cash = float(req.available_cash)
+
+        if hasattr(pm, "save_state"):
+            try:
+                pm.save_state(record_snapshot=True)
+            except Exception as exc:
+                logger.exception("ledger/import 落盘失败 (%s): %s", lid, exc)
+                raise HTTPException(status_code=500, detail=f"账本落盘失败: {exc}")
+
+        return _sanitize_v1_payload({
+            "status": "ok",
+            "ledger_id": lid,
+            "holdings_count": len(pm.holdings),
+        })
 
 
 class CheckinItemRequest(BaseModel):
@@ -922,14 +1048,15 @@ def api_v1_get_checkin(date_str: Optional[str] = None) -> Dict[str, Any]:
 
 @app.post("/api/v1/rebalance/checkin")
 def api_v1_post_checkin(req: CheckinItemRequest) -> Dict[str, Any]:
-    res = save_daily_checkin(
-        fund_code=req.fund_code,
-        action=req.action,
-        amount=req.amount,
-        checked=req.checked,
-        date_str=req.date_str or "",
-    )
-    return _sanitize_v1_payload(res)
+    with _LEDGER_WRITE_LOCK:
+        res = save_daily_checkin(
+            fund_code=req.fund_code,
+            action=req.action,
+            amount=req.amount,
+            checked=req.checked,
+            date_str=req.date_str or "",
+        )
+        return _sanitize_v1_payload(res)
 
 
 @app.get("/api/v1/alerts/push")
@@ -950,8 +1077,8 @@ def api_v1_alerts_push(ledger_id: Optional[str] = None) -> Dict[str, Any]:
                 "fund_code": a.get("fund_code"),
                 "created_at": datetime.now().isoformat(),
             })
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("alerts/push 风控哨巡检异常 (%s): %s", lid, exc)
 
     return _sanitize_v1_payload({
         "ledger_id": lid,
@@ -1022,65 +1149,153 @@ def api_v1_diagnose_subview(subview: str, ledger_id: Optional[str] = None) -> Di
             "ledger_id": lid,
             "active_sentry": s_rep,
         })
-    elif subview == "exposure":
+
+    if subview == "exposure":
+        if not holdings:
+            cash_val = round(float(getattr(pm, "available_cash", 0.0) or 0.0), 2)
+            return _sanitize_v1_payload({
+                "subview": "exposure",
+                "ledger_id": lid,
+                "status": "empty",
+                "holdings_count": 0,
+                "total_equity": cash_val,
+                "asset_classes": {"可用现金": 1.0} if cash_val > 0 else {},
+                "top_industries": {},
+            })
+        cur_cats: Dict[str, float] = {}
+        total_mv = 0.0
+        for code, h in holdings.items():
+            mv = float(getattr(h, "market_value", 0.0) or (float(getattr(h, "shares", 0.0) or 0.0) * float(getattr(h, "current_nav", 1.0) or 1.0)))
+            cat = pm.classify_fund_asset_class(code, getattr(h, "fund_name", code))
+            cur_cats[cat] = cur_cats.get(cat, 0.0) + mv
+            total_mv += mv
+        cash_val = float(getattr(pm, "available_cash", 0.0) or 0.0)
+        if cash_val > 0:
+            cur_cats["可用现金"] = cur_cats.get("可用现金", 0.0) + cash_val
+            total_mv += cash_val
+        asset_classes = {
+            k: round(v / total_mv, 4) if total_mv > 1e-6 else 0.0
+            for k, v in sorted(cur_cats.items(), key=lambda x: x[1], reverse=True)
+        }
+        top_industries: Dict[str, float] = {}
+        df_ind = pm.calculate_look_through_industry_exposure(holdings_override=holdings)
+        if df_ind is not None and not df_ind.empty:
+            for _, row in df_ind.head(10).iterrows():
+                ind_name = str(row.get("行业", "")).strip()
+                ind_pct = float(row.get("暴露占比(%)", 0.0) or 0.0)
+                if ind_name:
+                    top_industries[ind_name] = round(ind_pct / 100.0, 4)
         return _sanitize_v1_payload({
             "subview": "exposure",
             "ledger_id": lid,
+            "status": "ready",
             "holdings_count": len(holdings),
-            "asset_classes": {"equity": 0.65, "fixed_income": 0.25, "qdii": 0.10},
-            "top_industries": {"电子": 0.22, "银行": 0.18, "医药生物": 0.15},
+            "total_equity": round(total_mv, 2),
+            "asset_classes": asset_classes,
+            "top_industries": top_industries,
         })
-    elif subview == "overlap":
+
+    if subview == "overlap":
+        if not holdings:
+            return _sanitize_v1_payload({
+                "subview": "overlap",
+                "ledger_id": lid,
+                "status": "empty",
+                "holdings_count": 0,
+                "max_total_overlap": 0.0,
+                "max_non_diag_unexcused": 0.0,
+                "alerts": [],
+                "common_stocks_details": [],
+            })
+        overlap_res = pm.calculate_stock_overlap_matrix(holdings_override=holdings) or {}
         return _sanitize_v1_payload({
             "subview": "overlap",
             "ledger_id": lid,
-            "max_overlap_pair": ["000058", "110020"],
-            "max_overlap_pct": 0.76,
-            "description": "重仓穿透与资产相似度热力图，识别底层持仓隐形重叠。",
+            "status": "ready",
+            "holdings_count": len(holdings),
+            "max_total_overlap": round(float(overlap_res.get("max_total_overlap", 0.0) or 0.0), 4),
+            "max_non_diag_unexcused": round(float(overlap_res.get("max_non_diag_unexcused", 0.0) or 0.0), 4),
+            "exempt_pairs": overlap_res.get("exempt_pairs") or [],
+            "alerts": overlap_res.get("alerts") or [],
+            "common_stocks_details": (overlap_res.get("common_stocks_details") or [])[:20],
         })
-    elif subview == "stress_test":
+
+    if subview == "stress_test":
+        if not holdings:
+            return _sanitize_v1_payload({
+                "subview": "stress_test",
+                "ledger_id": lid,
+                "status": "empty",
+                "holdings_count": 0,
+                "penetration_risk": {},
+                "cvar_bootstrap": {},
+                "stress_model": {},
+            })
+        penetration = pm.calculate_portfolio_penetration_risk(holdings_override=holdings) or {}
+        cvar_raw = pm.simulate_portfolio_cvar_bootstrap_instance(total_capital=pm.get_total_asset_value()) or {}
+        cvar_compact = {k: v for k, v in cvar_raw.items() if k != "monte_carlo_3d_data"}
+        cushion_raw = pm.calculate_portfolio_cushion_and_stress_model(current_index_point=_safe_index_point(snapshot)) or {}
+        cushion_compact = {k: v for k, v in cushion_raw.items() if k != "holding_betas"}
         return _sanitize_v1_payload({
             "subview": "stress_test",
             "ledger_id": lid,
-            "scenarios": {
-                "2018年单边阴跌": -0.165,
-                "2020年流动性危机": -0.112,
-                "2022年美联储激进加息": -0.138,
+            "status": "ready",
+            "holdings_count": len(holdings),
+            "penetration_risk": {
+                "portfolio_risk_index": penetration.get("portfolio_risk_index"),
+                "risk_level": penetration.get("risk_level"),
+                "risk_badge": penetration.get("risk_badge"),
+                "danger_stock_count": penetration.get("danger_stock_count", 0),
+                "watch_stock_count": penetration.get("watch_stock_count", 0),
             },
-            "var_95": -0.024,
-            "cvar_95": -0.038,
+            "cvar_bootstrap": cvar_compact,
+            "stress_model": cushion_compact,
         })
-    elif subview == "ten_dim_votes":
+
+    if subview == "ten_dim_votes":
+        vote_res = compute_ten_dimension_votes(snapshot=snapshot) or {}
+        votes = vote_res.get("votes") or vote_res.get("dimensions") or []
         return _sanitize_v1_payload({
             "subview": "ten_dim_votes",
             "ledger_id": lid,
             "overall_regime": snapshot.get("regime", "NEUTRAL"),
-            "dimensions_count": 10,
-            "summary": "十维投顾量化投票与拐点对照尺，包含股债利差ERP、流动性、盈利周期等宏观底稿。",
+            "market_state_code": snapshot.get("market_state_code", "NEUTRAL"),
+            "as_of": str(snapshot.get("date") or snapshot.get("as_of_date") or ""),
+            "dimensions_count": len(votes) if isinstance(votes, list) else 10,
+            "vote_summary": {k: v for k, v in vote_res.items() if k not in ("votes", "dimensions")},
+            "votes": votes,
         })
-    else:
-        raise HTTPException(status_code=400, detail=f"未知的诊断子视图: {subview}")
+
+    raise HTTPException(status_code=400, detail=f"未知的诊断子视图: {subview}")
 
 
 @app.get("/api/v1/backtest/summary")
 def api_v1_backtest_summary(ledger_id: Optional[str] = None) -> Dict[str, Any]:
-    _, lid, pm, _ = _get_active_context(ledger_id)
+    _, lid, _, _ = _get_active_context(ledger_id)
+    trial29 = StrategyBridge.load_trial29_metrics() or {}
+    oos_eval = forward_audit_logger.evaluate_forward_performance() or {}
     return _sanitize_v1_payload({
         "ledger_id": lid,
-        "sample_period": "近 5 年 (2021-至今)",
-        "annualized_return_pct": 14.8,
-        "max_drawdown_pct": -12.4,
-        "sharpe_ratio": 1.35,
-        "calmar_ratio": 1.19,
-        "win_rate_pct": 81.6,
-        "benchmark_hs300_return_pct": -4.2,
-        "excess_alpha_pct": 19.0,
+        "source": "evolution_db_trial29_and_forward_audit",
+        "trial_id": trial29.get("trial_id", 29),
+        "strategy_name": trial29.get("strategy_name", ""),
+        "created_at": trial29.get("created_at", ""),
+        "annualized_return_pct": trial29.get("cagr_full", trial29.get("cagr_pct")),
+        "live_calibrated_cagr_pct": trial29.get("cagr_full_otc"),
+        "holdout_cagr_pct": trial29.get("cagr_holdout"),
+        "max_drawdown_pct": trial29.get("overall_mdd"),
+        "sharpe_ratio": trial29.get("overall_sharpe"),
+        "holdout_sharpe_ratio": trial29.get("holdout_sharpe"),
+        "win_rate_pct": trial29.get("slice_win_rate"),
+        "monthly_win_rate_pct": trial29.get("monthly_win_rate"),
+        "survival_rate_pct": trial29.get("survival_rate"),
+        "oos_sample_count": oos_eval.get("sample_count", 0),
+        "oos_excess_alpha_pct": oos_eval.get("excess_alpha_pct"),
+        "oos_win_rate_pct": oos_eval.get("win_rate_pct"),
     })
 
 
-@app.get("/api/v1/sectors")
-def api_v1_get_sectors() -> List[Dict[str, Any]]:
-    items = sector_watchlist.load_sector_watchlist()
+def _serialize_watchlist_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     out = []
     for it in items:
         chg = sector_watchlist.fetch_sector_change_pct(it)
@@ -1090,75 +1305,51 @@ def api_v1_get_sectors() -> List[Dict[str, Any]]:
             "asset_type": it.get("asset_type", "ETF"),
             "change_pct": round(float(chg), 2),
         })
-    return _sanitize_v1_payload(out)
-
-
-@app.post("/api/v1/sectors")
-def api_v1_add_sector(req: SectorItemRequest) -> List[Dict[str, Any]]:
-    items = sector_watchlist.add_sector_item(req.code, req.name or "")
-    out = []
-    for it in items:
-        chg = sector_watchlist.fetch_sector_change_pct(it)
-        out.append({
-            "code": it.get("code", ""),
-            "name": it.get("name", ""),
-            "asset_type": it.get("asset_type", "ETF"),
-            "change_pct": round(float(chg), 2),
-        })
-    return _sanitize_v1_payload(out)
-
-
-@app.delete("/api/v1/sectors/{code}")
-def api_v1_remove_sector(code: str) -> List[Dict[str, Any]]:
-    items = sector_watchlist.remove_sector_item(code)
-    out = []
-    for it in items:
-        chg = sector_watchlist.fetch_sector_change_pct(it)
-        out.append({
-            "code": it.get("code", ""),
-            "name": it.get("name", ""),
-            "asset_type": it.get("asset_type", "ETF"),
-            "change_pct": round(float(chg), 2),
-        })
-    return _sanitize_v1_payload(out)
+    return out
 
 
 @app.get("/api/v1/watchlist")
 def api_v1_get_watchlist() -> Dict[str, Any]:
-    items = sector_watchlist.load_sector_watchlist()
-    out = []
-    for it in items:
-        chg = sector_watchlist.fetch_sector_change_pct(it)
-        out.append({
-            "code": it.get("code", ""),
-            "name": it.get("name", ""),
-            "asset_type": it.get("asset_type", "ETF"),
-            "change_pct": round(float(chg), 2),
-        })
+    out = _serialize_watchlist_items(sector_watchlist.load_sector_watchlist())
     return _sanitize_v1_payload({"count": len(out), "items": out})
 
 
 @app.post("/api/v1/watchlist")
 def api_v1_update_watchlist(req: WatchlistUpdateRequest) -> Dict[str, Any]:
-    act = req.action.lower()
-    if act == "add" and req.code:
-        items = sector_watchlist.add_sector_item(req.code, req.name or "")
-    elif act == "remove" and req.code:
-        items = sector_watchlist.remove_sector_item(req.code)
-    elif act == "reset":
-        items = sector_watchlist.reset_sector_watchlist()
-    else:
-        items = sector_watchlist.load_sector_watchlist()
-    out = []
-    for it in items:
-        chg = sector_watchlist.fetch_sector_change_pct(it)
-        out.append({
-            "code": it.get("code", ""),
-            "name": it.get("name", ""),
-            "asset_type": it.get("asset_type", "ETF"),
-            "change_pct": round(float(chg), 2),
-        })
-    return _sanitize_v1_payload({"status": "ok", "count": len(out), "items": out})
+    with _LEDGER_WRITE_LOCK:
+        act = req.action.lower()
+        if act == "add" and req.code:
+            items = sector_watchlist.add_sector_item(req.code, req.name or "")
+        elif act == "remove" and req.code:
+            items = sector_watchlist.remove_sector_item(req.code)
+        elif act == "reset":
+            items = sector_watchlist.reset_sector_watchlist()
+        else:
+            items = sector_watchlist.load_sector_watchlist()
+        out = _serialize_watchlist_items(items)
+        return _sanitize_v1_payload({"status": "ok", "count": len(out), "items": out})
+
+
+@app.delete("/api/v1/watchlist/{code}")
+def api_v1_delete_watchlist_item(code: str) -> Dict[str, Any]:
+    with _LEDGER_WRITE_LOCK:
+        out = _serialize_watchlist_items(sector_watchlist.remove_sector_item(code))
+        return _sanitize_v1_payload({"status": "ok", "count": len(out), "items": out})
+
+
+@app.get("/api/v1/sectors", deprecated=True)
+def api_v1_get_sectors() -> List[Dict[str, Any]]:
+    return api_v1_get_watchlist()["items"]
+
+
+@app.post("/api/v1/sectors", deprecated=True)
+def api_v1_add_sector(req: SectorItemRequest) -> List[Dict[str, Any]]:
+    return api_v1_update_watchlist(WatchlistUpdateRequest(action="add", code=req.code, name=req.name or ""))["items"]
+
+
+@app.delete("/api/v1/sectors/{code}", deprecated=True)
+def api_v1_remove_sector(code: str) -> List[Dict[str, Any]]:
+    return api_v1_delete_watchlist_item(code)["items"]
 
 
 @app.get("/api/v1/funds/search")
@@ -1170,7 +1361,8 @@ def api_v1_funds_search(q: str = "", limit: int = 8) -> Dict[str, Any]:
     try:
         from data_loader import search_index_and_fund_candidates
         results = search_index_and_fund_candidates(clean_q, clean_lim)
-    except Exception:
+    except Exception as exc:
+        logger.warning("funds/search 检索异常 (q=%s): %s", clean_q, exc)
         results = []
     items = []
     for it in results:
@@ -1190,9 +1382,12 @@ def export_openapi_contract(output_path: Optional[Path] = None) -> Path:
     if output_path:
         targets.append(output_path)
     else:
-        root_doc = ROOT_DIR / "docs" / "openapi_v1.json" if ROOT_DIR.name != "AGY2_FundAdvisory" else ROOT_DIR.parent / "docs" / "openapi_v1.json"
-        agy2_doc = (ROOT_DIR / "AGY2_FundAdvisory" / "docs" / "openapi_v1.json") if ROOT_DIR.name != "AGY2_FundAdvisory" else (ROOT_DIR / "docs" / "openapi_v1.json")
-        targets.extend([root_doc, agy2_doc])
+        ws_root = runtime_paths.get_workspace_root()
+        bundle_root = runtime_paths.get_bundle_root()
+        targets.append(ws_root / "docs" / "openapi_v1.json")
+        agy_doc = bundle_root / "docs" / "openapi_v1.json"
+        if agy_doc not in targets:
+            targets.append(agy_doc)
 
     for target in targets:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -1201,7 +1396,7 @@ def export_openapi_contract(output_path: Optional[Path] = None) -> Path:
     return targets[0]
 
 
-if __name__ == "__main__":
+def main() -> None:
     import argparse
     import uvicorn
 
@@ -1216,3 +1411,7 @@ if __name__ == "__main__":
         print(f"Exported OpenAPI contract to: {out_p}")
     else:
         uvicorn.run(app, host=args.host, port=args.port, reload=False)
+
+
+if __name__ == "__main__":
+    main()

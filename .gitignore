@@ -82,3 +82,15 @@ temp/
 *~
 Thumbs.db
 Desktop.ini
+
+# AGY2 运行期动态状态、审计日志与临时验证截图
+data/forward_decision_audit.jsonl
+data/oos_verdict_ledger.jsonl
+data/portfolio_watchdog.json
+data/daily_execution_checklist.json
+data/daily_intraday_est_archive.json
+AGY2_FundAdvisory/data/*.jsonl
+AGY2_FundAdvisory/data/daily_*.json
+AGY2_FundAdvisory/data/portfolio_watchdog.json
+*_verified.png
+

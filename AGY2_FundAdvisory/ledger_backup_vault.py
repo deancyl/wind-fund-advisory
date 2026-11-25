@@ -16,25 +16,34 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Union
 
+import runtime_paths
+
 # 默认备份根目录与最大保留快照数
-BACKUP_ROOT_DIR = Path("data/backups/ledger_snapshots")
+BACKUP_ROOT_DIR = runtime_paths.get_backup_dir() / "ledger_snapshots"
+_INITIAL_BACKUP_ROOT_DIR = BACKUP_ROOT_DIR
 MAX_SNAPSHOT_RETENTION = 30
 
 _MODULE_DIR = Path(__file__).resolve().parent
-_WORKSPACE_ROOT = _MODULE_DIR.parent if _MODULE_DIR.name == "AGY2_FundAdvisory" else _MODULE_DIR
+_WORKSPACE_ROOT = runtime_paths.get_workspace_root()
 _AUTO_BACKUP_LOCK = threading.Lock()
 _LAST_AUTO_BACKUP_TS: Dict[str, float] = {}
 
 
 def _resolve_default_path(rel_path: str) -> Path:
-    """优先使用当前工作目录相对路径；若不存在则回退至工作区根目录。"""
-    p = Path(rel_path)
-    if p.exists():
-        return p
-    alt = _WORKSPACE_ROOT / rel_path
+    """优先使用 runtime_paths 解析 data/ 下的路径，兼容工作区根目录回退。"""
+    clean_rel = str(rel_path).replace("\\", "/")
+    if clean_rel.startswith("data/"):
+        resolved = runtime_paths.resolve_data_file(clean_rel[5:])
+        if resolved.exists():
+            return resolved
+        return runtime_paths.get_data_dir() / clean_rel[5:]
+    alt = _WORKSPACE_ROOT / clean_rel
     if alt.exists():
         return alt
-    return p
+    p = Path(clean_rel)
+    if p.exists():
+        return p
+    return alt
 
 
 def _compute_file_sha256(filepath: Union[str, Path]) -> str:
@@ -53,9 +62,14 @@ _calc_file_sha256 = _compute_file_sha256
 
 
 def _ensure_backup_dir() -> Path:
-    """确保备份根目录存在"""
-    BACKUP_ROOT_DIR.mkdir(parents=True, exist_ok=True)
-    return BACKUP_ROOT_DIR
+    """确保备份根目录存在；若设环境变量 AGY2_DATA_DIR 且未覆写全局常量，优先遵循之。"""
+    env_dir = os.environ.get("AGY2_DATA_DIR", "").strip()
+    if env_dir and BACKUP_ROOT_DIR == _INITIAL_BACKUP_ROOT_DIR:
+        b_dir = runtime_paths.get_backup_dir() / "ledger_snapshots"
+    else:
+        b_dir = BACKUP_ROOT_DIR
+    b_dir.mkdir(parents=True, exist_ok=True)
+    return b_dir
 
 
 def list_ledger_backups() -> List[Dict]:
