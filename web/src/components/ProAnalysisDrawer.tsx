@@ -15,7 +15,7 @@ export function ProAnalysisDrawer({ open, ledgerId, onClose, onRestored }: ProAn
   const [watchlist, setWatchlist] = useState<Array<{ code: string; name: string; change_pct: number }>>([]);
   const [overlap, setOverlap] = useState<Record<string, unknown>>({});
   const [stress, setStress] = useState<Record<string, unknown>>({});
-  const [backups, setBackups] = useState<Array<{ snapshot_id: string; created_at?: string; reason?: string }>>([]);
+  const [backups, setBackups] = useState<Array<{ snapshot_id: string; timestamp?: string; created_at?: string; reason?: string }>>([]);
   const [etfPremiums, setEtfPremiums] = useState<EtfPremiumItem[]>([]);
   const [msg, setMsg] = useState('');
 
@@ -312,23 +312,28 @@ export function ProAnalysisDrawer({ open, ledgerId, onClose, onRestored }: ProAn
                 <div className="grid grid-cols-1 gap-1.5">
                   {votes.slice(0, 10).map((v, idx) => {
                     const label = String(v.name || v.dimension || v.indicator || `维度 ${idx + 1}`);
-                    const stance = String(v.signal || v.stance || v.vote || v.status || '中性');
-                    const isPos = stance.includes('多') || stance.includes('进攻') || stance.includes('低估') || stance.includes('买');
-                    const isNeg = stance.includes('空') || stance.includes('防守') || stance.includes('谨慎') || stance.includes('高估');
+                    const rawVote = String(v.vote || v.signal || v.stance || v.status || 'NEUTRAL').toUpperCase();
+                    const isPos = rawVote === 'BULL' || rawVote.includes('多') || rawVote.includes('进攻');
+                    const isNeg = rawVote === 'BEAR' || rawVote.includes('空') || rawVote.includes('防守');
+                    const cnLabel = isPos ? '偏多进攻' : isNeg ? '偏空防守' : '中性观望';
+                    const reason = String(v.reason || '');
                     return (
-                      <div key={idx} className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-slate-50">
-                        <span className="text-slate-700 truncate pr-2">{label}</span>
-                        <span
-                          className={`px-2 py-0.5 rounded font-semibold shrink-0 ${
-                            isPos
-                              ? 'bg-red-50 text-red-700'
-                              : isNeg
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-slate-200/70 text-slate-700'
-                          }`}
-                        >
-                          {stance}
-                        </span>
+                      <div key={idx} className="py-2 px-2.5 rounded-lg bg-slate-50 space-y-0.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium text-slate-800 truncate">{label}</span>
+                          <span
+                            className={`px-2 py-0.5 rounded font-semibold shrink-0 ${
+                              isPos
+                                ? 'bg-red-50 text-red-700'
+                                : isNeg
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : 'bg-slate-200/70 text-slate-700'
+                            }`}
+                          >
+                            {cnLabel}
+                          </span>
+                        </div>
+                        {reason && <div className="text-[11px] text-slate-500 leading-snug">{reason}</div>}
                       </div>
                     );
                   })}
@@ -350,14 +355,16 @@ export function ProAnalysisDrawer({ open, ledgerId, onClose, onRestored }: ProAn
                   </div>
                   <div className="p-2.5 rounded-lg bg-slate-50">
                     <div className="text-slate-500">穿透风险评级</div>
-                    <div className="text-base font-bold text-slate-900 mt-0.5">{String(pen.risk_level || '稳健可控')}</div>
+                    <div className="text-base font-bold text-slate-900 mt-0.5">
+                      {String(pen.risk_badge || pen.risk_level || '稳健可控')}
+                    </div>
                   </div>
                 </div>
-                {cvar.cvar_95_pct !== undefined && (
+                {cvar.overall_cvar_99 !== undefined && (
                   <p className="text-slate-600 leading-relaxed pt-1 flex items-center gap-1.5">
                     <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                     <span>
-                      95% 置信度尾部风险 CVaR：<strong className="text-emerald-700">{Number(cvar.cvar_95_pct).toFixed(2)}%</strong>
+                      99% 极端尾部风险 CVaR：<strong className="text-emerald-700">-{Math.abs(Number(cvar.overall_cvar_99)).toFixed(2)}%</strong>
                     </span>
                   </p>
                 )}
@@ -377,7 +384,9 @@ export function ProAnalysisDrawer({ open, ledgerId, onClose, onRestored }: ProAn
                       <div key={b.snapshot_id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50">
                         <div className="min-w-0">
                           <div className="font-mono text-[11px] text-slate-700 truncate">{b.snapshot_id}</div>
-                          <div className="text-[11px] text-slate-400 truncate">{b.reason || b.created_at || '自动冷备'}</div>
+                          <div className="text-[11px] text-slate-400 truncate">
+                            {b.timestamp || b.created_at || '自动冷备'} · {b.reason || '账本写入前备份'}
+                          </div>
                         </div>
                         <button
                           type="button"

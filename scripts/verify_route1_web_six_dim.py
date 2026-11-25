@@ -99,24 +99,54 @@ def main():
         page.wait_for_timeout(400)
         assert "盘中估算涨跌" in page.locator("main").inner_text()
 
-        # Page 3 检查：调仓参考方案 + 大额限购分批买入计划 + 基金分红方式建议
+        # Page 3 检查：调仓参考方案 + 图1勾选保存持久化 + 图2新钱定投金额联动 + 限购分批 + 分红建议
         page.get_by_role("button", name="调仓参考方案").first.click()
-        page.wait_for_timeout(1400)
+        page.wait_for_timeout(1500)
         p3_text = page.locator("main").inner_text()
         for bad in forbidden_jargon:
             assert bad not in p3_text, f"Found deprecated jargon on Page 3: {bad}"
         assert "大额限购分批买入计划" in p3_text
         assert "基金分红方式建议" in p3_text
+        # 验证图2：新钱定投绝非 ¥0，且改金额 3000 -> 6000 真实重算
+        assert "¥0\n优先补齐" not in p3_text, "DCA cards still showing ¥0!"
+        assert "创金合信中证红利低波动指数A" in p3_text or "易方达" in p3_text, "DCA fund names missing!"
+        dca_input = page.locator("input[type='number']").first
+        dca_input.fill("6000")
+        page.wait_for_timeout(1000)
+        p3_after_dca = page.locator("main").inner_text()
+        assert "¥6,000.00" in p3_after_dca or "2,014" in p3_after_dca, "DCA did not recalculate for 6000!"
 
-        # 专业分析抽屉：自选搜索 + ETF溢价 + A/C费率对比器
+        # 验证图1：打勾 -> 显示已保存至本机 -> 刷新页面仍保留 -> 取消勾选还原干净状态
+        first_cb = page.locator("main input[type='checkbox']").first
+        was_checked = first_cb.is_checked()
+        first_cb.click()
+        page.wait_for_timeout(800)
+        assert "已保存至本机" in page.locator("main").inner_text(), "Missing saved confirmation badge!"
+        # 刷新页面验证后端真实持久化
+        page.reload(wait_until="networkidle")
+        page.get_by_role("button", name="调仓参考方案").first.click()
+        page.wait_for_timeout(1400)
+        assert page.locator("main input[type='checkbox']").first.is_checked() == (not was_checked), "Checkin state did not persist across reload!"
+        # 还原勾选状态，保持账本干净
+        page.locator("main input[type='checkbox']").first.click()
+        page.wait_for_timeout(600)
+
+        # 专业分析抽屉：自选搜索 + ETF溢价 + A/C费率对比器 + 十维投票汉化 + 无英文 Watch/BULL/BEAR
         page.get_by_role("button", name="专业分析").first.click()
         page.wait_for_timeout(1200)
         dr_text = page.locator("aside[aria-label='专业量化分析工具箱']").inner_text()
         assert "热门场内 ETF 溢价预警" in dr_text
         assert "A / C 类份额费率对比器" in dr_text
         assert "盈亏平衡点" in dr_text
+        assert "偏多进攻" in dr_text or "偏空防守" in dr_text or "中性观望" in dr_text, "Ten-dim votes not localized!"
+        assert "BULL" not in dr_text and "BEAR" not in dr_text, "Raw BULL/BEAR leaked in drawer!"
+        assert "99% 极端尾部风险 CVaR" in dr_text, "Missing real overall_cvar_99 in drawer!"
         page.get_by_role("button", name="关闭专业分析抽屉").click()
         page.wait_for_timeout(200)
+
+        # Cookie & Storage 安全审计
+        cookies = page.context.cookies()
+        assert len(cookies) == 0, f"Unexpected cookies set: {cookies}"
 
         # 导入持仓弹窗
         page.get_by_role("button", name="导入持仓").first.click()

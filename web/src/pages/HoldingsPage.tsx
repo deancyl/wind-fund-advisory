@@ -240,13 +240,23 @@ export function HoldingsPage({
   const cvar = (stress.cvar_bootstrap || {}) as Record<string, unknown>;
   const totalEq = Number(overview?.total_equity ?? 0);
 
-  // 极端行情情景推演（基于后端真实组合 beta / cvar / 权益敞口）
-  const portBeta = Number(stressModel.portfolio_beta ?? 0.65);
-  const stressScenarios = [
-    { name: '2018 去杠杆熊市情景', idxDrop: -25.3, estDrop: -(25.3 * Math.min(1.1, Math.max(0.25, portBeta))) },
-    { name: '2020 流动性冲击情景', idxDrop: -16.1, estDrop: -(16.1 * Math.min(1.1, Math.max(0.25, portBeta))) },
-    { name: '2022 全球加息杀估值情景', idxDrop: -21.6, estDrop: -(21.6 * Math.min(1.1, Math.max(0.25, portBeta))) },
-  ];
+  // 优先直接渲染后端 Block Bootstrap 真实极端危机情景表，零估算
+  const rawScenarios = Array.isArray(cvar.scenarios) ? (cvar.scenarios as Array<Record<string, unknown>>) : [];
+  const portBeta = Number(stressModel.portfolio_weighted_beta ?? stressModel.portfolio_beta ?? 0.6);
+  const stressScenarios =
+    rawScenarios.length > 0
+      ? rawScenarios.slice(0, 4).map((sc) => ({
+          name: String(sc.name || '历史极端情景'),
+          period: String(sc.period || ''),
+          estDrop: -Math.abs(Number(sc.predicted_mdd_pct ?? 0)),
+          estLoss: Math.abs(Number(sc.predicted_loss_amount ?? 0)),
+        }))
+      : [
+          { name: '2018 去杠杆熊市情景', period: '2018', estDrop: -(25.3 * Math.min(1.1, Math.max(0.25, portBeta))), estLoss: (totalEq * 25.3 * Math.min(1.1, Math.max(0.25, portBeta))) / 100 },
+          { name: '2020 流动性冲击情景', period: '2020', estDrop: -(16.1 * Math.min(1.1, Math.max(0.25, portBeta))), estLoss: (totalEq * 16.1 * Math.min(1.1, Math.max(0.25, portBeta))) / 100 },
+          { name: '2022 全球加息杀估值情景', period: '2022', estDrop: -(21.6 * Math.min(1.1, Math.max(0.25, portBeta))), estLoss: (totalEq * 21.6 * Math.min(1.1, Math.max(0.25, portBeta))) / 100 },
+        ];
+  const cvar99 = cvar.overall_cvar_99 !== undefined ? Number(cvar.overall_cvar_99) : null;
 
   return (
     <div className="space-y-6 fade-in">
@@ -428,9 +438,9 @@ export function HoldingsPage({
               <ShieldAlert className="w-4 h-4 text-rose-600" />
               <h3 className="text-sm font-bold text-slate-900">极端行情压力测试（组合承压估算）</h3>
             </div>
-            {cvar.cvar_95_pct !== undefined && (
+            {cvar99 !== null && (
               <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 tabular-nums">
-                95% 尾部风险 CVaR {Number(cvar.cvar_95_pct).toFixed(1)}%
+                99% 极端尾部风险 CVaR -{Math.abs(cvar99).toFixed(1)}%
               </span>
             )}
           </div>
@@ -439,25 +449,23 @@ export function HoldingsPage({
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500">
                   <th className="py-2 pr-2 font-semibold">历史极端情景</th>
-                  <th className="py-2 px-2 text-right font-semibold">沪深300跌幅</th>
-                  <th className="py-2 px-2 text-right font-semibold">本组合预估回撤</th>
-                  <th className="py-2 pl-2 text-right font-semibold">预估浮亏金额</th>
+                  <th className="py-2 px-2 text-right font-semibold">组合预估最大回撤</th>
+                  <th className="py-2 pl-2 text-right font-semibold">预估最大浮亏金额</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {stressScenarios.map((sc) => {
-                  const estLoss = (totalEq * sc.estDrop) / 100;
-                  return (
-                    <tr key={sc.name}>
-                      <td className="py-2 pr-2 font-medium text-slate-800">{sc.name}</td>
-                      <td className="py-2 px-2 text-right text-slate-500">{sc.idxDrop.toFixed(1)}%</td>
-                      <td className="py-2 px-2 text-right font-bold text-emerald-700">{sc.estDrop.toFixed(1)}%</td>
-                      <td className="py-2 pl-2 text-right font-semibold text-slate-700">
-                        -¥{Math.abs(estLoss).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {stressScenarios.map((sc) => (
+                  <tr key={sc.name}>
+                    <td className="py-2 pr-2">
+                      <div className="font-medium text-slate-800">{sc.name}</div>
+                      {sc.period && <div className="text-[10px] text-slate-400">{sc.period}</div>}
+                    </td>
+                    <td className="py-2 px-2 text-right font-bold text-emerald-700">{sc.estDrop.toFixed(2)}%</td>
+                    <td className="py-2 pl-2 text-right font-semibold text-slate-700">
+                      -¥{Math.abs(sc.estLoss).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

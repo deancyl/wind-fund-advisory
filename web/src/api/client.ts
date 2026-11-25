@@ -392,7 +392,7 @@ export const api = {
       body: JSON.stringify({ ledger_id, baseline_name }),
     }),
   getBackups: () =>
-    requestJson<{ count: number; snapshots: Array<{ snapshot_id: string; created_at?: string; reason?: string }> }>('/api/v1/backups'),
+    requestJson<{ count: number; snapshots: Array<{ snapshot_id: string; timestamp?: string; created_at?: string; reason?: string }> }>('/api/v1/backups'),
   restoreBackup: (snapshot_id: string) =>
     requestJson<{ restored: boolean }>('/api/v1/backups/restore', {
       method: 'POST',
@@ -400,14 +400,14 @@ export const api = {
     }),
   getRebalance: (ledgerId?: string) =>
     requestJson<RebalanceResponse>(`/api/v1/rebalance${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`),
-  getCheckin: (ledgerId?: string) =>
-    requestJson<{ checked_codes?: string[]; checked_map?: Record<string, boolean> }>(
-      `/api/v1/rebalance/checkin${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`
+  getCheckin: () =>
+    requestJson<{ date?: string; checked_codes?: Record<string, { checked?: boolean; action?: string; amount?: number; ts?: string } | boolean> }>(
+      '/api/v1/rebalance/checkin'
     ),
-  saveCheckin: (ledger_id: string, checked_codes: string[]) =>
-    requestJson<Record<string, unknown>>('/api/v1/rebalance/checkin', {
+  saveCheckinItem: (fund_code: string, action: string, amount: number, checked: boolean) =>
+    requestJson<{ date?: string; checked_codes?: Record<string, unknown> }>('/api/v1/rebalance/checkin', {
       method: 'POST',
-      body: JSON.stringify({ ledger_id, checked_codes }),
+      body: JSON.stringify({ fund_code, action, amount, checked }),
     }),
   planCashflow: (monthly_cash: number, ledger_id?: string) =>
     requestJson<{ dca_plan?: Record<string, unknown> }>('/api/v1/cashflow/plan', {

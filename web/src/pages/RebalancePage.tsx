@@ -13,26 +13,31 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast }: 
   const [data, setData] = useState<RebalanceResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkedSet, setCheckedSet] = useState<Set<string>>(new Set());
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [lastSavedTime, setLastSavedTime] = useState('');
   const [copied, setCopied] = useState(false);
   const [showHold, setShowHold] = useState(false);
   const [showTails, setShowTails] = useState(false);
 
   const [dcaAmount, setDcaAmount] = useState(3000);
+  const [dcaSummary, setDcaSummary] = useState('');
+  const [dcaLoading, setDcaLoading] = useState(false);
   const [dcaItems, setDcaItems] = useState<Array<{ fund_code: string; fund_name: string; amount: number; weight_pct?: number; reason?: string }>>([]);
   const [divAdvice, setDivAdvice] = useState<DividendAdviceResponse | null>(null);
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    Promise.all([api.getRebalance(ledgerId), api.getCheckin(ledgerId), api.getDividendAdvice(ledgerId).catch(() => null)])
+    Promise.all([api.getRebalance(ledgerId), api.getCheckin(), api.getDividendAdvice(ledgerId).catch(() => null)])
       .then(([reb, chk, divRes]) => {
         if (!alive) return;
         setData(reb);
         if (divRes) setDivAdvice(divRes);
-        const codes = new Set<string>(chk.checked_codes || []);
-        if (chk.checked_map) {
-          for (const [k, v] of Object.entries(chk.checked_map)) {
-            if (v) codes.add(k);
+        const codes = new Set<string>();
+        const rawMap = chk?.checked_codes || {};
+        for (const [k, v] of Object.entries(rawMap)) {
+          if (v === true || (typeof v === 'object' && v !== null && v.checked !== false)) {
+            codes.add(k);
           }
         }
         setCheckedSet(codes);
@@ -49,24 +54,36 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast }: 
   useEffect(() => {
     let alive = true;
     const t = setTimeout(() => {
+      setDcaLoading(true);
       api
         .planCashflow(Math.max(500, dcaAmount || 3000), ledgerId)
         .then((res) => {
           if (!alive) return;
           const raw = (res.dca_plan || {}) as Record<string, unknown>;
-          const list = (raw.monthly_allocations || raw.allocations || raw.items || []) as Array<Record<string, unknown>>;
+          setDcaSummary(String(raw.summary_text || raw.advice_summary || ''));
+          const list = (raw.allocations || raw.monthly_allocations || raw.items || []) as Array<Record<string, unknown>>;
           setDcaItems(
-            list.slice(0, 6).map((x) => ({
-              fund_code: String(x.fund_code || x.code || ''),
-              fund_name: String(x.fund_name || x.name || x.fund_code || ''),
-              amount: Number(x.monthly_amount || x.amount || x.buy_amount || 0),
-              weight_pct: x.weight_pct !== undefined ? Number(x.weight_pct) : undefined,
-              reason: String(x.reason || x.note || '优先补齐当前低配核心资产'),
-            }))
+            list.slice(0, 6).map((x) => {
+              const code = String(x.fund_code || x['基金代码'] || x.code || '');
+              const name = String(x.fund_name || x['基金名称'] || x.name || code);
+              const amt = Number(x.monthly_amount ?? x['每月定投金额(元)'] ?? x.amount ?? x.buy_amount ?? 0);
+              const pctRaw = x.target_weight_pct ?? x['目标配置占比'] ?? x.weight_pct;
+              const pct = pctRaw !== undefined ? Number(String(pctRaw).replace('%', '')) : undefined;
+              return {
+                fund_code: code,
+                fund_name: name,
+                amount: amt,
+                weight_pct: Number.isFinite(pct) ? pct : undefined,
+                reason: String(x.reason || x.note || '优先补齐当前低配核心资产'),
+              };
+            })
           );
         })
-        .catch(() => {});
-    }, 200);
+        .catch(() => {})
+        .finally(() => {
+          if (alive) setDcaLoading(false);
+        });
+    }, 180);
     return () => {
       alive = false;
       clearTimeout(t);
@@ -90,15 +107,25 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast }: 
     return out;
   }, [data]);
 
-  const toggleCheck = async (code: string) => {
+  const toggleCheck = async (code: string, amount: number) => {
+    const prev = new Set(checkedSet);
     const next = new Set(checkedSet);
-    if (next.has(code)) next.delete(code);
-    else next.add(code);
+    const nextChecked = !next.has(code);
+    if (nextChecked) next.add(code);
+    else next.delete(code);
     setCheckedSet(next);
+    setSaveStatus('saving');
     try {
-      await api.saveCheckin(ledgerId, Array.from(next));
-    } catch {
-      // ignore offline error
+      const action = amount > 0 ? 'BUY' : 'SELL';
+      await api.saveCheckinItem(code, action, Math.abs(amount), nextChecked);
+      const nowStr = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      setLastSavedTime(nowStr);
+      setSaveStatus('saved');
+      onToast(nextChecked ? `已勾选 ${code} 并自动保存至本机（${nowStr}）` : `已取消勾选 ${code} 并同步保存`);
+    } catch (e) {
+      setCheckedSet(prev);
+      setSaveStatus('error');
+      onToast(e instanceof Error ? `保存失败：${e.message}` : '保存勾选状态失败，请重试');
     }
   };
 
@@ -206,9 +233,25 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast }: 
             <h2 className="text-base font-bold text-slate-900">建议调整明细（附白话理由）</h2>
             <p className="text-xs text-slate-500 mt-0.5">勾选左侧复选框记录你在基金 App 中已手动完成的笔数</p>
           </div>
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 tabular-nums">
-            本地已记录 {doneCount} / {actionableList.length} 笔
-          </span>
+          <div className="flex items-center gap-2">
+            {saveStatus === 'saving' && (
+              <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">正在保存...</span>
+            )}
+            {saveStatus === 'saved' && (
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
+                <Check className="w-3.5 h-3.5" />
+                已保存至本机 {lastSavedTime}
+              </span>
+            )}
+            {saveStatus === 'error' && (
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200">
+                保存失败，请重试
+              </span>
+            )}
+            <span className="text-xs font-semibold px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 tabular-nums">
+              本地已记录 {doneCount} / {actionableList.length} 笔
+            </span>
+          </div>
         </div>
 
         {actionableList.length === 0 ? (
@@ -231,7 +274,7 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast }: 
                     <input
                       type="checkbox"
                       checked={done}
-                      onChange={() => toggleCheck(code)}
+                      onChange={() => toggleCheck(code, amount)}
                       className="mt-1 w-4 h-4 accent-[#0A192F]"
                     />
                     <div className="flex-1 min-w-0 space-y-1">
@@ -248,6 +291,11 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast }: 
                           <span className={`font-bold text-sm text-slate-900 ${done ? 'line-through' : ''}`}>
                             {name} <span className="font-mono text-xs text-slate-400">({code})</span>
                           </span>
+                          {done && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              ✓ 已记录并保存
+                            </span>
+                          )}
                         </div>
                         <span className="font-extrabold text-sm text-slate-900 tabular-nums">
                           ¥{Math.abs(amount).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -292,7 +340,7 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast }: 
                               <input
                                 type="checkbox"
                                 checked={done}
-                                onChange={() => toggleCheck(code)}
+                                onChange={() => toggleCheck(code, amount)}
                                 className="w-3.5 h-3.5 accent-[#0A192F]"
                               />
                               <span className="font-medium text-slate-800">{name}</span>
@@ -360,7 +408,15 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast }: 
           </label>
         </div>
 
-        {dcaItems.length === 0 ? (
+        {dcaSummary && (
+          <div className="px-3.5 py-2 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs text-emerald-900">
+            {dcaSummary}
+          </div>
+        )}
+
+        {dcaLoading && dcaItems.length === 0 ? (
+          <div className="text-xs text-slate-400 py-2">正在计算增量定投分配方案...</div>
+        ) : dcaItems.length === 0 ? (
           <div className="text-xs text-slate-400 py-2">输入金额后自动生成增量定投参考方案...</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
@@ -369,12 +425,12 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast }: 
                 <div className="flex justify-between items-center text-xs">
                   <span className="font-mono text-slate-400">{d.fund_code}</span>
                   {d.weight_pct !== undefined && (
-                    <span className="font-bold text-blue-700">{d.weight_pct.toFixed(1)}%</span>
+                    <span className="font-bold text-blue-700">目标占比 {d.weight_pct.toFixed(1)}%</span>
                   )}
                 </div>
                 <div className="font-bold text-sm text-slate-900">{d.fund_name}</div>
                 <div className="text-lg font-extrabold text-slate-900 tabular-nums">
-                  ¥{Math.round(d.amount).toLocaleString()}
+                  ¥{d.amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
                 <div className="text-xs text-slate-500">{d.reason}</div>
               </div>

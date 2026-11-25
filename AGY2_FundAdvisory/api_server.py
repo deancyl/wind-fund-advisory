@@ -714,6 +714,40 @@ def api_v1_cashflow_plan(req: CashflowPlanRequest) -> Dict[str, Any]:
         investable_spare_cash=inv_cash + float(req.get_monthly_cash()) * int(req.plan_months),
         current_index_point=_safe_index_point(snap),
     )
+    # 标准化 dca_plan.allocations 字段，同时保留原中文字段兼容旧调用方
+    if isinstance(dca, dict) and isinstance(dca.get("allocations"), list):
+        norm_allocs = []
+        for it in dca["allocations"]:
+            if not isinstance(it, dict):
+                continue
+            code = str(it.get("fund_code") or it.get("基金代码") or "").strip().zfill(6)
+            h_obj = holdings.get(code)
+            fname = str(
+                it.get("fund_name")
+                or it.get("基金名称")
+                or (getattr(h_obj, "fund_name", "") if h_obj else "")
+                or (CORE_STRATEGY_POOL.get(code) or {}).get("fund_name", "")
+                or code
+            )
+            m_amt = float(it.get("monthly_amount") or it.get("每月定投金额(元)") or it.get("amount") or 0.0)
+            gap_amt = float(it.get("gap_amount") or it.get("当前市值缺口(元)") or 0.0)
+            pct_raw = str(it.get("目标配置占比") or it.get("target_weight_pct") or "0").replace("%", "").strip()
+            try:
+                w_pct = float(pct_raw)
+            except Exception:
+                w_pct = 0.0
+            merged = dict(it)
+            merged.update({
+                "fund_code": code,
+                "fund_name": fname,
+                "monthly_amount": round(m_amt, 2),
+                "target_weight_pct": round(w_pct, 2),
+                "gap_amount": round(gap_amt, 2),
+                "reason": f"当前距目标权重缺口约 ¥{gap_amt:,.0f}，用新钱定向补齐免赎回费" if gap_amt > 0 else "按目标权重均衡定投",
+            })
+            norm_allocs.append(merged)
+        dca = dict(dca)
+        dca["allocations"] = norm_allocs
     return _sanitize_v1_payload({"ledger_id": lid, "liquidity_guard": investable, "dca_plan": dca, "left_side_bullets": bullets})
 
 
@@ -777,8 +811,10 @@ def api_v1_list_backups() -> Dict[str, Any]:
     raw_snaps = LedgerBackupVault.list_snapshots()
     snaps = [
         s for s in raw_snaps
-        if "g29_gate_test" not in str(s.get("reason", "")).lower()
-        and "g29_gate_test" not in str(s.get("snapshot_id", "")).lower()
+        if not any(
+            tok in str(s.get("reason", "")).lower() or tok in str(s.get("snapshot_id", "")).lower()
+            for tok in ("g29_gate_test", "test_rollback", "pytest")
+        )
     ]
     return _sanitize_v1_payload({"count": len(snaps), "snapshots": snaps})
 
