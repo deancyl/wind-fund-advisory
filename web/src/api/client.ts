@@ -91,12 +91,33 @@ export interface BacktestSummaryResponse {
   oos_excess_alpha_pct: number | null;
 }
 
+export interface BacktestMetrics {
+  period_return_pct: number;
+  theoretical_return_pct: number;
+  annualized_return_pct: number | null;
+  hs300_return_pct: number;
+  excess_return_pct: number;
+  max_drawdown_pct: number;
+  hs300_mdd_pct: number;
+  win_rate_label: string;
+  win_rate_pct: number;
+  win_rate_detail: string;
+  sharpe_ratio: number;
+  trading_days: number;
+}
+
 export interface BacktestCurvesResponse {
   status: string;
   tier: string;
+  model?: string;
+  fund_count?: number;
+  period?: string;
+  period_label?: string;
+  date_range?: string;
   mode: string;
   primary_name: string;
   secondary_name: string;
+  metrics?: BacktestMetrics;
   dates: string[];
   nav: {
     primary: number[];
@@ -323,8 +344,12 @@ export const api = {
     ),
   getBacktestSummary: (ledgerId?: string) =>
     requestJson<BacktestSummaryResponse>(`/api/v1/backtest/summary${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`),
-  getBacktestCurves: (tier = 'C3', mode = 'preset_combat_29_vs_6') =>
-    requestJson<BacktestCurvesResponse>(`/api/v1/charts/backtest_curves?tier=${encodeURIComponent(tier)}&mode=${encodeURIComponent(mode)}`),
+  getBacktestCurves: (tier = 'C3', model = 'all_weather', fundCount = 6, period = '1y', mode = 'model_live') =>
+    requestJson<BacktestCurvesResponse>(
+      `/api/v1/charts/backtest_curves?tier=${encodeURIComponent(tier)}&model=${encodeURIComponent(
+        model
+      )}&fund_count=${encodeURIComponent(String(fundCount))}&period=${encodeURIComponent(period)}&mode=${encodeURIComponent(mode)}`
+    ),
   getCrowdingQuadrant: (ledgerId?: string) =>
     requestJson<{ ledger_id: string; count: number; points: CrowdingPoint[] }>(
       `/api/v1/charts/crowding_quadrant${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`

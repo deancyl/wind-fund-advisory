@@ -3,7 +3,6 @@ import { ArrowRight, Sparkles } from 'lucide-react';
 import {
   api,
   type BacktestCurvesResponse,
-  type BacktestSummaryResponse,
   type BlueprintResponse,
   type CrowdingPoint,
   type OverviewResponse,
@@ -38,16 +37,24 @@ const RISK_LEVELS = [
 
 const FUND_COUNTS = [3, 4, 5, 6, 8];
 
+const BACKTEST_PERIODS = [
+  { id: '3m', label: '近 3 个月' },
+  { id: '6m', label: '近 6 个月' },
+  { id: '1y', label: '近 1 年' },
+  { id: '2y', label: '近 2 年' },
+  { id: 'all', label: '全周期' },
+];
+
 export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer }: SignalPageProps) {
   const [riskLevel, setRiskLevel] = useState('C3');
   const [amount, setAmount] = useState(50000);
   const [fundCount, setFundCount] = useState(6);
   const [modelId, setModelId] = useState('all_weather');
+  const [period, setPeriod] = useState('1y');
   const [btSubTab, setBtSubTab] = useState<'full' | 'scenario'>('full');
   const [blueprint, setBlueprint] = useState<BlueprintResponse | null>(null);
   const [bpLoading, setBpLoading] = useState(false);
 
-  const [summary, setSummary] = useState<BacktestSummaryResponse | null>(null);
   const [curves, setCurves] = useState<BacktestCurvesResponse | null>(null);
   const [curvesLoading, setCurvesLoading] = useState(true);
   const [crowding, setCrowding] = useState<CrowdingPoint[]>([]);
@@ -76,15 +83,8 @@ export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer }
   useEffect(() => {
     let alive = true;
     setCurvesLoading(true);
-    setCrowdingLoading(true);
     api
-      .getBacktestSummary(ledgerId)
-      .then((res) => {
-        if (alive) setSummary(res);
-      })
-      .catch(() => {});
-    api
-      .getBacktestCurves(riskLevel, 'preset_combat_29_vs_6')
+      .getBacktestCurves(riskLevel, modelId, fundCount, period, 'model_live')
       .then((res) => {
         if (alive) setCurves(res);
       })
@@ -92,6 +92,14 @@ export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer }
       .finally(() => {
         if (alive) setCurvesLoading(false);
       });
+    return () => {
+      alive = false;
+    };
+  }, [riskLevel, modelId, fundCount, period]);
+
+  useEffect(() => {
+    let alive = true;
+    setCrowdingLoading(true);
     api
       .getCrowdingQuadrant(ledgerId)
       .then((res) => {
@@ -104,7 +112,7 @@ export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer }
     return () => {
       alive = false;
     };
-  }, [ledgerId, riskLevel]);
+  }, [ledgerId]);
 
   const verdict = overview?.market_verdict;
   const indices = overview?.indices || {};
@@ -354,59 +362,99 @@ export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer }
         )}
       </section>
 
-      {/* 3. 策略历史真实验证成绩单 */}
-      {summary && (
-        <section className="card-elevated rounded-2xl p-5 sm:p-6 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="w-1 h-4 rounded-full bg-amber-600" />
-                <h2 className="text-base font-bold text-slate-900">策略历史真实验证成绩单（全扣费 + 95% 实盘仓位校准）</h2>
-              </div>
-              <p className="text-xs text-slate-500 mt-1 pl-3">
-                全部指标由真实历史回测与交易摩擦引擎算出，拒绝虚高“纸面收益”
-              </p>
+      {/* 3. 动态联动的当前方案历史回测表现（多周期切换 + 客观克制口径） */}
+      <section className="card-elevated rounded-2xl p-5 sm:p-6 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="w-1 h-4 rounded-full bg-amber-600" />
+              <h2 className="text-base font-bold text-slate-900">
+                当前方案历史回测表现（{curves?.period_label || '近 1 年'}）
+              </h2>
+              {curves?.date_range && (
+                <span className="text-[11px] font-mono text-slate-400">{curves.date_range}</span>
+              )}
             </div>
-            <span className="text-xs px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 font-medium">
-              对标基准：沪深 300 指数
-            </span>
+            <p className="text-xs text-slate-500 mt-1 pl-3">
+              与上方所选「{blueprint?.model_meta?.name || '当前模型'} · {riskLevel} · {fundCount} 只基金」实时联动，按 95% 实盘仓位与申赎费率测算
+            </p>
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-            <div className="p-4 rounded-xl bg-gradient-to-b from-red-50/70 to-white border border-red-100">
-              <div className="text-xs font-medium text-slate-500">实盘校准年化收益</div>
-              <div className="text-2xl font-extrabold tabular-nums mt-1.5 text-red-600">
-                {summary.live_calibrated_cagr_pct !== null ? `+${Number(summary.live_calibrated_cagr_pct).toFixed(2)}%` : '--'}
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1">
-                理论年化 {summary.annualized_return_pct !== null ? `+${Number(summary.annualized_return_pct).toFixed(2)}%` : '--'}（已扣 5% 现金拖累）
-              </div>
-            </div>
-            <div className="p-4 rounded-xl bg-gradient-to-b from-emerald-50/70 to-white border border-emerald-100">
-              <div className="text-xs font-medium text-slate-500">全周期最大回撤</div>
-              <div className="text-2xl font-extrabold tabular-nums mt-1.5 text-emerald-700">
-                {summary.max_drawdown_pct !== null ? `-${Math.abs(Number(summary.max_drawdown_pct)).toFixed(2)}%` : '--'}
-              </div>
-              <div className="text-[11px] text-emerald-700 font-medium mt-1">同期沪深 300 最大回撤 -46.7%</div>
-            </div>
-            <div className="p-4 rounded-xl bg-gradient-to-b from-blue-50/70 to-white border border-blue-100">
-              <div className="text-xs font-medium text-slate-500">跨周期切片胜率</div>
-              <div className="text-2xl font-extrabold tabular-nums mt-1.5 text-blue-700">
-                {summary.win_rate_pct ? String(summary.win_rate_pct) : '6/6'}
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1">
-                月度胜率 {summary.monthly_win_rate_pct ? String(summary.monthly_win_rate_pct) : '52.4%'}
-              </div>
-            </div>
-            <div className="p-4 rounded-xl bg-gradient-to-b from-amber-50/70 to-white border border-amber-100">
-              <div className="text-xs font-medium text-slate-500">风险调整夏普比率</div>
-              <div className="text-2xl font-extrabold tabular-nums mt-1.5 text-amber-700">
-                {summary.sharpe_ratio !== null ? Number(summary.sharpe_ratio).toFixed(2) : '--'}
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1">样本外跟踪记录 {summary.oos_sample_count || 0} 期</div>
-            </div>
+          <div className="inline-flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200" role="group" aria-label="回测统计周期">
+            {BACKTEST_PERIODS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPeriod(p.id)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  period === p.id ? 'bg-[#0A192F] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
           </div>
-        </section>
-      )}
+        </div>
+
+        {curvesLoading && !curves?.metrics ? (
+          <div className="py-8 text-center text-xs text-slate-400">正在按所选模型与周期重算历史表现...</div>
+        ) : curves?.metrics ? (
+          <>
+            <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3.5 transition-opacity ${curvesLoading ? 'opacity-60' : ''}`}>
+              <div className="p-4 rounded-xl bg-gradient-to-b from-red-50/70 to-white border border-red-100">
+                <div className="text-xs font-medium text-slate-500">
+                  {curves.period_label}区间收益（实盘校准）
+                </div>
+                <div
+                  className={`text-2xl font-extrabold tabular-nums mt-1.5 ${
+                    curves.metrics.period_return_pct >= 0 ? 'text-red-600' : 'text-emerald-700'
+                  }`}
+                >
+                  {curves.metrics.period_return_pct >= 0 ? '+' : ''}
+                  {curves.metrics.period_return_pct.toFixed(2)}%
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1 tabular-nums">
+                  同期沪深 300：{curves.metrics.hs300_return_pct >= 0 ? '+' : ''}
+                  {curves.metrics.hs300_return_pct.toFixed(2)}%（超额 {curves.metrics.excess_return_pct >= 0 ? '+' : ''}
+                  {curves.metrics.excess_return_pct.toFixed(2)}%）
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-gradient-to-b from-emerald-50/70 to-white border border-emerald-100">
+                <div className="text-xs font-medium text-slate-500">区间最大回撤</div>
+                <div className="text-2xl font-extrabold tabular-nums mt-1.5 text-emerald-700">
+                  -{Math.abs(curves.metrics.max_drawdown_pct).toFixed(2)}%
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1 tabular-nums">
+                  同期沪深 300 最大回撤 -{Math.abs(curves.metrics.hs300_mdd_pct).toFixed(2)}%
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-gradient-to-b from-blue-50/70 to-white border border-blue-100">
+                <div className="text-xs font-medium text-slate-500">{curves.metrics.win_rate_label}</div>
+                <div className="text-2xl font-extrabold tabular-nums mt-1.5 text-blue-700">
+                  {curves.metrics.win_rate_pct.toFixed(1)}%
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1">{curves.metrics.win_rate_detail}</div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-gradient-to-b from-amber-50/70 to-white border border-amber-100">
+                <div className="text-xs font-medium text-slate-500">风险调整夏普比率</div>
+                <div className="text-2xl font-extrabold tabular-nums mt-1.5 text-amber-700">
+                  {curves.metrics.sharpe_ratio.toFixed(2)}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1 tabular-nums">
+                  {curves.metrics.annualized_return_pct !== null
+                    ? `折合年化 ${curves.metrics.annualized_return_pct >= 0 ? '+' : ''}${curves.metrics.annualized_return_pct.toFixed(2)}%`
+                    : `统计覆盖 ${curves.metrics.trading_days} 个交易日`}
+                </div>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              注：历史回测基于当前所选模型权重与交易费率测算，仅供量化分析参考，过往业绩不代表未来收益保证。
+            </p>
+          </>
+        ) : null}
+      </section>
 
       {/* 4. 历史回测验证区：全周期走势 | 历史情景回测 */}
       <div className="space-y-4">

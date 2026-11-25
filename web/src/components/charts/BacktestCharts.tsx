@@ -203,14 +203,16 @@ export function BacktestCharts({ data, loading }: BacktestChartsProps) {
 
   return (
     <div className="space-y-4">
-      {/* 全周期累计净值对比 */}
+      {/* 累计净值对比 */}
       <div className="card-elevated rounded-2xl p-5 space-y-3.5">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="w-1 h-4 rounded-full bg-red-600" />
-            <h3 className="text-base font-bold text-slate-900">2018–2026 全周期累计净值对比（起始归一化 1.000）</h3>
+            <h3 className="text-base font-bold text-slate-900">
+              {data.period_label || '所选周期'}累计净值对比（起始归一化 1.000）
+            </h3>
           </div>
-          <span className="text-[11px] text-slate-400">支持鼠标悬停对比各阶段净值</span>
+          <span className="text-[11px] text-slate-400">{data.date_range || '支持鼠标悬停对比各阶段净值'}</span>
         </div>
         <ChartReadingGuide
           howToRead="对比 2018 至今跨越牛熊周期的累计净值增长（背景色块对应 7 大宏观牛熊风格切片与样本外盲测金库）。"

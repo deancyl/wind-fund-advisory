@@ -1839,28 +1839,45 @@ def api_v1_recommend_blueprint(
 
 
 @app.get("/api/v1/charts/backtest_curves")
-def api_v1_charts_backtest_curves(tier: str = "C3", mode: str = "preset_combat_29_vs_6") -> Dict[str, Any]:
+def api_v1_charts_backtest_curves(
+    tier: str = "C3",
+    mode: str = "model_live",
+    model: str = "all_weather",
+    fund_count: int = 6,
+    period: str = "1y",
+) -> Dict[str, Any]:
+    import numpy as np
+
     clean_tier = str(tier or "C3").upper().strip()
     if clean_tier not in _RISK_TIER_META:
         clean_tier = "C3"
-    cache_key = f"{clean_tier}:{mode}"
+    clean_model = str(model or "all_weather").strip().lower()
+    if clean_model not in _QUANT_MODELS_META:
+        clean_model = "all_weather"
+    n_funds = max(3, min(8, int(fund_count or 6)))
+    clean_period = str(period or "1y").strip().lower()
+    period_days_map = {"3m": 63, "6m": 126, "1y": 252, "2y": 504, "all": 0}
+    period_label_map = {"3m": "近 3 个月", "6m": "近 6 个月", "1y": "近 1 年", "2y": "近 2 年", "all": "全周期 (2018 至今)"}
+    if clean_period not in period_days_map:
+        clean_period = "1y"
+
+    cache_key = f"{clean_tier}:{mode}:{clean_model}:{n_funds}:{clean_period}"
     with _BACKTEST_CURVES_LOCK:
         cached = _BACKTEST_CURVES_CACHE.get(cache_key)
-        if cached and (time.time() - cached[0]) < 600.0:
+        if cached and (time.time() - cached[0]) < 300.0:
             return cached[1]
 
-    preset = StrategyBridge.get_combat_29_vs_reconstructed_6_preset() or {}
-    if mode == "preset_combat_29_vs_6" and preset.get("reconstructed_6_weights"):
-        primary_w = dict(preset["reconstructed_6_weights"])
+    snap = StrategyBridge.get_latest_market_snapshot(force_reload=False)
+    if mode == "preset_combat_29_vs_6":
+        preset = StrategyBridge.get_combat_29_vs_reconstructed_6_preset() or {}
+        primary_w = dict(preset.get("reconstructed_6_weights") or _build_model_weights(clean_model, clean_tier, snap, n_funds))
         secondary_w = dict(preset.get("raw_29_weights") or {})
         primary_name = "投顾重构 6 基核心组合"
         secondary_name = "原始 29 基存量组合"
     else:
-        snap = StrategyBridge.get_latest_market_snapshot(force_reload=False)
-        tw_res = StrategyBridge.compute_dynamic_tier_weights(tier=clean_tier, market_snapshot=snap)
-        primary_w = dict(tw_res.get("weights", tw_res) if isinstance(tw_res, dict) else {})
+        primary_w = _build_model_weights(clean_model, clean_tier, snap, n_funds)
         secondary_w = None
-        primary_name = f"{clean_tier} 策略推荐组合"
+        primary_name = f"{_QUANT_MODELS_META[clean_model]['name']} ({clean_tier}·{n_funds}只)"
         secondary_name = ""
 
     df_bt = StrategyBridge.build_custom_portfolio_backtest(
@@ -1872,27 +1889,65 @@ def api_v1_charts_backtest_curves(tier: str = "C3", mode: str = "preset_combat_2
     if df_bt is None or df_bt.empty:
         return _sanitize_v1_payload({"status": "empty", "dates": []})
 
-    n_rows = len(df_bt)
-    step = max(1, n_rows // 320)
+    # 按用户选定周期切片并重归一化起点为 1.000
+    tail_n = period_days_map[clean_period]
+    df_win = df_bt.tail(tail_n).copy() if (tail_n > 0 and len(df_bt) > tail_n) else df_bt.copy()
+
+    def _rebase(series):
+        vals = series.astype(float).ffill().bfill()
+        base = float(vals.iloc[0]) if len(vals) > 0 and float(vals.iloc[0]) > 0 else 1.0
+        return vals / base
+
+    nav_pri = _rebase(df_win["strategy_nav"])
+    nav_otc = _rebase(df_win["strategy_nav_otc"]) if "strategy_nav_otc" in df_win.columns else (nav_pri * 0.995)
+    nav_h300 = _rebase(df_win["bm_nav_沪深300"]) if "bm_nav_沪深300" in df_win.columns else None
+    nav_div = _rebase(df_win["bm_nav_红利低波"]) if "bm_nav_红利低波" in df_win.columns else None
+    nav_bond = _rebase(df_win["bm_nav_纯债指数"]) if "bm_nav_纯债指数" in df_win.columns else None
+    nav_sec = _rebase(df_win["secondary_nav"]) if "secondary_nav" in df_win.columns else None
+
+    def _dd_series(nav_s):
+        peak = nav_s.cummax()
+        return ((nav_s / peak) - 1.0) * 100.0
+
+    dd_pri = _dd_series(nav_otc)
+    dd_h300 = _dd_series(nav_h300) if nav_h300 is not None else None
+    dd_sec = _dd_series(nav_sec) if nav_sec is not None else None
+
+    # 实时计算所选周期内的客观绩效指标
+    otc_ret = round((float(nav_otc.iloc[-1]) - 1.0) * 100.0, 2)
+    theo_ret = round((float(nav_pri.iloc[-1]) - 1.0) * 100.0, 2)
+    h300_ret = round((float(nav_h300.iloc[-1]) - 1.0) * 100.0, 2) if nav_h300 is not None else 0.0
+    excess_ret = round(otc_ret - h300_ret, 2)
+    n_days = max(len(df_win), 1)
+    ann_ret = round((float(nav_otc.iloc[-1]) ** (252.0 / n_days) - 1.0) * 100.0, 2) if n_days >= 200 else None
+    mdd_pct = round(float(dd_pri.min()), 2)
+    h300_mdd = round(float(dd_h300.min()), 2) if dd_h300 is not None else 0.0
+
+    daily_rets = nav_otc.pct_change().dropna()
+    std_d = float(daily_rets.std()) if len(daily_rets) > 2 else 0.0
+    sharpe = round(((float(daily_rets.mean()) * 252.0 - 0.02) / (std_d * np.sqrt(252.0))), 2) if std_d > 1e-8 else 0.0
+
+    # 按周期合理计算正收益胜率（短周期按周、长周期按月，客观无绝对化夸大）
+    bucket = 5 if n_days <= 90 else 21
+    bucket_unit = "周" if bucket == 5 else "个月"
+    chunk_rets = []
+    arr = nav_otc.values
+    for i in range(0, len(arr) - 1, bucket):
+        j = min(i + bucket, len(arr) - 1)
+        if arr[i] > 0:
+            chunk_rets.append((arr[j] / arr[i]) - 1.0)
+    pos_chunks = sum(1 for r in chunk_rets if r > 0)
+    tot_chunks = max(len(chunk_rets), 1)
+    win_pct = round(pos_chunks / tot_chunks * 100.0, 1)
+
+    # 抽样用于前端 ECharts 渲染（约 260 点）
+    n_rows = len(df_win)
+    step = max(1, n_rows // 260)
     idx_list = list(range(0, n_rows, step))
     if idx_list[-1] != n_rows - 1:
         idx_list.append(n_rows - 1)
-    df_s = df_bt.iloc[idx_list]
 
-    def _cagr(series_col: str) -> Optional[float]:
-        if series_col not in df_bt.columns or len(df_bt) < 2:
-            return None
-        val = float(df_bt[series_col].iloc[-1])
-        if val <= 0:
-            return None
-        return round((val ** (252.0 / len(df_bt)) - 1.0) * 100.0, 2)
-
-    def _col_list(col: str, mult: float = 1.0, digits: int = 3) -> List[float]:
-        if col not in df_s.columns:
-            return []
-        return [round(float(x) * mult, digits) for x in df_s[col].fillna(0.0).tolist()]
-
-    dates = [str(d)[:10] for d in df_s["date"].tolist()]
+    dates = [str(d)[:10] for d in df_win["date"].iloc[idx_list].tolist()]
     slices = [
         {"start": "2018-01-02", "end": "2018-12-28", "label": "去杠杆熊市", "color": "rgba(239, 68, 68, 0.08)"},
         {"start": "2019-01-02", "end": "2020-12-31", "label": "核心资产牛市", "color": "rgba(16, 185, 129, 0.08)"},
@@ -1900,42 +1955,71 @@ def api_v1_charts_backtest_curves(tier: str = "C3", mode: str = "preset_combat_2
         {"start": "2022-01-04", "end": "2022-12-30", "label": "加息杀估值", "color": "rgba(239, 68, 68, 0.08)"},
         {"start": "2023-01-03", "end": "2024-08-30", "label": "高股息避险", "color": "rgba(56, 189, 248, 0.08)"},
         {"start": "2024-09-02", "end": "2025-06-30", "label": "924大转向", "color": "rgba(16, 185, 129, 0.08)"},
-        {"start": "2025-07-01", "end": dates[-1] if dates else "2026-10-27", "label": "盲测金库", "color": "rgba(139, 92, 246, 0.10)"},
-    ]
+        {"start": "2025-07-01", "end": dates[-1] if dates else "2026-10-27", "label": "样本外区间", "color": "rgba(139, 92, 246, 0.10)"},
+    ] if clean_period == "all" else []
+
+    def _pick(s, digits=4):
+        if s is None:
+            return []
+        return [round(float(x), digits) for x in s.iloc[idx_list].fillna(0.0).tolist()]
+
+    def _col_alloc(col: str):
+        if col not in df_win.columns:
+            return []
+        return [round(float(x) * 100.0, 1) for x in df_win[col].iloc[idx_list].fillna(0.0).tolist()]
 
     payload = _sanitize_v1_payload({
         "status": "ready",
         "tier": clean_tier,
+        "model": clean_model,
+        "fund_count": n_funds,
+        "period": clean_period,
+        "period_label": period_label_map[clean_period],
+        "date_range": f"{dates[0]} ~ {dates[-1]}" if dates else "",
         "mode": mode,
         "primary_name": primary_name,
         "secondary_name": secondary_name,
+        "metrics": {
+            "period_return_pct": otc_ret,
+            "theoretical_return_pct": theo_ret,
+            "annualized_return_pct": ann_ret,
+            "hs300_return_pct": h300_ret,
+            "excess_return_pct": excess_ret,
+            "max_drawdown_pct": mdd_pct,
+            "hs300_mdd_pct": h300_mdd,
+            "win_rate_label": f"{bucket_unit}度正收益占比",
+            "win_rate_pct": win_pct,
+            "win_rate_detail": f"{pos_chunks} / {tot_chunks} {bucket_unit}录得正收益",
+            "sharpe_ratio": sharpe,
+            "trading_days": n_days,
+        },
         "dates": dates,
         "nav": {
-            "primary": _col_list("strategy_nav", 1.0, 4),
-            "primary_otc": _col_list("strategy_nav_otc", 1.0, 4),
-            "secondary": _col_list("secondary_nav", 1.0, 4),
-            "hs300": _col_list("bm_nav_沪深300", 1.0, 4),
-            "dividend": _col_list("bm_nav_红利低波", 1.0, 4),
-            "bond": _col_list("bm_nav_纯债指数", 1.0, 4),
+            "primary": _pick(nav_pri, 4),
+            "primary_otc": _pick(nav_otc, 4),
+            "secondary": _pick(nav_sec, 4),
+            "hs300": _pick(nav_h300, 4),
+            "dividend": _pick(nav_div, 4),
+            "bond": _pick(nav_bond, 4),
         },
         "cagr": {
-            "primary": _cagr("strategy_nav"),
-            "primary_otc": _cagr("strategy_nav_otc"),
-            "secondary": _cagr("secondary_nav"),
-            "hs300": _cagr("bm_nav_沪深300"),
-            "dividend": _cagr("bm_nav_红利低波"),
-            "bond": _cagr("bm_nav_纯债指数"),
+            "primary": theo_ret,
+            "primary_otc": otc_ret,
+            "secondary": round((float(nav_sec.iloc[-1]) - 1.0) * 100.0, 2) if nav_sec is not None else None,
+            "hs300": h300_ret,
+            "dividend": round((float(nav_div.iloc[-1]) - 1.0) * 100.0, 2) if nav_div is not None else None,
+            "bond": round((float(nav_bond.iloc[-1]) - 1.0) * 100.0, 2) if nav_bond is not None else None,
         },
         "drawdown": {
-            "primary": _col_list("strategy_drawdown", 1.0, 2),
-            "secondary": _col_list("secondary_drawdown", 1.0, 2),
-            "hs300": _col_list("h300_drawdown", 1.0, 2),
+            "primary": _pick(dd_pri, 2),
+            "secondary": _pick(dd_sec, 2),
+            "hs300": _pick(dd_h300, 2),
         },
         "allocation": {
-            "ashare": _col_list("weight_ashare", 100.0, 1),
-            "bond": _col_list("weight_bond", 100.0, 1),
-            "gold": _col_list("weight_gold", 100.0, 1),
-            "spx": _col_list("weight_spx", 100.0, 1),
+            "ashare": _col_alloc("weight_ashare"),
+            "bond": _col_alloc("weight_bond"),
+            "gold": _col_alloc("weight_gold"),
+            "spx": _col_alloc("weight_spx"),
         },
         "slices": slices,
     })
