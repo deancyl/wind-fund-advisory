@@ -11,6 +11,8 @@ import { FundDetailPage } from './pages/FundDetailPage';
 export function App() {
   const [activeTab, setActiveTab] = useState<MainTab>('signal');
   const [selectedFundCode, setSelectedFundCode] = useState<string | null>(null);
+  const [targetReturnPct, setTargetReturnPct] = useState<number>(10);
+  const [horizonMonths, setHorizonMonths] = useState<number>(12);
   const [ledgers, setLedgers] = useState<LedgerMeta[]>([]);
   const [activeLedgerId, setActiveLedgerId] = useState<string>('combat_29_funds');
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
@@ -114,6 +116,12 @@ export function App() {
               <SignalPage
                 overview={overview}
                 ledgerId={activeLedgerId}
+                targetReturnPct={targetReturnPct}
+                horizonMonths={horizonMonths}
+                onChangeGoal={(ret, mon) => {
+                  setTargetReturnPct(ret);
+                  setHorizonMonths(mon);
+                }}
                 onGoHoldings={() => setActiveTab('holdings')}
                 onOpenProDrawer={() => setProDrawerOpen(true)}
                 onSelectFund={(code) => {
@@ -144,6 +152,12 @@ export function App() {
               <RebalancePage
                 ledgerId={activeLedgerId}
                 refreshTick={refreshTick}
+                targetReturnPct={targetReturnPct}
+                horizonMonths={horizonMonths}
+                onChangeGoal={(ret, mon) => {
+                  setTargetReturnPct(ret);
+                  setHorizonMonths(mon);
+                }}
                 onOpenImport={() => setImportOpen(true)}
                 onToast={showToast}
                 onSelectFund={(code) => {

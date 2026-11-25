@@ -52,12 +52,39 @@ export interface QuantModelMeta {
   principle: string;
 }
 
+export interface GoalAnalysis {
+  target_return_pct: number;
+  horizon_months: number;
+  required_cagr_pct: number;
+  current_tier: string;
+  suggested_tier: string;
+  has_collision: boolean;
+  collision_message: string;
+  recommended_model: string;
+  feasibility: string;
+  feasibility_level: 'high' | 'medium' | 'low';
+  historical_hit_rate_pct: number;
+  windows_tested: number;
+  median_return_pct: number;
+  p05_worst_return_pct: number;
+  p95_best_return_pct: number;
+  avg_reach_months: number | null;
+}
+
 export interface BlueprintItem {
   fund_code: string;
   fund_name: string;
   role: string;
   why: string;
   quant_reason?: string;
+  quant_score?: number;
+  factor_profile?: {
+    sharpe?: number;
+    calmar?: number;
+    max_dd_pct?: number;
+    new_high_rate_pct?: number;
+    total_fee_pct?: number;
+  };
   fee_note?: string;
   quota_note?: string;
   action_guide?: string;
@@ -76,6 +103,7 @@ export interface BlueprintResponse {
   fund_count: number;
   total_amount: number;
   market_regime: string;
+  goal_analysis?: GoalAnalysis;
   count: number;
   items: BlueprintItem[];
 }
@@ -288,6 +316,14 @@ export interface RebalanceResponse {
   ledger_id: string;
   plan_mode: string;
   is_empty: boolean;
+  goal_comparison?: {
+    target_return_pct: number;
+    horizon_months: number;
+    before: GoalAnalysis;
+    after: GoalAnalysis;
+    hit_rate_delta_pct: number;
+    worst_return_delta_pct: number;
+  } | null;
   tail_sweep: RebalanceGroup;
   c_replace: RebalanceGroup;
   core_trades: RebalanceGroup;
@@ -446,11 +482,20 @@ export const api = {
     const qs = q.toString();
     return requestJson<OverviewResponse>(`/api/v1/overview${qs ? `?${qs}` : ''}`);
   },
-  getBlueprint: (riskLevel: string, amount: number, fundCount = 6, model = 'all_weather') =>
+  getBlueprint: (
+    riskLevel: string,
+    amount: number,
+    fundCount = 6,
+    model = 'all_weather',
+    targetReturnPct = 10,
+    horizonMonths = 12
+  ) =>
     requestJson<BlueprintResponse>(
       `/api/v1/recommend/blueprint?risk_level=${encodeURIComponent(riskLevel)}&amount=${encodeURIComponent(
         String(amount)
-      )}&fund_count=${encodeURIComponent(String(fundCount))}&model=${encodeURIComponent(model)}`
+      )}&fund_count=${encodeURIComponent(String(fundCount))}&model=${encodeURIComponent(
+        model
+      )}&target_return_pct=${encodeURIComponent(String(targetReturnPct))}&horizon_months=${encodeURIComponent(String(horizonMonths))}`
     ),
   getBacktestSummary: (ledgerId?: string) =>
     requestJson<BacktestSummaryResponse>(`/api/v1/backtest/summary${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`),
@@ -537,8 +582,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ snapshot_id }),
     }),
-  getRebalance: (ledgerId?: string) =>
-    requestJson<RebalanceResponse>(`/api/v1/rebalance${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`),
+  getRebalance: (ledgerId?: string, targetReturnPct = 10, horizonMonths = 12) => {
+    const q = new URLSearchParams();
+    if (ledgerId) q.set('ledger_id', ledgerId);
+    q.set('target_return_pct', String(targetReturnPct));
+    q.set('horizon_months', String(horizonMonths));
+    return requestJson<RebalanceResponse>(`/api/v1/rebalance?${q.toString()}`);
+  },
   getCheckin: () =>
     requestJson<{ date?: string; checked_codes?: Record<string, { checked?: boolean; action?: string; amount?: number; ts?: string } | boolean> }>(
       '/api/v1/rebalance/checkin'

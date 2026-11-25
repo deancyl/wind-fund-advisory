@@ -5,12 +5,24 @@ import { api, type DividendAdviceResponse, type RebalanceItem, type RebalanceRes
 interface RebalancePageProps {
   ledgerId: string;
   refreshTick: number;
+  targetReturnPct: number;
+  horizonMonths: number;
+  onChangeGoal: (ret: number, mon: number) => void;
   onOpenImport: () => void;
   onToast: (msg: string) => void;
   onSelectFund: (code: string) => void;
 }
 
-export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast, onSelectFund }: RebalancePageProps) {
+export function RebalancePage({
+  ledgerId,
+  refreshTick,
+  targetReturnPct,
+  horizonMonths,
+  onChangeGoal,
+  onOpenImport,
+  onToast,
+  onSelectFund,
+}: RebalancePageProps) {
   const [data, setData] = useState<RebalanceResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkedSet, setCheckedSet] = useState<Set<string>>(new Set());
@@ -29,7 +41,11 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast, on
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    Promise.all([api.getRebalance(ledgerId), api.getCheckin(), api.getDividendAdvice(ledgerId).catch(() => null)])
+    Promise.all([
+      api.getRebalance(ledgerId, targetReturnPct, horizonMonths),
+      api.getCheckin(),
+      api.getDividendAdvice(ledgerId).catch(() => null),
+    ])
       .then(([reb, chk, divRes]) => {
         if (!alive) return;
         setData(reb);
@@ -50,7 +66,7 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast, on
     return () => {
       alive = false;
     };
-  }, [ledgerId, refreshTick]);
+  }, [ledgerId, refreshTick, targetReturnPct, horizonMonths]);
 
   useEffect(() => {
     let alive = true;
@@ -184,6 +200,78 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast, on
           </button>
         </div>
       </section>
+
+      {/* 目标收益达成度对比卡（调仓前 vs 调仓后） */}
+      {data?.goal_comparison && (
+        <section className="card-elevated rounded-2xl p-5 space-y-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">
+                目标收益达成概率对比（调仓前当前持仓 vs 按建议调仓后）
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                以你设定的「{horizonMonths} 个月内目标收益 +{targetReturnPct}%」为尺子，检验本次调仓对达标概率与抗跌底线的实际改善
+              </p>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <select
+                value={horizonMonths}
+                onChange={(e) => onChangeGoal(targetReturnPct, Number(e.target.value))}
+                aria-label="调仓目标周期"
+                className="h-8 px-2 rounded-lg bg-slate-50 border border-slate-200 font-semibold text-slate-700"
+              >
+                <option value={6}>6 个月</option>
+                <option value={12}>1 年</option>
+                <option value={24}>2 年</option>
+                <option value={36}>3 年</option>
+              </select>
+              <select
+                value={targetReturnPct}
+                onChange={(e) => onChangeGoal(Number(e.target.value), horizonMonths)}
+                aria-label="调仓目标收益率"
+                className="h-8 px-2 rounded-lg bg-slate-50 border border-slate-200 font-semibold text-blue-700"
+              >
+                <option value={6}>目标 +6%</option>
+                <option value={10}>目标 +10%</option>
+                <option value={15}>目标 +15%</option>
+                <option value={20}>目标 +20%</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs tabular-nums">
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <div className="text-slate-500">调仓前 · 历史达标概率</div>
+              <div className="text-xl font-extrabold text-slate-800 mt-1">
+                {data.goal_comparison.before.historical_hit_rate_pct.toFixed(1)}%
+              </div>
+              <div className="text-[11px] text-slate-400 mt-0.5">
+                P05 最差情景：{data.goal_comparison.before.p05_worst_return_pct.toFixed(2)}%
+              </div>
+            </div>
+            <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200">
+              <div className="text-blue-800">调仓后 · 历史达标概率</div>
+              <div className="text-xl font-extrabold text-blue-800 mt-1">
+                {data.goal_comparison.after.historical_hit_rate_pct.toFixed(1)}%
+              </div>
+              <div className="text-[11px] text-blue-700/80 mt-0.5">
+                P05 最差情景：{data.goal_comparison.after.p05_worst_return_pct.toFixed(2)}%
+              </div>
+            </div>
+            <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200">
+              <div className="text-emerald-800">调仓量化改善幅度</div>
+              <div className="text-xl font-extrabold text-emerald-700 mt-1">
+                达标率 {data.goal_comparison.hit_rate_delta_pct >= 0 ? '+' : ''}
+                {data.goal_comparison.hit_rate_delta_pct.toFixed(1)}%
+              </div>
+              <div className="text-[11px] text-emerald-700 mt-0.5">
+                最差情景底线变化 {data.goal_comparison.worst_return_delta_pct >= 0 ? '+' : ''}
+                {data.goal_comparison.worst_return_delta_pct.toFixed(2)}%
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ① 当前组合 3 步重构摘要 */}
       <section className="grid grid-cols-1 md:grid-cols-3 gap-4">

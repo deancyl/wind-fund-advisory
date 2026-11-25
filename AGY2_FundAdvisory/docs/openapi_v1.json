@@ -433,6 +433,26 @@
               "default": 3.0,
               "title": "Min Buffer Pct"
             }
+          },
+          {
+            "name": "target_return_pct",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 10.0,
+              "title": "Target Return Pct"
+            }
+          },
+          {
+            "name": "horizon_months",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 12,
+              "title": "Horizon Months"
+            }
           }
         ],
         "responses": {
@@ -1772,6 +1792,26 @@
               "type": "string",
               "default": "all_weather",
               "title": "Model"
+            }
+          },
+          {
+            "name": "target_return_pct",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 10.0,
+              "title": "Target Return Pct"
+            }
+          },
+          {
+            "name": "horizon_months",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 12,
+              "title": "Horizon Months"
             }
           }
         ],

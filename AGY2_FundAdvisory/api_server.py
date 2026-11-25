@@ -588,7 +588,12 @@ def api_v1_holdings(ledger_id: Optional[str] = None) -> Dict[str, Any]:
 
 
 @app.get("/api/v1/rebalance")
-def api_v1_rebalance(ledger_id: Optional[str] = None, min_buffer_pct: float = 3.0) -> Dict[str, Any]:
+def api_v1_rebalance(
+    ledger_id: Optional[str] = None,
+    min_buffer_pct: float = 3.0,
+    target_return_pct: float = 10.0,
+    horizon_months: int = 12,
+) -> Dict[str, Any]:
     _, lid, pm, snap = _get_active_context(ledger_id)
     tw = _target_weights_for_ledger(lid, snap)
     res = StrategyBridge.generate_ai_rebalance_orders(
@@ -641,10 +646,35 @@ def api_v1_rebalance(ledger_id: Optional[str] = None, min_buffer_pct: float = 3.
         act_s = "买入" if amt > 0 else "卖出"
         cheat_lines.append(f"{idx}. {c_code} {c_name} {act_s} ¥{abs(amt):,.2f}")
 
+    # 目标收益 × 目标周期：对比「调仓前当前持仓」vs「调仓后目标组合」的历史达成概率
+    goal_comparison: Optional[Dict[str, Any]] = None
+    try:
+        from goal_driven_selector import evaluate_goal_achievement
+        tot_mv = sum(float(getattr(h, "market_value", 0.0) or 0.0) for h in (pm.holdings or {}).values())
+        cur_w = {
+            c: round(float(getattr(h, "market_value", 0.0) or 0.0) / tot_mv, 4)
+            for c, h in (pm.holdings or {}).items()
+            if float(getattr(h, "market_value", 0.0) or 0.0) > 1e-4
+        } if tot_mv > 1e-4 else {}
+        if cur_w and tw:
+            before_eval = evaluate_goal_achievement(cur_w, target_return_pct, horizon_months, tier="C3")
+            after_eval = evaluate_goal_achievement(tw, target_return_pct, horizon_months, tier="C3")
+            goal_comparison = {
+                "target_return_pct": round(float(target_return_pct), 1),
+                "horizon_months": int(horizon_months),
+                "before": before_eval,
+                "after": after_eval,
+                "hit_rate_delta_pct": round(after_eval["historical_hit_rate_pct"] - before_eval["historical_hit_rate_pct"], 1),
+                "worst_return_delta_pct": round(after_eval["p05_worst_return_pct"] - before_eval["p05_worst_return_pct"], 2),
+            }
+    except Exception:
+        goal_comparison = None
+
     payload = {
         "ledger_id": lid,
         "plan_mode": "存量瘦身重构" if lid == "combat_29_funds" else "动态股债平衡",
         "is_empty": grouped["is_empty"],
+        "goal_comparison": goal_comparison,
         "groups": {
             "tail_sweep": {"title": grouped["tail_sweep"]["title"], "count": len(grouped["tail_items"]), "recovered_cash": grouped["tail_total_cash"], "items": grouped["tail_items"]},
             "c_replace": {"title": grouped["c_replace"]["title"], "count": len(grouped["c_items"]), "c_sell_count": grouped["c_replace"].get("c_sell_count", 0), "items": grouped["c_items"]},
@@ -1761,7 +1791,11 @@ def api_v1_recommend_blueprint(
     amount: float = 50000.0,
     fund_count: int = 6,
     model: str = "all_weather",
+    target_return_pct: float = 10.0,
+    horizon_months: int = 12,
 ) -> Dict[str, Any]:
+    from goal_driven_selector import evaluate_goal_achievement, score_and_tilt_weights_with_details
+
     tier = str(risk_level or "C3").upper().strip()
     if tier not in _RISK_TIER_META:
         tier = "C3"
@@ -1770,9 +1804,15 @@ def api_v1_recommend_blueprint(
         model_id = "all_weather"
     n_funds = max(3, min(8, int(fund_count or 6)))
     cap = max(1000.0, float(amount or 50000.0))
+    t_ret = max(2.0, min(60.0, float(target_return_pct or 10.0)))
+    h_mon = max(3, min(60, int(horizon_months or 12)))
+    req_cagr = round((((1.0 + t_ret / 100.0) ** (12.0 / h_mon)) - 1.0) * 100.0, 2)
 
     _, _, pm, snap = _get_active_context(None)
-    target_w = _build_model_weights(model_id, tier, snap, n_funds)
+    base_w = _build_model_weights(model_id, tier, snap, n_funds)
+    # 利用基金详情真实多因子数据（夏普/卡玛/最大回撤/新高率/规模/费率）进行评分与权重倾斜优化
+    target_w, factor_profiles = score_and_tilt_weights_with_details(base_w, tier=tier, req_cagr=req_cagr)
+    goal_analysis = evaluate_goal_achievement(target_w, target_return_pct=t_ret, horizon_months=h_mon, tier=tier)
 
     # 严格按用户选定的 fund_count 输出精确只数（不因限购拆单额外多吐卡片），
     # 同时保留真实单日限购信息写入 quota_note 字段提醒用户。
@@ -1786,6 +1826,7 @@ def api_v1_recommend_blueprint(
         pool_m = CORE_STRATEGY_POOL.get(code, {})
         fname = str(pool_m.get("fund_name") or code)
         d_lim = float(pool_m.get("daily_limit", 1e8))
+        fp = factor_profiles.get(code) or {}
 
         quant_signal = ""
         try:
@@ -1806,7 +1847,11 @@ def api_v1_recommend_blueprint(
 
         role_text = str(meta.get("role") or pool_m.get("asset_class") or "核心配置")
         base_why = str(meta.get("why") or "符合当前量化风险预算与资产分散目标")
-        quant_reason = f"在「{_QUANT_MODELS_META[model_id]['name']}」与 {tier} 风险预算下（当前{regime_label}），{quant_signal}分配 {w_pct:.1f}% 权重以平衡收益与波动。"
+        q_score = int(fp.get("quant_score", 68))
+        quant_reason = (
+            f"基金详情多因子评分 {q_score} 分（夏普 {fp.get('sharpe', 0):.2f} / 最大回撤 -{fp.get('max_dd_pct', 0):.1f}% / 费率 {fp.get('total_fee_pct', 0.6):.2f}%），"
+            f"{quant_signal}围绕 {h_mon} 个月 +{t_ret:.0f}% 目标分配 {w_pct:.1f}% 权重。"
+        )
         fee_note = "底仓首选 A 类份额，长期持有免每日计提销售服务费"
         quota_note = ""
         if d_lim < 1e7 and buy_amt > d_lim:
@@ -1819,6 +1864,8 @@ def api_v1_recommend_blueprint(
             "role": role_text,
             "why": base_why,
             "quant_reason": quant_reason,
+            "quant_score": q_score,
+            "factor_profile": fp,
             "fee_note": fee_note,
             "quota_note": quota_note,
             "action_guide": quota_note or "不限购，可按建议金额分批或一次配置",
@@ -1847,6 +1894,7 @@ def api_v1_recommend_blueprint(
         "fund_count": n_funds,
         "total_amount": round(cap, 2),
         "market_regime": regime_label,
+        "goal_analysis": goal_analysis,
         "count": len(items),
         "items": items,
     })

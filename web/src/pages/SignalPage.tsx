@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight, Sparkles, Target, AlertTriangle } from 'lucide-react';
 import {
   api,
   type BacktestCurvesResponse,
@@ -14,6 +14,9 @@ import { CrowdingQuadrantChart } from '../components/charts/CrowdingQuadrantChar
 interface SignalPageProps {
   overview: OverviewResponse | null;
   ledgerId: string;
+  targetReturnPct: number;
+  horizonMonths: number;
+  onChangeGoal: (ret: number, mon: number) => void;
   onGoHoldings: () => void;
   onOpenProDrawer: () => void;
   onSelectFund: (code: string) => void;
@@ -46,7 +49,23 @@ const BACKTEST_PERIODS = [
   { id: 'all', label: '全周期' },
 ];
 
-export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer, onSelectFund }: SignalPageProps) {
+const HORIZON_OPTIONS = [
+  { months: 6, label: '6 个月' },
+  { months: 12, label: '1 年' },
+  { months: 24, label: '2 年' },
+  { months: 36, label: '3 年' },
+];
+
+export function SignalPage({
+  overview,
+  ledgerId,
+  targetReturnPct,
+  horizonMonths,
+  onChangeGoal,
+  onGoHoldings,
+  onOpenProDrawer,
+  onSelectFund,
+}: SignalPageProps) {
   const [riskLevel, setRiskLevel] = useState('C3');
   const [amount, setAmount] = useState(50000);
   const [fundCount, setFundCount] = useState(6);
@@ -66,7 +85,7 @@ export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer, 
     const timer = setTimeout(() => {
       setBpLoading(true);
       api
-        .getBlueprint(riskLevel, Math.max(1000, amount || 50000), fundCount, modelId)
+        .getBlueprint(riskLevel, Math.max(1000, amount || 50000), fundCount, modelId, targetReturnPct, horizonMonths)
         .then((res) => {
           if (alive) setBlueprint(res);
         })
@@ -74,12 +93,12 @@ export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer, 
         .finally(() => {
           if (alive) setBpLoading(false);
         });
-    }, 150);
+    }, 180);
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [riskLevel, amount, fundCount, modelId]);
+  }, [riskLevel, amount, fundCount, modelId, targetReturnPct, horizonMonths]);
 
   useEffect(() => {
     let alive = true;
@@ -256,6 +275,106 @@ export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer, 
           </div>
         </div>
 
+        {/* 目标收益 × 目标持有周期设置条（驱动全站选基与调仓决策） */}
+        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800">
+              <Target className="w-4 h-4 text-blue-700" />
+              <span>我的投资目标</span>
+            </span>
+            <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+              <span>在</span>
+              <div className="inline-flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200">
+                {HORIZON_OPTIONS.map((h) => (
+                  <button
+                    key={h.months}
+                    type="button"
+                    onClick={() => onChangeGoal(targetReturnPct, h.months)}
+                    className={`px-2 py-1 rounded-md text-xs font-semibold cursor-pointer ${
+                      horizonMonths === h.months ? 'bg-[#0A192F] text-white' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {h.label}
+                  </button>
+                ))}
+              </div>
+              <span>内，目标收益</span>
+              <input
+                type="number"
+                min={2}
+                max={60}
+                step={1}
+                value={targetReturnPct}
+                onChange={(e) => onChangeGoal(Math.max(2, Math.min(60, Number(e.target.value) || 10)), horizonMonths)}
+                aria-label="目标收益率百分比"
+                className="w-16 h-8 px-2 rounded-lg bg-white border border-slate-300 text-center font-bold text-blue-700 tabular-nums"
+              />
+              <span className="font-bold text-slate-700">%</span>
+            </label>
+          </div>
+
+          {blueprint?.goal_analysis && (
+            <div className="flex flex-wrap items-center gap-3 text-xs tabular-nums">
+              <span className="text-slate-500">
+                折合年化 <strong className="text-slate-900">+{blueprint.goal_analysis.required_cagr_pct.toFixed(1)}%</strong>
+              </span>
+              <span className="px-2.5 py-1 rounded-full font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                历史滚动达成概率 {blueprint.goal_analysis.historical_hit_rate_pct.toFixed(1)}%
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                  blueprint.goal_analysis.feasibility_level === 'high'
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : blueprint.goal_analysis.feasibility_level === 'medium'
+                    ? 'bg-amber-50 text-amber-700'
+                    : 'bg-rose-50 text-rose-700'
+                }`}
+              >
+                {blueprint.goal_analysis.feasibility}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* 目标可行性与风险-收益碰撞诊断提示 */}
+        {blueprint?.goal_analysis && (
+          <div
+            className={`px-4 py-2.5 rounded-xl border text-xs flex flex-wrap items-center justify-between gap-2 ${
+              blueprint.goal_analysis.has_collision
+                ? 'bg-amber-50/80 border-amber-200 text-amber-900'
+                : 'bg-emerald-50/60 border-emerald-200 text-emerald-900'
+            }`}
+          >
+            <span className="flex items-start gap-1.5 leading-relaxed">
+              {blueprint.goal_analysis.has_collision && <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />}
+              <span>
+                {blueprint.goal_analysis.collision_message}
+                {blueprint.goal_analysis.windows_tested > 0 && (
+                  <span className="ml-1.5 text-slate-600">
+                    （基于历史 {blueprint.goal_analysis.windows_tested} 个滚动起点实测：中位收益{' '}
+                    {blueprint.goal_analysis.median_return_pct >= 0 ? '+' : ''}
+                    {blueprint.goal_analysis.median_return_pct.toFixed(1)}%，P05 最差情景{' '}
+                    {blueprint.goal_analysis.p05_worst_return_pct.toFixed(1)}%
+                    {blueprint.goal_analysis.avg_reach_months ? `，达标平均耗时 ${blueprint.goal_analysis.avg_reach_months} 个月` : ''}）
+                  </span>
+                )}
+              </span>
+            </span>
+            {blueprint.goal_analysis.has_collision && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRiskLevel(blueprint.goal_analysis!.suggested_tier);
+                  setModelId(blueprint.goal_analysis!.recommended_model);
+                }}
+                className="px-3 py-1 rounded-lg text-[11px] font-semibold bg-amber-600 text-white hover:bg-amber-700 shrink-0 cursor-pointer"
+              >
+                一键对齐至 {blueprint.goal_analysis.suggested_tier} 档位与推荐模型
+              </button>
+            )}
+          </div>
+        )}
+
         {/* 4 套量化模型选择卡（清晰展示模型名称 + 适用场景 + 核心原理） */}
         {blueprint?.all_models && blueprint.all_models.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -326,9 +445,16 @@ export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer, 
                   <div className="p-4 flex-1 flex flex-col justify-between gap-3">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
-                        <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${st.badge}`}>{f.role}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${st.badge}`}>{f.role}</span>
+                          {f.quant_score !== undefined && (
+                            <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-[#0A192F] text-amber-300 tabular-nums">
+                              量化 {f.quant_score}分
+                            </span>
+                          )}
+                        </div>
                         <span className="text-xs font-mono text-slate-400 group-hover:text-blue-600 transition-colors">
-                          {f.fund_code} · 查看详情 →
+                          {f.fund_code} · 详情 →
                         </span>
                       </div>
                       <h3 className="font-bold text-sm text-slate-900 group-hover:text-blue-700 transition-colors">{f.fund_name}</h3>
