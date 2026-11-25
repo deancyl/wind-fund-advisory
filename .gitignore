@@ -121,3 +121,5 @@ data/audit_screenshots_g14/
 scripts/archive/
 /*.png
 release_notes_v1.0.*.md
+web/tsconfig.tsbuildinfo
+scripts/dump_*.html
