@@ -6,9 +6,11 @@ import { ProAnalysisDrawer } from './components/ProAnalysisDrawer';
 import { SignalPage } from './pages/SignalPage';
 import { HoldingsPage } from './pages/HoldingsPage';
 import { RebalancePage } from './pages/RebalancePage';
+import { FundDetailPage } from './pages/FundDetailPage';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<MainTab>('signal');
+  const [selectedFundCode, setSelectedFundCode] = useState<string | null>(null);
   const [ledgers, setLedgers] = useState<LedgerMeta[]>([]);
   const [activeLedgerId, setActiveLedgerId] = useState<string>('combat_29_funds');
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
@@ -89,7 +91,10 @@ export function App() {
     <div className="min-h-screen flex flex-col bg-[#F3F6FA]">
       <TopBar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={(t) => {
+          setSelectedFundCode(null);
+          setActiveTab(t);
+        }}
         ledgers={ledgers}
         activeLedgerId={activeLedgerId}
         onSwitchLedger={handleSwitchLedger}
@@ -101,35 +106,53 @@ export function App() {
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
-        {activeTab === 'signal' && (
-          <SignalPage
-            overview={overview}
-            ledgerId={activeLedgerId}
-            onGoHoldings={() => setActiveTab('holdings')}
-            onOpenProDrawer={() => setProDrawerOpen(true)}
-          />
-        )}
+        {selectedFundCode ? (
+          <FundDetailPage fundCode={selectedFundCode} onBack={() => setSelectedFundCode(null)} />
+        ) : (
+          <>
+            {activeTab === 'signal' && (
+              <SignalPage
+                overview={overview}
+                ledgerId={activeLedgerId}
+                onGoHoldings={() => setActiveTab('holdings')}
+                onOpenProDrawer={() => setProDrawerOpen(true)}
+                onSelectFund={(code) => {
+                  setSelectedFundCode(code);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              />
+            )}
 
-        {activeTab === 'holdings' && (
-          <HoldingsPage
-            overview={overview}
-            ledgerId={activeLedgerId}
-            isDemoLedger={Boolean(currentLedger?.is_demo)}
-            ledgerName={currentLedger?.name || activeLedgerId}
-            refreshTick={refreshTick}
-            onOpenImport={() => setImportOpen(true)}
-            onGoRebalance={() => setActiveTab('rebalance')}
-            onDataMutated={handleDataMutated}
-          />
-        )}
+            {activeTab === 'holdings' && (
+              <HoldingsPage
+                overview={overview}
+                ledgerId={activeLedgerId}
+                isDemoLedger={Boolean(currentLedger?.is_demo)}
+                ledgerName={currentLedger?.name || activeLedgerId}
+                refreshTick={refreshTick}
+                onOpenImport={() => setImportOpen(true)}
+                onGoRebalance={() => setActiveTab('rebalance')}
+                onDataMutated={handleDataMutated}
+                onSelectFund={(code) => {
+                  setSelectedFundCode(code);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              />
+            )}
 
-        {activeTab === 'rebalance' && (
-          <RebalancePage
-            ledgerId={activeLedgerId}
-            refreshTick={refreshTick}
-            onOpenImport={() => setImportOpen(true)}
-            onToast={showToast}
-          />
+            {activeTab === 'rebalance' && (
+              <RebalancePage
+                ledgerId={activeLedgerId}
+                refreshTick={refreshTick}
+                onOpenImport={() => setImportOpen(true)}
+                onToast={showToast}
+                onSelectFund={(code) => {
+                  setSelectedFundCode(code);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              />
+            )}
+          </>
         )}
       </main>
 

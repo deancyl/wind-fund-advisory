@@ -7,9 +7,10 @@ interface RebalancePageProps {
   refreshTick: number;
   onOpenImport: () => void;
   onToast: (msg: string) => void;
+  onSelectFund: (code: string) => void;
 }
 
-export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast }: RebalancePageProps) {
+export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast, onSelectFund }: RebalancePageProps) {
   const [data, setData] = useState<RebalanceResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkedSet, setCheckedSet] = useState<Set<string>>(new Set());
@@ -288,9 +289,16 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast }: 
                           >
                             {isBuy ? '买入增配' : '卖出减仓'}
                           </span>
-                          <span className={`font-bold text-sm text-slate-900 ${done ? 'line-through' : ''}`}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              onSelectFund(code);
+                            }}
+                            className={`font-bold text-sm text-slate-900 hover:text-blue-700 hover:underline cursor-pointer ${done ? 'line-through' : ''}`}
+                          >
                             {name} <span className="font-mono text-xs text-slate-400">({code})</span>
-                          </span>
+                          </button>
                           {done && (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                               ✓ 已记录并保存
@@ -421,7 +429,19 @@ export function RebalancePage({ ledgerId, refreshTick, onOpenImport, onToast }: 
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
             {dcaItems.map((d) => (
-              <div key={d.fund_code} className="p-4 rounded-xl bg-slate-50/80 border border-slate-200 space-y-1.5">
+              <div
+                key={d.fund_code}
+                onClick={() => onSelectFund(d.fund_code)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelectFund(d.fund_code);
+                  }
+                }}
+                className="p-4 rounded-xl bg-slate-50/80 border border-slate-200 hover:border-blue-400 hover:bg-white transition-all space-y-1.5 cursor-pointer"
+              >
                 <div className="flex justify-between items-center text-xs">
                   <span className="font-mono text-slate-400">{d.fund_code}</span>
                   {d.weight_pct !== undefined && (

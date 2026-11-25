@@ -16,6 +16,7 @@ interface SignalPageProps {
   ledgerId: string;
   onGoHoldings: () => void;
   onOpenProDrawer: () => void;
+  onSelectFund: (code: string) => void;
 }
 
 const ROLE_STYLES = [
@@ -45,7 +46,7 @@ const BACKTEST_PERIODS = [
   { id: 'all', label: '全周期' },
 ];
 
-export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer }: SignalPageProps) {
+export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer, onSelectFund }: SignalPageProps) {
   const [riskLevel, setRiskLevel] = useState('C3');
   const [amount, setAmount] = useState(50000);
   const [fundCount, setFundCount] = useState(6);
@@ -310,16 +311,27 @@ export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer }
               return (
                 <article
                   key={f.fund_code}
-                  className="rounded-xl bg-white border border-slate-200 overflow-hidden hover:border-slate-300 hover:shadow-md transition-all flex flex-col justify-between"
+                  onClick={() => onSelectFund(f.fund_code)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onSelectFund(f.fund_code);
+                    }
+                  }}
+                  className="rounded-xl bg-white border border-slate-200 overflow-hidden hover:border-blue-400 hover:shadow-md transition-all flex flex-col justify-between cursor-pointer group"
                 >
                   <div className="h-1" style={{ background: st.bar }} />
                   <div className="p-4 flex-1 flex flex-col justify-between gap-3">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${st.badge}`}>{f.role}</span>
-                        <span className="text-xs font-mono text-slate-400">{f.fund_code}</span>
+                        <span className="text-xs font-mono text-slate-400 group-hover:text-blue-600 transition-colors">
+                          {f.fund_code} · 查看详情 →
+                        </span>
                       </div>
-                      <h3 className="font-bold text-sm text-slate-900">{f.fund_name}</h3>
+                      <h3 className="font-bold text-sm text-slate-900 group-hover:text-blue-700 transition-colors">{f.fund_name}</h3>
                       <p className="text-xs text-slate-600 leading-relaxed">{f.why}</p>
                       {f.quant_reason && (
                         <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-[11px] text-slate-600 leading-relaxed">

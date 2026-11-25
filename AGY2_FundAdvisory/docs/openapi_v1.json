@@ -1483,6 +1483,57 @@
         }
       }
     },
+    "/api/v1/funds/{fund_code}/detail": {
+      "get": {
+        "summary": "Api V1 Fund Detail",
+        "operationId": "api_v1_fund_detail_api_v1_funds__fund_code__detail_get",
+        "parameters": [
+          {
+            "name": "fund_code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Fund Code"
+            }
+          },
+          {
+            "name": "dca_monthly",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 1000.0,
+              "title": "Dca Monthly"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Fund Detail Api V1 Funds  Fund Code  Detail Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/ledgers": {
       "get": {
         "summary": "Api V1 List Ledgers",
@@ -1771,8 +1822,38 @@
             "required": false,
             "schema": {
               "type": "string",
-              "default": "preset_combat_29_vs_6",
+              "default": "model_live",
               "title": "Mode"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "all_weather",
+              "title": "Model"
+            }
+          },
+          {
+            "name": "fund_count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 6,
+              "title": "Fund Count"
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "1y",
+              "title": "Period"
             }
           }
         ],

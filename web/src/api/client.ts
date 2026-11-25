@@ -297,6 +297,116 @@ export interface RebalanceResponse {
   cheat_sheet_text: string;
 }
 
+export interface FundDetailResponse {
+  fund_code: string;
+  fund_name: string;
+  is_fallback: boolean;
+  latest_nav: number;
+  latest_ac_nav: number;
+  nav_date: string;
+  daily_return_pct: number;
+  fund_type: string;
+  risk_level: string;
+  charts: {
+    dates: string[];
+    unit_nav: number[];
+    ac_nav: number[];
+    cum_return_pct: number[];
+  };
+  historical_performance: Array<{
+    period: string;
+    fund_return_pct: number;
+    benchmark_return_pct: number | null;
+    excess_return_pct: number | null;
+  }>;
+  historical_nav: Array<{
+    date: string;
+    unit_nav: number;
+    ac_nav: number;
+    daily_return_pct: number;
+    dividend: string;
+  }>;
+  dca_monthly: number;
+  dca_simulation: Array<{
+    period: string;
+    periods: number;
+    monthly_amount: number;
+    total_invested: number;
+    final_value: number;
+    profit: number;
+    return_pct: number;
+    annualized_pct: number;
+  }>;
+  analytics: {
+    window_days?: number;
+    window_label?: string;
+    categories?: Array<{ key: string; name: string; score: number; grade: string; desc: string }>;
+    sub_metrics?: {
+      return_ability: Array<{ name: string; value: string; hint: string }>;
+      risk_control: Array<{ name: string; value: string; hint: string }>;
+      tracking_ability: Array<{ name: string; value: string; hint: string }>;
+      cost_performance: Array<{ name: string; value: string; hint: string }>;
+    };
+  };
+  managers: Array<{
+    name: string;
+    start_date: string;
+    end_date: string;
+    is_current: boolean;
+    days: number;
+    return_pct: number | null;
+    work_time: string;
+    fund_size: string;
+  }>;
+  holdings_distribution: {
+    quarter_label: string;
+    asset_allocation: Array<{ name: string; pct: number }>;
+    industry_distribution: Array<{ industry: string; weight_pct: number }>;
+    top_stocks: Array<{
+      stock_code: string;
+      stock_name: string;
+      weight_pct: number;
+      shares_wan: string;
+      value_wan: string;
+    }>;
+  };
+  profile: {
+    full_name: string;
+    short_name: string;
+    fund_code: string;
+    fund_type: string;
+    establish_date: string;
+    scale_yi: number | null;
+    company: string;
+    custodian: string;
+    benchmark: string;
+    tracking_target: string;
+    risk_level: string;
+  };
+  notices: Array<{ id: string; title: string; date: string; category: string; url: string }>;
+  product_summary: {
+    operation_mode: string;
+    risk_level: string;
+    invest_scope: string;
+    dividend_policy: string;
+    official_summary_url: string;
+  };
+  trading_rules: {
+    purchase_status: string;
+    redemption_status: string;
+    min_purchase: string;
+    min_dca: string;
+    source_rate: string;
+    discount_rate: string;
+    management_fee: string;
+    custody_fee: string;
+    sales_service_fee: string;
+    purchase_tiers: Array<{ condition: string; rate: string }>;
+    redemption_tiers: Array<{ condition: string; rate: string }>;
+    settlement_note: string;
+  };
+}
+
 const API_BASE = '';
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -395,6 +505,10 @@ export const api = {
   searchFunds: (q: string, limit = 8) =>
     requestJson<{ items: Array<{ code: string; name: string; asset_type: string; sector: string }> }>(
       `/api/v1/funds/search?q=${encodeURIComponent(q)}&limit=${limit}`
+    ),
+  getFundDetail: (fundCode: string, dcaMonthly = 1000) =>
+    requestJson<FundDetailResponse>(
+      `/api/v1/funds/${encodeURIComponent(fundCode)}/detail?dca_monthly=${encodeURIComponent(String(dcaMonthly))}`
     ),
   getScenarioBacktest: (startDate: string, tier = 'C3', dynamicRebalance = true) =>
     requestJson<ScenarioBacktestResponse>(

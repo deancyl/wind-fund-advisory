@@ -18,6 +18,7 @@ interface HoldingsPageProps {
   onOpenImport: () => void;
   onGoRebalance: () => void;
   onDataMutated: (msg: string) => void;
+  onSelectFund: (code: string) => void;
 }
 
 export function HoldingsPage({
@@ -29,6 +30,7 @@ export function HoldingsPage({
   onOpenImport,
   onGoRebalance,
   onDataMutated,
+  onSelectFund,
 }: HoldingsPageProps) {
   const tableCaptionId = useId();
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
@@ -572,8 +574,16 @@ export function HoldingsPage({
                     return (
                       <tr key={h.fund_code} className="hover:bg-slate-50/80 transition-colors">
                         <th scope="row" className="py-3 px-4 font-normal">
-                          <div className="font-semibold text-slate-900 whitespace-nowrap">{h.fund_name}</div>
-                          <div className="text-slate-400 font-mono text-[11px]">{h.fund_code}</div>
+                          <button
+                            type="button"
+                            onClick={() => onSelectFund(h.fund_code)}
+                            className="text-left group cursor-pointer"
+                          >
+                            <div className="font-semibold text-slate-900 group-hover:text-blue-700 group-hover:underline whitespace-nowrap">
+                              {h.fund_name}
+                            </div>
+                            <div className="text-slate-400 font-mono text-[11px]">{h.fund_code}</div>
+                          </button>
                         </th>
                         <td className="py-3 px-4 whitespace-nowrap">
                           <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[11px]">

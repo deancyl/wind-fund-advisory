@@ -1490,6 +1490,13 @@ def api_v1_funds_search(q: str = "", limit: int = 8) -> Dict[str, Any]:
     return _sanitize_v1_payload({"query": clean_q, "count": len(items), "items": items})
 
 
+@app.get("/api/v1/funds/{fund_code}/detail")
+def api_v1_fund_detail(fund_code: str, dca_monthly: float = 1000.0) -> Dict[str, Any]:
+    from fund_detail_service import get_fund_full_detail
+    data = get_fund_full_detail(fund_code=fund_code, dca_monthly=dca_monthly)
+    return _sanitize_v1_payload(data)
+
+
 class ActiveLedgerRequest(BaseModel):
     ledger_id: str
 
@@ -1784,7 +1791,14 @@ def api_v1_recommend_blueprint(
         try:
             cr = pm.get_fund_smart_money_crowding(code) or {}
             b20 = float(cr.get("bias_20", 0.0) or 0.0)
-            q_tag = _clean_text(cr.get("quadrant_tag") or "")
+            q_raw = _clean_text(cr.get("quadrant_tag") or "")
+            q_rename = {
+                "低估击球区": "低估布局区",
+                "放量分歧/避险区": "分歧避险区",
+                "温和复苏区": "温和修复区",
+                "右侧主升/偏热区": "高位偏热区",
+            }
+            q_tag = q_rename.get(q_raw, q_raw)
             if q_tag:
                 quant_signal = f"当前处于【{q_tag}】（MA20乖离 {b20:+.1f}%），"
         except Exception:

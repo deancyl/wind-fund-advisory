@@ -81,6 +81,40 @@ def main():
         sc_text = page.locator("main").inner_text()
         assert "持有 1 年" in sc_text and "同期沪深 300" in sc_text, "Scenario backtest KPIs not rendered"
 
+        # 验证点击基金卡片进入深度详情页（覆盖全部 5 大标签与 10 大维度）
+        page.locator("article[role='button']").first.click()
+        page.wait_for_timeout(3500)
+        fd_t1 = page.locator("main").inner_text()
+        assert "历史业绩表现" in fd_t1 and "历史定投收益测算" in fd_t1 and "历史净值明细" in fd_t1, "Fund detail Tab 1 incomplete"
+        page.get_by_role("button", name="单位净值 / 累计净值").click()
+        page.wait_for_timeout(300)
+        page.get_by_role("button", name="¥2000").click()
+        page.wait_for_timeout(500)
+        assert page.locator("canvas").count() >= 1, "Fund detail chart missing"
+
+        page.get_by_role("button", name="量化分析指标").click()
+        page.wait_for_timeout(500)
+        fd_t2 = page.locator("main").inner_text()
+        for kw in ("跟踪性价比", "抗下跌能力", "抗波动能力", "跟踪误差控制", "净值新高率", "最大回撤", "信息比率", "夏普比率", "卡玛比率"):
+            assert kw in fd_t2, f"Missing analytics metric: {kw}"
+
+        page.get_by_role("button", name="持仓与行业分布").click()
+        page.wait_for_timeout(400)
+        fd_t3 = page.locator("main").inner_text()
+        assert "资产配置结构" in fd_t3 and "前十大重仓股票" in fd_t3
+
+        page.get_by_role("button", name="基金经理").click()
+        page.wait_for_timeout(400)
+        assert "基金经理介绍与历任变动记录" in page.locator("main").inner_text()
+
+        page.get_by_role("button", name="档案 · 公告 · 规则").click()
+        page.wait_for_timeout(400)
+        fd_t5 = page.locator("main").inner_text()
+        assert "基金档案与产品概要" in fd_t5 and "交易规则与费率明细" in fd_t5 and "最新官方基金公告" in fd_t5
+
+        page.get_by_role("button", name="返回工作台").click()
+        page.wait_for_timeout(600)
+
         # Page 2 检查：持仓明细 + 净值对账 + 调仓效果追踪 + 极端行情压力测试 + 导出CSV + 编辑按钮
         page.get_by_role("button", name="我的持仓与体检").first.click()
         page.wait_for_timeout(1800)
