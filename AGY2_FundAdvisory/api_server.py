@@ -28,8 +28,10 @@ from portfolio_manager import (
     CORE_STRATEGY_POOL,
     fetch_realtime_index_quote,
     prefetch_batch_fund_quotes,
+    HoldingItem,
 )
 from advisory_engine import ActiveRiskSentry
+import sector_watchlist
 import cashflow_planner
 import execution_tracker
 import shadow_portfolio_tracker
@@ -165,17 +167,41 @@ class ShadowFreezeRequest(BaseModel):
     baseline_name: Optional[str] = None
 
 
+class SectorItemRequest(BaseModel):
+    code: str
+    name: Optional[str] = ""
+
+
+class WatchlistUpdateRequest(BaseModel):
+    action: str = "add"  # add / remove / reset
+    code: str = ""
+    name: str = ""
+
+
+class LedgerImportRequest(BaseModel):
+    ledger_id: Optional[str] = None
+    holdings: Any = None
+    available_cash: Optional[float] = None
+    replace_existing: bool = True
+
+
+class RebalanceExecuteRequest(BaseModel):
+    ledger_id: Optional[str] = None
+    mode: str = "gentle"
+    confirm_backup: bool = True
+
+
 # =====================================================================
 # Legacy /api/* endpoints (G32 compatibility)
 # =====================================================================
 
-@app.get("/api/health")
+@app.get("/api/health", deprecated=True)
 def api_health() -> Dict[str, Any]:
     health = data_resilience_guard.DataSourceHealthRegistry.get_health_summary()
     return {"status": "ok", "version": "5.13-G33", "data_sources": health}
 
 
-@app.get("/api/overview")
+@app.get("/api/overview", deprecated=True)
 def api_overview(ledger_id: Optional[str] = None) -> Dict[str, Any]:
     mlm, lid, pm, snap = _get_active_context(ledger_id)
     pnl = pm.calculate_intraday_pnl() if hasattr(pm, "calculate_intraday_pnl") else {}
@@ -201,7 +227,7 @@ def api_overview(ledger_id: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-@app.get("/api/holdings")
+@app.get("/api/holdings", deprecated=True)
 def api_holdings(ledger_id: Optional[str] = None) -> Dict[str, Any]:
     _, lid, pm, _ = _get_active_context(ledger_id)
     rows = []
@@ -223,7 +249,7 @@ def api_holdings(ledger_id: Optional[str] = None) -> Dict[str, Any]:
     return {"ledger_id": lid, "count": len(rows), "items": rows}
 
 
-@app.get("/api/rebalance")
+@app.get("/api/rebalance", deprecated=True)
 def api_rebalance(ledger_id: Optional[str] = None) -> Dict[str, Any]:
     _, lid, pm, snap = _get_active_context(ledger_id)
     tw = _target_weights_for_ledger(lid, snap)
@@ -248,7 +274,7 @@ def api_rebalance(ledger_id: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-@app.post("/api/cashflow/plan")
+@app.post("/api/cashflow/plan", deprecated=True)
 def api_cashflow_plan(req: CashflowPlanRequest) -> Dict[str, Any]:
     _, lid, pm, snap = _get_active_context(req.ledger_id)
     tw = _target_weights_for_ledger(lid, snap)
@@ -271,12 +297,12 @@ def api_cashflow_plan(req: CashflowPlanRequest) -> Dict[str, Any]:
     return {"ledger_id": lid, "investable_cash": investable, "dca_plan": dca, "left_side_bullets": bullets}
 
 
-@app.get("/api/backups")
+@app.get("/api/backups", deprecated=True)
 def api_list_backups() -> Dict[str, Any]:
     return {"snapshots": LedgerBackupVault.list_snapshots()}
 
 
-@app.post("/api/backups/restore")
+@app.post("/api/backups/restore", deprecated=True)
 def api_restore_backup(req: RestoreBackupRequest) -> Dict[str, Any]:
     ok = LedgerBackupVault.restore_snapshot(req.snapshot_id)
     if not ok:
@@ -284,7 +310,7 @@ def api_restore_backup(req: RestoreBackupRequest) -> Dict[str, Any]:
     return {"restored": True, "snapshot_id": req.snapshot_id}
 
 
-@app.get("/api/forward-audit")
+@app.get("/api/forward-audit", deprecated=True)
 def api_forward_audit() -> Dict[str, Any]:
     logs = forward_audit_logger.load_decision_audit_log()
     return {"count": len(logs), "logs": logs[-30:]}
@@ -496,6 +522,36 @@ def api_v1_rebalance(ledger_id: Optional[str] = None, min_buffer_pct: float = 3.
         "cheat_sheet_text": "\n".join(cheat_lines) if cheat_lines else "今日无需买卖操作。",
     }
     return _sanitize_v1_payload(payload)
+
+
+@app.post("/api/v1/rebalance/execute")
+def api_v1_rebalance_execute(req: RebalanceExecuteRequest) -> Dict[str, Any]:
+    mlm, lid, pm, snap = _get_active_context(req.ledger_id)
+    if req.confirm_backup:
+        try:
+            LedgerBackupVault.create_snapshot(reason=f"rebalance_execute_{lid}")
+        except Exception:
+            pass
+    tw = _target_weights_for_ledger(lid, snap)
+    res = StrategyBridge.generate_ai_rebalance_orders(
+        pm.holdings,
+        pm.available_cash,
+        tw,
+        pm=pm,
+        mode=req.mode or "gentle",
+        min_buffer_pct=3.0,
+        c_replace="011613" if lid == "combat_29_funds" else None,
+        core_anchor_code="002351",
+    )
+    items = res.get("items", []) if isinstance(res, dict) else []
+    return _sanitize_v1_payload({
+        "status": "ready",
+        "ledger_id": lid,
+        "mode": req.mode or "gentle",
+        "order_count": len(items),
+        "items": items,
+        "summary": res.get("summary", ""),
+    })
 
 
 @app.post("/api/v1/cashflow/plan")
@@ -764,6 +820,60 @@ def api_v1_ledger_export(ledger_id: Optional[str] = None) -> Dict[str, Any]:
     })
 
 
+@app.post("/api/v1/ledger/import")
+def api_v1_ledger_import(req: LedgerImportRequest) -> Dict[str, Any]:
+    mlm, lid, pm, _ = _get_active_context(req.ledger_id)
+    try:
+        LedgerBackupVault.create_snapshot(reason=f"cross_device_sync_{lid}")
+    except Exception:
+        pass
+
+    h_items = req.holdings
+    if isinstance(h_items, dict):
+        h_items = list(h_items.values())
+    elif not isinstance(h_items, list):
+        h_items = []
+
+    if req.replace_existing:
+        pm.holdings.clear()
+
+    for item in h_items:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("fund_code") or item.get("code") or "").strip()
+        if not code:
+            continue
+        name = str(item.get("fund_name") or item.get("name") or code)
+        shares = float(item.get("shares") or item.get("vol") or 0.0)
+        nav = float(item.get("current_nav") or item.get("nav") or item.get("cost_price") or 1.0)
+        cost = float(item.get("cost_price") or item.get("cost") or nav)
+        s_class = str(item.get("share_class") or "A")
+        holding = HoldingItem(
+            fund_code=code,
+            fund_name=name,
+            shares=shares,
+            cost_price=cost,
+            current_nav=nav,
+            share_class=s_class,
+        )
+        pm.holdings[code] = holding
+
+    if req.available_cash is not None:
+        pm.available_cash = float(req.available_cash)
+
+    if hasattr(pm, "save_state"):
+        try:
+            pm.save_state(record_snapshot=True)
+        except Exception:
+            pass
+
+    return _sanitize_v1_payload({
+        "status": "ok",
+        "ledger_id": lid,
+        "holdings_count": len(pm.holdings),
+    })
+
+
 class CheckinItemRequest(BaseModel):
     fund_code: str
     action: str = "BUY"
@@ -968,14 +1078,127 @@ def api_v1_backtest_summary(ledger_id: Optional[str] = None) -> Dict[str, Any]:
     })
 
 
+@app.get("/api/v1/sectors")
+def api_v1_get_sectors() -> List[Dict[str, Any]]:
+    items = sector_watchlist.load_sector_watchlist()
+    out = []
+    for it in items:
+        chg = sector_watchlist.fetch_sector_change_pct(it)
+        out.append({
+            "code": it.get("code", ""),
+            "name": it.get("name", ""),
+            "asset_type": it.get("asset_type", "ETF"),
+            "change_pct": round(float(chg), 2),
+        })
+    return _sanitize_v1_payload(out)
+
+
+@app.post("/api/v1/sectors")
+def api_v1_add_sector(req: SectorItemRequest) -> List[Dict[str, Any]]:
+    items = sector_watchlist.add_sector_item(req.code, req.name or "")
+    out = []
+    for it in items:
+        chg = sector_watchlist.fetch_sector_change_pct(it)
+        out.append({
+            "code": it.get("code", ""),
+            "name": it.get("name", ""),
+            "asset_type": it.get("asset_type", "ETF"),
+            "change_pct": round(float(chg), 2),
+        })
+    return _sanitize_v1_payload(out)
+
+
+@app.delete("/api/v1/sectors/{code}")
+def api_v1_remove_sector(code: str) -> List[Dict[str, Any]]:
+    items = sector_watchlist.remove_sector_item(code)
+    out = []
+    for it in items:
+        chg = sector_watchlist.fetch_sector_change_pct(it)
+        out.append({
+            "code": it.get("code", ""),
+            "name": it.get("name", ""),
+            "asset_type": it.get("asset_type", "ETF"),
+            "change_pct": round(float(chg), 2),
+        })
+    return _sanitize_v1_payload(out)
+
+
+@app.get("/api/v1/watchlist")
+def api_v1_get_watchlist() -> Dict[str, Any]:
+    items = sector_watchlist.load_sector_watchlist()
+    out = []
+    for it in items:
+        chg = sector_watchlist.fetch_sector_change_pct(it)
+        out.append({
+            "code": it.get("code", ""),
+            "name": it.get("name", ""),
+            "asset_type": it.get("asset_type", "ETF"),
+            "change_pct": round(float(chg), 2),
+        })
+    return _sanitize_v1_payload({"count": len(out), "items": out})
+
+
+@app.post("/api/v1/watchlist")
+def api_v1_update_watchlist(req: WatchlistUpdateRequest) -> Dict[str, Any]:
+    act = req.action.lower()
+    if act == "add" and req.code:
+        items = sector_watchlist.add_sector_item(req.code, req.name or "")
+    elif act == "remove" and req.code:
+        items = sector_watchlist.remove_sector_item(req.code)
+    elif act == "reset":
+        items = sector_watchlist.reset_sector_watchlist()
+    else:
+        items = sector_watchlist.load_sector_watchlist()
+    out = []
+    for it in items:
+        chg = sector_watchlist.fetch_sector_change_pct(it)
+        out.append({
+            "code": it.get("code", ""),
+            "name": it.get("name", ""),
+            "asset_type": it.get("asset_type", "ETF"),
+            "change_pct": round(float(chg), 2),
+        })
+    return _sanitize_v1_payload({"status": "ok", "count": len(out), "items": out})
+
+
+@app.get("/api/v1/funds/search")
+def api_v1_funds_search(q: str = "", limit: int = 8) -> Dict[str, Any]:
+    clean_q = str(q or "").strip()
+    clean_lim = max(1, min(int(limit), 20))
+    if not clean_q:
+        return _sanitize_v1_payload({"query": "", "count": 0, "items": []})
+    try:
+        from data_loader import search_index_and_fund_candidates
+        results = search_index_and_fund_candidates(clean_q, clean_lim)
+    except Exception:
+        results = []
+    items = []
+    for it in results:
+        items.append({
+            "code": str(it.get("code", "")),
+            "name": str(it.get("name", "")),
+            "asset_type": str(it.get("asset_type", "fund")),
+            "sector": str(it.get("sector", "")),
+        })
+    return _sanitize_v1_payload({"query": clean_q, "count": len(items), "items": items})
+
+
 def export_openapi_contract(output_path: Optional[Path] = None) -> Path:
     import json
-    target = output_path or (ROOT_DIR / "docs" / "openapi_v1.json")
-    target.parent.mkdir(parents=True, exist_ok=True)
     schema = app.openapi()
-    with open(target, "w", encoding="utf-8") as f:
-        json.dump(schema, f, ensure_ascii=False, indent=2)
-    return target
+    targets = []
+    if output_path:
+        targets.append(output_path)
+    else:
+        root_doc = ROOT_DIR / "docs" / "openapi_v1.json" if ROOT_DIR.name != "AGY2_FundAdvisory" else ROOT_DIR.parent / "docs" / "openapi_v1.json"
+        agy2_doc = (ROOT_DIR / "AGY2_FundAdvisory" / "docs" / "openapi_v1.json") if ROOT_DIR.name != "AGY2_FundAdvisory" else (ROOT_DIR / "docs" / "openapi_v1.json")
+        targets.extend([root_doc, agy2_doc])
+
+    for target in targets:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "w", encoding="utf-8") as f:
+            json.dump(schema, f, ensure_ascii=False, indent=2)
+    return targets[0]
 
 
 if __name__ == "__main__":

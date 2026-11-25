@@ -132,7 +132,7 @@ import execution_tracker
 import shadow_portfolio_tracker
 import data_resilience_guard
 import forward_audit_logger
-import ui_daily_brief
+from rebalance_grouping import group_rebalance_orders_by_intent, load_daily_checkin, save_daily_checkin
 
 _MODULE_MAP = {
     "cache_manager": (cache_manager, CURRENT_DIR / "cache_manager.py"),
@@ -1917,13 +1917,6 @@ safe_markdown_html(f"""
     div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) > div[data-testid="stColumn"]:first-child {{
         flex: 1 1 auto !important;
         min-width: 0 !important;
-    }}
-    div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) > div[data-testid="column"]:last-child,
-    div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) > div[data-testid="stColumn"]:last-child {{
-        flex: 0 0 460px !important;
-        min-width: 380px !important;
-        max-width: 500px !important;
-        width: 460px !important;
     }}
     @media (max-width: 768px) {{
         div[data-testid="stHorizontalBlock"]:has(.topbar-outer-marker) {{
@@ -4113,6 +4106,12 @@ with st.sidebar:
         "复盘": "复盘 · 回测与验真",
         "工具": "诊断 · 深度穿透"
     }
+    _redirect_nav = st.session_state.pop("_pending_desktop_nav_redirect", None)
+    if _redirect_nav in _nav_opts:
+        st.session_state["desktop_nav_tab"] = _redirect_nav
+        st.session_state["active_main_nav"] = _redirect_nav
+        st.session_state["desktop_main_nav"] = _redirect_nav
+
     _cur_nav = st.session_state.get("desktop_nav_tab", "持仓")
     _cur_idx = _nav_opts.index(_cur_nav) if _cur_nav in _nav_opts else 0
 
@@ -5126,6 +5125,175 @@ if _is_mobile_viewport():
         st.session_state["active_main_nav"] = _m_sel
         active_main_nav = _m_sel
 
+def render_rebalance_action_section(
+    pm: Any,
+    snapshot: Optional[Dict[str, Any]] = None,
+    active_lid: str = "combat_29_funds",
+    ai_orders_res: Optional[Dict[str, Any]] = None,
+    target_weights: Optional[Dict[str, float]] = None,
+    include_nav_buttons: bool = False,
+) -> None:
+    """渲染意图分组调仓单、新钱定投与下单打卡执行闭环。"""
+    snap = snapshot or {}
+    holdings = getattr(pm, "holdings", {})
+    avail_cash = float(getattr(pm, "available_cash", 0.0))
+
+    t_l, t_r = st.columns([9.2, 0.8])
+    with t_l:
+        st.markdown("##### 今日调仓")
+    with t_r:
+        with st.popover("i", help="查看调仓分组说明"):
+            st.markdown("调仓清单已自动分为四类：清理尾仓（免赎碎片回收）、C转A省费（年省约 0.40%）、核心调仓（权重再平衡）、维持持仓（缓冲带内免折腾）。")
+
+    rebal_items = []
+    if ai_orders_res and isinstance(ai_orders_res, dict) and "items" in ai_orders_res:
+        rebal_items = ai_orders_res.get("items", [])
+    elif hasattr(pm, "last_rebalance_plan") and pm.last_rebalance_plan:
+        rebal_items = pm.last_rebalance_plan
+
+    grouped = group_rebalance_orders_by_intent(rebal_items)
+
+    # 打卡状态
+    checkin_state = load_daily_checkin()
+    checked_codes = checkin_state.get("checked_codes", {})
+
+    actionable = [
+        it for it in (grouped["tail_items"] + grouped["c_items"] + grouped["core_items"])
+        if abs(float(it.get("diff_amount") or it.get("amount") or 0.0)) > 1e-4
+    ]
+    total_actions = len(actionable)
+    completed_actions = sum(1 for it in actionable if str(it.get("fund_code", it.get("code", ""))) in checked_codes)
+
+    # 进度条
+    if total_actions > 0:
+        prog = min(1.0, max(0.0, completed_actions / total_actions))
+        st.progress(prog)
+        st.caption(f"今日执行进度：已完成 {completed_actions} / {total_actions} 笔下单")
+
+    if grouped["is_empty"]:
+        st.success("今日无需操作，安心持有。")
+    else:
+        if len(grouped["tail_sweep"]) > 0:
+            t_grp = grouped["tail_sweep"]
+            with st.expander(f"{t_grp['title']} · 回收 ¥{t_grp['total_recovered_cash']:,.2f}", expanded=False):
+                rows = []
+                for x in t_grp["items"]:
+                    fc = str(x.get("fund_code", x.get("code", "")))
+                    fn = str(x.get("fund_name", x.get("name", "")))
+                    mv = abs(float(x.get('market_value') if x.get('market_value') is not None else (x.get('diff_amount') or x.get('amount') or 0.0)))
+                    chk_flag = "✅ 已清" if fc in checked_codes else "⏳ 待清"
+                    rows.append({"代码": fc, "名称": fn, "市值": f"¥{mv:.2f}", "操作": "清仓", "打卡": chk_flag})
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+        if len(grouped["c_replace"]) > 0:
+            c_grp = grouped["c_replace"]
+            with st.expander(f"{c_grp['title']} · 年省 0.40%", expanded=True):
+                rows = []
+                for x in c_grp["items"]:
+                    fc = str(x.get("fund_code", x.get("code", "")))
+                    fn = str(x.get("fund_name", x.get("name", "")))
+                    amt = float(x.get("diff_amount") or x.get("amount") or 0.0)
+                    dir_txt = "买入A" if amt > 0 else "卖出C"
+                    is_done = bool(fc in checked_codes)
+                    rows.append({"已下单": is_done, "代码": fc, "名称": fn, "方向": dir_txt, "金额": f"¥{abs(amt):,.2f}"})
+                df_c = pd.DataFrame(rows)
+                st.data_editor(
+                    df_c,
+                    column_config={
+                        "已下单": st.column_config.CheckboxColumn("已下单", default=False),
+                        "代码": st.column_config.TextColumn("代码", disabled=True),
+                        "名称": st.column_config.TextColumn("名称", disabled=True),
+                        "方向": st.column_config.TextColumn("方向", disabled=True),
+                        "金额": st.column_config.TextColumn("金额", disabled=True),
+                    },
+                    use_container_width=True,
+                    hide_index=True,
+                    key="editor_c_replace_checkin"
+                )
+
+        if len(grouped["core_trades"]) > 0:
+            k_grp = grouped["core_trades"]
+            with st.expander(f"{k_grp['title']}", expanded=True):
+                rows = []
+                for x in k_grp["items"]:
+                    fc = str(x.get("fund_code", x.get("code", "")))
+                    fn = str(x.get("fund_name", x.get("name", "")))
+                    amt = float(x.get("diff_amount") or x.get("amount") or 0.0)
+                    dir_txt = "买入" if amt > 0 else "减仓"
+                    chk_flag = "✅ 已办" if fc in checked_codes else "⏳ 待办"
+                    rows.append({"代码": fc, "名称": fn, "方向": dir_txt, "金额": f"¥{abs(amt):,.2f}", "打卡": chk_flag})
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+        if len(grouped["buffer_hold"]) > 0:
+            h_grp = grouped["buffer_hold"]
+            with st.expander(f"{h_grp['title']}", expanded=False):
+                rows = [{"代码": x.get("fund_code", x.get("code", "")), "名称": x.get("fund_name", x.get("name", "")), "状态": "维持"} for x in h_grp["items"]]
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    with st.expander("新钱定投", expanded=False):
+        new_inc_cash = st.number_input("新增资金", min_value=0.0, max_value=500000.0, value=3000.0, step=500.0, key=f"num_simple_new_cash_{include_nav_buttons}")
+        tw_plan = target_weights or dict(snap.get("target_weights_funds") or {})
+        if new_inc_cash > 0 and cashflow_planner and tw_plan:
+            _live_nav_map = {}
+            for _c, _h in (holdings or {}).items():
+                _q = fetch_realtime_fund_quote(_c, use_cache=True) if fetch_realtime_fund_quote else None
+                _live_nav_map[_c] = _q if _q is not None else {"official_nav": float(getattr(_h, "latest_nav", getattr(_h, "current_nav", 1.0)) or 1.0)}
+            _res_amt = float(st.session_state.get("tab2_liquidity_redline_reserve", 0.0) or 0.0)
+            _eff_cash = cashflow_planner.enforce_liquidity_redline(avail_cash, _res_amt)["investable_cash"] if _res_amt > 0 else avail_cash
+            inc_plan = cashflow_planner.plan_incremental_investment(
+                current_holdings=holdings,
+                available_cash=_eff_cash,
+                target_weights=tw_plan,
+                monthly_new_cash=new_inc_cash,
+                plan_months=1,
+                quotes_or_nav_map=_live_nav_map,
+            )
+            if inc_plan.get("allocations"):
+                st.dataframe(pd.DataFrame(inc_plan["allocations"]), use_container_width=True, hide_index=True)
+
+    # 限购标的自动拆单日历
+    if execution_tracker:
+        _qdii_limits = {"017436": 100.0, "050025": 500.0, "013402": 1000.0, "000216": 5000.0}
+        _split_rows = []
+        for _it in (grouped["c_items"] + grouped["core_items"]):
+            _fc = str(_it.get("fund_code", _it.get("code", "")))
+            _fn = str(_it.get("fund_name", _it.get("name", _fc)))
+            _amt = float(_it.get("diff_amount") or _it.get("amount") or 0.0)
+            _lim = _qdii_limits.get(_fc)
+            if _amt > 0 and _lim and _amt > _lim:
+                _sp = execution_tracker.split_quota_dca_calendar(_fc, _fn, _amt, daily_limit=_lim)
+                if _sp.get("needs_split"):
+                    _split_rows.append({"代码": _fc, "名称": _fn, "计划买入": f"¥{_amt:,.2f}", "日限额": f"¥{_lim:,.0f}", "拆分天数": f"{_sp['days_needed']} 天", "打卡节奏": _sp.get("summary", "")})
+        if _split_rows:
+            with st.expander(f"限购拆单 ({len(_split_rows)}只)", expanded=False):
+                st.dataframe(pd.DataFrame(_split_rows), use_container_width=True, hide_index=True)
+
+    cols = st.columns([2.5, 2.5, 5])
+    with cols[0]:
+        if st.button("复制小抄", use_container_width=True, key=f"btn_simple_copy_cheat_sheet_{include_nav_buttons}"):
+            lines_out = []
+            for idx, it in enumerate(actionable, 1):
+                c_code = str(it.get("fund_code", it.get("code", "")))
+                c_name = str(it.get("fund_name", it.get("name", "")))
+                amt = float(it.get("diff_amount") or it.get("amount") or 0.0)
+                act_s = "买入" if amt > 0 else "卖出"
+                chk_s = "[已办]" if c_code in checked_codes else "[待办]"
+                lines_out.append(f"{idx}. {chk_s} {c_code} {c_name} {act_s} ¥{abs(amt):,.2f}")
+            st.code("\n".join(lines_out) if lines_out else "今日无需买卖操作。", language="text")
+    with cols[1]:
+        if st.button("全部打卡", use_container_width=True, key=f"btn_mark_all_done_{include_nav_buttons}"):
+            for it in actionable:
+                fc = str(it.get("fund_code", it.get("code", "")))
+                amt = float(it.get("diff_amount") or it.get("amount") or 0.0)
+                act_s = "BUY" if amt > 0 else "SELL"
+                save_daily_checkin(fc, act_s, abs(amt), True)
+            try:
+                ledger_backup_vault.LedgerBackupVault.create_snapshot(reason="daily_checkin")
+            except Exception:
+                pass
+            st.rerun()
+
+
 if active_main_nav == "调仓":
     sub_rebal_view = st.radio(
         "调仓分段",
@@ -5142,7 +5310,7 @@ if active_main_nav == "调仓":
             _res_t1 = float(st.session_state.get("tab2_liquidity_redline_reserve", 0.0) or 0.0)
             _eff_cash_t1 = cashflow_planner.enforce_liquidity_redline(pm.available_cash, _res_t1)["investable_cash"] if _res_t1 > 0 else pm.available_cash
             _ai_res_t1 = StrategyBridge.generate_ai_rebalance_orders(pm.holdings, _eff_cash_t1, _tw_t1, pm=pm, mode="gentle", min_buffer_pct=float(st.session_state.get("rebalance_buffer_pct", 3.0)), c_replace="011613" if active_lid == "combat_29_funds" else None, core_anchor_code="002351")
-            ui_daily_brief.render_rebalance_action_section(pm=pm, snapshot=snapshot, active_lid=active_lid, ai_orders_res=_ai_res_t1, target_weights=_tw_t1, include_nav_buttons=False)
+            render_rebalance_action_section(pm=pm, snapshot=snapshot, active_lid=active_lid, ai_orders_res=_ai_res_t1, target_weights=_tw_t1, include_nav_buttons=False)
         except Exception as _e_rebal:
             st.warning(f"今日调仓视图加载提示: {_e_rebal}")
 
@@ -7173,6 +7341,7 @@ if active_main_nav == "持仓":
                     st.session_state.tab2_trigger_diagnose = True
                     st.session_state.tab2_trigger_rebalance = True
                     st.session_state.tab2_rebal_cache = None
+                    st.session_state["_pending_desktop_nav_redirect"] = "调仓"
                     st.session_state["desktop_nav_tab"] = "调仓"
                     st.session_state["active_main_nav"] = "调仓"
                     st.session_state["rad_rebalance_single_view"] = "今日调仓"
@@ -7264,6 +7433,7 @@ if active_main_nav == "持仓":
                 st.session_state.tab2_trigger_diagnose = True
                 st.session_state.tab2_trigger_rebalance = True
                 st.session_state.tab2_rebal_cache = None
+                st.session_state["_pending_desktop_nav_redirect"] = "调仓"
                 st.session_state["desktop_nav_tab"] = "调仓"
                 st.session_state["active_main_nav"] = "调仓"
                 st.session_state["rad_rebalance_single_view"] = "今日调仓"

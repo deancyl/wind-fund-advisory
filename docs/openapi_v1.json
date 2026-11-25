@@ -22,13 +22,15 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/overview": {
       "get": {
         "summary": "Api Overview",
         "operationId": "api_overview_api_overview_get",
+        "deprecated": true,
         "parameters": [
           {
             "name": "ledger_id",
@@ -77,6 +79,7 @@
       "get": {
         "summary": "Api Holdings",
         "operationId": "api_holdings_api_holdings_get",
+        "deprecated": true,
         "parameters": [
           {
             "name": "ledger_id",
@@ -125,6 +128,7 @@
       "get": {
         "summary": "Api Rebalance",
         "operationId": "api_rebalance_api_rebalance_get",
+        "deprecated": true,
         "parameters": [
           {
             "name": "ledger_id",
@@ -206,7 +210,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/backups": {
@@ -226,7 +231,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/backups/restore": {
@@ -266,7 +272,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/forward-audit": {
@@ -286,7 +293,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/v1/overview": {
@@ -426,6 +434,46 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Api V1 Rebalance Api V1 Rebalance Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rebalance/execute": {
+      "post": {
+        "summary": "Api V1 Rebalance Execute",
+        "operationId": "api_v1_rebalance_execute_api_v1_rebalance_execute_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebalanceExecuteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 Rebalance Execute Api V1 Rebalance Execute Post"
                 }
               }
             }
@@ -762,6 +810,46 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Api V1 Ledger Export Api V1 Ledger Export Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ledger/import": {
+      "post": {
+        "summary": "Api V1 Ledger Import",
+        "operationId": "api_v1_ledger_import_api_v1_ledger_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LedgerImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 Ledger Import Api V1 Ledger Import Post"
                 }
               }
             }
@@ -1122,6 +1210,224 @@
           }
         }
       }
+    },
+    "/api/v1/sectors": {
+      "get": {
+        "summary": "Api V1 Get Sectors",
+        "operationId": "api_v1_get_sectors_api_v1_sectors_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Api V1 Get Sectors Api V1 Sectors Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Api V1 Add Sector",
+        "operationId": "api_v1_add_sector_api_v1_sectors_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SectorItemRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Api V1 Add Sector Api V1 Sectors Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sectors/{code}": {
+      "delete": {
+        "summary": "Api V1 Remove Sector",
+        "operationId": "api_v1_remove_sector_api_v1_sectors__code__delete",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Code"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response Api V1 Remove Sector Api V1 Sectors  Code  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/watchlist": {
+      "get": {
+        "summary": "Api V1 Get Watchlist",
+        "operationId": "api_v1_get_watchlist_api_v1_watchlist_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 Get Watchlist Api V1 Watchlist Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Api V1 Update Watchlist",
+        "operationId": "api_v1_update_watchlist_api_v1_watchlist_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchlistUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 Update Watchlist Api V1 Watchlist Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/funds/search": {
+      "get": {
+        "summary": "Api V1 Funds Search",
+        "operationId": "api_v1_funds_search_api_v1_funds_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 8,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Funds Search Api V1 Funds Search Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1292,6 +1598,69 @@
         ],
         "title": "ImportTextRequest"
       },
+      "LedgerImportRequest": {
+        "properties": {
+          "ledger_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ledger Id"
+          },
+          "holdings": {
+            "title": "Holdings"
+          },
+          "available_cash": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available Cash"
+          },
+          "replace_existing": {
+            "type": "boolean",
+            "title": "Replace Existing",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "LedgerImportRequest"
+      },
+      "RebalanceExecuteRequest": {
+        "properties": {
+          "ledger_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ledger Id"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "default": "gentle"
+          },
+          "confirm_backup": {
+            "type": "boolean",
+            "title": "Confirm Backup",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "RebalanceExecuteRequest"
+      },
       "RestoreBackupRequest": {
         "properties": {
           "snapshot_id": {
@@ -1304,6 +1673,31 @@
           "snapshot_id"
         ],
         "title": "RestoreBackupRequest"
+      },
+      "SectorItemRequest": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "SectorItemRequest"
       },
       "ShadowFreezeRequest": {
         "properties": {
@@ -1372,6 +1766,27 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WatchlistUpdateRequest": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "title": "Action",
+            "default": "add"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "default": ""
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "WatchlistUpdateRequest"
       }
     }
   }

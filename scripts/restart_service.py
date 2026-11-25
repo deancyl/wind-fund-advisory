@@ -1,21 +1,33 @@
 import os
 import sys
 import time
+import socket
 import subprocess
 import urllib.request
 
-print("=== 1. Checking port 8501 processes ===")
-# 使用 netstat 查找监听 8501 的 PID
+def get_bindable_port():
+    for p in [8501, 8585]:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('127.0.0.1', p))
+                return p
+        except Exception:
+            pass
+    return 8585
+
+target_port = get_bindable_port()
+print(f"=== 1. Checking port {target_port} processes ===")
+# 使用 netstat 查找监听 target_port 的 PID
 res = subprocess.run(["netstat", "-ano"], capture_output=True, text=True)
 pids_to_kill = set()
 for line in res.stdout.splitlines():
-    if ":8501" in line and "LISTENING" in line:
+    if f":{target_port}" in line and "LISTENING" in line:
         parts = line.strip().split()
         pid = parts[-1]
         if pid.isdigit() and int(pid) > 0:
             pids_to_kill.add(int(pid))
 
-print(f"Found listening PIDs on 8501: {pids_to_kill}")
+print(f"Found listening PIDs on {target_port}: {pids_to_kill}")
 for pid in pids_to_kill:
     try:
         subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
@@ -23,7 +35,7 @@ for pid in pids_to_kill:
     except Exception as e:
         print(f"Error terminating PID {pid}: {e}")
 
-def wait_for_port_free(port=8501, timeout=10.0):
+def wait_for_port_free(port=target_port, timeout=10.0):
     start = time.time()
     while time.time() - start < timeout:
         res = subprocess.run(["netstat", "-ano"], capture_output=True, text=True)
@@ -38,17 +50,17 @@ def wait_for_port_free(port=8501, timeout=10.0):
     return False
 
 if pids_to_kill:
-    print("Waiting for port 8501 to be completely released...")
-    if not wait_for_port_free(8501, timeout=8.0):
-        print("Warning: Port 8501 did not release in time, continuing anyway.")
+    print(f"Waiting for port {target_port} to be completely released...")
+    if not wait_for_port_free(target_port, timeout=8.0):
+        print(f"Warning: Port {target_port} did not release in time, continuing anyway.")
     else:
-        print("Port 8501 is now confirmed free.")
+        print(f"Port {target_port} is now confirmed free.")
 else:
-    print("No existing process was listening on 8501.")
+    print(f"No existing process was listening on {target_port}.")
 
 time.sleep(0.5)
 
-print("=== 2. Launching Streamlit background daemon ===")
+print(f"=== 2. Launching Streamlit background daemon on port {target_port} ===")
 # 使用 Windows 原生 CREATE_NO_WINDOW 后台拉起
 CREATE_NO_WINDOW = 0x08000000
 DETACHED_PROCESS = 0x00000008
@@ -59,7 +71,7 @@ log_file = open("data/streamlit_server.log", "w", encoding="utf-8")
 
 cmd = [
     python_exe, "-m", "streamlit", "run", app_path,
-    "--server.port=8501",
+    f"--server.port={target_port}",
     "--server.headless=true",
     "--server.address=0.0.0.0",
     "--browser.serverAddress=127.0.0.1"
@@ -77,22 +89,22 @@ print(f"Launched Streamlit daemon with PID {proc.pid}")
 
 # 探活检测
 print("=== 3. Health Probe (Waiting for HTTP 200) ===")
-health_url = "http://127.0.0.1:8501/_stcore/health"
+health_url = f"http://127.0.0.1:{target_port}/_stcore/health"
 ok = False
-for attempt in range(20):
+for attempt in range(25):
     time.sleep(1.0)
     try:
         req = urllib.request.Request(health_url)
         with urllib.request.urlopen(req, timeout=1.5) as resp:
             if resp.status == 200:
-                print(f"Attempt {attempt+1}: Streamlit health probe returned 200 OK!")
+                print(f"Attempt {attempt+1}: Streamlit health probe returned 200 OK on port {target_port}!")
                 ok = True
                 break
     except Exception as e:
         print(f"Attempt {attempt+1}: not ready yet ({e})")
 
 if ok:
-    print("SUCCESS: Streamlit daemon is healthy and running on port 8501!")
+    print(f"SUCCESS: Streamlit daemon is healthy and running on port {target_port}!")
 else:
-    print("WARNING: Streamlit health check did not return 200 in 20 seconds.")
+    print(f"WARNING: Streamlit health check did not return 200 in 25 seconds.")
 

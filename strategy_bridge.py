@@ -4131,12 +4131,22 @@ class StrategyBridge:
             if action == "BUY" or diff_amount > 100.0:
                 try:
                     from data_resilience_guard import inspect_buy_candidate_safety
-                    from portfolio_manager import CORE_STRATEGY_POOL
-                    _meta_p = CORE_STRATEGY_POOL.get(code, {})
-                    _d_lim = float(_meta_p.get("daily_limit", 1e11) or 1e11)
-                    _aum_m = float(_meta_p.get("aum_million", 500.0) or 500.0)
-                    _is_susp = bool(_meta_p.get("is_suspended", False) or _d_lim <= 0.0)
-                    _mgr_days = _meta_p.get("manager_departure_days", None)
+                    from portfolio_manager import CORE_STRATEGY_POOL, fetch_realtime_fund_quota
+                    from cache_manager import FundMetadataManager
+                    _meta_p = dict(CORE_STRATEGY_POOL.get(code, {}) or {})
+                    try:
+                        _disk_meta = FundMetadataManager.get_fund_metadata(code, cache_only=True) or {}
+                    except Exception:
+                        _disk_meta = {}
+                    try:
+                        _quota_info = fetch_realtime_fund_quota(code, use_cache=True) or {}
+                    except Exception:
+                        _quota_info = {}
+
+                    _d_lim = float(_quota_info.get("daily_limit") if _quota_info.get("daily_limit") is not None else (_meta_p.get("daily_limit", 1e11) or 1e11))
+                    _aum_m = float(_disk_meta.get("aum_million") or _disk_meta.get("scale_million") or _meta_p.get("aum_million", 500.0) or 500.0)
+                    _is_susp = bool(_quota_info.get("is_suspended") or _disk_meta.get("is_suspended") or _meta_p.get("is_suspended", False) or _d_lim <= 0.0)
+                    _mgr_days = _disk_meta.get("manager_departure_days") if _disk_meta.get("manager_departure_days") is not None else _meta_p.get("manager_departure_days", None)
                     _fb_code = str(_meta_p.get("fallback_code", "") or "005561")
                     _sec_chk = inspect_buy_candidate_safety(
                         fund_code=code,

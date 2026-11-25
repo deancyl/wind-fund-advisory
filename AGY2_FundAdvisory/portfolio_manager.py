@@ -4406,25 +4406,30 @@ def prefetch_batch_fund_quotes(fund_codes: List[str], force_refresh: bool = Fals
             from data_resilience_guard import detect_dividend_or_split_false_alarm
             acc_nav_str = d.get("ACCNAV")
             curr_acc_nav = float(acc_nav_str) if acc_nav_str not in (None, "", "--") else None
+            persisted_prev_nav = None
             prev_acc_nav = None
             if c in _REALTIME_QUOTE_CACHE:
                 _old_q = _REALTIME_QUOTE_CACHE[c][1]
-                prev_acc_nav = getattr(_old_q, "accum_nav", None)
-            if prev_acc_nav is None and curr_acc_nav is not None and abs(1.0 + nav_chg_val / 100.0) > 1e-6:
-                prev_acc_nav = round(curr_acc_nav / (1.0 + nav_chg_val / 100.0), 4)
+                if str(getattr(_old_q, "official_pdate", "")) < str(pdate):
+                    persisted_prev_nav = float(getattr(_old_q, "official_nav", 0.0) or getattr(_old_q, "dwjz", 0.0) or 0.0) or None
+                    prev_acc_nav = getattr(_old_q, "accum_nav", None)
+            if (not persisted_prev_nav or persisted_prev_nav <= 0) and dwjz_prev > 0:
+                persisted_prev_nav = dwjz_prev
 
-            chk_chg = official_chg_today if official_chg_today is not None else (prev_official_chg if is_off_today else 0.0)
-            raw_unit_drop = ((nav_val - dwjz_prev) / dwjz_prev * 100.0) if dwjz_prev > 0 else 0.0
-            if (raw_unit_drop <= -3.0 or (chk_chg is not None and chk_chg <= -3.0)) and dwjz_prev > 0 and nav_val > 0:
-                div_res = detect_dividend_or_split_false_alarm(
-                    prev_unit_nav=dwjz_prev,
-                    curr_unit_nav=nav_val,
-                    prev_accum_nav=prev_acc_nav,
-                    curr_accum_nav=curr_acc_nav,
-                )
-                if div_res.get("is_dividend_ex", False) or div_res.get("is_dividend_or_split", False):
-                    custom_cmp_str = "🎉 分红除权 (非真实亏损)"
-                    is_dividend_event = True
+            if persisted_prev_nav and persisted_prev_nav > 0 and nav_val > 0:
+                raw_unit_drop = (nav_val / persisted_prev_nav - 1.0) * 100.0
+                if raw_unit_drop <= -3.0:
+                    _eff_prev_acc = prev_acc_nav or persisted_prev_nav
+                    _eff_curr_acc = curr_acc_nav or round(_eff_prev_acc * (1.0 + nav_chg_val / 100.0), 4)
+                    div_res = detect_dividend_or_split_false_alarm(
+                        prev_unit_nav=persisted_prev_nav,
+                        curr_unit_nav=nav_val,
+                        prev_accum_nav=_eff_prev_acc,
+                        curr_accum_nav=_eff_curr_acc,
+                    )
+                    if isinstance(div_res, dict) and (div_res.get("is_dividend_or_split") or div_res.get("is_dividend_ex")):
+                        is_dividend_event = True
+                        custom_cmp_str = "🎉 分红除权 (非真实亏损)"
         except Exception:
             pass
 
