@@ -1575,30 +1575,34 @@ _QUANT_MODELS_META: Dict[str, Dict[str, str]] = {
     "all_weather": {
         "id": "all_weather",
         "name": "全天候动态均衡模型",
-        "tag": "默认推荐",
+        "tag": "全档位适配",
+        "recommended_tiers": "C1~C5",
         "scenario": "适用场景：不确定牛熊拐点、希望跨周期稳健复利的大多数投资者",
-        "principle": "结合十维宏观估值/趋势信号与波动率缩放，动态平衡红利、宽基、纯债、海外与黄金。",
+        "principle": "在所选 C 档风险预算内，按十维宏观信号动态平衡红利、宽基、纯债、海外与黄金。",
     },
     "risk_parity": {
         "id": "risk_parity",
         "name": "风险平价抗跌模型",
-        "tag": "严控回撤",
+        "tag": "推荐 C1~C3",
+        "recommended_tiers": "C1~C3",
         "scenario": "适用场景：熊市/震荡防御期、厌恶大回撤、追求稳健持有体验的资金",
-        "principle": "按各资产近 60 日真实波动率倒数分配权重，让债券/黄金/权益贡献均衡风险预算。",
+        "principle": "在所选 C 档风险预算内，按各资产近 60 日波动率倒数配权，让每类资产贡献均衡风险。",
     },
     "dividend_defense": {
         "id": "dividend_defense",
         "name": "高股息红利防御模型",
-        "tag": "现金流防御",
+        "tag": "推荐 C1~C3",
+        "recommended_tiers": "C1~C3",
         "scenario": "适用场景：利率下行期、市场震荡筑底、偏好高股息与纯债吃息的稳健配置",
-        "principle": "重点倾斜中证红利低波、红利增强与纯债底仓，大幅压降高波动成长敞口。",
+        "principle": "在所选 C 档权益预算内，重点倾斜中证红利低波与红利增强，压降高波动成长敞口。",
     },
     "barbell_growth": {
         "id": "barbell_growth",
         "name": "杠铃攻守策略模型",
-        "tag": "低位博弹性",
-        "scenario": "适用场景：科技估值处于历史低位、愿意“重债保底 + 科技/美股搏反弹”的进取配置",
-        "principle": "一端用纯债与黄金锁住安全垫，另一端集中布局科创50与纳指100高弹性进攻。",
+        "tag": "推荐 C3~C5",
+        "recommended_tiers": "C3~C5",
+        "scenario": "适用场景：科技估值处于历史低位、愿意“纯债黄金保底 + 科技/美股搏弹性”的配置",
+        "principle": "在所选 C 档风险预算内，一端用纯债黄金守底线，另一端集中配置科创50与纳指100。",
     },
 }
 
@@ -1726,28 +1730,20 @@ def api_v1_recommend_blueprint(
 
     _, _, pm, snap = _get_active_context(None)
     target_w = _build_model_weights(model_id, tier, snap, n_funds)
-    bp = StrategyBridge.generate_zero_start_blueprint(
-        total_capital=cap,
-        target_weights_funds=target_w,
-        tier=tier,
-    ) or {}
-    raw_items = bp.get("items") or []
 
-    # 按 fund_code 聚合（若某标的因限购拆单，保持清晰展示同时确保权重来自真实 target_weight_pct / allocated_amount）
+    # 严格按用户选定的 fund_count 输出精确只数（不因限购拆单额外多吐卡片），
+    # 同时保留真实单日限购信息写入 quota_note 字段提醒用户。
     items = []
     regime_label = str(snap.get("market_state") or snap.get("regime") or "中性均衡")
-    for it in raw_items:
-        code = str(it.get("fund_code") or it.get("code") or "").strip().zfill(6)
-        w_pct = float(it.get("target_weight_pct") or it.get("weight_pct") or 0.0)
-        if w_pct <= 0 and code in target_w:
-            w_pct = round(target_w[code] * 100.0, 2)
-        buy_amt = float(it.get("allocated_amount") or it.get("amount") or it.get("buy_amount") or 0.0)
-        if buy_amt <= 0 and w_pct > 0:
-            buy_amt = round(cap * w_pct / 100.0, 2)
+    for code, w_frac in sorted(target_w.items(), key=lambda x: x[1], reverse=True):
+        w_pct = round(float(w_frac) * 100.0, 1)
+        buy_amt = round(cap * w_pct / 100.0, 2)
 
         meta = _FUND_PLAIN_WHY.get(code, {})
         pool_m = CORE_STRATEGY_POOL.get(code, {})
-        # 结合真实量价四象限生成动态入选理由
+        fname = str(pool_m.get("fund_name") or code)
+        d_lim = float(pool_m.get("daily_limit", 1e8))
+
         quant_signal = ""
         try:
             cr = pm.get_fund_smart_money_crowding(code) or {}
@@ -1758,36 +1754,36 @@ def api_v1_recommend_blueprint(
         except Exception:
             pass
 
-        role_text = str(meta.get("role") or it.get("role_desc") or pool_m.get("asset_class") or "核心配置")
-        base_why = str(meta.get("why") or it.get("role_desc") or "符合当前量化风险预算与资产分散目标")
-        quant_reason = f"在「{_QUANT_MODELS_META[model_id]['name']}」与当前{regime_label}下，{quant_signal}分配 {w_pct:.1f}% 权重以平衡组合收益与回撤。"
-        fee_note = str(it.get("why_share_class") or "底仓首选A类，长期持有免每日计提销售服务费")
-        action_guide = str(it.get("action_guide") or "不限购，可按建议金额分批或一次配置")
+        role_text = str(meta.get("role") or pool_m.get("asset_class") or "核心配置")
+        base_why = str(meta.get("why") or "符合当前量化风险预算与资产分散目标")
+        quant_reason = f"在「{_QUANT_MODELS_META[model_id]['name']}」与 {tier} 风险预算下（当前{regime_label}），{quant_signal}分配 {w_pct:.1f}% 权重以平衡收益与波动。"
+        fee_note = "底仓首选 A 类份额，长期持有免每日计提销售服务费"
+        quota_note = ""
+        if d_lim < 1e7 and buy_amt > d_lim:
+            days_need = max(2, int((buy_amt + d_lim - 1) // d_lim))
+            quota_note = f"该基金单日限购 ¥{int(d_lim):,}，建议分约 {days_need} 个交易日买入或改用同类不限购标的承接"
 
         items.append({
             "fund_code": code,
-            "fund_name": str(it.get("fund_name") or pool_m.get("fund_name") or code),
+            "fund_name": fname,
             "role": role_text,
             "why": base_why,
             "quant_reason": quant_reason,
             "fee_note": fee_note,
-            "action_guide": action_guide,
-            "weight_pct": round(w_pct, 2),
-            "suggested_amount": round(buy_amt, 2),
-            "daily_limit": float(pool_m.get("daily_limit", 1e8)),
+            "quota_note": quota_note,
+            "action_guide": quota_note or "不限购，可按建议金额分批或一次配置",
+            "weight_pct": w_pct,
+            "suggested_amount": buy_amt,
+            "daily_limit": d_lim,
         })
 
-    items.sort(key=lambda x: x["weight_pct"], reverse=True)
-    # 保证展示占比总和精确校准到 100.0%
-    sum_w = sum(x["weight_pct"] for x in items)
-    if items and abs(sum_w - 100.0) > 0.05 and sum_w > 0:
-        scale = 100.0 / sum_w
+    # 保证展示占比总和严格等于 100.0% 且金额平账
+    if items:
         acc_w = 0.0
         for idx, x in enumerate(items):
             if idx == len(items) - 1:
                 x["weight_pct"] = round(max(0.0, 100.0 - acc_w), 1)
             else:
-                x["weight_pct"] = round(x["weight_pct"] * scale, 1)
                 acc_w += x["weight_pct"]
             x["suggested_amount"] = round(cap * x["weight_pct"] / 100.0, 2)
 

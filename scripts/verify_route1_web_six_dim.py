@@ -16,10 +16,10 @@ def fetch_json(path: str):
 def main():
     # ── 维度 1：准确性与数学公理验收（API 级） ──
     for model in ("all_weather", "risk_parity", "dividend_defense", "barbell_growth"):
-        for n in (3, 5, 6):
-            bp, ms = fetch_json(f"/api/v1/recommend/blueprint?risk_level=C3&amount=50000&fund_count={n}&model={model}")
+        for n in (3, 4, 5, 6, 8):
+            bp, ms = fetch_json(f"/api/v1/recommend/blueprint?risk_level=C4&amount=50000&fund_count={n}&model={model}")
             items = bp["items"]
-            assert len(items) >= n, f"{model} n={n}: got {len(items)}"
+            assert len(items) == n, f"{model} n={n}: expected exact {n}, got {len(items)}"
             w_sum = round(sum(x["weight_pct"] for x in items), 1)
             amt_sum = round(sum(x["suggested_amount"] for x in items), 1)
             assert abs(w_sum - 100.0) <= 0.2, f"{model} n={n} weight sum {w_sum} != 100"

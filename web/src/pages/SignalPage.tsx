@@ -198,7 +198,7 @@ export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer }
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1 pl-3">
-              先选量化配置模型与适用场景，再设定拟投金额、风险档位与基金只数，系统自动算出每只基金的精确占比与入选理由
+              <strong>两步分工（互补不冲突）：</strong>① <strong>C1~C5 风险档位</strong>决定总股债仓位上限；② <strong>配置模型</strong>决定在该风险预算内如何分配各资产风格与权重
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -288,11 +288,7 @@ export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer }
               {blueprint.model_meta?.principle}
             </span>
             <span className="font-bold text-blue-800 tabular-nums">
-              合计配置：¥{blueprint.total_amount.toLocaleString()}（
-              {blueprint.count > blueprint.fund_count
-                ? `目标 ${blueprint.fund_count} 只 · 含限购备选拆单共 ${blueprint.count} 笔`
-                : `${blueprint.count} 只核心基金`}{' '}
-              · 权重和 100.0%）
+              合计配置：¥{blueprint.total_amount.toLocaleString()}（严格精选 {blueprint.count} 只核心基金 · 权重和 100.0%）
             </span>
           </div>
         )}
@@ -321,6 +317,11 @@ export function SignalPage({ overview, ledgerId, onGoHoldings, onOpenProDrawer }
                         <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-[11px] text-slate-600 leading-relaxed">
                           <strong className="text-slate-800">为什么选它：</strong>
                           {f.quant_reason}
+                        </div>
+                      )}
+                      {f.quota_note && (
+                        <div className="px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-800 leading-relaxed">
+                          限购提示：{f.quota_note}
                         </div>
                       )}
                       {f.fee_note && (

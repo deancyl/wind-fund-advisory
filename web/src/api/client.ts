@@ -47,6 +47,7 @@ export interface QuantModelMeta {
   id: string;
   name: string;
   tag: string;
+  recommended_tiers?: string;
   scenario: string;
   principle: string;
 }
@@ -58,6 +59,7 @@ export interface BlueprintItem {
   why: string;
   quant_reason?: string;
   fee_note?: string;
+  quota_note?: string;
   action_guide?: string;
   weight_pct: number;
   suggested_amount: number;
