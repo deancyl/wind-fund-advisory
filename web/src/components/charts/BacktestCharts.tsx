@@ -7,9 +7,10 @@ import { ChartReadingGuide } from '../ChartReadingGuide';
 interface BacktestChartsProps {
   data: BacktestCurvesResponse | null;
   loading: boolean;
+  staleHint?: string;
 }
 
-export function BacktestCharts({ data, loading }: BacktestChartsProps) {
+export function BacktestCharts({ data, loading, staleHint }: BacktestChartsProps) {
   const navOption = useMemo<echarts.EChartsCoreOption>(() => {
     if (!data || !data.dates.length) return {};
     const fmtCagr = (v: number | null) => (v !== null && v !== undefined ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '');
@@ -192,10 +193,67 @@ export function BacktestCharts({ data, loading }: BacktestChartsProps) {
     };
   }, [data]);
 
+  const pcrCompareOption = useMemo<echarts.EChartsCoreOption>(() => {
+    const rows = data?.weight_vs_pcr || [];
+    if (!rows.length) return {};
+    return {
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        backgroundColor: 'rgba(15,23,42,0.94)',
+        borderWidth: 0,
+        textStyle: { color: '#F8FAFC', fontSize: 12 },
+        formatter: (params: unknown) => {
+          const list = Array.isArray(params) ? params : [];
+          if (!list.length) return '';
+          const idx = Number((list[0] as { dataIndex?: number }).dataIndex ?? 0);
+          const item = rows[idx];
+          if (!item) return '';
+          return `
+            <div style="font-weight:700;margin-bottom:4px;">${item.fund_name} (${item.fund_code})</div>
+            <div style="color:#94A3B8;font-size:11px;margin-bottom:4px;">风格桶：${item.bucket_label}</div>
+            <div>资金配置占比：<strong>${item.weight_pct.toFixed(1)}%</strong></div>
+            <div>真实风险贡献 (PCR)：<strong style="color:#FBBF24;">${item.pcr_pct.toFixed(1)}%</strong></div>
+          `;
+        },
+      },
+      legend: { top: 0, right: 0, textStyle: { fontSize: 11, color: '#475569' } },
+      grid: { top: 38, left: 42, right: 14, bottom: 52 },
+      xAxis: {
+        type: 'category',
+        data: rows.map((r) => r.short_name),
+        axisLabel: { color: '#475569', fontSize: 10, interval: 0, rotate: rows.length >= 6 ? 18 : 0 },
+      },
+      yAxis: {
+        type: 'value',
+        axisLabel: { color: '#64748B', fontSize: 10, formatter: '{value}%' },
+        splitLine: { lineStyle: { color: '#F1F5F9' } },
+      },
+      series: [
+        {
+          name: '资金占比 (%)',
+          type: 'bar',
+          barMaxWidth: 20,
+          data: rows.map((r) => r.weight_pct),
+          itemStyle: { color: '#1D4ED8', borderRadius: [4, 4, 0, 0] },
+        },
+        {
+          name: '风险贡献 PCR (%)',
+          type: 'bar',
+          barMaxWidth: 20,
+          data: rows.map((r) => r.pcr_pct),
+          itemStyle: { color: '#D97706', borderRadius: [4, 4, 0, 0] },
+        },
+      ],
+    };
+  }, [data]);
+
+  const hasPcrChart = Boolean(data?.weight_vs_pcr && data.weight_vs_pcr.length > 0);
+
   if (loading) {
     return (
       <div className="card-elevated rounded-2xl p-6 text-center text-xs text-slate-500">
-        正在加载 2018–2026 全周期净值、动态回撤与资产仓位变迁曲线...
+        正在加载当前方案真实复权净值、动态回撤与风险贡献结构图...
       </div>
     );
   }
@@ -203,25 +261,34 @@ export function BacktestCharts({ data, loading }: BacktestChartsProps) {
 
   return (
     <div className="space-y-4">
+      {staleHint && (
+        <div className="px-3.5 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 font-medium">
+          {staleHint}
+        </div>
+      )}
+
       {/* 累计净值对比 */}
       <div className="card-elevated rounded-2xl p-5 space-y-3.5">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="w-1 h-4 rounded-full bg-red-600" />
             <h3 className="text-base font-bold text-slate-900">
               {data.period_label || '所选周期'}累计净值对比（起始归一化 1.000）
             </h3>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+              {data.primary_name}
+            </span>
           </div>
-          <span className="text-[11px] text-slate-400">{data.date_range || '支持鼠标悬停对比各阶段净值'}</span>
+          <span className="text-[11px] font-mono text-slate-400">{data.date_range || '支持鼠标悬停对比各阶段净值'}</span>
         </div>
         <ChartReadingGuide
-          howToRead="对比 2018 至今跨越牛熊周期的累计净值增长（背景色块对应 7 大宏观牛熊风格切片与样本外盲测金库）。"
-          actionSignal="若策略曲线斜率更稳、熊市切片期跌幅显著小于沪深300基准，可安心按目标权重长期持有。"
+          howToRead={`对比【${data.primary_name}】在 ${data.period_label || '当前区间'}（${data.date_range || ''}）的真实复权净值增长与沪深300/红利/纯债基准表现。`}
+          actionSignal="若策略红线/实盘蓝虚线斜率更稳、下跌阶段回撤显著浅于沪深300，说明跨资产分散与选基有效。"
         />
         <EChartBox option={navOption} height={350} />
       </div>
 
-      {/* 下方双图：动态回撤对比 + 资产仓位变迁 */}
+      {/* 下方双图：动态回撤对比 + 资金占比 vs 真实风险贡献(PCR)对照 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="card-elevated rounded-2xl p-5 space-y-3">
           <div className="flex items-center gap-2">
@@ -238,13 +305,23 @@ export function BacktestCharts({ data, loading }: BacktestChartsProps) {
         <div className="card-elevated rounded-2xl p-5 space-y-3">
           <div className="flex items-center gap-2">
             <span className="w-1 h-4 rounded-full bg-indigo-600" />
-            <h3 className="text-sm font-bold text-slate-900">资产仓位变迁（高抛低吸验证）</h3>
+            <h3 className="text-sm font-bold text-slate-900">
+              {hasPcrChart ? '当前方案：资金占比 vs 真实风险贡献 (PCR)' : '资产仓位变迁（大类配比）'}
+            </h3>
           </div>
           <ChartReadingGuide
-            howToRead="观察高位时权益色块是否自动收缩、低位时是否自动放大。"
-            actionSignal="用于验证策略是否真正做到动态风控与多元分散，而非满仓死扛。"
+            howToRead={
+              hasPcrChart
+                ? '蓝柱为每只入选基金分到的资金占比，琥珀柱为其在 Ledoit-Wolf 真实协方差矩阵下实际贡献的组合波动风险（PCR 总和 100%）。'
+                : '观察不同大类资产（权益、纯债、黄金、海外）的仓位结构分布。'
+            }
+            actionSignal={
+              hasPcrChart
+                ? '纯债/黄金资金占比高但风险贡献极低（起压舱石作用），权益基金若风险贡献均衡则说明没有把风险全赌在单一赛道。'
+                : '用于验证策略是否真正做到多元分散，而非单押单一风格。'
+            }
           />
-          <EChartBox option={allocOption} height={260} />
+          <EChartBox option={hasPcrChart ? pcrCompareOption : allocOption} height={260} />
         </div>
       </div>
     </div>

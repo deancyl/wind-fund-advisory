@@ -100,19 +100,55 @@ def apply_asset_class_constitutional_limits(
         caps["bond_min"] = max(0.0, min(0.85, caps["bond_min"] - equity_tilt_pct))
         caps["bond_max"] = max(caps["bond_min"], min(0.90, caps["bond_max"] - equity_tilt_pct))
 
-    # 分类资产
+    # 分类资产（优先使用官方 asset_class / bucket_10 / fund_type 一等元数据，绝不靠基金名漏判）
     qdii_codes, gold_codes, bond_codes, eq_codes = [], [], [], []
     for c in w_res.keys():
         fn = ""
         bkt = ""
+        ac_meta = ""
+        ft_meta = ""
         if metrics_df is not None and not metrics_df.empty:
             m_sub = metrics_df[metrics_df["fund_code"] == c]
             if not m_sub.empty:
-                fn = str(m_sub.iloc[0].get("fund_name", ""))
-                bkt = str(m_sub.iloc[0].get("bucket", ""))
-        is_gold = any(k in fn for k in ["黄金", "AU9999", "上海金"]) or c in ["000216", "004253", "002610", "002611", "518880", "159937"] or bkt == "gold"
-        is_qdii = any(k in fn for k in ["标普", "纳斯达克", "纳指", "美股", "QDII", "海外", "全球"]) or c in ["050025", "001071", "017436", "513500", "513100", "270042"] or bkt in ["qdii", "global"]
-        is_bond = any(k in fn for k in ["债", "裕祥", "固收", "短融", "信用"]) or c in ["002351", "002352", "000086", "511010", "511260", "511360"] or bkt in ["pure_bond", "fixed_income_plus", "bond"]
+                row0 = m_sub.iloc[0]
+                fn = str(row0.get("fund_name", ""))
+                bkt = str(row0.get("bucket_10", row0.get("bucket", "")))
+                ac_meta = str(row0.get("asset_class", "")).strip().lower()
+                ft_meta = str(row0.get("fund_type", ""))
+
+        if ac_meta in ("gold", "commodity"):
+            gold_codes.append(c)
+            continue
+        if ac_meta in ("qdii", "overseas", "global"):
+            qdii_codes.append(c)
+            continue
+        if ac_meta in ("bond", "fixed_income"):
+            bond_codes.append(c)
+            continue
+        if ac_meta == "equity":
+            eq_codes.append(c)
+            continue
+
+        is_gold = (
+            bkt in ("gold", "commodity_gold", "黄金商品", "黄金与商品对冲")
+            or "商品" in ft_meta
+            or "REIT" in ft_meta.upper()
+            or any(k in fn for k in ["黄金", "AU9999", "上海金"])
+            or c in ["000216", "004253", "002610", "002611", "518880", "159937"]
+        )
+        is_qdii = (
+            bkt in ("qdii", "global", "overseas_qdii", "海外QDII", "海外QDII跨市场")
+            or "QDII" in ft_meta.upper()
+            or any(k in fn for k in ["标普", "纳斯达克", "纳指", "美股", "QDII", "海外", "全球", "恒生", "日经"])
+            or c in ["050025", "001071", "017436", "513500", "513100", "270042"]
+        )
+        is_bond = (
+            bkt in ("pure_bond", "fixed_income_plus", "bond", "纯债固收", "固收增强", "固收+二级债")
+            or "债券型" in ft_meta
+            or "偏债" in ft_meta
+            or any(k in fn for k in ["债", "裕祥", "固收", "短融", "信用", "稳益"])
+            or c in ["002351", "002352", "000086", "018757", "511010", "511260", "511360"]
+        )
 
         if is_gold:
             gold_codes.append(c)
@@ -1029,7 +1065,10 @@ class WinRateOptimizer:
         vols = ret_df.std().values * np.sqrt(250.0)
         vol_map = {c: max(float(v), 0.01) for c, v in zip(codes, vols)}
 
-        core_buckets = {"pure_bond", "fixed_income_plus", "dividend_value", "gold", "bond", "dividend"}
+        core_buckets = {
+            "pure_bond", "fixed_income_plus", "dividend_value", "gold", "commodity_gold",
+            "bond", "dividend", "纯债固收", "固收增强", "固收+二级债", "红利价值", "红利低波价值", "黄金商品", "黄金与商品对冲",
+        }
         core_codes = []
         sat_codes = []
 
@@ -1473,10 +1512,34 @@ class WinRateOptimizer:
 
         candidates = [c for c in all_codes if c not in current_codes]
 
+        def _swap_benchmark_family(f_code: str) -> str:
+            if f_code in ("000216", "004253", "002610", "002611", "518880", "159937"):
+                return "BENCH_GOLD"
+            if f_code in ("050025", "001071", "513500", "161125"):
+                return "BENCH_SP500"
+            if f_code in ("017436", "270042", "513100"):
+                return "BENCH_NASDAQ"
+            if f_code in ("011613", "011612", "588000", "013841"):
+                return "BENCH_STAR50"
+            if f_code in ("100032", "090010", "008682"):
+                return "BENCH_CSI_DIV"
+            if f_code in ("005561", "005562", "001015"):
+                return "BENCH_DIV_LOWVOL"
+            if f_code in ("004194", "011860", "016634"):
+                return "BENCH_CSI1000"
+            if f_code in ("001053", "000478", "161017", "004854"):
+                return "BENCH_CSI500"
+            if f_code in ("002351", "000086", "018757", "002352"):
+                return "BENCH_BOND" if len(best_codes) <= 6 else f_code
+            return f_code
+
         for iteration in range(max_iter):
             made_swap = False
             for i, old_code in enumerate(best_codes):
+                other_fams = {_swap_benchmark_family(c) for idx_c, c in enumerate(best_codes) if idx_c != i}
                 for new_code in candidates:
+                    if _swap_benchmark_family(new_code) in other_fams:
+                        continue
                     trial_codes = list(best_codes)
                     trial_codes[i] = new_code
 
@@ -1496,8 +1559,8 @@ class WinRateOptimizer:
                     )
 
                     if wr > best_wr + 0.005:  # 至少提升 0.5%
-                        # 用 SLSQP 优化权重
-                        opt_w = self._slsqp_optimize(trial_codes, nav_df, quota_info)
+                        # 按当前量化模型重新求解权重（保留所选模型语义）
+                        opt_w = self._optimize_by_model_type(trial_codes, nav_df, quota_info)
                         if opt_w:
                             opt_w = apply_asset_class_constitutional_limits(opt_w, tier=self.tier, metrics_df=self._individual_metrics)
                             opt_nav = self._build_portfolio_nav(nav_df, opt_w)

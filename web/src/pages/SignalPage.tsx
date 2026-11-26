@@ -1,25 +1,54 @@
-import { useEffect, useState } from 'react';
-import { ArrowRight, Sparkles, Target, AlertTriangle } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ArrowRight,
+  Sparkles,
+  Target,
+  AlertTriangle,
+  Cpu,
+  RefreshCw,
+  ChevronDown,
+  ChevronRight,
+  Scale,
+  Database,
+  Filter,
+  Play,
+  CheckCircle2,
+} from 'lucide-react';
 import {
   api,
   type BacktestCurvesResponse,
   type BlueprintResponse,
   type CrowdingPoint,
+  type LakehouseStatus,
   type OverviewResponse,
+  type SolvedPortfolioContext,
+  type UniverseMode,
 } from '../api/client';
 import { BacktestCharts } from '../components/charts/BacktestCharts';
 import { ScenarioBacktestPanel } from '../components/charts/ScenarioBacktestPanel';
 import { CrowdingQuadrantChart } from '../components/charts/CrowdingQuadrantChart';
+import { ExtremeCyclePanel } from '../components/charts/ExtremeCyclePanel';
 
 interface SignalPageProps {
   overview: OverviewResponse | null;
   ledgerId: string;
   targetReturnPct: number;
   horizonMonths: number;
+  initialSolvedCtx?: SolvedPortfolioContext;
+  onSolvedContextChange?: (ctx: SolvedPortfolioContext) => void;
   onChangeGoal: (ret: number, mon: number) => void;
   onGoHoldings: () => void;
   onOpenProDrawer: () => void;
   onSelectFund: (code: string) => void;
+}
+
+interface AppliedSolveParams {
+  riskLevel: string;
+  modelId: string;
+  fundCount: number;
+  targetReturnPct: number;
+  horizonMonths: number;
+  universeMode: UniverseMode;
 }
 
 const ROLE_STYLES = [
@@ -56,55 +85,183 @@ const HORIZON_OPTIONS = [
   { months: 36, label: '3 年' },
 ];
 
+const UNIVERSE_MODES: Array<{ id: UniverseMode; label: string; hint: string }> = [
+  { id: 'full_market', label: '全市场量化海选', hint: '主动绩优 + 指增 + 固收+ + 纯债 + QDII + 黄金' },
+  { id: 'index_only', label: '仅指数/宽基低费池', hint: '透明被动工具 + 纯债 + 黄金，零主动漂移' },
+];
+
+const SOLVE_STAGES = [
+  { threshold: 10, label: '① 全市场真净值湖仓' },
+  { threshold: 30, label: '② 跨周期去冗余入围' },
+  { threshold: 52, label: '③ SLSQP/HRP 换基寻优' },
+  { threshold: 82, label: '④ 真净值回测 & 万次MC' },
+];
+
 export function SignalPage({
   overview,
   ledgerId,
   targetReturnPct,
   horizonMonths,
+  initialSolvedCtx,
+  onSolvedContextChange,
   onChangeGoal,
   onGoHoldings,
   onOpenProDrawer,
   onSelectFund,
 }: SignalPageProps) {
-  const [riskLevel, setRiskLevel] = useState('C3');
+  const [riskLevel, setRiskLevel] = useState(initialSolvedCtx?.riskLevel || 'C3');
   const [amount, setAmount] = useState(50000);
-  const [fundCount, setFundCount] = useState(6);
-  const [modelId, setModelId] = useState('all_weather');
+  const [fundCount, setFundCount] = useState(initialSolvedCtx?.fundCount || 6);
+  const [modelId, setModelId] = useState(initialSolvedCtx?.modelId || 'all_weather');
+  const [universeMode, setUniverseMode] = useState<UniverseMode>(initialSolvedCtx?.universeMode || 'full_market');
   const [period, setPeriod] = useState('1y');
   const [btSubTab, setBtSubTab] = useState<'full' | 'scenario'>('full');
-  const [blueprint, setBlueprint] = useState<BlueprintResponse | null>(null);
-  const [bpLoading, setBpLoading] = useState(false);
+  const [showAllocLogic, setShowAllocLogic] = useState(false);
 
+  const [blueprint, setBlueprint] = useState<BlueprintResponse | null>(null);
   const [curves, setCurves] = useState<BacktestCurvesResponse | null>(null);
-  const [curvesLoading, setCurvesLoading] = useState(true);
+  const [curvesLoading, setCurvesLoading] = useState(false);
+
+  const [appliedParams, setAppliedParams] = useState<AppliedSolveParams | null>(null);
+  const [solving, setSolving] = useState(false);
+  const [solveProgress, setSolveProgress] = useState(0);
+  const [solveStage, setSolveStage] = useState('');
+  const [solveElapsedMs, setSolveElapsedMs] = useState(0);
+  const [solveError, setSolveError] = useState('');
+  const solveSeqRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  const [lakehouse, setLakehouse] = useState<LakehouseStatus | null>(null);
+  const [syncingDaily, setSyncingDaily] = useState(false);
+  const [syncNotice, setSyncNotice] = useState('');
+
+  const [crowdingScope, setCrowdingScope] = useState<'recommended' | 'holdings'>('recommended');
   const [crowding, setCrowding] = useState<CrowdingPoint[]>([]);
   const [crowdingLoading, setCrowdingLoading] = useState(true);
 
   useEffect(() => {
-    let alive = true;
-    const timer = setTimeout(() => {
-      setBpLoading(true);
-      api
-        .getBlueprint(riskLevel, Math.max(1000, amount || 50000), fundCount, modelId, targetReturnPct, horizonMonths)
-        .then((res) => {
-          if (alive) setBlueprint(res);
-        })
-        .catch(() => {})
-        .finally(() => {
-          if (alive) setBpLoading(false);
-        });
-    }, 180);
+    mountedRef.current = true;
     return () => {
-      alive = false;
-      clearTimeout(timer);
+      mountedRef.current = false;
+      solveSeqRef.current += 1;
     };
-  }, [riskLevel, amount, fundCount, modelId, targetReturnPct, horizonMonths]);
+  }, []);
 
+  // 拉取本地真净值湖仓状态（0 外部请求）
   useEffect(() => {
+    api
+      .getLakehouseStatus()
+      .then((st) => {
+        if (mountedRef.current) setLakehouse(st);
+      })
+      .catch(() => {});
+  }, []);
+
+  const runAsyncQuantSolve = useCallback(
+    async (overrides?: Partial<AppliedSolveParams>, force = false) => {
+      const seq = ++solveSeqRef.current;
+      const eff: AppliedSolveParams = {
+        riskLevel: overrides?.riskLevel ?? riskLevel,
+        modelId: overrides?.modelId ?? modelId,
+        fundCount: overrides?.fundCount ?? fundCount,
+        targetReturnPct: overrides?.targetReturnPct ?? targetReturnPct,
+        horizonMonths: overrides?.horizonMonths ?? horizonMonths,
+        universeMode: overrides?.universeMode ?? universeMode,
+      };
+      const cap = Math.max(1000, amount || 50000);
+
+      setSolving(true);
+      setSolveProgress(6);
+      setSolveStage('正在启动全市场量化求解任务...');
+      setSolveElapsedMs(0);
+      setSolveError('');
+
+      try {
+        const startRes = await api.startQuantSolve({
+          risk_level: eff.riskLevel,
+          amount: cap,
+          fund_count: eff.fundCount,
+          model: eff.modelId,
+          target_return_pct: eff.targetReturnPct,
+          horizon_months: eff.horizonMonths,
+          universe_mode: eff.universeMode,
+          period,
+          force,
+        });
+
+        if (!mountedRef.current || solveSeqRef.current !== seq) return;
+        setSolveProgress(Math.max(8, startRes.progress_pct || 8));
+        if (startRes.stage_text) setSolveStage(startRes.stage_text);
+
+        const jobId = startRes.job_id;
+        for (let i = 0; i < 240; i++) {
+          await new Promise((r) => setTimeout(r, 320));
+          if (!mountedRef.current || solveSeqRef.current !== seq) return;
+
+          const st = await api.pollQuantSolve(jobId);
+          if (!mountedRef.current || solveSeqRef.current !== seq) return;
+
+          setSolveProgress(st.progress_pct ?? 50);
+          if (st.stage_text) setSolveStage(st.stage_text);
+          if (st.elapsed_ms !== undefined) setSolveElapsedMs(st.elapsed_ms);
+
+          if (st.status === 'done' && st.result) {
+            setBlueprint(st.result.blueprint);
+            setCurves(st.result.backtest_curves);
+            setAppliedParams(eff);
+            if (onSolvedContextChange) {
+              const solvedCodes = (st.result.blueprint.items || []).map((it) => it.fund_code);
+              onSolvedContextChange({ ...eff, fundCodes: solvedCodes });
+            }
+            setSolveProgress(100);
+            setSolving(false);
+            return;
+          }
+          if (st.status === 'error') {
+            setSolveError(st.error || st.stage_text || '量化求解异常，请重试');
+            setSolving(false);
+            return;
+          }
+        }
+        setSolveError('量化求解耗时超限，请稍后重试');
+        setSolving(false);
+      } catch (err) {
+        if (!mountedRef.current || solveSeqRef.current !== seq) return;
+        setSolveError(err instanceof Error ? err.message : '求解请求失败');
+        setSolving(false);
+      }
+    },
+    [riskLevel, modelId, fundCount, targetReturnPct, horizonMonths, universeMode, amount, period, onSolvedContextChange]
+  );
+
+  // 首次进入页面自动执行一次默认全市场量化求解（之后调整参数由用户显式点击 CTA 触发，避免逐键抖动）
+  const initTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (initTriggeredRef.current) return;
+    initTriggeredRef.current = true;
+    void runAsyncQuantSolve(undefined, false);
+  }, [runAsyncQuantSolve]);
+
+  // 切换回测统计周期（3m/6m/1y/2y/all）直接复用已求解参数缓存，秒级切片不重跑优化器
+  const prevPeriodRef = useRef(period);
+  useEffect(() => {
+    if (prevPeriodRef.current === period) return;
+    prevPeriodRef.current = period;
+    if (!appliedParams) return;
     let alive = true;
     setCurvesLoading(true);
     api
-      .getBacktestCurves(riskLevel, modelId, fundCount, period, 'model_live')
+      .getBacktestCurves(
+        appliedParams.riskLevel,
+        appliedParams.modelId,
+        appliedParams.fundCount,
+        period,
+        'model_live',
+        appliedParams.targetReturnPct,
+        appliedParams.horizonMonths,
+        false,
+        appliedParams.universeMode
+      )
       .then((res) => {
         if (alive) setCurves(res);
       })
@@ -115,13 +272,22 @@ export function SignalPage({
     return () => {
       alive = false;
     };
-  }, [riskLevel, modelId, fundCount, period]);
+  }, [period, appliedParams]);
+
+  const recommendedCodesKey = useMemo(
+    () => (blueprint?.items || []).map((it) => it.fund_code).join(','),
+    [blueprint]
+  );
 
   useEffect(() => {
     let alive = true;
+    const recCodes = recommendedCodesKey ? recommendedCodesKey.split(',').filter(Boolean) : [];
+    if (crowdingScope === 'recommended' && recCodes.length === 0) {
+      return;
+    }
     setCrowdingLoading(true);
     api
-      .getCrowdingQuadrant(ledgerId)
+      .getCrowdingQuadrant(ledgerId, crowdingScope === 'recommended' ? recCodes : undefined)
       .then((res) => {
         if (alive) setCrowding(res.points || []);
       })
@@ -132,7 +298,60 @@ export function SignalPage({
     return () => {
       alive = false;
     };
-  }, [ledgerId]);
+  }, [ledgerId, crowdingScope, recommendedCodesKey]);
+
+  const handleSyncDaily = async () => {
+    setSyncingDaily(true);
+    setSyncNotice('');
+    try {
+      const res = await api.syncLakehouseDaily(30);
+      if (!mountedRef.current) return;
+      if (res.status === 'cooldown_skipped') {
+        setSyncNotice(res.message || '冷却期内无需重复同步');
+      } else if (res.status === 'up_to_date') {
+        setSyncNotice(`已是最新交易日（${res.latest_date || lakehouse?.latest_date || ''}）`);
+      } else if (res.status === 'updated') {
+        setSyncNotice(`安全日更完成：追加 ${res.updated_dates || 1} 个交易日至 ${res.latest_date || ''}（仅 ${res.requests_used || 6} 次批量请求）`);
+        const st = await api.getLakehouseStatus();
+        if (mountedRef.current) setLakehouse(st);
+      } else {
+        setSyncNotice(res.message || '同步状态已刷新');
+      }
+    } catch (e) {
+      if (mountedRef.current) setSyncNotice(e instanceof Error ? e.message : '日更失败');
+    } finally {
+      if (mountedRef.current) setSyncingDaily(false);
+    }
+  };
+
+  // 参数脏状态检测：改动目标收益/周期/C档/模型/只数/选基范围后提示显式点击 CTA
+  const isDirty = useMemo(() => {
+    if (!appliedParams) return false;
+    return (
+      appliedParams.riskLevel !== riskLevel ||
+      appliedParams.modelId !== modelId ||
+      appliedParams.fundCount !== fundCount ||
+      appliedParams.targetReturnPct !== targetReturnPct ||
+      appliedParams.horizonMonths !== horizonMonths ||
+      appliedParams.universeMode !== universeMode
+    );
+  }, [appliedParams, riskLevel, modelId, fundCount, targetReturnPct, horizonMonths, universeMode]);
+
+  const staleHint = useMemo(() => {
+    if (!isDirty || !appliedParams) return '';
+    const uTxt = appliedParams.universeMode === 'full_market' ? '全市场' : '仅指数';
+    return `当前下方回测与图表展示上次已求解方案（${appliedParams.riskLevel} · ${appliedParams.horizonMonths}月+${appliedParams.targetReturnPct}% · ${uTxt} · ${appliedParams.fundCount}只），点击上方「启动全市场量化求解」后同步更新。`;
+  }, [isDirty, appliedParams]);
+
+  // 拟投金额实时本地按权重等比折算（免去重跑量化求解）
+  const liveCapital = Math.max(1000, amount || 50000);
+  const displayedItems = useMemo(() => {
+    const raw = blueprint?.items || [];
+    return raw.map((f) => ({
+      ...f,
+      suggested_amount: Math.round((liveCapital * f.weight_pct) / 100),
+    }));
+  }, [blueprint, liveCapital]);
 
   const verdict = overview?.market_verdict;
   const indices = overview?.indices || {};
@@ -141,6 +360,12 @@ export function SignalPage({
     { key: 'sh000688', fallbackName: '科创 50', note: '硬核科技弹性指标' },
     { key: 'sh000922', fallbackName: '中证红利', note: '高股息防御底仓锚' },
   ];
+
+  const solverAudit = blueprint?.solver_audit;
+  const funnelAudit = blueprint?.funnel_audit || curves?.funnel_audit;
+  const realBtInfo = curves?.real_bt_info || blueprint?.real_bt_info;
+  const allocLogic = blueprint?.allocation_logic_summary;
+  const recon = curves?.goal_reconciliation;
 
   return (
     <div className="space-y-6 fade-in">
@@ -161,7 +386,7 @@ export function SignalPage({
               {verdict?.detail_explanation || '正在根据十维量化模型与宏观估值信号生成今日大势定调...'}
             </h1>
             <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              空仓 / 新钱用户可直接在下方输入拟投金额生成选基参考；已有持仓的用户请切至「我的持仓与体检」一键诊断。
+              空仓 / 新钱用户可直接在下方设定「目标收益 × 持有周期 × 选基范围」，基于本地全市场真实复权净值湖仓运行量化海选；已有持仓请切至「我的持仓与体检」。
             </p>
           </div>
           <div className="flex flex-col sm:flex-row md:flex-col gap-2 shrink-0">
@@ -213,23 +438,81 @@ export function SignalPage({
         </div>
       </section>
 
-      {/* 2. 交互式空仓选基方案生成器（支持模型选择、基金数量、风险档位与动态入选理由） */}
+      {/* 2. 全市场量化选基方案生成器（28,177 漏斗 → 离线真净值湖仓 → 显式 4 阶段异步求解） */}
       <section className="card-elevated rounded-2xl p-5 sm:p-6 space-y-5">
-        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
+        <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="w-1 h-4 rounded-full bg-[#1D4ED8]" />
-              <h2 className="text-base font-bold text-slate-900">空仓 / 新钱选基方案生成器</h2>
+              <h2 className="text-base font-bold text-slate-900">空仓 / 新钱全市场量化选基方案生成器</h2>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-700">
                 <Sparkles className="w-3 h-3" />
-                实时量化配权
+                28,177 全市场漏斗 · 真实复权净值寻优
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-1 pl-3">
-              <strong>两步分工（互补不冲突）：</strong>① <strong>C1~C5 风险档位</strong>决定总股债仓位上限；② <strong>配置模型</strong>决定在该风险预算内如何分配各资产风格与权重
+            <p className="text-xs text-slate-500 pl-3">
+              <strong>零在线爬虫防封禁架构：</strong>先调好目标收益、周期、C 档、模型与选基范围，再点击<strong>「启动全市场量化求解」</strong>，在本地真实复权净值湖仓上完成相关性去冗余、SLSQP/HRP 换基寻优与双万次蒙特卡洛。
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+
+          {/* 本地真净值湖仓状态 + 防封禁盘后日更胶囊 */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 tabular-nums">
+              <Database className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span>
+                本地真净值湖仓{' '}
+                <strong className="text-slate-900">{lakehouse?.elite_fund_count ?? funnelAudit?.elite_lakehouse_funds ?? '--'}</strong> 只
+                {lakehouse?.latest_date ? ` · 截至 ${lakehouse.latest_date}` : ''}
+              </span>
+              <button
+                type="button"
+                onClick={handleSyncDaily}
+                disabled={syncingDaily}
+                title="仅用 6~8 次批量请求安全追加最新盘后官方复权净值（30 分钟冷却防封禁）"
+                className="px-2 py-0.5 rounded-md bg-white border border-slate-300 text-slate-700 font-semibold hover:border-emerald-500 hover:text-emerald-700 inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3 h-3 ${syncingDaily ? 'animate-spin text-emerald-600' : ''}`} />
+                <span>{syncingDaily ? '安全日更中' : '盘后安全日更'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {syncNotice && (
+          <div className="px-3.5 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span>{syncNotice}</span>
+            </span>
+            <button type="button" onClick={() => setSyncNotice('')} className="text-[11px] text-emerald-700 hover:underline cursor-pointer">
+              关闭
+            </button>
+          </div>
+        )}
+
+        {/* 第一排控制区：选基范围 + 拟投金额 + 只数 + C1~C5 */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200" role="group" aria-label="选基范围模式">
+              <span className="px-2 text-[11px] text-slate-500 font-medium inline-flex items-center gap-1">
+                <Filter className="w-3 h-3" />
+                选基池
+              </span>
+              {UNIVERSE_MODES.map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  title={u.hint}
+                  onClick={() => setUniverseMode(u.id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    universeMode === u.id ? 'bg-indigo-700 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {u.label}
+                </button>
+              ))}
+            </div>
+
             <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
               <span>拟投金额 (¥)</span>
               <input
@@ -241,7 +524,9 @@ export function SignalPage({
                 className="w-28 h-9 px-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 font-bold tabular-nums text-sm focus:border-[#1D4ED8] focus:bg-white focus:outline-none"
               />
             </label>
+          </div>
 
+          <div className="flex flex-wrap items-center gap-2.5">
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200" role="group" aria-label="基金数量">
               <span className="px-2 text-[11px] text-slate-500 font-medium">只数</span>
               {FUND_COUNTS.map((n) => (
@@ -275,16 +560,20 @@ export function SignalPage({
           </div>
         </div>
 
-        {/* 目标收益 × 目标持有周期设置条（驱动全站选基与调仓决策） */}
-        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+        {/* 第二排控制区：目标收益 × 目标持有周期 + 显式启动全市场量化求解 CTA */}
+        <div
+          className={`p-4 rounded-xl border flex flex-wrap items-center justify-between gap-4 transition-colors ${
+            isDirty ? 'bg-amber-50/70 border-amber-300' : 'bg-slate-50 border-slate-200'
+          }`}
+        >
           <div className="flex flex-wrap items-center gap-3">
             <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800">
               <Target className="w-4 h-4 text-blue-700" />
               <span>我的投资目标</span>
             </span>
-            <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+            <div className="inline-flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
               <span>在</span>
-              <div className="inline-flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200">
+              <div className="inline-flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200" role="group" aria-label="目标持有周期">
                 {HORIZON_OPTIONS.map((h) => (
                   <button
                     key={h.months}
@@ -298,84 +587,90 @@ export function SignalPage({
                   </button>
                 ))}
               </div>
-              <span>内，目标收益</span>
-              <input
-                type="number"
-                min={2}
-                max={60}
-                step={1}
-                value={targetReturnPct}
-                onChange={(e) => onChangeGoal(Math.max(2, Math.min(60, Number(e.target.value) || 10)), horizonMonths)}
-                aria-label="目标收益率百分比"
-                className="w-16 h-8 px-2 rounded-lg bg-white border border-slate-300 text-center font-bold text-blue-700 tabular-nums"
-              />
-              <span className="font-bold text-slate-700">%</span>
-            </label>
+              <label className="inline-flex items-center gap-1.5">
+                <span>内，可控波动下期望收益</span>
+                <input
+                  type="number"
+                  min={2}
+                  max={60}
+                  step={1}
+                  value={targetReturnPct}
+                  onChange={(e) => onChangeGoal(Math.max(2, Math.min(60, Number(e.target.value) || 10)), horizonMonths)}
+                  aria-label="目标收益率百分比"
+                  className="w-16 h-8 px-2 rounded-lg bg-white border border-slate-300 text-center font-bold text-blue-700 tabular-nums"
+                />
+                <span className="font-bold text-slate-700">%</span>
+              </label>
+            </div>
           </div>
 
-          {blueprint?.goal_analysis && (
-            <div className="flex flex-wrap items-center gap-3 text-xs tabular-nums">
-              <span className="text-slate-500">
-                折合年化 <strong className="text-slate-900">+{blueprint.goal_analysis.required_cagr_pct.toFixed(1)}%</strong>
-              </span>
-              <span className="px-2.5 py-1 rounded-full font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                历史滚动达成概率 {blueprint.goal_analysis.historical_hit_rate_pct.toFixed(1)}%
-              </span>
-              <span
-                className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                  blueprint.goal_analysis.feasibility_level === 'high'
-                    ? 'bg-emerald-50 text-emerald-700'
-                    : blueprint.goal_analysis.feasibility_level === 'medium'
-                    ? 'bg-amber-50 text-amber-700'
-                    : 'bg-rose-50 text-rose-700'
-                }`}
-              >
-                {blueprint.goal_analysis.feasibility}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* 目标可行性与风险-收益碰撞诊断提示 */}
-        {blueprint?.goal_analysis && (
-          <div
-            className={`px-4 py-2.5 rounded-xl border text-xs flex flex-wrap items-center justify-between gap-2 ${
-              blueprint.goal_analysis.has_collision
-                ? 'bg-amber-50/80 border-amber-200 text-amber-900'
-                : 'bg-emerald-50/60 border-emerald-200 text-emerald-900'
-            }`}
-          >
-            <span className="flex items-start gap-1.5 leading-relaxed">
-              {blueprint.goal_analysis.has_collision && <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />}
-              <span>
-                {blueprint.goal_analysis.collision_message}
-                {blueprint.goal_analysis.windows_tested > 0 && (
-                  <span className="ml-1.5 text-slate-600">
-                    （基于历史 {blueprint.goal_analysis.windows_tested} 个滚动起点实测：中位收益{' '}
-                    {blueprint.goal_analysis.median_return_pct >= 0 ? '+' : ''}
-                    {blueprint.goal_analysis.median_return_pct.toFixed(1)}%，P05 最差情景{' '}
-                    {blueprint.goal_analysis.p05_worst_return_pct.toFixed(1)}%
-                    {blueprint.goal_analysis.avg_reach_months ? `，达标平均耗时 ${blueprint.goal_analysis.avg_reach_months} 个月` : ''}）
+          <div className="flex flex-wrap items-center gap-2.5 text-xs tabular-nums">
+            {blueprint?.goal_analysis && !isDirty && (
+              <>
+                <span className="text-slate-500">
+                  折合年化 <strong className="text-slate-900">+{blueprint.goal_analysis.required_cagr_pct.toFixed(1)}%</strong>
+                </span>
+                <span className="px-2.5 py-1 rounded-full font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                  滚动触达率 {blueprint.goal_analysis.historical_hit_rate_pct.toFixed(1)}%
+                </span>
+                {blueprint.goal_analysis.conditional_win_rate_pct !== undefined && (
+                  <span className="px-2.5 py-1 rounded-full font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200">
+                    同温层胜率 {blueprint.goal_analysis.conditional_win_rate_pct.toFixed(1)}%
                   </span>
                 )}
-              </span>
-            </span>
-            {blueprint.goal_analysis.has_collision && (
-              <button
-                type="button"
-                onClick={() => {
-                  setRiskLevel(blueprint.goal_analysis!.suggested_tier);
-                  setModelId(blueprint.goal_analysis!.recommended_model);
-                }}
-                className="px-3 py-1 rounded-lg text-[11px] font-semibold bg-amber-600 text-white hover:bg-amber-700 shrink-0 cursor-pointer"
-              >
-                一键对齐至 {blueprint.goal_analysis.suggested_tier} 档位与推荐模型
-              </button>
+                {blueprint.goal_analysis.monte_carlo_prob_pct !== undefined && (
+                  <span className="px-2.5 py-1 rounded-full font-semibold bg-white text-slate-700 border border-slate-200">
+                    MC 概率 {blueprint.goal_analysis.monte_carlo_prob_pct.toFixed(1)}%
+                  </span>
+                )}
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                    blueprint.goal_analysis.feasibility_level === 'high'
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : blueprint.goal_analysis.feasibility_level === 'medium'
+                      ? 'bg-amber-50 text-amber-700'
+                      : 'bg-rose-50 text-rose-700'
+                  }`}
+                >
+                  {blueprint.goal_analysis.feasibility}
+                </span>
+              </>
             )}
-          </div>
-        )}
 
-        {/* 4 套量化模型选择卡（清晰展示模型名称 + 适用场景 + 核心原理） */}
+            {isDirty && !solving && (
+              <span className="text-xs font-semibold text-amber-800">
+                参数已变更，点击右侧按钮启动全市场重算
+              </span>
+            )}
+
+            <button
+              type="button"
+              onClick={() => void runAsyncQuantSolve(undefined, !isDirty)}
+              disabled={solving}
+              data-testid="btn-start-quant-solve"
+              className={`px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60 shadow-xs ${
+                isDirty
+                  ? 'bg-[#1D4ED8] text-white hover:bg-blue-800 ring-2 ring-blue-500/30'
+                  : 'bg-[#0A192F] text-white hover:bg-slate-800'
+              }`}
+            >
+              {solving ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Play className="w-3.5 h-3.5 fill-current" />
+              )}
+              <span>
+                {solving
+                  ? `求解中 ${solveProgress}%`
+                  : isDirty
+                  ? '启动全市场量化求解'
+                  : '重新全市场量化求解'}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* 4 套量化模型选择卡 */}
         {blueprint?.all_models && blueprint.all_models.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {blueprint.all_models.map((m) => {
@@ -408,24 +703,207 @@ export function SignalPage({
           </div>
         )}
 
-        {blueprint && (
-          <div className="px-4 py-2.5 rounded-xl bg-blue-50/70 border border-blue-100 text-xs text-slate-700 flex flex-wrap items-center justify-between gap-2">
-            <span>
-              当前方案：<strong className="text-slate-900">{blueprint.model_meta?.name}</strong> ·{' '}
-              <strong className="text-slate-900">{blueprint.risk_meta.label}</strong>（{blueprint.risk_meta.drawdown_hint}）·{' '}
-              {blueprint.model_meta?.principle}
-            </span>
-            <span className="font-bold text-blue-800 tabular-nums">
-              合计配置：¥{blueprint.total_amount.toLocaleString()}（严格精选 {blueprint.count} 只核心基金 · 权重和 100.0%）
-            </span>
+        {/* 真实 4 阶段异步量化求解进度条 */}
+        {solving && (
+          <div
+            data-testid="quant-solve-progress"
+            className="p-4 rounded-xl bg-gradient-to-r from-blue-50 via-indigo-50/70 to-slate-50 border border-blue-200 space-y-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 font-bold text-blue-950">
+                <Cpu className="w-4 h-4 text-blue-600 animate-pulse shrink-0" />
+                <span>{solveStage || '正在运行全市场真实复权净值量化求解...'}</span>
+              </div>
+              <span className="font-mono font-bold text-blue-700 tabular-nums">
+                {solveProgress}% · 已耗时 {(solveElapsedMs / 1000).toFixed(1)}s
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-white border border-blue-100 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 transition-all duration-300"
+                style={{ width: `${Math.max(6, Math.min(100, solveProgress))}%` }}
+              />
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+              {SOLVE_STAGES.map((st) => {
+                const done = solveProgress >= st.threshold + 20;
+                const current = solveProgress >= st.threshold && !done;
+                return (
+                  <div
+                    key={st.label}
+                    className={`px-2.5 py-1 rounded-lg border font-medium transition-colors ${
+                      done
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                        : current
+                        ? 'bg-blue-600 border-blue-600 text-white'
+                        : 'bg-white/80 border-slate-200 text-slate-400'
+                    }`}
+                  >
+                    {st.label}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
-        {bpLoading && !blueprint ? (
-          <div className="py-10 text-center text-xs text-slate-500">正在根据所选模型与今日信号生成选基组合...</div>
+        {solveError && (
+          <div className="px-4 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center justify-between gap-2">
+            <span>量化求解提示：{solveError}</span>
+            <button
+              type="button"
+              onClick={() => void runAsyncQuantSolve(undefined, false)}
+              className="px-2.5 py-1 rounded-lg bg-rose-600 text-white font-semibold hover:bg-rose-700 cursor-pointer"
+            >
+              重试求解
+            </button>
+          </div>
+        )}
+
+        {/* 全市场透明选基漏斗条 */}
+        {funnelAudit && (
+          <div
+            data-testid="full-market-funnel-bar"
+            className="px-4 py-2.5 rounded-xl bg-slate-900 text-slate-100 text-[11px] flex flex-wrap items-center justify-between gap-2 tabular-nums"
+          >
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="px-2 py-0.5 rounded bg-white/10 text-amber-300 font-bold">全市场海选漏斗</span>
+              <span>
+                全市场 <strong>{funnelAudit.total_market_funds.toLocaleString()}</strong> 只
+              </span>
+              <span className="text-slate-500">→</span>
+              <span>
+                合规初筛 <strong>{funnelAudit.compliant_screened_funds.toLocaleString()}</strong> 只
+              </span>
+              <span className="text-slate-500">→</span>
+              <span>
+                本地真净值湖仓 <strong className="text-emerald-300">{funnelAudit.elite_lakehouse_funds}</strong> 只
+              </span>
+              <span className="text-slate-500">→</span>
+              <span>
+                跨周期达标 <strong>{funnelAudit.eligible_depth_funds}</strong> 只
+              </span>
+              <span className="text-slate-500">→</span>
+              <span>
+                相关性去冗余入围 <strong className="text-sky-300">{funnelAudit.shortlisted_candidates}</strong> 只
+              </span>
+              <span className="text-slate-500">→</span>
+              <span>
+                终选 <strong className="text-amber-300">{funnelAudit.final_selected_funds}</strong> 只
+              </span>
+            </div>
+            <span className="text-slate-400">{funnelAudit.universe_label}</span>
+          </div>
+        )}
+
+        {/* 目标可行性与风险-收益碰撞诊断提示 */}
+        {blueprint?.goal_analysis && (
+          <div
+            className={`px-4 py-2.5 rounded-xl border text-xs flex flex-wrap items-center justify-between gap-2 ${
+              blueprint.goal_analysis.has_collision
+                ? 'bg-amber-50/80 border-amber-200 text-amber-900'
+                : 'bg-emerald-50/60 border-emerald-200 text-emerald-900'
+            }`}
+          >
+            <span className="flex items-start gap-1.5 leading-relaxed">
+              {blueprint.goal_analysis.has_collision && <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />}
+              <span>
+                {blueprint.goal_analysis.collision_message}
+                {blueprint.goal_analysis.windows_tested > 0 && (
+                  <span className="ml-1.5 text-slate-600">
+                    （真实复权净值共 {blueprint.goal_analysis.windows_tested} 个滚动起点实测：中位收益{' '}
+                    {blueprint.goal_analysis.median_return_pct >= 0 ? '+' : ''}
+                    {blueprint.goal_analysis.median_return_pct.toFixed(1)}%，P05 最差情景{' '}
+                    {blueprint.goal_analysis.p05_worst_return_pct.toFixed(1)}%，正收益概率{' '}
+                    {(blueprint.goal_analysis.no_loss_rate_pct ?? 0).toFixed(1)}%
+                    {blueprint.goal_analysis.avg_reach_months ? `，达标平均耗时 ${blueprint.goal_analysis.avg_reach_months} 个月` : ''}）
+                  </span>
+                )}
+              </span>
+            </span>
+            {blueprint.goal_analysis.has_collision && (
+              <button
+                type="button"
+                onClick={() => {
+                  const nextTier = blueprint.goal_analysis!.suggested_tier;
+                  const nextModel = blueprint.goal_analysis!.recommended_model;
+                  setRiskLevel(nextTier);
+                  setModelId(nextModel);
+                  void runAsyncQuantSolve({ riskLevel: nextTier, modelId: nextModel }, false);
+                }}
+                className="px-3 py-1 rounded-lg text-[11px] font-semibold bg-amber-600 text-white hover:bg-amber-700 shrink-0 cursor-pointer"
+              >
+                一键对齐至 {blueprint.goal_analysis.suggested_tier} 档位与推荐模型并重算
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* 真量化求解器透明遥测栏 + 可展开的「资金与比例分配产生原因」 */}
+        {blueprint && (
+          <div className="rounded-xl bg-blue-50/60 border border-blue-100 overflow-hidden">
+            <div className="px-4 py-2.5 text-xs text-slate-700 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Cpu className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                <span>
+                  求解引擎：<strong className="text-slate-900">{solverAudit?.solver_algorithm || blueprint.model_meta?.name}</strong> ·{' '}
+                  <strong className="text-slate-900">{blueprint.risk_meta.label}</strong>
+                </span>
+                {solverAudit && (
+                  <span className="px-2 py-0.5 rounded bg-white/90 border border-blue-200 text-[11px] font-mono text-blue-800 tabular-nums">
+                    {solverAudit.from_cache ? `命中当日求解缓存 (原算 ${solverAudit.compute_ms}ms)` : `实算耗时 ${solverAudit.compute_ms}ms`} · 样本外 OOS 胜率 {solverAudit.oos_conditional_win_rate_pct.toFixed(1)}% · 组合年化波动 {solverAudit.portfolio_vol_annual_pct.toFixed(1)}%
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="font-bold text-blue-800 tabular-nums">
+                  合计：¥{liveCapital.toLocaleString()}（严格精选 {blueprint.count} 只 · 权重 100.0%）
+                </span>
+                {allocLogic && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllocLogic((v) => !v)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-[11px] font-semibold text-blue-800 hover:bg-blue-50 cursor-pointer"
+                  >
+                    {showAllocLogic ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    <span>资金与比例是如何算出来的</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {showAllocLogic && allocLogic && (
+              <div className="px-4 py-3 bg-white/90 border-t border-blue-100 text-xs space-y-2.5">
+                <p className="text-slate-700 font-medium leading-relaxed">{allocLogic.headline}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {allocLogic.steps.map((s, idx) => (
+                    <div key={idx} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80 text-[11px] text-slate-600 leading-relaxed">
+                      {s}
+                    </div>
+                  ))}
+                </div>
+                {allocLogic.class_weights_pct && Object.keys(allocLogic.class_weights_pct).length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px]">
+                    <span className="font-semibold text-slate-600">风格桶配比：</span>
+                    {Object.entries(allocLogic.class_weights_pct).map(([k, v]) => (
+                      <span key={k} className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold tabular-nums">
+                        {k} {Number(v).toFixed(1)}%
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {solving && !blueprint ? (
+          <div className="py-10 text-center text-xs text-slate-500">
+            正在从本地 28,177 全市场漏斗与真实复权净值湖仓运行 SLSQP / HRP / 局部换基与双万次蒙特卡洛求解...
+          </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {(blueprint?.items || []).map((f, idx) => {
+          <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 transition-opacity ${solving ? 'opacity-60' : ''}`}>
+            {displayedItems.map((f, idx) => {
               const st = ROLE_STYLES[idx % ROLE_STYLES.length];
               return (
                 <article
@@ -445,23 +923,52 @@ export function SignalPage({
                   <div className="p-4 flex-1 flex flex-col justify-between gap-3">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${st.badge}`}>{f.role}</span>
+                          {f.is_active_fund !== undefined && (
+                            <span
+                              className={`px-1.5 py-0.5 rounded-md text-[10px] font-semibold ${
+                                f.is_active_fund
+                                  ? 'bg-violet-50 text-violet-700 border border-violet-200'
+                                  : 'bg-sky-50 text-sky-700 border border-sky-200'
+                              }`}
+                            >
+                              {f.is_active_fund ? '主动精选' : '低费工具'}
+                            </span>
+                          )}
                           {f.quant_score !== undefined && (
                             <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-[#0A192F] text-amber-300 tabular-nums">
                               量化 {f.quant_score}分
                             </span>
                           )}
                         </div>
-                        <span className="text-xs font-mono text-slate-400 group-hover:text-blue-600 transition-colors">
+                        <span className="text-xs font-mono text-slate-400 group-hover:text-blue-600 transition-colors shrink-0">
                           {f.fund_code} · 详情 →
                         </span>
                       </div>
                       <h3 className="font-bold text-sm text-slate-900 group-hover:text-blue-700 transition-colors">{f.fund_name}</h3>
                       <p className="text-xs text-slate-600 leading-relaxed">{f.why}</p>
+
+                      {/* 透明资金与比例产生公式胶囊 */}
+                      {f.solver_weight_pct !== undefined && (
+                        <div className="px-2.5 py-1.5 rounded-lg bg-blue-50/70 border border-blue-100 text-[11px] text-blue-900 tabular-nums flex flex-wrap items-center justify-between gap-1">
+                          <span>
+                            模型求解 <strong>{f.solver_weight_pct.toFixed(1)}%</strong>
+                            {f.factor_tilt_delta_pct !== undefined && Math.abs(f.factor_tilt_delta_pct) >= 0.1
+                              ? ` → 因子微调 ${f.factor_tilt_delta_pct >= 0 ? '+' : ''}${f.factor_tilt_delta_pct.toFixed(1)}%`
+                              : ' → 因子校验维持'}
+                          </span>
+                          {f.risk_contribution_pcr_pct !== undefined && (
+                            <span className="font-semibold text-indigo-700">
+                              风险贡献 {f.risk_contribution_pcr_pct.toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       {f.quant_reason && (
                         <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-[11px] text-slate-600 leading-relaxed">
-                          <strong className="text-slate-800">为什么选它：</strong>
+                          <strong className="text-slate-800">配权归因：</strong>
                           {f.quant_reason}
                         </div>
                       )}
@@ -500,7 +1007,7 @@ export function SignalPage({
         )}
       </section>
 
-      {/* 3. 动态联动的当前方案历史回测表现（多周期切换 + 客观克制口径） */}
+      {/* 3. 动态联动的当前方案历史回测表现（100% 基金真实复权净值 + 与上方方案权重同源 + 目标 vs 回测偏差归因） */}
       <section className="card-elevated rounded-2xl p-5 sm:p-6 space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
@@ -512,9 +1019,20 @@ export function SignalPage({
               {curves?.date_range && (
                 <span className="text-[11px] font-mono text-slate-400">{curves.date_range}</span>
               )}
+              {realBtInfo?.is_real_nav && (
+                <span
+                  data-testid="real-nav-backtest-badge"
+                  className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"
+                >
+                  100% 基金真实复权净值回测 · 共同存续自 {realBtInfo.common_start_date}
+                </span>
+              )}
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                与上方方案权重 100% 同源
+              </span>
             </div>
             <p className="text-xs text-slate-500 mt-1 pl-3">
-              与上方所选「{blueprint?.model_meta?.name || '当前模型'} · {riskLevel} · {fundCount} 只基金」实时联动，按 95% 实盘仓位与申赎费率测算
+              严格采用上方终选 {blueprint?.count || fundCount} 只基金自身的红利再投资复权净值（绝非沪深 300 替身），按 95% 实盘仓位与申赎费率测算
             </p>
           </div>
           <div className="inline-flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200" role="group" aria-label="回测统计周期">
@@ -533,11 +1051,20 @@ export function SignalPage({
           </div>
         </div>
 
-        {curvesLoading && !curves?.metrics ? (
-          <div className="py-8 text-center text-xs text-slate-400">正在按所选模型与周期重算历史表现...</div>
+        {staleHint && (
+          <div
+            data-testid="backtest-stale-banner"
+            className="px-3.5 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 font-medium"
+          >
+            {staleHint}
+          </div>
+        )}
+
+        {(curvesLoading || solving) && !curves?.metrics ? (
+          <div className="py-8 text-center text-xs text-slate-400">正在按上方求解权重与基金真实复权净值合成历史表现...</div>
         ) : curves?.metrics ? (
           <>
-            <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3.5 transition-opacity ${curvesLoading ? 'opacity-60' : ''}`}>
+            <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3.5 transition-opacity ${curvesLoading || solving ? 'opacity-60' : ''}`}>
               <div className="p-4 rounded-xl bg-gradient-to-b from-red-50/70 to-white border border-red-100">
                 <div className="text-xs font-medium text-slate-500">
                   {curves.period_label}区间收益（实盘校准）
@@ -587,14 +1114,87 @@ export function SignalPage({
                 </div>
               </div>
             </div>
+
+            {/* 目标收益 vs 当前回测窗口偏差归因与「为何仍建议本配置」说明卡 */}
+            {recon && (
+              <div
+                className={`p-4 rounded-xl border space-y-3 ${
+                  recon.status === 'aligned'
+                    ? 'bg-emerald-50/50 border-emerald-200'
+                    : recon.status === 'backtest_below_goal'
+                    ? 'bg-amber-50/60 border-amber-200'
+                    : 'bg-blue-50/60 border-blue-200'
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Scale className="w-4 h-4 text-slate-700 shrink-0" />
+                    <h3 className="text-xs font-bold text-slate-900">
+                      目标收益 vs 历史回测对照与配置合理性说明
+                    </h3>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                        recon.status === 'aligned'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : recon.status === 'backtest_below_goal'
+                          ? 'bg-amber-100 text-amber-900'
+                          : 'bg-blue-100 text-blue-900'
+                      }`}
+                    >
+                      {recon.badge}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold tabular-nums">
+                    <span className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700">
+                      目标口径 ({recon.compare_metric_label})：{recon.goal_comparable_pct >= 0 ? '+' : ''}
+                      {recon.goal_comparable_pct.toFixed(2)}%
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-900">
+                      本窗口实测：{recon.backtest_comparable_pct >= 0 ? '+' : ''}
+                      {recon.backtest_comparable_pct.toFixed(2)}%
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded bg-white border font-bold ${
+                        recon.gap_pct >= 0 ? 'border-red-200 text-red-700' : 'border-amber-300 text-amber-800'
+                      }`}
+                    >
+                      差异 {recon.gap_pct >= 0 ? '+' : ''}
+                      {recon.gap_pct.toFixed(2)}%
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-800 leading-relaxed font-medium">{recon.headline}</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                  {recon.reasons.map((r, i) => (
+                    <div key={i} className="p-3 rounded-lg bg-white/90 border border-slate-200/80 space-y-1">
+                      <div className="text-[11px] font-bold text-slate-900">
+                        {i + 1}. {r.title}
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">{r.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <p className="text-[11px] text-slate-400">
-              注：历史回测基于当前所选模型权重与交易费率测算，仅供量化分析参考，过往业绩不代表未来收益保证。
+              注：历史回测基于上方目标驱动全市场求解出的完全一致权重与基金真实复权净值测算，仅供量化分析参考，过往业绩不代表未来收益保证。
             </p>
           </>
         ) : null}
       </section>
 
-      {/* 4. 历史回测验证区：全周期走势 | 历史情景回测 */}
+      {/* 4. 极端市场预计修复天数、历史修复天数、完整周期与量化止盈锚点 */}
+      <ExtremeCyclePanel
+        data={curves?.extreme_cycle_analysis}
+        loading={curvesLoading || solving}
+        targetReturnPct={appliedParams?.targetReturnPct ?? targetReturnPct}
+        horizonMonths={appliedParams?.horizonMonths ?? horizonMonths}
+      />
+
+      {/* 5. 历史回测验证区：全周期走势 | 历史情景回测 */}
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -609,7 +1209,7 @@ export function SignalPage({
                 btSubTab === 'full' ? 'bg-[#0A192F] text-white' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              2018–2026 全周期走势
+              真实净值全周期走势
             </button>
             <button
               type="button"
@@ -624,14 +1224,28 @@ export function SignalPage({
         </div>
 
         {btSubTab === 'full' ? (
-          <BacktestCharts data={curves} loading={curvesLoading} />
+          <BacktestCharts data={curves} loading={curvesLoading || solving} staleHint={staleHint} />
         ) : (
-          <ScenarioBacktestPanel tier={riskLevel} />
+          <ScenarioBacktestPanel
+            tier={appliedParams?.riskLevel ?? riskLevel}
+            modelId={appliedParams?.modelId ?? modelId}
+            fundCount={appliedParams?.fundCount ?? fundCount}
+            targetReturnPct={appliedParams?.targetReturnPct ?? targetReturnPct}
+            horizonMonths={appliedParams?.horizonMonths ?? horizonMonths}
+            universeMode={appliedParams?.universeMode ?? universeMode}
+            staleHint={staleHint}
+          />
         )}
       </div>
 
-      {/* 5. 短期偏离与交易拥挤度象限散点图 */}
-      <CrowdingQuadrantChart points={crowding} loading={crowdingLoading} />
+      {/* 6. 短期偏离与交易拥挤度象限散点图（默认自动联动上方全市场推荐组合） */}
+      <CrowdingQuadrantChart
+        points={crowding}
+        loading={crowdingLoading}
+        scopeMode={crowdingScope}
+        onChangeScopeMode={setCrowdingScope}
+        recommendedCount={(blueprint?.items || []).length}
+      />
     </div>
   );
 }

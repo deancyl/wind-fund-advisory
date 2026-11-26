@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, type LedgerMeta, type OverviewResponse } from './api/client';
+import { api, type LedgerMeta, type OverviewResponse, type SolvedPortfolioContext } from './api/client';
 import { TopBar, type MainTab } from './components/TopBar';
 import { ImportModal } from './components/ImportModal';
 import { ProAnalysisDrawer } from './components/ProAnalysisDrawer';
@@ -13,6 +13,15 @@ export function App() {
   const [selectedFundCode, setSelectedFundCode] = useState<string | null>(null);
   const [targetReturnPct, setTargetReturnPct] = useState<number>(10);
   const [horizonMonths, setHorizonMonths] = useState<number>(12);
+  const [solvedCtx, setSolvedCtx] = useState<SolvedPortfolioContext>({
+    riskLevel: 'C3',
+    modelId: 'all_weather',
+    fundCount: 6,
+    targetReturnPct: 10,
+    horizonMonths: 12,
+    universeMode: 'full_market',
+    fundCodes: [],
+  });
   const [ledgers, setLedgers] = useState<LedgerMeta[]>([]);
   const [activeLedgerId, setActiveLedgerId] = useState<string>('combat_29_funds');
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
@@ -118,6 +127,8 @@ export function App() {
                 ledgerId={activeLedgerId}
                 targetReturnPct={targetReturnPct}
                 horizonMonths={horizonMonths}
+                initialSolvedCtx={solvedCtx}
+                onSolvedContextChange={setSolvedCtx}
                 onChangeGoal={(ret, mon) => {
                   setTargetReturnPct(ret);
                   setHorizonMonths(mon);
@@ -154,6 +165,7 @@ export function App() {
                 refreshTick={refreshTick}
                 targetReturnPct={targetReturnPct}
                 horizonMonths={horizonMonths}
+                solvedContext={solvedCtx}
                 onChangeGoal={(ret, mon) => {
                   setTargetReturnPct(ret);
                   setHorizonMonths(mon);

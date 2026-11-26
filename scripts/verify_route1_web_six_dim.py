@@ -67,12 +67,16 @@ def main():
                 assert box and box["height"] <= 44, f"Topbar nav button wrapped! height={box}"
 
         # Page 1 检查 + 切到历史情景回测 + 点 2021-02 核心资产高位
+        page.wait_for_selector("text=极端行情修复天数、完整周期与量化止盈锚点", timeout=20000)
+        page.wait_for_selector("text=目标收益 vs 历史回测对照与配置合理性说明", timeout=20000)
         p1_canvases = page.locator("canvas").count()
         p1_text = page.locator("main").inner_text()
         for bad in forbidden_jargon:
             assert bad not in p1_text, f"Found deprecated jargon on Page 1: {bad}"
         assert "短期偏离与交易拥挤度象限" in p1_text
         assert "全天候动态均衡模型" in p1_text and "风险平价抗跌模型" in p1_text
+        assert "与上方方案权重 100% 同源" in p1_text
+        assert "极端行情修复天数、完整周期与量化止盈锚点" in p1_text
 
         page.get_by_role("button", name="历史情景回测").click()
         page.wait_for_timeout(1000)
@@ -117,7 +121,8 @@ def main():
 
         # Page 2 检查：持仓明细 + 净值对账 + 调仓效果追踪 + 极端行情压力测试 + 导出CSV + 编辑按钮
         page.get_by_role("button", name="我的持仓与体检").first.click()
-        page.wait_for_timeout(1800)
+        page.wait_for_selector(".table-wrapper tbody tr", timeout=15000)
+        page.wait_for_timeout(600)
         p2_text = page.locator("main").inner_text()
         for bad in forbidden_jargon:
             assert bad not in p2_text, f"Found deprecated jargon on Page 2: {bad}"
@@ -135,7 +140,8 @@ def main():
 
         # Page 3 检查：调仓参考方案 + 图1勾选保存持久化 + 图2新钱定投金额联动 + 限购分批 + 分红建议
         page.get_by_role("button", name="调仓参考方案").first.click()
-        page.wait_for_timeout(1500)
+        page.wait_for_selector("text=大额限购分批买入计划", timeout=15000)
+        page.wait_for_timeout(500)
         p3_text = page.locator("main").inner_text()
         for bad in forbidden_jargon:
             assert bad not in p3_text, f"Found deprecated jargon on Page 3: {bad}"
@@ -144,7 +150,7 @@ def main():
         # 验证图2：新钱定投绝非 ¥0，且改金额 3000 -> 6000 真实重算
         assert "¥0\n优先补齐" not in p3_text, "DCA cards still showing ¥0!"
         assert "创金合信中证红利低波动指数A" in p3_text or "易方达" in p3_text, "DCA fund names missing!"
-        dca_input = page.locator("input[type='number']").first
+        dca_input = page.get_by_label("本月新增资金 (¥)")
         dca_input.fill("6000")
         page.wait_for_timeout(1000)
         p3_after_dca = page.locator("main").inner_text()

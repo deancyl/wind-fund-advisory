@@ -7,9 +7,18 @@ import { ChartReadingGuide } from '../ChartReadingGuide';
 interface CrowdingQuadrantChartProps {
   points: CrowdingPoint[];
   loading: boolean;
+  scopeMode?: 'recommended' | 'holdings';
+  onChangeScopeMode?: (mode: 'recommended' | 'holdings') => void;
+  recommendedCount?: number;
 }
 
-export function CrowdingQuadrantChart({ points, loading }: CrowdingQuadrantChartProps) {
+export function CrowdingQuadrantChart({
+  points,
+  loading,
+  scopeMode = 'recommended',
+  onChangeScopeMode,
+  recommendedCount = 0,
+}: CrowdingQuadrantChartProps) {
   const option = useMemo<echarts.EChartsCoreOption>(() => {
     if (!points.length) return {};
 
@@ -120,13 +129,37 @@ export function CrowdingQuadrantChart({ points, loading }: CrowdingQuadrantChart
   if (!points.length) return null;
 
   return (
-    <div className="card-elevated rounded-2xl p-5 space-y-3.5">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+    <div className="card-elevated rounded-2xl p-5 space-y-3.5" data-testid="crowding-quadrant-section">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="w-1 h-4 rounded-full bg-amber-600" />
-          <h3 className="text-base font-bold text-slate-900">短期偏离与交易拥挤度象限（MA20 乖离率 × 热力）</h3>
+          <h3 className="text-base font-bold text-slate-900">短期偏离与交易拥挤度象限（真实净值 MA20 乖离 × 热力）</h3>
         </div>
-        <span className="text-[11px] text-slate-400">自动防文字重叠 · 悬停查看单基投顾提示</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {onChangeScopeMode && (
+            <div className="inline-flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px]" role="group" aria-label="拥挤度象限标的来源">
+              <button
+                type="button"
+                onClick={() => onChangeScopeMode('recommended')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                  scopeMode === 'recommended' ? 'bg-[#0A192F] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                当前推荐方案{recommendedCount > 0 ? ` (${recommendedCount}只)` : ''}
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeScopeMode('holdings')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                  scopeMode === 'holdings' ? 'bg-[#0A192F] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                当前账本持仓
+              </button>
+            </div>
+          )}
+          <span className="text-[11px] text-slate-400">悬停查看真实近 20 日涨跌与乖离</span>
+        </div>
       </div>
       <ChartReadingGuide
         howToRead="横轴看短期涨跌偏离（右偏热、左偏冷），纵轴看资金拥挤度（上拥挤、下冷清）。"

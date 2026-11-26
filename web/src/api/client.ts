@@ -64,6 +64,10 @@ export interface GoalAnalysis {
   feasibility: string;
   feasibility_level: 'high' | 'medium' | 'low';
   historical_hit_rate_pct: number;
+  end_of_period_hit_rate_pct?: number;
+  conditional_win_rate_pct?: number;
+  monte_carlo_prob_pct?: number;
+  no_loss_rate_pct?: number;
   windows_tested: number;
   median_return_pct: number;
   p05_worst_return_pct: number;
@@ -71,10 +75,118 @@ export interface GoalAnalysis {
   avg_reach_months: number | null;
 }
 
+export type UniverseMode = 'full_market' | 'index_only';
+
+export interface SolvedPortfolioContext {
+  riskLevel: string;
+  modelId: string;
+  fundCount: number;
+  targetReturnPct: number;
+  horizonMonths: number;
+  universeMode: UniverseMode;
+  fundCodes: string[];
+}
+
+export interface FunnelAudit {
+  universe_mode: UniverseMode;
+  universe_label: string;
+  total_market_funds: number;
+  compliant_screened_funds: number;
+  elite_lakehouse_funds: number;
+  eligible_depth_funds: number;
+  shortlisted_candidates: number;
+  final_selected_funds: number;
+  lakehouse_latest_date: string;
+}
+
+export interface RealBacktestInfo {
+  is_real_nav: boolean;
+  common_start_date: string;
+  common_end_date?: string;
+  common_trading_days?: number;
+  has_early_proxy_reference?: boolean;
+}
+
+export interface LakehouseStatus {
+  status: string;
+  synced_at?: string;
+  latest_date?: string;
+  start_date?: string;
+  trading_days?: number;
+  elite_fund_count?: number;
+  active_fund_count?: number;
+  index_eligible_count?: number;
+  daily_sync_at?: string;
+  bucket_counts?: Record<string, number>;
+}
+
+export interface QuantSolveJobResponse {
+  job_id: string;
+  status: 'running' | 'done' | 'error';
+  progress_pct: number;
+  stage_text: string;
+  elapsed_ms?: number;
+  error?: string | null;
+  result?: {
+    blueprint: BlueprintResponse;
+    backtest_curves: BacktestCurvesResponse;
+  };
+}
+
+export interface SolverAudit {
+  engine_version: string;
+  universe_mode?: UniverseMode;
+  lakehouse_enabled?: boolean;
+  solver_algorithm: string;
+  math_summary: string;
+  candidates_screened: number;
+  history_trading_days: number;
+  history_range: string;
+  real_nav_common_start?: string;
+  is_real_nav_backtest?: boolean;
+  holding_days: number;
+  target_annual_return_pct: number;
+  tier_max_drawdown_cap_pct: number;
+  ten_dim_equity_tilt_pct: number;
+  oos_conditional_win_rate_pct: number;
+  monte_carlo_paths: number;
+  monte_carlo_prob_pct: number;
+  portfolio_vol_annual_pct: number;
+  max_risk_pcr_pct: number;
+  risk_budget_verdict: string;
+  regime_detected: string;
+  regime_recommended_model: string;
+  compute_ms: number;
+  from_cache: boolean;
+}
+
+export interface AllocationLogicSummary {
+  headline: string;
+  steps: string[];
+  class_weights_pct: Record<string, number>;
+}
+
+export interface AllocationBreakdown {
+  fund_code: string;
+  bucket: string;
+  solver_weight_pct: number;
+  factor_tilt_delta_pct: number;
+  final_weight_pct: number;
+  risk_contribution_pcr_pct: number;
+  tilt_reason: string;
+  allocation_formula_text: string;
+}
+
 export interface BlueprintItem {
   fund_code: string;
   fund_name: string;
   role: string;
+  bucket_label?: string;
+  asset_class?: string;
+  is_active_fund?: boolean;
+  real_scale_yi?: number | null;
+  max_star?: number;
+  inception_date?: string;
   why: string;
   quant_reason?: string;
   quant_score?: number;
@@ -85,6 +197,10 @@ export interface BlueprintItem {
     new_high_rate_pct?: number;
     total_fee_pct?: number;
   };
+  allocation_breakdown?: AllocationBreakdown;
+  solver_weight_pct?: number;
+  factor_tilt_delta_pct?: number;
+  risk_contribution_pcr_pct?: number;
   fee_note?: string;
   quota_note?: string;
   action_guide?: string;
@@ -100,10 +216,16 @@ export interface BlueprintResponse {
   model: string;
   model_meta: QuantModelMeta;
   all_models: QuantModelMeta[];
+  universe_mode?: UniverseMode;
   fund_count: number;
   total_amount: number;
   market_regime: string;
   goal_analysis?: GoalAnalysis;
+  solver_audit?: SolverAudit;
+  funnel_audit?: FunnelAudit;
+  real_bt_info?: RealBacktestInfo;
+  allocation_logic_summary?: AllocationLogicSummary;
+  portfolio_weights?: Record<string, number>;
   count: number;
   items: BlueprintItem[];
 }
@@ -134,17 +256,193 @@ export interface BacktestMetrics {
   trading_days: number;
 }
 
+export interface GoalReconciliation {
+  status: 'aligned' | 'backtest_below_goal' | 'backtest_above_goal';
+  badge: string;
+  headline: string;
+  compare_metric_label: string;
+  goal_comparable_pct: number;
+  backtest_comparable_pct: number;
+  gap_pct: number;
+  goal_target_return_pct: number;
+  goal_horizon_months: number;
+  goal_required_cagr_pct: number;
+  backtest_period_label: string;
+  backtest_period_return_pct: number;
+  reasons: Array<{ title: string; detail: string }>;
+  why_still_recommend: string;
+}
+
+export interface ExtremeRecoveryEvent {
+  id: string;
+  name: string;
+  desc: string;
+  window: string;
+  peak_date: string;
+  trough_date: string;
+  recovery_date: string;
+  max_dd_pct: number;
+  h300_mdd_pct: number;
+  excess_defense_pct: number;
+  fall_tdays: number;
+  trough_to_recovery_tdays: number;
+  trough_to_recovery_months: number;
+  total_underwater_tdays: number;
+  total_underwater_months: number;
+  recovered: boolean;
+  h300_total_underwater_tdays: number;
+  h300_total_underwater_months: number;
+  h300_recovered: boolean;
+  days_faster_than_hs300: number;
+  is_proxy_simulated?: boolean;
+  proxy_note?: string;
+}
+
+export interface ExtremeFullCycleItem {
+  cycle_id: string;
+  cycle_label: string;
+  peak1_date: string;
+  trough_date: string;
+  recovery_date: string;
+  next_peak_date: string;
+  recovered: boolean;
+  drawdown_pct: number;
+  fall_tdays: number;
+  trough_to_recovery_tdays: number;
+  underwater_tdays: number;
+  underwater_months: number;
+  expansion_tdays: number;
+  full_cycle_tdays: number;
+  full_cycle_months: number;
+  peak_to_next_peak_return_pct: number;
+  trough_to_next_peak_return_pct: number;
+  cycle_cagr_pct: number;
+}
+
+export interface ExtremeCycleSummary {
+  completed_cycles_count: number;
+  total_cycles_count: number;
+  dd_threshold_pct: number;
+  avg_drawdown_pct: number;
+  max_drawdown_pct: number;
+  avg_underwater_tdays: number;
+  avg_underwater_months: number;
+  max_underwater_tdays: number;
+  max_underwater_months: number;
+  avg_full_cycle_tdays: number;
+  avg_full_cycle_months: number;
+  full_cycle_months_range: [number, number];
+  avg_peak_to_next_peak_return_pct: number;
+  median_peak_to_next_peak_return_pct: number;
+  p75_peak_to_next_peak_return_pct: number;
+  peak_to_next_peak_range_pct: [number, number];
+  avg_trough_to_next_peak_return_pct: number;
+  median_trough_to_next_peak_return_pct: number;
+  trough_to_next_peak_range_pct: [number, number];
+}
+
+export interface ExtremeCycleAnalysis {
+  status: string;
+  date_range: string;
+  trading_days_analyzed: number;
+  plain_headline: string;
+  expected_recovery: {
+    n_simulations: number;
+    horizon_days: number;
+    extreme_shock_var95_pct: number;
+    extreme_shock_cvar99_pct: number;
+    tail_paths_count: number;
+    recovery_prob_within_3y_pct: number;
+    trough_to_recovery_tdays: {
+      normal_median?: number;
+      normal_median_months?: number;
+      median: number;
+      p75: number;
+      p90: number;
+      median_months: number;
+    };
+    peak_to_recovery_tdays: {
+      normal_median?: number;
+      normal_median_months?: number;
+      median: number;
+      p75: number;
+      p90: number;
+      median_months: number;
+    };
+    hs300_peak_to_recovery_median_tdays: number;
+    hs300_peak_to_recovery_median_months: number;
+    hs300_extreme_cvar99_pct: number;
+    days_faster_than_hs300: number;
+  };
+  historical_recovery: {
+    events: ExtremeRecoveryEvent[];
+    avg_trough_to_recovery_tdays: number;
+    avg_trough_to_recovery_months: number;
+    avg_underwater_tdays: number;
+    avg_underwater_months: number;
+    max_underwater_tdays: number;
+    max_underwater_months: number;
+    hs300_avg_underwater_tdays: number;
+    hs300_avg_underwater_months: number;
+    days_faster_than_hs300: number;
+  };
+  full_cycles: {
+    items: ExtremeFullCycleItem[];
+    summary: ExtremeCycleSummary;
+    hs300_summary: ExtremeCycleSummary;
+  };
+  take_profit_plan: {
+    recommended_zone_pct: [number, number];
+    core_cycle_zone_pct: [number, number];
+    trailing_stop_drawdown_pct: number;
+    current_cycle_position: {
+      tag: string;
+      level: 'accumulate' | 'hold_watch' | 'take_profit';
+      erp_percentile: number;
+      bias_20: number;
+      advice: string;
+    };
+    anchors: Array<{
+      step: number;
+      code: string;
+      title: string;
+      trigger_label: string;
+      action: string;
+      rationale: string;
+    }>;
+  };
+}
+
+export interface WeightVsPcrItem {
+  fund_code: string;
+  fund_name: string;
+  short_name: string;
+  bucket_label: string;
+  weight_pct: number;
+  pcr_pct: number;
+}
+
 export interface BacktestCurvesResponse {
   status: string;
   tier: string;
   model?: string;
+  universe_mode?: UniverseMode;
   fund_count?: number;
+  target_return_pct?: number;
+  horizon_months?: number;
   period?: string;
   period_label?: string;
   date_range?: string;
   mode: string;
   primary_name: string;
   secondary_name: string;
+  portfolio_weights?: Record<string, number>;
+  weight_vs_pcr?: WeightVsPcrItem[];
+  solver_audit?: SolverAudit | null;
+  funnel_audit?: FunnelAudit | null;
+  real_bt_info?: RealBacktestInfo | null;
+  goal_reconciliation?: GoalReconciliation | null;
+  extreme_cycle_analysis?: ExtremeCycleAnalysis | null;
   metrics?: BacktestMetrics;
   dates: string[];
   nav: {
@@ -271,6 +569,10 @@ export interface ScenarioKpi {
 export interface ScenarioBacktestResponse {
   start_date: string;
   tier: string;
+  portfolio_name?: string;
+  used_proxy_early?: boolean;
+  proxy_note?: string;
+  portfolio_weights?: Record<string, number> | null;
   dynamic_rebalance: boolean;
   kpis: {
     m3?: ScenarioKpi | null;
@@ -314,11 +616,15 @@ export interface QuotaSplitPlan {
 
 export interface RebalanceResponse {
   ledger_id: string;
+  tier?: string;
+  target_source?: 'ledger_smooth' | 'full_market_solved';
+  target_summary?: string;
   plan_mode: string;
   is_empty: boolean;
   goal_comparison?: {
     target_return_pct: number;
     horizon_months: number;
+    tier?: string;
     before: GoalAnalysis;
     after: GoalAnalysis;
     hit_rate_delta_pct: number;
@@ -488,27 +794,79 @@ export const api = {
     fundCount = 6,
     model = 'all_weather',
     targetReturnPct = 10,
-    horizonMonths = 12
+    horizonMonths = 12,
+    force = false,
+    universeMode: UniverseMode = 'full_market'
   ) =>
     requestJson<BlueprintResponse>(
       `/api/v1/recommend/blueprint?risk_level=${encodeURIComponent(riskLevel)}&amount=${encodeURIComponent(
         String(amount)
       )}&fund_count=${encodeURIComponent(String(fundCount))}&model=${encodeURIComponent(
         model
-      )}&target_return_pct=${encodeURIComponent(String(targetReturnPct))}&horizon_months=${encodeURIComponent(String(horizonMonths))}`
+      )}&target_return_pct=${encodeURIComponent(String(targetReturnPct))}&horizon_months=${encodeURIComponent(
+        String(horizonMonths)
+      )}&universe_mode=${encodeURIComponent(universeMode)}${force ? '&force=true' : ''}`
     ),
+  startQuantSolve: (params: {
+    risk_level: string;
+    amount: number;
+    fund_count: number;
+    model: string;
+    target_return_pct: number;
+    horizon_months: number;
+    universe_mode: UniverseMode;
+    period: string;
+    force?: boolean;
+  }) =>
+    requestJson<QuantSolveJobResponse>('/api/v1/quant/solve', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+  pollQuantSolve: (jobId: string) =>
+    requestJson<QuantSolveJobResponse>(`/api/v1/quant/solve/${encodeURIComponent(jobId)}`),
+  getLakehouseStatus: () => requestJson<LakehouseStatus>('/api/v1/lakehouse/status'),
+  syncLakehouseDaily: (cooldownMinutes = 30) =>
+    requestJson<{
+      status: string;
+      updated_dates?: number;
+      latest_date?: string;
+      message?: string;
+      requests_used?: number;
+    }>('/api/v1/lakehouse/sync_daily', {
+      method: 'POST',
+      body: JSON.stringify({ cooldown_minutes: cooldownMinutes }),
+    }),
   getBacktestSummary: (ledgerId?: string) =>
     requestJson<BacktestSummaryResponse>(`/api/v1/backtest/summary${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`),
-  getBacktestCurves: (tier = 'C3', model = 'all_weather', fundCount = 6, period = '1y', mode = 'model_live') =>
+  getBacktestCurves: (
+    tier = 'C3',
+    model = 'all_weather',
+    fundCount = 6,
+    period = '1y',
+    mode = 'model_live',
+    targetReturnPct = 10,
+    horizonMonths = 12,
+    force = false,
+    universeMode: UniverseMode = 'full_market'
+  ) =>
     requestJson<BacktestCurvesResponse>(
       `/api/v1/charts/backtest_curves?tier=${encodeURIComponent(tier)}&model=${encodeURIComponent(
         model
-      )}&fund_count=${encodeURIComponent(String(fundCount))}&period=${encodeURIComponent(period)}&mode=${encodeURIComponent(mode)}`
+      )}&fund_count=${encodeURIComponent(String(fundCount))}&period=${encodeURIComponent(period)}&mode=${encodeURIComponent(
+        mode
+      )}&target_return_pct=${encodeURIComponent(String(targetReturnPct))}&horizon_months=${encodeURIComponent(
+        String(horizonMonths)
+      )}&universe_mode=${encodeURIComponent(universeMode)}${force ? '&force=true' : ''}`
     ),
-  getCrowdingQuadrant: (ledgerId?: string) =>
-    requestJson<{ ledger_id: string; count: number; points: CrowdingPoint[] }>(
-      `/api/v1/charts/crowding_quadrant${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`
-    ),
+  getCrowdingQuadrant: (ledgerId?: string, codes?: string[]) => {
+    const q = new URLSearchParams();
+    if (ledgerId) q.set('ledger_id', ledgerId);
+    if (codes && codes.length > 0) q.set('codes', codes.join(','));
+    const qs = q.toString();
+    return requestJson<{ ledger_id: string; scope_mode?: string; count: number; points: CrowdingPoint[] }>(
+      `/api/v1/charts/crowding_quadrant${qs ? `?${qs}` : ''}`
+    );
+  },
   getHoldings: (ledgerId?: string) =>
     requestJson<{ ledger_id: string; count: number; items: HoldingRow[] }>(
       `/api/v1/holdings${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`
@@ -555,12 +913,29 @@ export const api = {
     requestJson<FundDetailResponse>(
       `/api/v1/funds/${encodeURIComponent(fundCode)}/detail?dca_monthly=${encodeURIComponent(String(dcaMonthly))}`
     ),
-  getScenarioBacktest: (startDate: string, tier = 'C3', dynamicRebalance = true) =>
-    requestJson<ScenarioBacktestResponse>(
-      `/api/v1/charts/scenario_backtest?start_date=${encodeURIComponent(startDate)}&tier=${encodeURIComponent(
-        tier
-      )}&dynamic_rebalance=${dynamicRebalance ? 'true' : 'false'}`
-    ),
+  getScenarioBacktest: (
+    startDate: string,
+    tier = 'C3',
+    dynamicRebalance = true,
+    solvedOpts?: {
+      model?: string;
+      fundCount?: number;
+      targetReturnPct?: number;
+      horizonMonths?: number;
+      universeMode?: UniverseMode;
+    }
+  ) => {
+    const q = new URLSearchParams();
+    q.set('start_date', startDate);
+    q.set('tier', tier);
+    q.set('dynamic_rebalance', dynamicRebalance ? 'true' : 'false');
+    if (solvedOpts?.model) q.set('model', solvedOpts.model);
+    if (solvedOpts?.fundCount !== undefined) q.set('fund_count', String(solvedOpts.fundCount));
+    if (solvedOpts?.targetReturnPct !== undefined) q.set('target_return_pct', String(solvedOpts.targetReturnPct));
+    if (solvedOpts?.horizonMonths !== undefined) q.set('horizon_months', String(solvedOpts.horizonMonths));
+    if (solvedOpts?.universeMode) q.set('universe_mode', solvedOpts.universeMode);
+    return requestJson<ScenarioBacktestResponse>(`/api/v1/charts/scenario_backtest?${q.toString()}`);
+  },
   getEtfPremiums: () => requestJson<{ alert_count: number; items: EtfPremiumItem[] }>('/api/v1/tools/etf_premiums'),
   getDividendAdvice: (ledgerId?: string) =>
     requestJson<DividendAdviceResponse>(
@@ -582,11 +957,27 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ snapshot_id }),
     }),
-  getRebalance: (ledgerId?: string, targetReturnPct = 10, horizonMonths = 12) => {
+  getRebalance: (
+    ledgerId?: string,
+    targetReturnPct = 10,
+    horizonMonths = 12,
+    opts?: {
+      tier?: string;
+      targetSource?: 'ledger_smooth' | 'full_market_solved';
+      model?: string;
+      fundCount?: number;
+      universeMode?: UniverseMode;
+    }
+  ) => {
     const q = new URLSearchParams();
     if (ledgerId) q.set('ledger_id', ledgerId);
     q.set('target_return_pct', String(targetReturnPct));
     q.set('horizon_months', String(horizonMonths));
+    if (opts?.tier) q.set('tier', opts.tier);
+    if (opts?.targetSource) q.set('target_source', opts.targetSource);
+    if (opts?.model) q.set('model', opts.model);
+    if (opts?.fundCount !== undefined) q.set('fund_count', String(opts.fundCount));
+    if (opts?.universeMode) q.set('universe_mode', opts.universeMode);
     return requestJson<RebalanceResponse>(`/api/v1/rebalance?${q.toString()}`);
   },
   getCheckin: () =>

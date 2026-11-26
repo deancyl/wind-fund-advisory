@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Copy, Check, RefreshCw, ChevronDown, ChevronRight, CalendarClock, Coins } from 'lucide-react';
-import { api, type DividendAdviceResponse, type RebalanceItem, type RebalanceResponse } from '../api/client';
+import {
+  api,
+  type DividendAdviceResponse,
+  type RebalanceItem,
+  type RebalanceResponse,
+  type SolvedPortfolioContext,
+} from '../api/client';
 
 interface RebalancePageProps {
   ledgerId: string;
   refreshTick: number;
   targetReturnPct: number;
   horizonMonths: number;
+  solvedContext?: SolvedPortfolioContext;
   onChangeGoal: (ret: number, mon: number) => void;
   onOpenImport: () => void;
   onToast: (msg: string) => void;
@@ -18,6 +25,7 @@ export function RebalancePage({
   refreshTick,
   targetReturnPct,
   horizonMonths,
+  solvedContext,
   onChangeGoal,
   onOpenImport,
   onToast,
@@ -25,6 +33,7 @@ export function RebalancePage({
 }: RebalancePageProps) {
   const [data, setData] = useState<RebalanceResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [targetSource, setTargetSource] = useState<'ledger_smooth' | 'full_market_solved'>('ledger_smooth');
   const [checkedSet, setCheckedSet] = useState<Set<string>>(new Set());
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [lastSavedTime, setLastSavedTime] = useState('');
@@ -38,11 +47,22 @@ export function RebalancePage({
   const [dcaItems, setDcaItems] = useState<Array<{ fund_code: string; fund_name: string; amount: number; weight_pct?: number; reason?: string }>>([]);
   const [divAdvice, setDivAdvice] = useState<DividendAdviceResponse | null>(null);
 
+  const effTier = solvedContext?.riskLevel || 'C3';
+  const effModel = solvedContext?.modelId || 'all_weather';
+  const effFundCount = solvedContext?.fundCount || 6;
+  const effUniverse = solvedContext?.universeMode || 'full_market';
+
   useEffect(() => {
     let alive = true;
     setLoading(true);
     Promise.all([
-      api.getRebalance(ledgerId, targetReturnPct, horizonMonths),
+      api.getRebalance(ledgerId, targetReturnPct, horizonMonths, {
+        tier: effTier,
+        targetSource,
+        model: effModel,
+        fundCount: effFundCount,
+        universeMode: effUniverse,
+      }),
       api.getCheckin(),
       api.getDividendAdvice(ledgerId).catch(() => null),
     ])
@@ -66,7 +86,7 @@ export function RebalancePage({
     return () => {
       alive = false;
     };
-  }, [ledgerId, refreshTick, targetReturnPct, horizonMonths]);
+  }, [ledgerId, refreshTick, targetReturnPct, horizonMonths, effTier, targetSource, effModel, effFundCount, effUniverse]);
 
   useEffect(() => {
     let alive = true;
@@ -201,19 +221,50 @@ export function RebalancePage({
         </div>
       </section>
 
+      {/* 调仓目标基准模式切换（稳健低换手保护存量 vs 一键对齐首页全市场方案） */}
+      <section className="card-elevated rounded-2xl p-4 sm:px-5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="space-y-0.5">
+          <div className="text-xs font-bold text-slate-900">调仓目标组合来源</div>
+          <p className="text-xs text-slate-500">
+            {data?.target_summary || '默认采用稳健低换手模式保护存量核心基金；如需切换为首页全市场最新选基方案，可一键切换对齐。'}
+          </p>
+        </div>
+        <div className="inline-flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0" role="group" aria-label="调仓目标来源">
+          <button
+            type="button"
+            onClick={() => setTargetSource('ledger_smooth')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              targetSource === 'ledger_smooth' ? 'bg-[#0A192F] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            稳健低换手（平滑调优·默认）
+          </button>
+          <button
+            type="button"
+            onClick={() => setTargetSource('full_market_solved')}
+            data-testid="btn-rebalance-align-fullmarket"
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              targetSource === 'full_market_solved' ? 'bg-[#1D4ED8] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            对齐首页全市场方案（{effTier}·{effFundCount}只）
+          </button>
+        </div>
+      </section>
+
       {/* 目标收益达成度对比卡（调仓前 vs 调仓后） */}
       {data?.goal_comparison && (
         <section className="card-elevated rounded-2xl p-5 space-y-3.5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-bold text-slate-900">
-                目标收益达成概率对比（调仓前当前持仓 vs 按建议调仓后）
+                目标收益达成概率对比（调仓前当前持仓 vs 按建议调仓后 · {effTier} 档）
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
                 以你设定的「{horizonMonths} 个月内目标收益 +{targetReturnPct}%」为尺子，检验本次调仓对达标概率与抗跌底线的实际改善
               </p>
             </div>
-            <div className="flex items-center gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
               <select
                 value={horizonMonths}
                 onChange={(e) => onChangeGoal(targetReturnPct, Number(e.target.value))}
@@ -225,17 +276,20 @@ export function RebalancePage({
                 <option value={24}>2 年</option>
                 <option value={36}>3 年</option>
               </select>
-              <select
-                value={targetReturnPct}
-                onChange={(e) => onChangeGoal(Number(e.target.value), horizonMonths)}
-                aria-label="调仓目标收益率"
-                className="h-8 px-2 rounded-lg bg-slate-50 border border-slate-200 font-semibold text-blue-700"
-              >
-                <option value={6}>目标 +6%</option>
-                <option value={10}>目标 +10%</option>
-                <option value={15}>目标 +15%</option>
-                <option value={20}>目标 +20%</option>
-              </select>
+              <label className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 font-semibold text-slate-700">
+                <span>目标</span>
+                <input
+                  type="number"
+                  min={2}
+                  max={60}
+                  step={1}
+                  value={targetReturnPct}
+                  onChange={(e) => onChangeGoal(Math.max(2, Math.min(60, Number(e.target.value) || 10)), horizonMonths)}
+                  aria-label="调仓目标收益率百分比"
+                  className="w-14 h-6 px-1.5 rounded bg-white border border-slate-300 text-center font-bold text-blue-700 tabular-nums"
+                />
+                <span>%</span>
+              </label>
             </div>
           </div>
 

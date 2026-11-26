@@ -1679,10 +1679,26 @@ class LookthroughAnalyzerMixin:
         if not force_reload and hasattr(self, "_crowding_cache") and code in self._crowding_cache:
             return copy.deepcopy(self._crowding_cache[code])
 
-        # 1. 查找基金名称与资产类型
+        # 1. 查找基金名称与资产类型（优先覆盖全市场 266+ 精英真净值湖仓，消除新基金盲区）
+        elite_nav = None
+        elite_meta_row = None
+        try:
+            from market_lakehouse import load_elite_lakehouse
+            _enav, _emeta, _ = load_elite_lakehouse()
+            if _enav is not None and not _enav.empty:
+                elite_nav = _enav
+            if _emeta is not None and not _emeta.empty:
+                _hit = _emeta[_emeta["fund_code"].astype(str).str.zfill(6) == code]
+                if not _hit.empty:
+                    elite_meta_row = _hit.iloc[0].to_dict()
+        except Exception:
+            pass
+
         fund_name = None
         if code in self.holdings:
             fund_name = self.holdings[code].fund_name
+        elif elite_meta_row and elite_meta_row.get("fund_name"):
+            fund_name = str(elite_meta_row.get("fund_name"))
         elif code in CORE_STRATEGY_POOL:
             fund_name = CORE_STRATEGY_POOL[code].get("fund_name")
         elif code in EXTENDED_FUND_CATALOG:
@@ -1704,28 +1720,47 @@ class LookthroughAnalyzerMixin:
             fund_name = f"公募基金_{code}"
 
         asset_cls = self.classify_fund_asset_class(code, fund_name)
+        is_pure_bond_lakehouse = bool(elite_meta_row and str(elite_meta_row.get("bucket_10", "")) == "pure_bond")
 
-        # 2. 从真实行情矩阵获取近20日量价指标 (MA20乖离率, 20日涨跌, 20日年化波动率)
-        from strategy_bridge import StrategyBridge
-        col_name = FUND_INDEX_PRICE_MAP.get(code)
+        # 2. 优先从本地全市场精英湖仓读取该基金自身的近 20 日真实复权净值，未命中再回退旧指数映射表
         ret_20d = 0.0
         bias_20 = 0.0
         vol_20d = 12.0
+        computed_from_real_nav = False
 
-        try:
-            df_mat = StrategyBridge.load_matrix()
-            if col_name and col_name in df_mat.columns:
-                s = df_mat[col_name].dropna()
-                if len(s) >= 20:
-                    p_now = float(s.iloc[-1])
-                    p_20 = float(s.iloc[-20])
-                    ret_20d = round((p_now - p_20) / p_20 * 100.0, 2)
-                    ma20 = float(s.iloc[-20:].mean())
-                    bias_20 = round((p_now - ma20) / ma20 * 100.0, 2)
-                    d_rets = s.iloc[-20:].pct_change().dropna()
-                    vol_20d = round(float(d_rets.std() * np.sqrt(250) * 100.0), 2)
-        except Exception:
-            pass
+        if elite_nav is not None and code in elite_nav.columns:
+            try:
+                s_real = elite_nav[code].dropna()
+                if len(s_real) >= 20:
+                    p_now = float(s_real.iloc[-1])
+                    p_20 = float(s_real.iloc[-20])
+                    ma20 = float(s_real.iloc[-20:].mean())
+                    if p_20 > 1e-8 and ma20 > 1e-8:
+                        ret_20d = round((p_now - p_20) / p_20 * 100.0, 2)
+                        bias_20 = round((p_now - ma20) / ma20 * 100.0, 2)
+                        d_rets = s_real.iloc[-20:].pct_change().dropna()
+                        vol_20d = round(float(d_rets.std() * np.sqrt(250) * 100.0), 2) if len(d_rets) >= 2 else 1.5
+                        computed_from_real_nav = True
+            except Exception:
+                pass
+
+        if not computed_from_real_nav:
+            from strategy_bridge import StrategyBridge
+            col_name = FUND_INDEX_PRICE_MAP.get(code)
+            try:
+                df_mat = StrategyBridge.load_matrix()
+                if col_name and col_name in df_mat.columns:
+                    s = df_mat[col_name].dropna()
+                    if len(s) >= 20:
+                        p_now = float(s.iloc[-1])
+                        p_20 = float(s.iloc[-20])
+                        ret_20d = round((p_now - p_20) / p_20 * 100.0, 2)
+                        ma20 = float(s.iloc[-20:].mean())
+                        bias_20 = round((p_now - ma20) / ma20 * 100.0, 2)
+                        d_rets = s.iloc[-20:].pct_change().dropna()
+                        vol_20d = round(float(d_rets.std() * np.sqrt(250) * 100.0), 2)
+            except Exception:
+                pass
 
         # 3. 真实划分四象限与生成针对性投顾建议（纵轴统一为交易拥挤热力 0~100，中轴线 50）
         # 严格对齐四大象限直觉：
@@ -1733,10 +1768,10 @@ class LookthroughAnalyzerMixin:
         # 右下 (x>0, y<50):  📈 温和复苏区
         # 左下 (x<=0, y<50): 🎯 低估击球区
         # 左上 (x<=0, y>=50): ⚠️ 放量分歧/避险区
-        if asset_cls in ("纯债固收", "纯债与固定收益") or vol_20d < 4.0:
-            # 纯债波动极低，稳居避险区域 (略偏左或右，热度居中平稳 52.0)
-            crowding_score = 52.0
-            quadrant_tag = "⚠️ 放量分歧/避险区" if bias_20 <= 0 else "🔥 右侧主升/偏热区"
+        if is_pure_bond_lakehouse or (asset_cls in ("纯债固收", "纯债与固定收益") and vol_20d < 4.5) or vol_20d < 3.0:
+            # 纯债低波底仓：展示真实微小乖离，热度居中平稳
+            crowding_score = round(float(np.clip(50.0 + bias_20 * 4.0, 44.0, 58.0)), 1)
+            quadrant_tag = "⚠️ 放量分歧/避险区" if bias_20 <= 0 else "📈 温和复苏区"
             advisory_tip = "波动极低且走势稳健，为组合提供安全防波堤与流动性缓冲，安心持有吃息。"
         elif bias_20 > 0.0:
             if bias_20 > 4.0 or ret_20d > 8.0:

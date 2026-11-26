@@ -15,7 +15,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import anyio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -95,7 +95,7 @@ async def _lifespan(app_inst: FastAPI):
     yield
 
 
-app = FastAPI(title="AGY2-FundAdvisory Local Quant API", version="2.0.0", lifespan=_lifespan)
+app = FastAPI(title="AGY2-FundAdvisory Local Quant API", version="2.0.2", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_CORS_ORIGINS,
@@ -593,9 +593,49 @@ def api_v1_rebalance(
     min_buffer_pct: float = 3.0,
     target_return_pct: float = 10.0,
     horizon_months: int = 12,
+    tier: str = "C3",
+    target_source: str = "ledger_smooth",
+    model: str = "all_weather",
+    fund_count: int = 6,
+    universe_mode: str = "full_market",
 ) -> Dict[str, Any]:
     _, lid, pm, snap = _get_active_context(ledger_id)
-    tw = _target_weights_for_ledger(lid, snap)
+    clean_tier = str(tier or "C3").upper().strip()
+    if clean_tier not in _RISK_TIER_META:
+        clean_tier = "C3"
+    clean_source = str(target_source or "ledger_smooth").strip().lower()
+    if clean_source not in ("ledger_smooth", "full_market_solved"):
+        clean_source = "ledger_smooth"
+    clean_model = str(model or "all_weather").strip().lower()
+    if clean_model not in _QUANT_MODELS_META:
+        clean_model = "all_weather"
+    u_mode = str(universe_mode or "full_market").strip().lower()
+    if u_mode not in ("full_market", "index_only"):
+        u_mode = "full_market"
+    n_funds = max(3, min(8, int(fund_count or 6)))
+
+    solved_for_reb: Optional[Dict[str, Any]] = None
+    cards_meta_reb: Dict[str, Dict[str, Any]] = {}
+    if clean_source == "full_market_solved":
+        from goal_driven_selector import solve_goal_driven_portfolio
+        solved_for_reb = solve_goal_driven_portfolio(
+            risk_level=clean_tier,
+            fund_count=n_funds,
+            model_id=clean_model,
+            target_return_pct=float(target_return_pct),
+            horizon_months=int(horizon_months),
+            universe_mode=u_mode,
+            market_snapshot=snap,
+            force_recompute=False,
+        )
+        tw = dict(solved_for_reb["final_weights"])
+        cards_meta_reb = dict(solved_for_reb.get("fund_cards_meta") or {})
+        u_lbl = "全市场量化海选" if u_mode == "full_market" else "仅指数低费池"
+        target_summary = f"已对齐首页全市场方案：{_QUANT_MODELS_META[clean_model]['name']} · {clean_tier} · {u_lbl} · {n_funds}只"
+    else:
+        tw = _target_weights_for_ledger(lid, snap)
+        target_summary = "稳健低换手模式：优先平滑优化存量持仓、保护现有核心底仓"
+
     res = StrategyBridge.generate_ai_rebalance_orders(
         pm.holdings,
         pm.available_cash,
@@ -607,6 +647,17 @@ def api_v1_rebalance(
         core_anchor_code="002351",
     )
     items = res.get("items", [])
+    # 全市场目标模式下补全湖仓新基金中文名称，避免退化为纯代码
+    if cards_meta_reb:
+        for it in items:
+            c_key = str(it.get("fund_code") or it.get("code") or "").strip().zfill(6)
+            cm = cards_meta_reb.get(c_key)
+            if cm and cm.get("fund_name"):
+                cur_n = str(it.get("fund_name") or it.get("name") or "").strip()
+                if (not cur_n) or cur_n == c_key or cur_n.startswith("公募基金_"):
+                    it["fund_name"] = cm["fund_name"]
+                    if "name" in it:
+                        it["name"] = cm["fund_name"]
     grouped = group_rebalance_orders_by_intent(items)
 
     quota_split_plans = []
@@ -615,9 +666,10 @@ def api_v1_rebalance(
         if amt <= 0:
             continue
         code = str(it.get("fund_code", "") or it.get("code", "")).strip()
-        name = str(it.get("fund_name", "") or it.get("name", code))
+        cm = cards_meta_reb.get(code, {})
+        name = str(it.get("fund_name", "") or it.get("name", "") or cm.get("fund_name") or code)
         meta = CORE_STRATEGY_POOL.get(code, {})
-        d_lim = float(meta.get("daily_limit", 1e8))
+        d_lim = float(cm.get("daily_limit") or meta.get("daily_limit", 1e8))
         is_qdii = bool(pm.is_qdii_fund(code, name)) if hasattr(pm, "is_qdii_fund") else ("纳斯达克" in name or "标普" in name)
         settlement = execution_tracker.estimate_settlement_timeline("BUY", is_qdii=is_qdii)
         if amt > d_lim and d_lim < 1e7:
@@ -646,7 +698,7 @@ def api_v1_rebalance(
         act_s = "买入" if amt > 0 else "卖出"
         cheat_lines.append(f"{idx}. {c_code} {c_name} {act_s} ¥{abs(amt):,.2f}")
 
-    # 目标收益 × 目标周期：对比「调仓前当前持仓」vs「调仓后目标组合」的历史达成概率
+    # 目标收益 × 目标周期：对比「调仓前当前持仓」vs「调仓后目标组合」的历史达成概率（动态使用用户真实档位）
     goal_comparison: Optional[Dict[str, Any]] = None
     try:
         from goal_driven_selector import evaluate_goal_achievement
@@ -657,11 +709,16 @@ def api_v1_rebalance(
             if float(getattr(h, "market_value", 0.0) or 0.0) > 1e-4
         } if tot_mv > 1e-4 else {}
         if cur_w and tw:
-            before_eval = evaluate_goal_achievement(cur_w, target_return_pct, horizon_months, tier="C3")
-            after_eval = evaluate_goal_achievement(tw, target_return_pct, horizon_months, tier="C3")
+            after_bt_override = solved_for_reb.get("real_bt_df") if solved_for_reb else None
+            with ThreadPoolExecutor(max_workers=2) as gpool:
+                f_before = gpool.submit(evaluate_goal_achievement, cur_w, target_return_pct, horizon_months, clean_tier, snap)
+                f_after = gpool.submit(evaluate_goal_achievement, tw, target_return_pct, horizon_months, clean_tier, snap, after_bt_override)
+                before_eval = f_before.result(timeout=10.0)
+                after_eval = f_after.result(timeout=10.0)
             goal_comparison = {
                 "target_return_pct": round(float(target_return_pct), 1),
                 "horizon_months": int(horizon_months),
+                "tier": clean_tier,
                 "before": before_eval,
                 "after": after_eval,
                 "hit_rate_delta_pct": round(after_eval["historical_hit_rate_pct"] - before_eval["historical_hit_rate_pct"], 1),
@@ -672,7 +729,10 @@ def api_v1_rebalance(
 
     payload = {
         "ledger_id": lid,
-        "plan_mode": "存量瘦身重构" if lid == "combat_29_funds" else "动态股债平衡",
+        "tier": clean_tier,
+        "target_source": clean_source,
+        "target_summary": target_summary,
+        "plan_mode": "对齐首页全市场方案" if clean_source == "full_market_solved" else ("存量瘦身重构" if lid == "combat_29_funds" else "动态股债平衡"),
         "is_empty": grouped["is_empty"],
         "goal_comparison": goal_comparison,
         "groups": {
@@ -1634,8 +1694,11 @@ _FUND_PLAIN_WHY: Dict[str, Dict[str, str]] = {
     "005561": {"role": "红利低波主锚", "why": "高股息叠加低波动筛选，震荡市与防御期的核心抗跌收益来源"},
     "100032": {"role": "红利增强底仓", "why": "聚焦高分红蓝筹并叠加量化增强，长期复利稳健"},
     "110020": {"role": "A股核心宽基", "why": "覆盖A股最核心大盘资产，费率低廉，稳稳捕捉估值修复"},
+    "000478": {"role": "中盘量化增强", "why": "锚定中证500中盘成长风格并叠加量化增强，衔接大盘与小盘轮动"},
+    "004194": {"role": "小盘量化增强", "why": "覆盖中证1000高弹性小盘股并做量化选股增强，牛市修复期弹性显著"},
     "002351": {"role": "固收安全垫", "why": "稳健债券底仓，在权益大幅波动时提供正收益缓冲与补仓弹药"},
     "000086": {"role": "纯债压舱石", "why": "高信用等级债券配置，有效平滑组合净值波动"},
+    "018757": {"role": "固收增强垫", "why": "稳健固收打底叠加少量权益增强，提升防御端票息回报"},
     "017436": {"role": "美股科技对冲", "why": "与A股低相关，分散单一市场风险，共享全球科技龙头的长期成长"},
     "050025": {"role": "美股宽基对冲", "why": "追踪标普500核心美股资产，与国内权益形成跨市场互补"},
     "011612": {"role": "硬核科技进攻", "why": "A类份额适合长期持有，低估值区间布局国产科技成长弹性"},
@@ -1707,11 +1770,11 @@ def _build_model_weights(model_id: str, tier: str, snap: Dict[str, Any], fund_co
     eq_s = eq_scale_map.get(tier, 1.0)
 
     if model_id == "risk_parity":
-        # 按真实历史 60 日波动率倒数分配风险预算
+        # 按真实历史 60 日波动率倒数分配风险预算（对齐 aligned_matrix_total_return.parquet 真实列名）
         col_map = {
             "005561": "H30269", "100032": "H00922", "110020": "H00300",
-            "002351": "BOND_CBA", "000086": "BOND_CBA", "017436": "SPX",
-            "011612": "KC50", "000216": "GOLD",
+            "002351": "H11009", "000086": "H11009", "017436": "SPX_CNY",
+            "011612": "STAR50_STITCH", "000216": "AU9999",
         }
         vols: Dict[str, float] = {}
         try:
@@ -1785,48 +1848,68 @@ def _build_model_weights(model_id: str, tier: str, snap: Dict[str, Any], fund_co
     return norm
 
 
-@app.get("/api/v1/recommend/blueprint")
-def api_v1_recommend_blueprint(
-    risk_level: str = "C3",
-    amount: float = 50000.0,
-    fund_count: int = 6,
-    model: str = "all_weather",
-    target_return_pct: float = 10.0,
-    horizon_months: int = 12,
+_EXTREME_CYCLE_CACHE: Dict[Tuple[Any, ...], Tuple[float, Dict[str, Any]]] = {}
+_EXTREME_CYCLE_LOCK = threading.Lock()
+
+_QUANT_JOBS: Dict[str, Dict[str, Any]] = {}
+_QUANT_JOBS_LOCK = threading.Lock()
+
+
+class QuantSolveRequest(BaseModel):
+    risk_level: str = "C3"
+    amount: float = 50000.0
+    fund_count: int = 6
+    model: str = "all_weather"
+    target_return_pct: float = 10.0
+    horizon_months: int = 12
+    universe_mode: str = "full_market"
+    period: str = "1y"
+    force: bool = False
+
+
+class LakehouseSyncRequest(BaseModel):
+    cooldown_minutes: int = 30
+
+
+def _build_blueprint_payload(
+    solved: Dict[str, Any],
+    tier: str,
+    model_id: str,
+    n_funds: int,
+    cap: float,
+    t_ret: float,
+    h_mon: int,
+    u_mode: str,
+    pm: Any,
+    snap: Dict[str, Any],
 ) -> Dict[str, Any]:
-    from goal_driven_selector import evaluate_goal_achievement, score_and_tilt_weights_with_details
+    from goal_driven_selector import _POOL_BY_CODE
 
-    tier = str(risk_level or "C3").upper().strip()
-    if tier not in _RISK_TIER_META:
-        tier = "C3"
-    model_id = str(model or "all_weather").strip().lower()
-    if model_id not in _QUANT_MODELS_META:
-        model_id = "all_weather"
-    n_funds = max(3, min(8, int(fund_count or 6)))
-    cap = max(1000.0, float(amount or 50000.0))
-    t_ret = max(2.0, min(60.0, float(target_return_pct or 10.0)))
-    h_mon = max(3, min(60, int(horizon_months or 12)))
-    req_cagr = round((((1.0 + t_ret / 100.0) ** (12.0 / h_mon)) - 1.0) * 100.0, 2)
+    target_w = solved["final_weights"]
+    factor_profiles = solved["factor_profiles"]
+    alloc_breakdown = solved["allocation_breakdown"]
+    goal_analysis = solved["goal_analysis"]
+    solver_audit = solved["solver_audit"]
+    allocation_logic_summary = solved["allocation_logic_summary"]
+    cards_meta = solved.get("fund_cards_meta") or {}
+    funnel_audit = solved.get("funnel_audit") or {}
+    real_bt_info = solved.get("real_bt_info") or {}
 
-    _, _, pm, snap = _get_active_context(None)
-    base_w = _build_model_weights(model_id, tier, snap, n_funds)
-    # 利用基金详情真实多因子数据（夏普/卡玛/最大回撤/新高率/规模/费率）进行评分与权重倾斜优化
-    target_w, factor_profiles = score_and_tilt_weights_with_details(base_w, tier=tier, req_cagr=req_cagr)
-    goal_analysis = evaluate_goal_achievement(target_w, target_return_pct=t_ret, horizon_months=h_mon, tier=tier)
-
-    # 严格按用户选定的 fund_count 输出精确只数（不因限购拆单额外多吐卡片），
-    # 同时保留真实单日限购信息写入 quota_note 字段提醒用户。
+    # 严格按用户选定的 fund_count 输出精确只数（支持全市场 266+ 精英湖仓任意入选标的）
     items = []
     regime_label = str(snap.get("market_state") or snap.get("regime") or "中性均衡")
     for code, w_frac in sorted(target_w.items(), key=lambda x: x[1], reverse=True):
         w_pct = round(float(w_frac) * 100.0, 1)
         buy_amt = round(cap * w_pct / 100.0, 2)
 
+        cm = cards_meta.get(code) or {}
         meta = _FUND_PLAIN_WHY.get(code, {})
         pool_m = CORE_STRATEGY_POOL.get(code, {})
-        fname = str(pool_m.get("fund_name") or code)
-        d_lim = float(pool_m.get("daily_limit", 1e8))
+        opt_m = _POOL_BY_CODE.get(code, {})
+        fname = str(cm.get("fund_name") or pool_m.get("fund_name") or opt_m.get("name") or code)
+        d_lim = float(cm.get("daily_limit") or pool_m.get("daily_limit", 1e8))
         fp = factor_profiles.get(code) or {}
+        ab = alloc_breakdown.get(code) or {}
 
         quant_signal = ""
         try:
@@ -1845,14 +1928,24 @@ def api_v1_recommend_blueprint(
         except Exception:
             pass
 
-        role_text = str(meta.get("role") or pool_m.get("asset_class") or "核心配置")
-        base_why = str(meta.get("why") or "符合当前量化风险预算与资产分散目标")
+        role_text = str(cm.get("role") or meta.get("role") or opt_m.get("role") or pool_m.get("asset_class") or "核心配置")
+        base_why = str(cm.get("why") or meta.get("why") or "符合当前量化风险预算与资产分散目标")
         q_score = int(fp.get("quant_score", 68))
+        pcr_pct = float(ab.get("risk_contribution_pcr_pct", w_pct))
+        solver_w_pct = float(ab.get("solver_weight_pct", w_pct))
+        tilt_delta_pct = float(ab.get("factor_tilt_delta_pct", 0.0))
         quant_reason = (
-            f"基金详情多因子评分 {q_score} 分（夏普 {fp.get('sharpe', 0):.2f} / 最大回撤 -{fp.get('max_dd_pct', 0):.1f}% / 费率 {fp.get('total_fee_pct', 0.6):.2f}%），"
-            f"{quant_signal}围绕 {h_mon} 个月 +{t_ret:.0f}% 目标分配 {w_pct:.1f}% 权重。"
+            f"模型原始求解 {solver_w_pct:.1f}%，叠加详情多因子 {q_score} 分（夏普 {fp.get('sharpe', 0):.2f} / "
+            f"最大回撤 -{fp.get('max_dd_pct', 0):.1f}% / 费率 {fp.get('total_fee_pct', 0.6):.2f}%）"
+            f"调整 {tilt_delta_pct:+.1f}% → 终值 {w_pct:.1f}%（风险贡献 PCR {pcr_pct:.1f}%）；{quant_signal}"
+            f"围绕 {h_mon} 个月 +{t_ret:.0f}% 目标与 {tier} 回撤护栏生成。"
         )
-        fee_note = "底仓首选 A 类份额，长期持有免每日计提销售服务费"
+        is_c_share = fname.endswith(("C", "C类")) or str(opt_m.get("share_class", "A")) == "C"
+        fee_note = (
+            "C 类持有满 30 天免赎回费，适合作为防御/波段机动仓"
+            if is_c_share
+            else "底仓首选 A 类份额，长期持有免每日计提销售服务费"
+        )
         quota_note = ""
         if d_lim < 1e7 and buy_amt > d_lim:
             days_need = max(2, int((buy_amt + d_lim - 1) // d_lim))
@@ -1862,10 +1955,20 @@ def api_v1_recommend_blueprint(
             "fund_code": code,
             "fund_name": fname,
             "role": role_text,
+            "bucket_label": str(cm.get("bucket_label") or role_text),
+            "asset_class": str(cm.get("asset_class") or "equity"),
+            "is_active_fund": bool(cm.get("is_active_fund", False)),
+            "real_scale_yi": cm.get("real_scale_yi"),
+            "max_star": cm.get("max_star", 0),
+            "inception_date": str(cm.get("inception_date", ""))[:10],
             "why": base_why,
             "quant_reason": quant_reason,
             "quant_score": q_score,
             "factor_profile": fp,
+            "allocation_breakdown": ab,
+            "solver_weight_pct": solver_w_pct,
+            "factor_tilt_delta_pct": tilt_delta_pct,
+            "risk_contribution_pcr_pct": pcr_pct,
             "fee_note": fee_note,
             "quota_note": quota_note,
             "action_guide": quota_note or "不限购，可按建议金额分批或一次配置",
@@ -1891,63 +1994,90 @@ def api_v1_recommend_blueprint(
         "model": model_id,
         "model_meta": _QUANT_MODELS_META[model_id],
         "all_models": list(_QUANT_MODELS_META.values()),
+        "universe_mode": u_mode,
         "fund_count": n_funds,
         "total_amount": round(cap, 2),
         "market_regime": regime_label,
         "goal_analysis": goal_analysis,
+        "solver_audit": solver_audit,
+        "funnel_audit": funnel_audit,
+        "real_bt_info": real_bt_info,
+        "allocation_logic_summary": allocation_logic_summary,
+        "portfolio_weights": target_w,
         "count": len(items),
         "items": items,
     })
 
 
-@app.get("/api/v1/charts/backtest_curves")
-def api_v1_charts_backtest_curves(
-    tier: str = "C3",
-    mode: str = "model_live",
-    model: str = "all_weather",
-    fund_count: int = 6,
-    period: str = "1y",
+def _build_backtest_curves_payload(
+    solved_bundle: Optional[Dict[str, Any]],
+    clean_tier: str,
+    mode: str,
+    clean_model: str,
+    n_funds: int,
+    clean_period: str,
+    t_ret: float,
+    h_mon: int,
+    u_mode: str,
+    snap: Dict[str, Any],
+    force: bool = False,
 ) -> Dict[str, Any]:
     import numpy as np
+    from extreme_cycle_analyzer import analyze_extreme_recovery_and_cycles
+    from goal_driven_selector import reconcile_goal_vs_backtest, solve_goal_driven_portfolio
 
-    clean_tier = str(tier or "C3").upper().strip()
-    if clean_tier not in _RISK_TIER_META:
-        clean_tier = "C3"
-    clean_model = str(model or "all_weather").strip().lower()
-    if clean_model not in _QUANT_MODELS_META:
-        clean_model = "all_weather"
-    n_funds = max(3, min(8, int(fund_count or 6)))
-    clean_period = str(period or "1y").strip().lower()
     period_days_map = {"3m": 63, "6m": 126, "1y": 252, "2y": 504, "all": 0}
-    period_label_map = {"3m": "近 3 个月", "6m": "近 6 个月", "1y": "近 1 年", "2y": "近 2 年", "all": "全周期 (2018 至今)"}
+    period_label_map = {"3m": "近 3 个月", "6m": "近 6 个月", "1y": "近 1 年", "2y": "近 2 年", "all": "全周期 (共同存续至今)"}
     if clean_period not in period_days_map:
         clean_period = "1y"
 
-    cache_key = f"{clean_tier}:{mode}:{clean_model}:{n_funds}:{clean_period}"
-    with _BACKTEST_CURVES_LOCK:
-        cached = _BACKTEST_CURVES_CACHE.get(cache_key)
-        if cached and (time.time() - cached[0]) < 300.0:
-            return cached[1]
+    proxy_early_df = None
+    real_bt_info: Dict[str, Any] = {}
+    funnel_audit: Optional[Dict[str, Any]] = None
 
-    snap = StrategyBridge.get_latest_market_snapshot(force_reload=False)
     if mode == "preset_combat_29_vs_6":
         preset = StrategyBridge.get_combat_29_vs_reconstructed_6_preset() or {}
         primary_w = dict(preset.get("reconstructed_6_weights") or _build_model_weights(clean_model, clean_tier, snap, n_funds))
         secondary_w = dict(preset.get("raw_29_weights") or {})
         primary_name = "投顾重构 6 基核心组合"
         secondary_name = "原始 29 基存量组合"
+        req_cagr_bt = round((((1.0 + t_ret / 100.0) ** (12.0 / h_mon)) - 1.0) * 100.0, 2)
+        df_bt = StrategyBridge.build_custom_portfolio_backtest(
+            fund_weights=primary_w,
+            secondary_weights=secondary_w if secondary_w else None,
+            tier=clean_tier,
+            target_return_pct=max(3.0, min(30.0, req_cagr_bt)),
+        )
     else:
-        primary_w = _build_model_weights(clean_model, clean_tier, snap, n_funds)
+        if solved_bundle is None:
+            solved_bundle = solve_goal_driven_portfolio(
+                risk_level=clean_tier,
+                fund_count=n_funds,
+                model_id=clean_model,
+                target_return_pct=t_ret,
+                horizon_months=h_mon,
+                universe_mode=u_mode,
+                market_snapshot=snap,
+                force_recompute=bool(force),
+            )
+        primary_w = dict(solved_bundle["final_weights"])
         secondary_w = None
-        primary_name = f"{_QUANT_MODELS_META[clean_model]['name']} ({clean_tier}·{n_funds}只)"
+        u_tag = "全市场" if u_mode == "full_market" else "低费指数"
+        primary_name = f"{_QUANT_MODELS_META[clean_model]['name']} ({clean_tier}·{u_tag}·{n_funds}只)"
         secondary_name = ""
+        df_bt = solved_bundle.get("real_bt_df")
+        proxy_early_df = solved_bundle.get("proxy_early_df")
+        real_bt_info = dict(solved_bundle.get("real_bt_info") or {})
+        funnel_audit = solved_bundle.get("funnel_audit")
+        if df_bt is None or df_bt.empty:
+            req_cagr_bt = round((((1.0 + t_ret / 100.0) ** (12.0 / h_mon)) - 1.0) * 100.0, 2)
+            df_bt = StrategyBridge.build_custom_portfolio_backtest(
+                fund_weights=primary_w,
+                secondary_weights=None,
+                tier=clean_tier,
+                target_return_pct=max(3.0, min(30.0, req_cagr_bt)),
+            )
 
-    df_bt = StrategyBridge.build_custom_portfolio_backtest(
-        fund_weights=primary_w,
-        secondary_weights=secondary_w if secondary_w else None,
-        tier=clean_tier,
-        target_return_pct=15.0,
-    )
     if df_bt is None or df_bt.empty:
         return _sanitize_v1_payload({"status": "empty", "dates": []})
 
@@ -1992,6 +2122,7 @@ def api_v1_charts_backtest_curves(
     # 按周期合理计算正收益胜率（短周期按周、长周期按月，客观无绝对化夸大）
     bucket = 5 if n_days <= 90 else 21
     bucket_unit = "周" if bucket == 5 else "个月"
+    win_rate_period_label = "周度正收益占比" if bucket == 5 else "月度正收益占比"
     chunk_rets = []
     arr = nav_otc.values
     for i in range(0, len(arr) - 1, bucket):
@@ -2002,6 +2133,55 @@ def api_v1_charts_backtest_curves(
     tot_chunks = max(len(chunk_rets), 1)
     win_pct = round(pos_chunks / tot_chunks * 100.0, 1)
 
+    metrics_obj = {
+        "period_return_pct": otc_ret,
+        "theoretical_return_pct": theo_ret,
+        "annualized_return_pct": ann_ret,
+        "hs300_return_pct": h300_ret,
+        "excess_return_pct": excess_ret,
+        "max_drawdown_pct": mdd_pct,
+        "hs300_mdd_pct": h300_mdd,
+        "win_rate_label": win_rate_period_label,
+        "win_rate_pct": win_pct,
+        "win_rate_detail": f"{pos_chunks} / {tot_chunks} {bucket_unit}录得正收益",
+        "sharpe_ratio": sharpe,
+        "trading_days": n_days,
+    }
+
+    # 目标收益 vs 历史回测偏差归因
+    goal_reconciliation = None
+    if solved_bundle is not None:
+        goal_reconciliation = reconcile_goal_vs_backtest(
+            goal_analysis=solved_bundle["goal_analysis"],
+            backtest_metrics=metrics_obj,
+            period_key=clean_period,
+            period_label=period_label_map[clean_period],
+            tier=clean_tier,
+            model_name=_QUANT_MODELS_META[clean_model]["name"],
+            solver_audit=solved_bundle.get("solver_audit"),
+        )
+
+    # 极端市场预计修复天数、历史修复天数、完整牛熊周期与量化止盈锚点（全周期 df_bt + 早期透明参考）
+    ext_key = (clean_tier, mode, clean_model, n_funds, round(t_ret, 1), h_mon, u_mode)
+    extreme_cycle_analysis = None
+    if not force:
+        with _EXTREME_CYCLE_LOCK:
+            ec_hit = _EXTREME_CYCLE_CACHE.get(ext_key)
+            if ec_hit and (time.time() - ec_hit[0]) < 600.0:
+                extreme_cycle_analysis = ec_hit[1]
+    if extreme_cycle_analysis is None:
+        extreme_cycle_analysis = analyze_extreme_recovery_and_cycles(
+            df_bt=df_bt,
+            target_return_pct=t_ret,
+            horizon_months=h_mon,
+            tier=clean_tier,
+            market_snapshot=snap,
+            n_simulations=10000,
+            df_proxy_early=proxy_early_df,
+        )
+        with _EXTREME_CYCLE_LOCK:
+            _EXTREME_CYCLE_CACHE[ext_key] = (time.time(), extreme_cycle_analysis)
+
     # 抽样用于前端 ECharts 渲染（约 260 点）
     n_rows = len(df_win)
     step = max(1, n_rows // 260)
@@ -2010,15 +2190,28 @@ def api_v1_charts_backtest_curves(
         idx_list.append(n_rows - 1)
 
     dates = [str(d)[:10] for d in df_win["date"].iloc[idx_list].tolist()]
-    slices = [
+    d_start = dates[0] if dates else "2018-01-02"
+    d_end = dates[-1] if dates else "2026-11-25"
+    raw_slices = [
         {"start": "2018-01-02", "end": "2018-12-28", "label": "去杠杆熊市", "color": "rgba(239, 68, 68, 0.08)"},
         {"start": "2019-01-02", "end": "2020-12-31", "label": "核心资产牛市", "color": "rgba(16, 185, 129, 0.08)"},
         {"start": "2021-01-04", "end": "2021-12-31", "label": "赛道股分化", "color": "rgba(245, 158, 11, 0.08)"},
         {"start": "2022-01-04", "end": "2022-12-30", "label": "加息杀估值", "color": "rgba(239, 68, 68, 0.08)"},
         {"start": "2023-01-03", "end": "2024-08-30", "label": "高股息避险", "color": "rgba(56, 189, 248, 0.08)"},
         {"start": "2024-09-02", "end": "2025-06-30", "label": "924大转向", "color": "rgba(16, 185, 129, 0.08)"},
-        {"start": "2025-07-01", "end": dates[-1] if dates else "2026-10-27", "label": "样本外区间", "color": "rgba(139, 92, 246, 0.10)"},
-    ] if clean_period == "all" else []
+        {"start": "2025-07-01", "end": d_end, "label": "样本外区间", "color": "rgba(139, 92, 246, 0.10)"},
+    ]
+    # 仅保留落在真实回测日期区间内的背景切片，避免空 X 轴截断
+    slices = []
+    if clean_period == "all" and dates:
+        for sl in raw_slices:
+            if sl["end"] < d_start or sl["start"] > d_end:
+                continue
+            slices.append({
+                **sl,
+                "start": max(sl["start"], d_start),
+                "end": min(sl["end"], d_end),
+            })
 
     def _pick(s, digits=4):
         if s is None:
@@ -2030,31 +2223,45 @@ def api_v1_charts_backtest_curves(
             return []
         return [round(float(x) * 100.0, 1) for x in df_win[col].iloc[idx_list].fillna(0.0).tolist()]
 
-    payload = _sanitize_v1_payload({
+    weight_vs_pcr: List[Dict[str, Any]] = []
+    if solved_bundle is not None:
+        ab_map = solved_bundle.get("allocation_breakdown") or {}
+        cm_map = solved_bundle.get("fund_cards_meta") or {}
+        for code, wf in sorted(primary_w.items(), key=lambda kv: -float(kv[1])):
+            cm = cm_map.get(code) or {}
+            ab = ab_map.get(code) or {}
+            fname = str(cm.get("fund_name") or code)
+            weight_vs_pcr.append({
+                "fund_code": code,
+                "fund_name": fname,
+                "short_name": fname[:8],
+                "bucket_label": str(cm.get("bucket_label") or ab.get("bucket") or "核心配置"),
+                "weight_pct": round(float(wf) * 100.0, 1),
+                "pcr_pct": round(float(ab.get("risk_contribution_pcr_pct", float(wf) * 100.0)), 1),
+            })
+
+    return _sanitize_v1_payload({
         "status": "ready",
         "tier": clean_tier,
         "model": clean_model,
+        "universe_mode": u_mode,
         "fund_count": n_funds,
+        "target_return_pct": t_ret,
+        "horizon_months": h_mon,
         "period": clean_period,
         "period_label": period_label_map[clean_period],
-        "date_range": f"{dates[0]} ~ {dates[-1]}" if dates else "",
+        "date_range": f"{d_start} ~ {d_end}" if dates else "",
         "mode": mode,
         "primary_name": primary_name,
         "secondary_name": secondary_name,
-        "metrics": {
-            "period_return_pct": otc_ret,
-            "theoretical_return_pct": theo_ret,
-            "annualized_return_pct": ann_ret,
-            "hs300_return_pct": h300_ret,
-            "excess_return_pct": excess_ret,
-            "max_drawdown_pct": mdd_pct,
-            "hs300_mdd_pct": h300_mdd,
-            "win_rate_label": f"{bucket_unit}度正收益占比",
-            "win_rate_pct": win_pct,
-            "win_rate_detail": f"{pos_chunks} / {tot_chunks} {bucket_unit}录得正收益",
-            "sharpe_ratio": sharpe,
-            "trading_days": n_days,
-        },
+        "portfolio_weights": primary_w,
+        "weight_vs_pcr": weight_vs_pcr,
+        "solver_audit": solved_bundle["solver_audit"] if solved_bundle else None,
+        "funnel_audit": funnel_audit,
+        "real_bt_info": real_bt_info,
+        "goal_reconciliation": goal_reconciliation,
+        "extreme_cycle_analysis": extreme_cycle_analysis,
+        "metrics": metrics_obj,
         "dates": dates,
         "nav": {
             "primary": _pick(nav_pri, 4),
@@ -2085,32 +2292,321 @@ def api_v1_charts_backtest_curves(
         },
         "slices": slices,
     })
+
+
+@app.get("/api/v1/lakehouse/status")
+def api_v1_lakehouse_status() -> Dict[str, Any]:
+    from market_lakehouse import get_lakehouse_status
+    return _sanitize_v1_payload(get_lakehouse_status())
+
+
+@app.post("/api/v1/lakehouse/sync_daily")
+def api_v1_lakehouse_sync_daily(req: Optional[LakehouseSyncRequest] = None) -> Dict[str, Any]:
+    from goal_driven_selector import clear_goal_solver_cache
+    from market_lakehouse import incremental_daily_sync
+
+    cd = int(req.cooldown_minutes) if req is not None else 30
+    res = incremental_daily_sync(cooldown_minutes=max(0, min(1440, cd)))
+    if res.get("updated_dates", 0) > 0:
+        clear_goal_solver_cache()
+        with _BACKTEST_CURVES_LOCK:
+            _BACKTEST_CURVES_CACHE.clear()
+        with _EXTREME_CYCLE_LOCK:
+            _EXTREME_CYCLE_CACHE.clear()
+    return _sanitize_v1_payload(res)
+
+
+@app.post("/api/v1/quant/solve")
+def api_v1_quant_solve_start(req: QuantSolveRequest) -> Dict[str, Any]:
+    """启动异步全市场量化求解任务并立即返回 job_id（供前端 4 阶段真实进度条轮询）。"""
+    import uuid
+    from goal_driven_selector import solve_goal_driven_portfolio
+
+    tier = str(req.risk_level or "C3").upper().strip()
+    if tier not in _RISK_TIER_META:
+        tier = "C3"
+    model_id = str(req.model or "all_weather").strip().lower()
+    if model_id not in _QUANT_MODELS_META:
+        model_id = "all_weather"
+    u_mode = str(req.universe_mode or "full_market").strip().lower()
+    if u_mode not in ("full_market", "index_only"):
+        u_mode = "full_market"
+    n_funds = max(3, min(8, int(req.fund_count or 6)))
+    cap = max(1000.0, float(req.amount or 50000.0))
+    t_ret = max(2.0, min(60.0, float(req.target_return_pct or 10.0)))
+    h_mon = max(3, min(60, int(req.horizon_months or 12)))
+    clean_period = str(req.period or "1y").strip().lower()
+    if clean_period not in ("3m", "6m", "1y", "2y", "all"):
+        clean_period = "1y"
+
+    job_id = uuid.uuid4().hex[:12]
+    now_ts = time.time()
+    job_rec: Dict[str, Any] = {
+        "job_id": job_id,
+        "status": "running",
+        "progress_pct": 5,
+        "stage_text": "正在初始化全市场量化求解引擎与本地真净值湖仓...",
+        "created_ts": now_ts,
+        "elapsed_ms": 0,
+        "result": None,
+        "error": None,
+    }
+    with _QUANT_JOBS_LOCK:
+        # 清理超过 15 分钟的旧任务防内存增长
+        if len(_QUANT_JOBS) > 40:
+            stale = [k for k, v in _QUANT_JOBS.items() if (now_ts - float(v.get("created_ts", 0))) > 900.0]
+            for k in stale:
+                _QUANT_JOBS.pop(k, None)
+        _QUANT_JOBS[job_id] = job_rec
+
+    def _run_job() -> None:
+        t0 = time.monotonic()
+
+        def _cb(pct: int, msg: str) -> None:
+            with _QUANT_JOBS_LOCK:
+                if job_id in _QUANT_JOBS:
+                    _QUANT_JOBS[job_id]["progress_pct"] = min(84, max(5, int(pct * 0.84)))
+                    _QUANT_JOBS[job_id]["stage_text"] = str(msg)
+                    _QUANT_JOBS[job_id]["elapsed_ms"] = int(round((time.monotonic() - t0) * 1000.0))
+
+        try:
+            _, _, pm, snap = _get_active_context(None)
+            solved = solve_goal_driven_portfolio(
+                risk_level=tier,
+                fund_count=n_funds,
+                model_id=model_id,
+                target_return_pct=t_ret,
+                horizon_months=h_mon,
+                universe_mode=u_mode,
+                market_snapshot=snap,
+                force_recompute=bool(req.force),
+                progress_cb=_cb,
+            )
+            with _QUANT_JOBS_LOCK:
+                if job_id in _QUANT_JOBS:
+                    _QUANT_JOBS[job_id]["progress_pct"] = 88
+                    _QUANT_JOBS[job_id]["stage_text"] = "正在合成真实复权净值回测曲线与 10,000 次极端修复周期测算..."
+                    _QUANT_JOBS[job_id]["elapsed_ms"] = int(round((time.monotonic() - t0) * 1000.0))
+
+            bp_payload = _build_blueprint_payload(
+                solved=solved,
+                tier=tier,
+                model_id=model_id,
+                n_funds=n_funds,
+                cap=cap,
+                t_ret=t_ret,
+                h_mon=h_mon,
+                u_mode=u_mode,
+                pm=pm,
+                snap=snap,
+            )
+            bt_payload = _build_backtest_curves_payload(
+                solved_bundle=solved,
+                clean_tier=tier,
+                mode="model_live",
+                clean_model=model_id,
+                n_funds=n_funds,
+                clean_period=clean_period,
+                t_ret=t_ret,
+                h_mon=h_mon,
+                u_mode=u_mode,
+                snap=snap,
+                force=bool(req.force),
+            )
+            cache_key = f"{tier}:model_live:{model_id}:{n_funds}:{clean_period}:{round(t_ret, 1)}:{h_mon}:{u_mode}"
+            with _BACKTEST_CURVES_LOCK:
+                _BACKTEST_CURVES_CACHE[cache_key] = (time.time(), bt_payload)
+
+            with _QUANT_JOBS_LOCK:
+                if job_id in _QUANT_JOBS:
+                    _QUANT_JOBS[job_id]["status"] = "done"
+                    _QUANT_JOBS[job_id]["progress_pct"] = 100
+                    _QUANT_JOBS[job_id]["stage_text"] = "全市场量化选基、真实净值回测与极端周期测算完成"
+                    _QUANT_JOBS[job_id]["elapsed_ms"] = int(round((time.monotonic() - t0) * 1000.0))
+                    _QUANT_JOBS[job_id]["result"] = {
+                        "blueprint": bp_payload,
+                        "backtest_curves": bt_payload,
+                    }
+        except Exception as exc:
+            logger.exception("异步量化求解失败: %s", exc)
+            with _QUANT_JOBS_LOCK:
+                if job_id in _QUANT_JOBS:
+                    _QUANT_JOBS[job_id]["status"] = "error"
+                    _QUANT_JOBS[job_id]["error"] = str(exc)
+                    _QUANT_JOBS[job_id]["stage_text"] = f"求解中断：{exc}"
+                    _QUANT_JOBS[job_id]["elapsed_ms"] = int(round((time.monotonic() - t0) * 1000.0))
+
+    threading.Thread(target=_run_job, name=f"agy2-quant-solve-{job_id}", daemon=True).start()
+    return _sanitize_v1_payload({
+        "job_id": job_id,
+        "status": "running",
+        "progress_pct": 5,
+        "stage_text": job_rec["stage_text"],
+    })
+
+
+@app.get("/api/v1/quant/solve/{job_id}")
+def api_v1_quant_solve_status(job_id: str) -> Dict[str, Any]:
+    with _QUANT_JOBS_LOCK:
+        job = _QUANT_JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="求解任务不存在或已过期")
+        snap_job = {
+            "job_id": job["job_id"],
+            "status": job["status"],
+            "progress_pct": job["progress_pct"],
+            "stage_text": job["stage_text"],
+            "elapsed_ms": job["elapsed_ms"],
+            "error": job.get("error"),
+        }
+        if job["status"] == "done":
+            snap_job["result"] = job.get("result")
+    return _sanitize_v1_payload(snap_job)
+
+
+@app.get("/api/v1/recommend/blueprint")
+def api_v1_recommend_blueprint(
+    risk_level: str = "C3",
+    amount: float = 50000.0,
+    fund_count: int = 6,
+    model: str = "all_weather",
+    target_return_pct: float = 10.0,
+    horizon_months: int = 12,
+    universe_mode: str = "full_market",
+    force: bool = False,
+) -> Dict[str, Any]:
+    from goal_driven_selector import solve_goal_driven_portfolio
+
+    tier = str(risk_level or "C3").upper().strip()
+    if tier not in _RISK_TIER_META:
+        tier = "C3"
+    model_id = str(model or "all_weather").strip().lower()
+    if model_id not in _QUANT_MODELS_META:
+        model_id = "all_weather"
+    u_mode = str(universe_mode or "full_market").strip().lower()
+    if u_mode not in ("full_market", "index_only"):
+        u_mode = "full_market"
+    n_funds = max(3, min(8, int(fund_count or 6)))
+    cap = max(1000.0, float(amount or 50000.0))
+    t_ret = max(2.0, min(60.0, float(target_return_pct or 10.0)))
+    h_mon = max(3, min(60, int(horizon_months or 12)))
+
+    _, _, pm, snap = _get_active_context(None)
+    solved = solve_goal_driven_portfolio(
+        risk_level=tier,
+        fund_count=n_funds,
+        model_id=model_id,
+        target_return_pct=t_ret,
+        horizon_months=h_mon,
+        universe_mode=u_mode,
+        market_snapshot=snap,
+        force_recompute=bool(force),
+    )
+    return _build_blueprint_payload(
+        solved=solved,
+        tier=tier,
+        model_id=model_id,
+        n_funds=n_funds,
+        cap=cap,
+        t_ret=t_ret,
+        h_mon=h_mon,
+        u_mode=u_mode,
+        pm=pm,
+        snap=snap,
+    )
+
+
+@app.get("/api/v1/charts/backtest_curves")
+def api_v1_charts_backtest_curves(
+    tier: str = "C3",
+    mode: str = "model_live",
+    model: str = "all_weather",
+    fund_count: int = 6,
+    period: str = "1y",
+    target_return_pct: float = 10.0,
+    horizon_months: int = 12,
+    universe_mode: str = "full_market",
+    force: bool = False,
+) -> Dict[str, Any]:
+    clean_tier = str(tier or "C3").upper().strip()
+    if clean_tier not in _RISK_TIER_META:
+        clean_tier = "C3"
+    clean_model = str(model or "all_weather").strip().lower()
+    if clean_model not in _QUANT_MODELS_META:
+        clean_model = "all_weather"
+    u_mode = str(universe_mode or "full_market").strip().lower()
+    if u_mode not in ("full_market", "index_only"):
+        u_mode = "full_market"
+    n_funds = max(3, min(8, int(fund_count or 6)))
+    t_ret = max(2.0, min(60.0, float(target_return_pct or 10.0)))
+    h_mon = max(3, min(60, int(horizon_months or 12)))
+    clean_period = str(period or "1y").strip().lower()
+    if clean_period not in ("3m", "6m", "1y", "2y", "all"):
+        clean_period = "1y"
+
+    cache_key = f"{clean_tier}:{mode}:{clean_model}:{n_funds}:{clean_period}:{round(t_ret, 1)}:{h_mon}:{u_mode}"
+    if not force:
+        with _BACKTEST_CURVES_LOCK:
+            cached = _BACKTEST_CURVES_CACHE.get(cache_key)
+            if cached and (time.time() - cached[0]) < 300.0:
+                return cached[1]
+
+    snap = StrategyBridge.get_latest_market_snapshot(force_reload=False)
+    payload = _build_backtest_curves_payload(
+        solved_bundle=None,
+        clean_tier=clean_tier,
+        mode=mode,
+        clean_model=clean_model,
+        n_funds=n_funds,
+        clean_period=clean_period,
+        t_ret=t_ret,
+        h_mon=h_mon,
+        u_mode=u_mode,
+        snap=snap,
+        force=bool(force),
+    )
     with _BACKTEST_CURVES_LOCK:
         _BACKTEST_CURVES_CACHE[cache_key] = (time.time(), payload)
     return payload
 
 
 @app.get("/api/v1/charts/crowding_quadrant")
-def api_v1_charts_crowding_quadrant(ledger_id: Optional[str] = None) -> Dict[str, Any]:
+def api_v1_charts_crowding_quadrant(
+    ledger_id: Optional[str] = None,
+    codes: Optional[str] = None,
+) -> Dict[str, Any]:
     _, lid, pm, _ = _get_active_context(ledger_id)
     holdings = getattr(pm, "holdings", {}) or {}
-    # 若持仓为空，展示 6 只核心推荐标的的四象限位置；否则展示核心持仓（市值 >= 200）及核心池
-    core_codes = [c for c, h in sorted(holdings.items(), key=lambda x: -float(getattr(x[1], "market_value", 0.0) or 0.0)) if float(getattr(h, "market_value", 0.0) or 0.0) >= 200.0]
-    if not core_codes:
-        core_codes = ["005561", "110020", "002351", "017436", "011612", "000216"]
+    # 若前端显式传入上方全市场推荐组合代码列表，则严格展示该方案的真实 MA20 乖离与拥挤度象限；否则回退当前账本核心持仓
+    explicit_codes: List[str] = []
+    if codes:
+        for tok in str(codes).split(","):
+            c = tok.strip().zfill(6) if tok.strip().isdigit() else tok.strip()
+            if c and c not in explicit_codes:
+                explicit_codes.append(c)
+
+    if explicit_codes:
+        core_codes = explicit_codes[:12]
+        scope_mode = "recommended_portfolio"
     else:
-        for c in ("005561", "110020", "002351", "017436", "011612", "000216"):
-            if c not in core_codes and len(core_codes) < 12:
-                core_codes.append(c)
+        core_codes = [c for c, h in sorted(holdings.items(), key=lambda x: -float(getattr(x[1], "market_value", 0.0) or 0.0)) if float(getattr(h, "market_value", 0.0) or 0.0) >= 200.0]
+        if not core_codes:
+            core_codes = ["005561", "110020", "002351", "017436", "011612", "000216"]
+        else:
+            for c in ("005561", "110020", "002351", "017436", "011612", "000216"):
+                if c not in core_codes and len(core_codes) < 12:
+                    core_codes.append(c)
+        scope_mode = "ledger_holdings"
 
     points = []
     for code in core_codes[:12]:
         try:
-            d = pm.get_fund_smart_money_crowding(code) or {}
+            d = pm.get_fund_smart_money_crowding(code, force_reload=True) or {}
+            fname = str(d.get("fund_name") or code)
             points.append({
                 "fund_code": code,
-                "fund_name": str(d.get("fund_name") or code),
-                "short_name": str(d.get("short_name") or d.get("fund_name") or code)[:10],
+                "fund_name": fname,
+                "short_name": str(d.get("short_name") or fname)[:10],
                 "bias_20": round(float(d.get("bias_20", 0.0) or 0.0), 2),
                 "crowding_score": round(float(d.get("crowding_score", 50.0) or 50.0), 1),
                 "ret_20d": round(float(d.get("ret_20d", 0.0) or 0.0), 2),
@@ -2121,7 +2617,7 @@ def api_v1_charts_crowding_quadrant(ledger_id: Optional[str] = None) -> Dict[str
         except Exception:
             continue
 
-    return _sanitize_v1_payload({"ledger_id": lid, "count": len(points), "points": points})
+    return _sanitize_v1_payload({"ledger_id": lid, "scope_mode": scope_mode, "count": len(points), "points": points})
 
 
 @app.get("/api/v1/charts/scenario_backtest")
@@ -2130,6 +2626,11 @@ def api_v1_charts_scenario_backtest(
     tier: str = "C3",
     capital: float = 100000.0,
     dynamic_rebalance: bool = True,
+    model: Optional[str] = None,
+    fund_count: Optional[int] = None,
+    target_return_pct: Optional[float] = None,
+    horizon_months: Optional[int] = None,
+    universe_mode: str = "full_market",
 ) -> Dict[str, Any]:
     clean_tier = str(tier or "C3").upper().strip()
     if clean_tier not in _RISK_TIER_META:
@@ -2137,12 +2638,53 @@ def api_v1_charts_scenario_backtest(
     clean_date = str(start_date or "2024-09-18").strip()[:10]
     cap = max(1000.0, float(capital or 100000.0))
 
-    res = StrategyBridge.run_historical_time_machine_backtest(
-        target_date=clean_date,
-        tier=clean_tier,
-        capital=cap,
-        dynamic_rebalance=bool(dynamic_rebalance),
-    ) or {}
+    portfolio_name = f"动态策略模板 ({clean_tier})"
+    used_proxy_early = False
+    proxy_note = ""
+    portfolio_weights: Optional[Dict[str, float]] = None
+
+    if model is not None:
+        from goal_driven_selector import simulate_portfolio_scenario_backtest, solve_goal_driven_portfolio
+
+        clean_model = str(model or "all_weather").strip().lower()
+        if clean_model not in _QUANT_MODELS_META:
+            clean_model = "all_weather"
+        u_mode = str(universe_mode or "full_market").strip().lower()
+        if u_mode not in ("full_market", "index_only"):
+            u_mode = "full_market"
+        n_funds = max(3, min(8, int(fund_count or 6)))
+        t_ret = max(2.0, min(60.0, float(target_return_pct if target_return_pct is not None else 10.0)))
+        h_mon = max(3, min(60, int(horizon_months if horizon_months is not None else 12)))
+
+        snap = StrategyBridge.get_latest_market_snapshot(force_reload=False)
+        solved = solve_goal_driven_portfolio(
+            risk_level=clean_tier,
+            fund_count=n_funds,
+            model_id=clean_model,
+            target_return_pct=t_ret,
+            horizon_months=h_mon,
+            universe_mode=u_mode,
+            market_snapshot=snap,
+            force_recompute=False,
+        )
+        res = simulate_portfolio_scenario_backtest(
+            solved_bundle=solved,
+            start_date=clean_date,
+            dynamic_rebalance=bool(dynamic_rebalance),
+        )
+        u_tag = "全市场" if u_mode == "full_market" else "低费指数"
+        portfolio_name = f"{_QUANT_MODELS_META[clean_model]['name']} ({clean_tier}·{u_tag}·{n_funds}只)"
+        used_proxy_early = bool(res.get("used_proxy_early", False))
+        proxy_note = str(res.get("proxy_note", ""))
+        portfolio_weights = res.get("portfolio_weights")
+    else:
+        res = StrategyBridge.run_historical_time_machine_backtest(
+            target_date=clean_date,
+            tier=clean_tier,
+            capital=cap,
+            dynamic_rebalance=bool(dynamic_rebalance),
+        ) or {}
+
     curve_df = res.get("curve_df")
     dates: List[str] = []
     strat_nav: List[float] = []
@@ -2162,8 +2704,12 @@ def api_v1_charts_scenario_backtest(
             bm50_nav = [round(float(x), 4) for x in df_s["benchmark_nav"].fillna(1.0).tolist()]
 
     return _sanitize_v1_payload({
-        "start_date": clean_date,
+        "start_date": str(res.get("target_date") or clean_date),
         "tier": clean_tier,
+        "portfolio_name": portfolio_name,
+        "used_proxy_early": used_proxy_early,
+        "proxy_note": proxy_note,
+        "portfolio_weights": portfolio_weights,
         "dynamic_rebalance": bool(dynamic_rebalance),
         "kpis": {
             "m3": res.get("kpi_3m"),

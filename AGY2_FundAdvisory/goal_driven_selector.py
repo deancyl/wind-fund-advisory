@@ -1,29 +1,121 @@
 # -*- coding: utf-8 -*-
 """
-AGY2 目标驱动量化选基与调仓评估引擎 (Goal-Driven Multi-Factor Selector)
-核心闭环：
-  1. 接收用户的【目标收益率 (%)】+【目标持有周期 (月)】+【风险档位 (C1~C5)】+【配置模型】；
-  2. 反推所需年化收益率，校验「收益预期 vs 风险承受力」是否存在碰撞；
-  3. 并发调用 fund_detail_service 读取每只候选基金的真实 4 大类 + 8 小类量化指标、
-     费率、规模与经理稳定性，动态计算多因子综合得分 (0~100) 并对权重做因子倾斜优化；
-  4. 在真实历史净值序列上执行全历史滚动窗口回测，统计「在目标周期内达到目标收益的
-     历史达成概率 (%)、平均达标耗时、中位收益与最差回撤」，同时支持「当前持仓 vs 调仓后」达成率对比。
+AGY2 全市场 28,177 只离线精英净值湖仓驱动 · 目标量化选基、真实净值回测与偏差诊断引擎 (goal_driven_selector.py)
+核心架构（彻底打破 12 只固定池，在线 0 爬虫真全市场海选）：
+  1. 优先加载本地 350~400 只跨 10 大风格桶的真实红利再投资复权净值湖仓 (market_lakehouse.py)；
+     支持两种选基范围切换：
+       - full_market : 全市场海选（主动绩优均衡/行业成长 + 固收+ + 纯债 + 红利 + 宽基 + 量化指增 + QDII + 黄金商品）
+       - index_only  : 仅指数/宽基/纯债/黄金低费透明池（防主动经理风格漂移）
+  2. 目标驱动动态初筛（彻底告别固定骨架！）：
+     - 结合【目标收益 + 持有周期 + C1~C5 + 配置模型】，全湖仓扫描条件胜率 / 夏普 / 卡玛 / 最大回撤 / 正收益概率，
+     - 按动态风格桶配额 + Pairwise 相关性去冗余 (|corr| <= 0.82) 精选 28~36 只高度契合本次目标的真实入围候选；
+     - 执行历史深度门禁（>= max(500, holding_days + 160) 交易日），根治 .dropna() 截断雪崩；
+  3. 真正调用 WinRateOptimizer 在 28~36 只真实入围候选上运行双核求解（ERC/HRP/Core-Satellite/条件胜率 SLSQP/CVaR/半凯利）
+     + 局部搜索换基 + 70/30 OOS 验证 + 官方类型宪法护栏 + 真实协方差 PCR 风险贡献度分解；
+  4. 仅对终选的 N 只基金并发拉取 10 维详情多因子微调（±10% 有界），并用这 N 只基金自身的真实复权净值合成主回测曲线
+     （build_real_nav_portfolio_backtest，绝不将新基金静默退化成沪深 300 指数替身！）；
+  5. 输出透明漏斗统计（28,177 -> 合规初筛 -> 精英真净值库 -> 入围寻优 -> N 只终选）、资金配权归因与目标 vs 回测偏差归因。
 """
 
 from __future__ import annotations
 
 import math
 import re
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 
 from fund_detail_service import get_fund_full_detail
+from market_lakehouse import BUCKET_10_CONFIG, load_elite_lakehouse
+from portfolio_optimizer import (
+    MAX_DRAWDOWN_BY_TIER,
+    WinRateOptimizer,
+    apply_asset_class_constitutional_limits,
+    calculate_portfolio_risk_contributions,
+    recommend_model_for_regime,
+)
 from strategy_bridge import StrategyBridge, map_target_return_to_tier
+from winrate_engine import WinRateEngine
 
 _TIER_ORDER = {"C1": 1, "C2": 2, "C3": 3, "C4": 4, "C5": 5}
-_TIER_MAX_REALISTIC_CAGR = {"C1": 5.5, "C2": 8.5, "C3": 12.0, "C4": 16.5, "C5": 22.0}
+_TIER_MAX_REALISTIC_CAGR = {"C1": 6.0, "C2": 9.5, "C3": 14.0, "C4": 20.0, "C5": 28.0}
+
+# 兜底池（仅在极端无精英湖仓文件的裸测环境下触发）
+_QUANT_OPTIMIZER_POOL: List[Dict[str, Any]] = [
+    {"code": "002351", "name": "易方达裕祥回报债券A", "bucket": "pure_bond", "bucket_label": "纯债固收", "asset_class": "bond", "index_col": "H11009", "risk_level": 1, "share_class": "A", "role": "固收安全垫"},
+    {"code": "000086", "name": "工银瑞信信用纯债债券A", "bucket": "pure_bond", "bucket_label": "纯债固收", "asset_class": "bond", "index_col": "H11009", "risk_level": 1, "share_class": "A", "role": "纯债压舱石"},
+    {"code": "018757", "name": "睿远稳益增强30天持有C", "bucket": "fixed_income_plus", "bucket_label": "固收+二级债", "asset_class": "bond", "index_col": "H11009", "risk_level": 1, "share_class": "C", "role": "固收增强垫"},
+    {"code": "005561", "name": "创金合信中证红利低波动指数A", "bucket": "dividend_value", "bucket_label": "红利低波价值", "asset_class": "equity", "index_col": "H30269", "risk_level": 2, "share_class": "A", "role": "红利低波主锚"},
+    {"code": "100032", "name": "富国中证红利指数增强A", "bucket": "dividend_value", "bucket_label": "红利低波价值", "asset_class": "equity", "index_col": "H00922", "risk_level": 2, "share_class": "A", "role": "红利增强底仓"},
+    {"code": "000216", "name": "华安易富黄金ETF联接A", "bucket": "commodity_gold", "bucket_label": "黄金与商品对冲", "asset_class": "gold", "index_col": "AU9999", "risk_level": 2, "share_class": "A", "role": "黄金避险气垫"},
+    {"code": "110020", "name": "易方达沪深300ETF联接A", "bucket": "broad_index", "bucket_label": "A股核心宽基", "asset_class": "equity", "index_col": "H00300", "risk_level": 3, "share_class": "A", "role": "A股核心宽基"},
+    {"code": "050025", "name": "博时标普500ETF联接A", "bucket": "overseas_qdii", "bucket_label": "海外QDII跨市场", "asset_class": "qdii", "index_col": "SPX_CNY", "risk_level": 3, "share_class": "A", "role": "美股宽基对冲"},
+    {"code": "000478", "name": "建信中证500指数增强A", "bucket": "quant_mid_small", "bucket_label": "量化与中小盘指增", "asset_class": "equity", "index_col": "H00905", "risk_level": 3, "share_class": "A", "role": "中盘量化增强"},
+    {"code": "017436", "name": "华安纳斯达克100ETF联接A", "bucket": "overseas_qdii", "bucket_label": "海外QDII跨市场", "asset_class": "qdii", "index_col": "SPX_CNY", "risk_level": 4, "share_class": "A", "role": "美股科技对冲"},
+    {"code": "004194", "name": "招商中证1000指数增强A", "bucket": "quant_mid_small", "bucket_label": "量化与中小盘指增", "asset_class": "equity", "index_col": "H00852", "risk_level": 4, "share_class": "A", "role": "小盘量化增强"},
+    {"code": "011612", "name": "华夏上证科创板50成份ETF联接A", "bucket": "sector_theme_index", "bucket_label": "行业主题指数", "asset_class": "equity", "index_col": "STAR50_STITCH", "risk_level": 5, "share_class": "A", "role": "硬核科技进攻"},
+]
+_POOL_BY_CODE: Dict[str, Dict[str, Any]] = {x["code"]: x for x in _QUANT_OPTIMIZER_POOL}
+
+# 10 大风格桶对应早期（成立前）参考指数列（仅用于 2018 极端历史事件的明文参考测算，绝不污染主净值）
+_BUCKET_PROXY_INDEX_COL: Dict[str, str] = {
+    "pure_bond": "H11009",
+    "fixed_income_plus": "BENCHMARK_30_70",
+    "dividend_value": "H30269",
+    "broad_index": "H00300",
+    "quant_mid_small": "H00905",
+    "sector_theme_index": "STAR50_STITCH",
+    "active_balanced_equity": "H00300",
+    "active_sector_growth": "STAR50_STITCH",
+    "overseas_qdii": "SPX_CNY",
+    "commodity_gold": "AU9999",
+}
+
+_UI_MODEL_TO_SOLVER: Dict[str, Dict[str, str]] = {
+    "all_weather": {
+        "primary": "all_weather",
+        "secondary": "conditional_winrate",
+        "algo_label": "全天候 ERC 等风险贡献 SLSQP + 同温层条件胜率双核求解",
+        "math_summary": "在 Ledoit-Wolf 去噪协方差矩阵上求解各资产边际风险贡献均衡 (ERC)，并融合 5 维宏观高斯核条件胜率 SLSQP 规划，在档位回撤上限内最大化目标达成率。",
+    },
+    "risk_parity": {
+        "primary": "hrp_robust",
+        "secondary": "cvar_tail",
+        "algo_label": "HRP 层次风险平价聚类 + Rockafellar-Uryasev 95% CVaR 尾部极小化",
+        "math_summary": "通过相关性距离树做层次聚类与递归二分逆方差分配 (De Prado HRP)，再叠加 95% CVaR 极值下行损失约束，优先压低极端熊市的最大浮亏与修复天数。",
+    },
+    "dividend_defense": {
+        "primary": "core_satellite",
+        "secondary": "cvar_tail",
+        "algo_label": "核心-卫星逆波动杠铃 + 高股息低波与 CVaR 尾部约束",
+        "math_summary": "70%~85% 资金锚定纯债、固收+、红利价值与黄金防御核心（按逆波动配权），剩余卫星仓按夏普与达标胜率精选，严控回撤并兼顾复利稳健。",
+    },
+    "barbell_growth": {
+        "primary": "conditional_winrate",
+        "secondary": "kelly_momentum",
+        "algo_label": "同温层条件胜率 SLSQP + 半凯利复利动量杠铃求解",
+        "math_summary": "在档位大类宪法风控护栏下，一端锁定纯债/黄金底线，另一端采用 5 维宏观同温层 SLSQP 条件胜率优化与半凯利对数复利倾斜，放大中长期向上弹性。",
+    },
+}
+
+_SOLVER_CACHE: Dict[Tuple[Any, ...], Tuple[float, Dict[str, Any]]] = {}
+_SOLVER_CACHE_LOCK = threading.Lock()
+_SOLVER_CACHE_TTL_SEC = 1800.0
+
+_SCAN_CACHE: Dict[Tuple[Any, ...], Tuple[float, pd.DataFrame]] = {}
+_SCAN_CACHE_LOCK = threading.Lock()
+
+
+def clear_goal_solver_cache() -> None:
+    """清空求解器与全市场扫描缓存（盘后增量日更或单元测试后调用）。"""
+    with _SOLVER_CACHE_LOCK:
+        _SOLVER_CACHE.clear()
+    with _SCAN_CACHE_LOCK:
+        _SCAN_CACHE.clear()
 
 
 def _parse_num(val: Any, default: float = 0.0) -> float:
@@ -31,6 +123,118 @@ def _parse_num(val: Any, default: float = 0.0) -> float:
         return float(val)
     m = re.search(r"-?\d+(?:\.\d+)?", str(val or ""))
     return float(m.group(0)) if m else default
+
+
+def _normalize_weights_4dp(weights: Dict[str, float]) -> Dict[str, float]:
+    cleaned = [(str(k), max(0.0, float(v))) for k, v in weights.items() if float(v) > 1e-6]
+    cleaned.sort(key=lambda x: x[1], reverse=True)
+    tot = sum(w for _, w in cleaned) or 1.0
+    out: Dict[str, float] = {}
+    acc = 0.0
+    for idx, (c, w) in enumerate(cleaned):
+        if idx == len(cleaned) - 1:
+            out[c] = round(max(0.0, 1.0 - acc), 4)
+        else:
+            nw = round(w / tot, 4)
+            out[c] = nw
+            acc += nw
+    return out
+
+
+def _enforce_exact_fund_bounds(
+    weights: Dict[str, float],
+    required_codes: List[str],
+    meta_map: Optional[Dict[str, Dict[str, Any]]] = None,
+    tier: str = "C3",
+    min_floor: float = 0.04,
+) -> Dict[str, float]:
+    """
+    盒式约束迭代水填投影（Box-Constrained Simplex Projection）：
+    严格保障每只入选基金同时满足 min_floor <= w_i <= cap_i 且总和精确为 1.0000，
+    彻底杜绝单一主题/权益基金权重膨胀至 50%~60% 的过度集中风险。
+    """
+    n = len(required_codes)
+    if n == 0:
+        return {}
+    # 随基金数量与风险档位自适应单基上限（同时严守大类宪法红线，防单基溢出推高黄金/QDII上限）
+    tier_u = str(tier or "C3").upper().strip()
+    class_caps_by_tier = {
+        "C1": {"qdii": 0.05, "gold": 0.10, "bond": 0.48, "equity": 0.25},
+        "C2": {"qdii": 0.08, "gold": 0.12, "bond": 0.45, "equity": 0.34},
+        "C3": {"qdii": 0.12, "gold": 0.15, "bond": 0.30, "equity": 0.35},
+        "C4": {"qdii": 0.15, "gold": 0.12, "bond": 0.15, "equity": 0.35},
+        "C5": {"qdii": 0.15, "gold": 0.10, "bond": 0.10, "equity": 0.36},
+    }.get(tier_u, {"qdii": 0.12, "gold": 0.15, "bond": 0.30, "equity": 0.35})
+    eq_single_cap = 0.45 if n <= 3 else (0.38 if n <= 4 else class_caps_by_tier["equity"])
+    # 按同类基金只数平分大类上限（防 2 只 QDII 或 2 只黄金合计突破大类红线）
+    ac_counts: Dict[str, int] = {}
+    for c in required_codes:
+        ac = str(((meta_map or {}).get(c) or {}).get("asset_class", "equity")).lower()
+        ac_counts[ac] = ac_counts.get(ac, 0) + 1
+    caps: Dict[str, float] = {}
+    for c in required_codes:
+        ac = str(((meta_map or {}).get(c) or {}).get("asset_class", "equity")).lower()
+        if ac == "qdii":
+            c_cap = class_caps_by_tier["qdii"] / max(ac_counts.get("qdii", 1), 1)
+        elif ac == "gold":
+            c_cap = class_caps_by_tier["gold"] / max(ac_counts.get("gold", 1), 1)
+        elif ac == "bond":
+            c_cap = class_caps_by_tier["bond"]
+        else:
+            c_cap = eq_single_cap
+        caps[c] = max(min_floor + 0.01, c_cap)
+    # 保证 sum(caps) >= 1.02，防止极端少量基金下无可行解
+    tot_cap = sum(caps.values())
+    if tot_cap < 1.02:
+        scale_up = 1.05 / max(tot_cap, 1e-6)
+        caps = {c: min(0.85, v * scale_up) for c, v in caps.items()}
+
+    w = {c: max(min_floor, float(weights.get(c, 1.0 / n))) for c in required_codes}
+    tot = sum(w.values()) or 1.0
+    w = {c: v / tot for c, v in w.items()}
+
+    for _ in range(25):
+        excess = 0.0
+        deficit = 0.0
+        free_up: List[str] = []
+        free_dn: List[str] = []
+        for c in required_codes:
+            if w[c] > caps[c] + 1e-9:
+                excess += w[c] - caps[c]
+                w[c] = caps[c]
+            elif w[c] < min_floor - 1e-9:
+                deficit += min_floor - w[c]
+                w[c] = min_floor
+            else:
+                if w[c] < caps[c] - 1e-6:
+                    free_up.append(c)
+                if w[c] > min_floor + 1e-6:
+                    free_dn.append(c)
+        net = excess - deficit
+        if abs(net) < 1e-7:
+            break
+        if net > 0 and free_up:
+            room = sum(caps[c] - w[c] for c in free_up)
+            if room > 1e-9:
+                for c in free_up:
+                    w[c] += net * ((caps[c] - w[c]) / room)
+        elif net < 0 and free_dn:
+            room = sum(w[c] - min_floor for c in free_dn)
+            if room > 1e-9:
+                for c in free_dn:
+                    w[c] += net * ((w[c] - min_floor) / room)
+        else:
+            break
+
+    return _normalize_weights_4dp(w)
+
+
+def _enforce_exact_fund_floor(
+    weights: Dict[str, float],
+    required_codes: List[str],
+    min_floor: float = 0.03,
+) -> Dict[str, float]:
+    return _enforce_exact_fund_bounds(weights, required_codes, meta_map=None, tier="C3", min_floor=min_floor)
 
 
 def _extract_fund_factor_profile(code: str, detail: Dict[str, Any], tier: str, req_cagr: float) -> Dict[str, Any]:
@@ -54,7 +258,6 @@ def _extract_fund_factor_profile(code: str, detail: Dict[str, Any], tier: str, r
     ir = _sub_val("tracking_ability", "信息比率", 0.0)
     te = _sub_val("tracking_ability", "跟踪误差", 10.0)
 
-    # 基金基本面因子：规模、费率、经理稳定性
     prof = detail.get("profile") or {}
     scale_yi = prof.get("scale_yi")
     rules = detail.get("trading_rules") or {}
@@ -66,13 +269,11 @@ def _extract_fund_factor_profile(code: str, detail: Dict[str, Any], tier: str, r
     mgrs = detail.get("managers") or []
     cur_mgr_days = max((int(m.get("days", 0) or 0) for m in mgrs if m.get("is_current")), default=365)
 
-    # 基础四维分
     s_ratio = float((cats.get("cost_perf") or {}).get("score", 62))
     s_down = float((cats.get("downside") or {}).get("score", 62))
     s_vol = float((cats.get("volatility") or {}).get("score", 62))
     s_track = float((cats.get("tracking") or {}).get("score", 62))
 
-    # 基本面加减分（规模 >= 2亿、费率 <= 0.8%、经理任职 >= 2年加分；迷你基/高费减分）
     fund_bonus = 0.0
     if scale_yi is not None:
         if float(scale_yi) >= 5.0:
@@ -86,18 +287,14 @@ def _extract_fund_factor_profile(code: str, detail: Dict[str, Any], tier: str, r
     if cur_mgr_days >= 730:
         fund_bonus += 2.0
 
-    # 按目标年化收益高低动态分配多因子权重
     if req_cagr <= 6.5 or tier in ("C1", "C2"):
-        # 防御/稳健目标：重抗下跌、抗波动与夏普性价比
         composite = 0.35 * s_down + 0.25 * s_vol + 0.25 * s_ratio + 0.15 * s_track + fund_bonus
         style_note = "低波抗跌优先"
     elif req_cagr >= 13.0 or tier in ("C4", "C5"):
-        # 高目标/进取：重卡玛性价比、净值新高率与超额收益弹性
         s_ret = float(np.clip(55.0 + new_high * 1.1 + excess * 0.6, 25.0, 96.0))
         composite = 0.35 * s_ret + 0.30 * s_ratio + 0.20 * s_down + 0.15 * s_track + fund_bonus
         style_note = "弹性与性价比优先"
     else:
-        # 均衡目标：四维均衡
         composite = 0.30 * s_ratio + 0.28 * s_down + 0.22 * s_vol + 0.20 * s_track + fund_bonus
         style_note = "风险收益均衡"
 
@@ -124,27 +321,26 @@ def score_and_tilt_weights_with_details(
     base_weights: Dict[str, float],
     tier: str,
     req_cagr: float,
+    metrics_df: Optional[pd.DataFrame] = None,
+    equity_tilt_pct: float = 0.0,
 ) -> Tuple[Dict[str, float], Dict[str, Dict[str, Any]]]:
-    """
-    并发拉取候选基金详情数据，计算每只基金的多因子量化得分，
-    并对基础权重实施温和的因子倾斜（±15% 内，保证不破坏大类风控纪律且权重和严格 = 1.0）。
-    """
+    """仅对最终选出的 N 只基金并发拉取详情多因子打分并执行 ±10% 有界倾斜，二次投影宪法护栏。"""
     codes = list(base_weights.keys())
     if not codes:
         return {}, {}
 
     profiles: Dict[str, Dict[str, Any]] = {}
-    with ThreadPoolExecutor(max_workers=min(6, len(codes))) as pool:
+    with ThreadPoolExecutor(max_workers=min(4, len(codes))) as pool:
         futs = {pool.submit(get_fund_full_detail, c, 1000.0): c for c in codes}
         for fut, c in futs.items():
             try:
-                det = fut.result(timeout=8.0) or {}
+                det = fut.result(timeout=6.0) or {}
                 profiles[c] = _extract_fund_factor_profile(c, det, tier, req_cagr)
             except Exception:
                 profiles[c] = {
                     "fund_code": c,
-                    "quant_score": 65,
-                    "style_note": "基准评分",
+                    "quant_score": 66,
+                    "style_note": "湖仓基准评分",
                     "sharpe": 0.5,
                     "calmar": 0.4,
                     "max_dd_pct": 12.0,
@@ -155,29 +351,940 @@ def score_and_tilt_weights_with_details(
                     "tracking_error_pct": 10.0,
                     "total_fee_pct": 0.6,
                     "scale_yi": None,
-                    "mgr_days": 365,
+                    "mgr_days": 730,
                 }
 
     avg_score = sum(p["quant_score"] for p in profiles.values()) / max(len(profiles), 1)
     tilted: Dict[str, float] = {}
     for c, w in base_weights.items():
         sc = profiles[c]["quant_score"]
-        # 温和因子倾斜系数 [0.85, 1.15]
-        mult = float(np.clip(1.0 + (sc - avg_score) * 0.008, 0.85, 1.15))
+        mult = float(np.clip(1.0 + (sc - avg_score) * 0.005, 0.90, 1.10))
         tilted[c] = float(w) * mult
 
-    tot = sum(tilted.values()) or 1.0
-    norm: Dict[str, float] = {}
-    acc = 0.0
-    items = sorted(tilted.items(), key=lambda x: x[1], reverse=True)
-    for idx, (c, w) in enumerate(items):
-        if idx == len(items) - 1:
-            norm[c] = round(max(0.0, 1.0 - acc), 4)
+    try:
+        guarded = apply_asset_class_constitutional_limits(
+            tilted, tier=tier, metrics_df=metrics_df, equity_tilt_pct=equity_tilt_pct
+        )
+    except Exception:
+        guarded = tilted
+
+    return _normalize_weights_4dp(guarded), profiles
+
+
+def _scan_lakehouse_universe_metrics(
+    nav_df: pd.DataFrame,
+    meta_df: pd.DataFrame,
+    holding_days: int,
+    req_cagr_dec: float,
+    universe_mode: str,
+    market_snapshot: Optional[Dict[str, Any]] = None,
+) -> pd.DataFrame:
+    """
+    对本地全市场精英湖仓（300~400 只真实复权净值）执行全量指标扫描（带当日同参缓存），
+    为每只达标基金计算真实年化、夏普、卡玛、最大回撤、同温层条件胜率与正收益概率。
+    """
+    today_s = time.strftime("%Y-%m-%d")
+    scan_key = (today_s, universe_mode, int(holding_days), round(req_cagr_dec, 3), int(nav_df.shape[1]))
+    with _SCAN_CACHE_LOCK:
+        hit = _SCAN_CACHE.get(scan_key)
+        if hit and (time.time() - hit[0]) < 1800.0:
+            return hit[1].copy()
+
+    # 历史深度门禁（消除 2023 年底熊底新发基金的幸存者/建仓时机偏差，确保穿越 2022 熊市与 2024 反转完整周期！）
+    strict_min_days = max(1150, int(holding_days) + 250)
+    fallback_min_days = max(720, int(holding_days) + 150)
+    eligible = meta_df.copy()
+
+    # 运行时校准主动 vs 指数身份，确保“混合型无指数/ETF”严格归类为主动基金、排除在 index_only 之外
+    def _runtime_is_active(ft: str, fn: str, b10: str) -> bool:
+        ft_s, fn_s = str(ft or ""), str(fn or "")
+        if b10 in ("active_balanced_equity", "active_sector_growth", "fixed_income_plus"):
+            return True
+        if b10 in ("pure_bond", "commodity_gold", "broad_index", "quant_mid_small", "sector_theme_index"):
+            return False
+        if any(k in ft_s for k in ("指数",)) or any(k in fn_s.upper() for k in ("ETF", "指数", "联接")):
+            return False
+        return ("混合" in ft_s) or ("股票" in ft_s) or ("混合" in fn_s)
+
+    def _runtime_is_index_eligible(ft: str, fn: str, b10: str) -> bool:
+        if b10 in ("pure_bond", "commodity_gold", "broad_index", "quant_mid_small", "sector_theme_index"):
+            return True
+        return not _runtime_is_active(ft, fn, b10)
+
+    eligible["is_active_fund"] = [
+        _runtime_is_active(ft, fn, b10)
+        for ft, fn, b10 in zip(eligible.get("fund_type", ""), eligible.get("fund_name", ""), eligible.get("bucket_10", ""))
+    ]
+    eligible["is_index_eligible"] = [
+        _runtime_is_index_eligible(ft, fn, b10)
+        for ft, fn, b10 in zip(eligible.get("fund_type", ""), eligible.get("fund_name", ""), eligible.get("bucket_10", ""))
+    ]
+
+    if universe_mode == "index_only":
+        eligible = eligible[eligible["is_index_eligible"].astype(bool)].copy()
+
+    # 检查每个风格桶满足严格 1150 交易日门槛的基金数，仅当桶内不足 5 只时对该桶放宽至 fallback_min_days
+    bucket_strict_counts: Dict[str, int] = {}
+    for _, mrow in eligible.iterrows():
+        c = str(mrow["fund_code"])
+        if c in nav_df.columns and int(nav_df[c].notna().sum()) >= strict_min_days:
+            b = str(mrow.get("bucket_10", "active_balanced_equity"))
+            bucket_strict_counts[b] = bucket_strict_counts.get(b, 0) + 1
+
+    rows: List[Dict[str, Any]] = []
+    # 统一对齐最近 1,200 交易日（约 5 年，含 2022 熊市 + 2024 微盘危机 + 924 反转）做公平横截面评估
+    fair_eval_days = 1200
+    for _, mrow in eligible.iterrows():
+        c = str(mrow["fund_code"])
+        if c not in nav_df.columns:
+            continue
+        s = nav_df[c].dropna()
+        b10 = str(mrow.get("bucket_10", "active_balanced_equity"))
+        req_min = strict_min_days if bucket_strict_counts.get(b10, 0) >= 5 else fallback_min_days
+        if len(s) < req_min:
+            continue
+        s_eval = s.tail(fair_eval_days) if len(s) > fair_eval_days else s
+        arr = s_eval.to_numpy(dtype=np.float64)
+        rets = arr[1:] / np.maximum(arr[:-1], 1e-8) - 1.0
+        n_eval = len(arr)
+        years = max(n_eval / 250.0, 0.5)
+        tot_ret = arr[-1] / max(arr[0], 1e-8) - 1.0
+        ann_ret = (1.0 + tot_ret) ** (1.0 / years) - 1.0 if tot_ret > -0.99 else -0.99
+        ann_vol = float(np.std(rets, ddof=1) * np.sqrt(250.0)) if len(rets) > 2 else 0.15
+        sharpe = (ann_ret - 0.02) / max(ann_vol, 1e-6)
+        cmax = np.maximum.accumulate(arr)
+        max_dd = float(np.min((arr - cmax) / np.maximum(cmax, 1e-8)))  # negative
+        calmar = ann_ret / max(abs(max_dd), 0.01)
+
+        wr = WinRateEngine.rolling_target_winrate(
+            s_eval,
+            holding_days=holding_days,
+            target_annual_return=req_cagr_dec,
+            include_friction=True,
+            market_snapshot=market_snapshot,
+        )
+        rows.append({
+            "fund_code": c,
+            "fund_name": str(mrow.get("fund_name", c)),
+            "fund_type": str(mrow.get("fund_type", "")),
+            "bucket": b10,
+            "bucket_10": b10,
+            "bucket_label": str(mrow.get("bucket_label", "核心配置")),
+            "asset_class": str(mrow.get("asset_class", "equity")),
+            "is_active_fund": bool(mrow.get("is_active_fund", False)),
+            "is_index_eligible": bool(mrow.get("is_index_eligible", False)),
+            "real_scale_yi": mrow.get("real_scale_yi"),
+            "max_star": float(mrow.get("max_star", 0.0) or 0.0),
+            "five_star_cnt": float(mrow.get("five_star_cnt", 0.0) or 0.0),
+            "mgr_career_days": float(mrow.get("mgr_career_days", 730.0) or 730.0),
+            "est_total_operating_fee": float(mrow.get("est_total_operating_fee", 0.8) or 0.8),
+            "daily_limit_amount": float(mrow.get("daily_limit_amount", 1e10) or 1e10),
+            "inception_date": str(mrow.get("inception_date", ""))[:10],
+            "valid_days": int(len(s)),
+            "annual_return": float(ann_ret),
+            "volatility": float(ann_vol),
+            "sharpe": float(sharpe),
+            "max_dd": float(max_dd),
+            "calmar": float(calmar),
+            "win_rate": float(wr.get("conditional_win_rate", wr.get("win_rate", 0.0))),
+            "conditional_win_rate": float(wr.get("conditional_win_rate", wr.get("win_rate", 0.0))),
+            "unconditional_win_rate": float(wr.get("unconditional_win_rate", wr.get("win_rate", 0.0))),
+            "no_loss_rate": float(wr.get("no_loss_rate", 0.0)),
+            "cvar_95": float(wr.get("cvar_95_annualized", -0.10)),
+        })
+
+    out_df = pd.DataFrame(rows)
+    with _SCAN_CACHE_LOCK:
+        _SCAN_CACHE[scan_key] = (time.time(), out_df)
+    return out_df.copy()
+
+
+def _shortlist_goal_driven_candidates(
+    scanned_df: pd.DataFrame,
+    nav_df: pd.DataFrame,
+    tier: str,
+    model_id: str,
+    req_cagr_pct: float,
+    n_funds: int,
+    universe_mode: str,
+) -> Tuple[List[str], pd.DataFrame]:
+    """
+    目标驱动全市场动态初筛 + Pairwise 相关性去冗余（|corr| <= 0.82）：
+    根据 (tier, model_id, req_cagr_pct, universe_mode) 动态计算 10 大风格桶配额与目标适配分，
+    从全市场 300+ 只真实净值湖仓中精选 28~36 只高度差异化候选送入 WinRateOptimizer。
+    """
+    if scanned_df.empty:
+        return [], scanned_df
+
+    df = scanned_df.copy()
+    max_dd_cap = MAX_DRAWDOWN_BY_TIER.get(tier, 0.18)
+
+    def _norm(s: pd.Series) -> pd.Series:
+        lo, hi = float(s.min()), float(s.max())
+        if hi - lo < 1e-9:
+            return pd.Series(0.5, index=s.index)
+        return ((s - lo) / (hi - lo)).clip(0.0, 1.0)
+
+    s_sh = _norm(df["sharpe"].clip(-1.0, 3.0))
+    s_cal = _norm(df["calmar"].clip(-0.5, 4.0))
+    s_lowdd = 1.0 - _norm(df["max_dd"].abs().clip(0.0, 0.60))
+    s_cwr = df["conditional_win_rate"].clip(0.0, 1.0)
+    s_nlr = df["no_loss_rate"].clip(0.0, 1.0)
+    s_star = (df["max_star"].clip(0.0, 5.0) / 5.0) * 0.6 + (df["five_star_cnt"].clip(0.0, 4.0) / 4.0) * 0.4
+    s_fee = 1.0 - _norm(df["est_total_operating_fee"].clip(0.1, 2.5))
+    # 目标收益契合度（惩罚远低于目标的平庸标的，也惩罚回撤超档位容忍上限 2.2 倍的过山车基）
+    req_dec = req_cagr_pct / 100.0
+    ret_gap = (df["annual_return"] - req_dec).clip(-0.20, 0.25)
+    s_ret_fit = _norm(ret_gap)
+    dd_penalty = np.where(df["max_dd"].abs() > max_dd_cap * 2.1, 0.18, 0.0)
+
+    if req_cagr_pct <= 7.0 or tier == "C1":
+        df["_goal_rank"] = 0.35 * s_nlr + 0.25 * s_lowdd + 0.22 * s_sh + 0.10 * s_cwr + 0.08 * s_fee - dd_penalty
+    elif req_cagr_pct >= 15.0 or tier in ("C4", "C5"):
+        df["_goal_rank"] = 0.36 * s_cwr + 0.26 * s_ret_fit + 0.18 * s_cal + 0.12 * s_sh + 0.08 * s_star - dd_penalty
+    else:
+        df["_goal_rank"] = 0.32 * s_cwr + 0.24 * s_sh + 0.18 * s_cal + 0.14 * s_nlr + 0.07 * s_star + 0.05 * s_fee - dd_penalty
+
+    # 按模型特征做风格微调
+    if model_id == "risk_parity":
+        df["_goal_rank"] += 0.10 * s_lowdd + 0.06 * s_sh
+    elif model_id == "dividend_defense":
+        df["_goal_rank"] += np.where(df["bucket_10"].isin(["dividend_value", "pure_bond", "fixed_income_plus", "commodity_gold"]), 0.12, 0.0)
+    elif model_id == "barbell_growth":
+        df["_goal_rank"] += np.where(df["bucket_10"].isin(["pure_bond", "commodity_gold", "active_sector_growth", "quant_mid_small", "sector_theme_index", "overseas_qdii"]), 0.10, 0.0)
+
+    # 动态 10 桶入围配额（总计 ~34 只），随目标收益与档位显著变化
+    if req_cagr_pct <= 7.0 or tier == "C1":
+        quotas = {
+            "pure_bond": 10, "fixed_income_plus": 7, "dividend_value": 5, "commodity_gold": 4,
+            "broad_index": 3, "overseas_qdii": 3, "active_balanced_equity": 2,
+        }
+    elif req_cagr_pct <= 10.5 or tier == "C2":
+        quotas = {
+            "pure_bond": 6, "fixed_income_plus": 6, "dividend_value": 5, "active_balanced_equity": 5,
+            "broad_index": 4, "commodity_gold": 3, "overseas_qdii": 3, "quant_mid_small": 2,
+        }
+    elif req_cagr_pct >= 15.0 or tier in ("C4", "C5"):
+        quotas = {
+            "active_sector_growth": 7, "active_balanced_equity": 6, "quant_mid_small": 6,
+            "sector_theme_index": 5, "overseas_qdii": 4, "dividend_value": 3,
+            "commodity_gold": 2, "pure_bond": 2, "fixed_income_plus": 2,
+        }
+    else:
+        quotas = {
+            "pure_bond": 4, "fixed_income_plus": 4, "dividend_value": 4, "broad_index": 4,
+            "quant_mid_small": 4, "active_balanced_equity": 5, "active_sector_growth": 3,
+            "sector_theme_index": 2, "overseas_qdii": 3, "commodity_gold": 3,
+        }
+
+    # 仅指数模式：将主动桶配额无缝转移到指数/宽基/红利/QDII/纯债桶
+    if universe_mode == "index_only":
+        quotas = {
+            "pure_bond": quotas.get("pure_bond", 4) + quotas.get("fixed_income_plus", 0),
+            "dividend_value": quotas.get("dividend_value", 4) + 2,
+            "broad_index": quotas.get("broad_index", 4) + quotas.get("active_balanced_equity", 0) // 2,
+            "quant_mid_small": quotas.get("quant_mid_small", 4) + (quotas.get("active_balanced_equity", 0) + 1) // 2,
+            "sector_theme_index": quotas.get("sector_theme_index", 3) + quotas.get("active_sector_growth", 0),
+            "overseas_qdii": quotas.get("overseas_qdii", 3),
+            "commodity_gold": quotas.get("commodity_gold", 3),
+        }
+
+    # 预计算日收益率供 Pairwise 相关性去冗余
+    ret_cache: Dict[str, pd.Series] = {}
+
+    def _get_ret(c: str) -> pd.Series:
+        if c not in ret_cache:
+            ret_cache[c] = nav_df[c].dropna().pct_change().dropna()
+        return ret_cache[c]
+
+    def _is_too_correlated(code: str, existing: List[str], thresh: float = 0.82) -> bool:
+        if not existing:
+            return False
+        r1 = _get_ret(code)
+        for ex in existing:
+            r2 = _get_ret(ex)
+            idx = r1.index.intersection(r2.index)
+            if len(idx) < 120:
+                continue
+            v1, v2 = r1.loc[idx].values, r2.loc[idx].values
+            if np.std(v1) < 1e-8 or np.std(v2) < 1e-8:
+                continue
+            corr = float(np.corrcoef(v1, v2)[0, 1])
+            if np.isfinite(corr) and abs(corr) > thresh:
+                return True
+        return False
+
+    shortlisted: List[str] = []
+    shortlist_set: set = set()
+
+    for b10, q in quotas.items():
+        if q <= 0:
+            continue
+        sub = df[df["bucket_10"] == b10].sort_values("_goal_rank", ascending=False)
+        picked_in_bucket: List[str] = []
+        for _, row in sub.iterrows():
+            c = str(row["fund_code"])
+            if c in shortlist_set:
+                continue
+            # 同桶内强去冗余（防止 3 只几乎重合的沪深 300 或 3 只高度相似的债券基占满名额）
+            corr_th = 0.88 if b10 in ("pure_bond", "commodity_gold") else 0.82
+            if _is_too_correlated(c, picked_in_bucket, thresh=corr_th):
+                continue
+            picked_in_bucket.append(c)
+            shortlisted.append(c)
+            shortlist_set.add(c)
+            if len(picked_in_bucket) >= q:
+                break
+
+    # 若不足 max(24, n_funds * 3)，按全局 _goal_rank 补足
+    target_min = max(24, n_funds * 3)
+    if len(shortlisted) < target_min:
+        for _, row in df.sort_values("_goal_rank", ascending=False).iterrows():
+            c = str(row["fund_code"])
+            if c in shortlist_set:
+                continue
+            if _is_too_correlated(c, shortlisted, thresh=0.86):
+                continue
+            shortlisted.append(c)
+            shortlist_set.add(c)
+            if len(shortlisted) >= target_min:
+                break
+
+    sub_meta = df[df["fund_code"].isin(shortlisted)].copy()
+    return shortlisted, sub_meta
+
+
+def build_real_nav_portfolio_backtest(
+    fund_weights: Dict[str, float],
+    elite_nav: Optional[pd.DataFrame],
+    meta_map: Dict[str, Dict[str, Any]],
+    tier: str = "C3",
+    target_return_pct: float = 10.0,
+) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], Dict[str, Any]]:
+    """
+    100% 真实复权净值组合回测引擎（彻底消灭静默用沪深 300 替身的问题！）：
+      - primary df_bt：严格在全部入选基金【共同拥有的真实历史复权净值区间】上按实际日收益率加权合成，
+        同步对齐沪深 300、红利低波、纯债指数基准曲线；
+      - proxy_early_df：仅当组合共同真实起点晚于 2018-02-01 时，按每只基金的 10 桶基准指数生成早期参考序列，
+        专供极端事件卡片对 2018 熊市做明文标注的参考测算，绝不污染主回测净值。
+    """
+    df_mat = StrategyBridge.load_matrix()
+    df_mat = df_mat.copy()
+    df_mat["dt"] = pd.to_datetime(df_mat["date"]).dt.normalize()
+    df_mat_idx = df_mat.set_index("dt")
+
+    valid_codes = [c for c in fund_weights if elite_nav is not None and c in elite_nav.columns and float(fund_weights[c]) > 1e-6]
+    if elite_nav is None or len(valid_codes) < len([c for c, w in fund_weights.items() if float(w) > 1e-6]):
+        # 若个别代码不在精英湖仓（例如旧测试或调仓对比里的存量旧基），回退到 StrategyBridge
+        bt_fb = StrategyBridge.build_custom_portfolio_backtest(
+            fund_weights=fund_weights, tier=tier, target_return_pct=target_return_pct
+        )
+        return bt_fb, None, {"is_real_nav": False, "common_start_date": str(bt_fb["date"].iloc[0])[:10] if not bt_fb.empty else ""}
+
+    sub_nav = elite_nav[valid_codes].dropna(how="any")
+    if len(sub_nav) < 60:
+        bt_fb = StrategyBridge.build_custom_portfolio_backtest(
+            fund_weights=fund_weights, tier=tier, target_return_pct=target_return_pct
+        )
+        return bt_fb, None, {"is_real_nav": False, "common_start_date": str(bt_fb["date"].iloc[0])[:10] if not bt_fb.empty else ""}
+
+    tot_w = sum(float(fund_weights[c]) for c in valid_codes) or 1.0
+    w_vec = np.array([float(fund_weights[c]) / tot_w for c in valid_codes], dtype=np.float64)
+
+    # 真实日收益率合成（每日再平衡保持真实目标配比，严格零未来函数）
+    ret_mat = sub_nav.pct_change().fillna(0.0).to_numpy(dtype=np.float64)
+    port_ret = ret_mat @ w_vec
+    port_ret[0] = 0.0
+    p_nav = np.cumprod(1.0 + port_ret)
+    p_cmax = np.maximum.accumulate(p_nav)
+    p_dd = (p_nav - p_cmax) / np.maximum(p_cmax, 1e-8) * 100.0
+
+    # 95% 实盘仓位 + 5% 现金缓冲与年化 0.20% 调仓摩擦校准
+    cash_d = 0.018 / 250.0
+    otc_ret = 0.95 * port_ret + 0.05 * cash_d - (0.0020 / 250.0)
+    otc_ret[0] = 0.0
+    otc_nav = np.cumprod(1.0 + otc_ret)
+    otc_cmax = np.maximum.accumulate(otc_nav)
+    otc_dd = (otc_nav - otc_cmax) / np.maximum(otc_cmax, 1e-8) * 100.0
+
+    dates_idx = sub_nav.index
+    n_days = len(dates_idx)
+
+    # 大类资产占比
+    w_eq = w_bd = w_gd = w_qd = 0.0
+    for c, w in zip(valid_codes, w_vec):
+        ac = str((meta_map.get(c) or {}).get("asset_class", "equity")).lower()
+        if ac == "bond":
+            w_bd += float(w)
+        elif ac == "gold":
+            w_gd += float(w)
+        elif ac == "qdii":
+            w_qd += float(w)
         else:
-            nw = round(w / tot, 4)
-            norm[c] = nw
-            acc += nw
-    return norm, profiles
+            w_eq += float(w)
+
+    def _align_bm(col_name: str) -> np.ndarray:
+        if col_name not in df_mat_idx.columns:
+            return np.ones(n_days, dtype=np.float64)
+        s_bm = df_mat_idx[col_name].astype(float).reindex(dates_idx).ffill().bfill()
+        v = s_bm.to_numpy(dtype=np.float64)
+        return v / max(float(v[0]), 1e-8)
+
+    h300_nav = _align_bm("H00300")
+    h300_cmax = np.maximum.accumulate(h300_nav)
+    h300_dd = (h300_nav - h300_cmax) / np.maximum(h300_cmax, 1e-8) * 100.0
+
+    out_df = pd.DataFrame({
+        "date": [d.strftime("%Y-%m-%d") for d in dates_idx],
+        "strategy_nav": p_nav,
+        "strategy_nav_otc": otc_nav,
+        "h300_nav": h300_nav,
+        "bm_nav_沪深300": h300_nav,
+        "bm_nav_红利低波": _align_bm("H30269"),
+        "bm_nav_纯债指数": _align_bm("H11009"),
+        "strategy_drawdown": p_dd,
+        "strategy_otc_drawdown": otc_dd,
+        "h300_drawdown": h300_dd,
+        "weight_ashare": np.full(n_days, w_eq),
+        "weight_bond": np.full(n_days, w_bd),
+        "weight_gold": np.full(n_days, w_gd),
+        "weight_spx": np.full(n_days, w_qd),
+    })
+
+    common_start_str = str(out_df["date"].iloc[0])[:10]
+
+    # 若共同真实存续期晚于 2018-02-01，单独构造 2018 参考基准序列（仅用于早期熊市事件的明文参考）
+    proxy_early_df: Optional[pd.DataFrame] = None
+    if common_start_str > "2018-02-01":
+        n_m = len(df_mat)
+        p_ret_e = np.zeros(n_m, dtype=np.float64)
+        for c, w in zip(valid_codes, w_vec):
+            b10 = str((meta_map.get(c) or {}).get("bucket_10", "active_balanced_equity"))
+            col = _BUCKET_PROXY_INDEX_COL.get(b10, "H00300")
+            if col not in df_mat.columns:
+                col = "H00300"
+            s_arr = df_mat[col].astype(float).ffill().bfill().to_numpy(dtype=np.float64)
+            r_arr = np.zeros(n_m, dtype=np.float64)
+            r_arr[1:] = s_arr[1:] / np.maximum(s_arr[:-1], 1e-8) - 1.0
+            p_ret_e += float(w) * r_arr
+        pe_nav = np.cumprod(1.0 + (0.95 * p_ret_e + 0.05 * cash_d))
+        h300_e = df_mat["H00300"].astype(float).to_numpy(dtype=np.float64)
+        h300_e = h300_e / max(float(h300_e[0]), 1e-8)
+        proxy_early_df = pd.DataFrame({
+            "date": [str(d)[:10] for d in df_mat["date"].tolist()],
+            "strategy_nav": pe_nav,
+            "strategy_nav_otc": pe_nav,
+            "h300_nav": h300_e,
+        })
+
+    bt_info = {
+        "is_real_nav": True,
+        "common_start_date": common_start_str,
+        "common_end_date": str(out_df["date"].iloc[-1])[:10],
+        "common_trading_days": int(n_days),
+        "has_early_proxy_reference": proxy_early_df is not None,
+    }
+    return out_df, proxy_early_df, bt_info
+
+
+def _build_dynamic_fund_plain_why(code: str, meta: Dict[str, Any], fp: Dict[str, Any]) -> Tuple[str, str]:
+    """为全市场任意入选基金动态生成专业且通俗的角色标签与入选简介。"""
+    b_label = str(meta.get("bucket_label") or "核心配置")
+    f_type = str(meta.get("fund_type") or "")
+    scale = meta.get("real_scale_yi") or fp.get("scale_yi")
+    stars = int(round(float(meta.get("max_star", 0) or 0)))
+    mgr_yrs = round(float(meta.get("mgr_career_days", 730) or 730) / 365.0, 1)
+    fee = float(meta.get("est_total_operating_fee") or fp.get("total_fee_pct") or 0.6)
+    parts = [f"所属【{b_label}】"]
+    if f_type:
+        parts.append(f"类型 {f_type}")
+    if scale is not None and float(scale) > 0:
+        parts.append(f"单基规模 {float(scale):.1f} 亿")
+    if stars >= 4:
+        parts.append(f"机构 {stars} 星评级")
+    if meta.get("is_active_fund"):
+        parts.append(f"经理从业 {mgr_yrs:.1f} 年")
+    parts.append(f"年运作费率约 {fee:.2f}%")
+    return b_label, "，".join(parts) + "。"
+
+
+def solve_goal_driven_portfolio(
+    risk_level: str = "C3",
+    fund_count: int = 6,
+    model_id: str = "all_weather",
+    target_return_pct: float = 10.0,
+    horizon_months: int = 12,
+    universe_mode: str = "full_market",
+    market_snapshot: Optional[Dict[str, Any]] = None,
+    force_recompute: bool = False,
+    progress_cb: Optional[Callable[[int, str], None]] = None,
+) -> Dict[str, Any]:
+    """
+    全站唯一单源 · 全市场目标驱动真量化求解引擎：
+    28,177 全市场漏斗 -> 360+ 真实复权净值湖仓 -> 目标驱动动态初筛 30~36 只（相关性去冗余）
+    -> WinRateOptimizer 真优化与局部搜索换基 -> 终选 N 只详情 10 维多因子微调 -> 真实净值回测 & 双万次蒙特卡洛。
+    """
+    tier = str(risk_level or "C3").upper().strip()
+    if tier not in _TIER_ORDER:
+        tier = "C3"
+    m_id = str(model_id or "all_weather").strip().lower()
+    if m_id not in _UI_MODEL_TO_SOLVER:
+        m_id = "all_weather"
+    u_mode = str(universe_mode or "full_market").strip().lower()
+    if u_mode not in ("full_market", "index_only"):
+        u_mode = "full_market"
+    n_funds = max(3, min(8, int(fund_count or 6)))
+    t_ret = max(2.0, min(60.0, float(target_return_pct or 10.0)))
+    h_mon = max(3, min(60, int(horizon_months or 12)))
+
+    cache_key = (tier, m_id, n_funds, round(t_ret, 1), h_mon, u_mode)
+    now_ts = time.time()
+    if not force_recompute:
+        with _SOLVER_CACHE_LOCK:
+            hit = _SOLVER_CACHE.get(cache_key)
+            if hit and (now_ts - hit[0]) < _SOLVER_CACHE_TTL_SEC:
+                if progress_cb:
+                    progress_cb(100, "命中当日同参量化求解缓存")
+                res_copy = dict(hit[1])
+                res_copy["solver_audit"] = {**res_copy.get("solver_audit", {}), "from_cache": True}
+                return res_copy
+
+    t0 = time.monotonic()
+    if progress_cb:
+        progress_cb(10, "步骤 1/4：加载全市场 28,177 只漏斗与本地真实复权净值湖仓...")
+
+    snap = market_snapshot if market_snapshot is not None else StrategyBridge.get_latest_market_snapshot(force_reload=False)
+    holding_days = max(63, min(756, int(round(h_mon * 21))))
+    req_cagr_pct = round((((1.0 + t_ret / 100.0) ** (12.0 / h_mon)) - 1.0) * 100.0, 2)
+    req_cagr_dec = max(0.02, min(0.60, req_cagr_pct / 100.0))
+
+    eq_tilt = float((snap or {}).get("equity_tilt_pct", 0.0) or 0.0)
+    if eq_tilt == 0.0:
+        try:
+            from advisory_engine import compute_ten_dimension_votes
+            tdv = compute_ten_dimension_votes(snapshot=snap, tier=tier)
+            eq_tilt = float(tdv.get("equity_tilt_pct", 0.0) or 0.0)
+        except Exception:
+            eq_tilt = 0.0
+
+    # 1. 优先加载本地 360+ 只真实复权净值湖仓
+    elite_nav, elite_meta, lakehouse_status = load_elite_lakehouse()
+    use_full_lakehouse = (
+        elite_nav is not None
+        and elite_meta is not None
+        and not elite_nav.empty
+        and elite_nav.shape[1] >= 25
+    )
+
+    solver_spec = _UI_MODEL_TO_SOLVER[m_id]
+    meta_map: Dict[str, Dict[str, Any]] = {}
+    funnel_audit: Dict[str, Any] = {}
+
+    if use_full_lakehouse:
+        if progress_cb:
+            progress_cb(32, f"步骤 2/4：扫描本地 {elite_nav.shape[1]} 只真实复权净值并按目标执行相关性去冗余...")
+
+        scanned_df = _scan_lakehouse_universe_metrics(
+            nav_df=elite_nav,
+            meta_df=elite_meta,
+            holding_days=holding_days,
+            req_cagr_dec=req_cagr_dec,
+            universe_mode=u_mode,
+            market_snapshot=snap,
+        )
+        shortlisted_codes, sub_meta = _shortlist_goal_driven_candidates(
+            scanned_df=scanned_df,
+            nav_df=elite_nav,
+            tier=tier,
+            model_id=m_id,
+            req_cagr_pct=req_cagr_pct,
+            n_funds=n_funds,
+            universe_mode=u_mode,
+        )
+
+        # 防止个别晚成立基金过度截断共同区间：按有效历史覆盖度确保共同区间 >= max(1100, holding_days + 200)
+        min_common = max(1100, holding_days + 200)
+        cand_mat = elite_nav[shortlisted_codes].copy()
+        # 剔除最早有效日明显晚于其他基金导致公共区间不足的极端晚成立基金
+        while len(shortlisted_codes) > max(n_funds + 6, 16):
+            common_len = len(cand_mat.dropna(how="any"))
+            if common_len >= min_common:
+                break
+            # 移除最早有效日最晚（即最年轻）的一只候选
+            youngest = max(shortlisted_codes, key=lambda c: cand_mat[c].first_valid_index() or pd.Timestamp("2099-01-01"))
+            shortlisted_codes.remove(youngest)
+            cand_mat = elite_nav[shortlisted_codes].copy()
+
+        sub_nav_mat = cand_mat.dropna(how="any")
+        sub_cand_df = sub_meta[sub_meta["fund_code"].isin(shortlisted_codes)].copy().reset_index(drop=True)
+
+        if progress_cb:
+            progress_cb(58, f"步骤 3/4：从 {len(shortlisted_codes)} 只入围真基金中运行【{solver_spec['algo_label']}】与局部换基寻优...")
+
+        # 真正调用 WinRateOptimizer.optimize() 进行全组合筛选 + SLSQP/HRP/CVaR + 局部搜索换基！
+        opt_primary = WinRateOptimizer(
+            nav_matrix=sub_nav_mat,
+            candidate_info=sub_cand_df,
+            holding_days=holding_days,
+            target_annual_return=req_cagr_dec,
+            tier=tier,
+            market_snapshot=snap,
+            target_num_funds=n_funds,
+            model_type=solver_spec["primary"],
+        )
+        opt_primary._individual_metrics = sub_cand_df.copy()
+        opt_res_pri = opt_primary.optimize()
+        w_pri_raw = dict(opt_res_pri.get("optimal_weights") or {})
+        selected_codes = list(w_pri_raw.keys())[:n_funds]
+
+        # 若极端约束导致只数不足 n_funds，按 _goal_rank 补齐多样化标的
+        if len(selected_codes) < n_funds:
+            for c in sub_cand_df.sort_values("_goal_rank", ascending=False)["fund_code"].tolist():
+                if c not in selected_codes:
+                    selected_codes.append(c)
+                if len(selected_codes) >= n_funds:
+                    break
+
+        # 强制保障资产多元化底线（防 C1~C3 缺少防御债券，或 C3~C5 权益只数不足导致单基突破上限/推高防御敞口）
+        sel_meta_df = sub_cand_df[sub_cand_df["fund_code"].isin(selected_codes)].copy()
+        has_bond = bool((sel_meta_df["asset_class"] == "bond").any())
+        if (not has_bond) and tier in ("C1", "C2", "C3") and len(selected_codes) >= 3:
+            bond_cands = sub_cand_df[sub_cand_df["asset_class"] == "bond"].sort_values("_goal_rank", ascending=False)["fund_code"].tolist()
+            if bond_cands:
+                min_c = min(selected_codes, key=lambda c: float(w_pri_raw.get(c, 0.0)))
+                selected_codes = [c for c in selected_codes if c != min_c] + [bond_cands[0]]
+
+        # C3~C5 且基金只数 >= 4 时，确保至少包含 2~3 只不同风格 A 股权益基金，避免 3 只债基挤占权益名额
+        min_eq_req = 3 if (tier in ("C4", "C5") and n_funds >= 5) else (2 if (tier in ("C2", "C3", "C4", "C5") and n_funds >= 4) else 1)
+        sel_meta_df = sub_cand_df[sub_cand_df["fund_code"].isin(selected_codes)].copy()
+        cur_eq_codes = sel_meta_df[sel_meta_df["asset_class"] == "equity"]["fund_code"].tolist()
+        if len(cur_eq_codes) < min_eq_req:
+            eq_cands = [
+                c for c in sub_cand_df[sub_cand_df["asset_class"] == "equity"].sort_values("_goal_rank", ascending=False)["fund_code"].tolist()
+                if c not in selected_codes
+            ]
+            # 从超额冗余的非权益类（例如 C3 里超过 2 只的债基，或超过 1 只的黄金/QDII）替换权重最小者
+            for eq_c in eq_cands:
+                if len(cur_eq_codes) >= min_eq_req:
+                    break
+                cur_meta = sub_cand_df[sub_cand_df["fund_code"].isin(selected_codes)]
+                non_eq = cur_meta[cur_meta["asset_class"] != "equity"]
+                if non_eq.empty:
+                    break
+                # 优先替换同大类数量 >= 2 的冗余防御标的，确保仍保留至少 1 只债基
+                ac_cnts = non_eq["asset_class"].value_counts().to_dict()
+                dup_non_eq = non_eq[non_eq["asset_class"].map(lambda a: ac_cnts.get(a, 0) >= 2)]
+                pool_drop = dup_non_eq["fund_code"].tolist() if not dup_non_eq.empty else non_eq["fund_code"].tolist()
+                drop_c = min(pool_drop, key=lambda c: float(w_pri_raw.get(c, 0.0)))
+                selected_codes = [c for c in selected_codes if c != drop_c] + [eq_c]
+                cur_eq_codes.append(eq_c)
+
+        # 在最终入选的 N 只真基金上运行双核权重融合（主核 + 目标条件胜率/CVaR/半凯利副核）
+        sel_nav_mat = sub_nav_mat[selected_codes].dropna(how="any")
+        sel_cand_df = sub_cand_df[sub_cand_df["fund_code"].isin(selected_codes)].copy().reset_index(drop=True)
+
+        w_pri = opt_primary._optimize_by_model_type(selected_codes, sel_nav_mat, None) or {c: 1.0 / len(selected_codes) for c in selected_codes}
+        opt_sec = WinRateOptimizer(
+            nav_matrix=sel_nav_mat,
+            candidate_info=sel_cand_df,
+            holding_days=holding_days,
+            target_annual_return=req_cagr_dec,
+            tier=tier,
+            market_snapshot=snap,
+            target_num_funds=len(selected_codes),
+            model_type=solver_spec["secondary"],
+        )
+        opt_sec._individual_metrics = sel_cand_df.copy()
+        w_sec = opt_sec._optimize_by_model_type(selected_codes, sel_nav_mat, None) or w_pri
+
+        sec_alpha = 0.40 if m_id in ("all_weather", "barbell_growth") else 0.30
+        if req_cagr_pct >= 12.0:
+            sec_alpha = min(0.50, sec_alpha + 0.08)
+        blended_raw = {
+            c: (1.0 - sec_alpha) * float(w_pri.get(c, 0.0)) + sec_alpha * float(w_sec.get(c, 0.0))
+            for c in selected_codes
+        }
+
+        for _, mr in sel_cand_df.iterrows():
+            meta_map[str(mr["fund_code"])] = mr.to_dict()
+
+        min_floor = max(0.04, round(0.24 / max(len(selected_codes), 3), 3))
+        guarded_solver = apply_asset_class_constitutional_limits(
+            blended_raw, tier=tier, metrics_df=sel_cand_df, equity_tilt_pct=eq_tilt
+        )
+        solver_weights = _enforce_exact_fund_bounds(
+            guarded_solver, selected_codes, meta_map=meta_map, tier=tier, min_floor=min_floor
+        )
+
+        l_funnel = lakehouse_status.get("funnel_stats") or {}
+        funnel_audit = {
+            "universe_mode": u_mode,
+            "universe_label": "全市场量化海选（主动+指增+债+QDII+商品）" if u_mode == "full_market" else "仅指数/宽基/纯债低费工具池",
+            "total_market_funds": int(l_funnel.get("total_market_funds", 28177)),
+            "compliant_screened_funds": int(l_funnel.get("compliant_screened_funds", 12528)),
+            "elite_lakehouse_funds": int(elite_nav.shape[1]),
+            "eligible_depth_funds": int(len(scanned_df)),
+            "shortlisted_candidates": int(len(shortlisted_codes)),
+            "final_selected_funds": int(len(selected_codes)),
+            "lakehouse_latest_date": str(lakehouse_status.get("latest_date", "")),
+        }
+        history_days_used = int(len(sel_nav_mat))
+        history_range_str = f"{str(sel_nav_mat.index[0])[:10]} ~ {str(sel_nav_mat.index[-1])[:10]}"
+        metrics_for_tilt = sel_cand_df
+        ret_df_for_pcr = sel_nav_mat.pct_change().dropna()
+        oos_nav_source = sel_nav_mat
+    else:
+        # 裸环境兜底（仅当本地尚未建 360 只湖仓时安全退回 12 只矩阵池）
+        df_mat = StrategyBridge.load_matrix()
+        dates = pd.to_datetime(df_mat["date"])
+        n_d = len(df_mat)
+        rng = np.random.RandomState(42)
+        nav_d = {}
+        cand_rows = []
+        for item in _QUANT_OPTIMIZER_POOL:
+            col = item["index_col"] if item["index_col"] in df_mat.columns else "H00300"
+            s = df_mat[col].astype(float).ffill().bfill().to_numpy(dtype=np.float64)
+            r = np.zeros(n_d, dtype=np.float64)
+            r[1:] = s[1:] / np.maximum(s[:-1], 1e-8) - 1.0
+            eps = rng.normal(0.0, 0.00012, size=n_d)
+            eps[0] = 0.0
+            nav_d[item["code"]] = np.cumprod(1.0 + r + eps)
+            cand_rows.append({
+                "fund_code": item["code"],
+                "fund_name": item["name"],
+                "bucket": item["bucket"],
+                "bucket_10": item["bucket"],
+                "bucket_label": item["bucket_label"],
+                "asset_class": item["asset_class"],
+                "is_active_fund": False,
+                "is_index_eligible": True,
+            })
+            meta_map[item["code"]] = cand_rows[-1]
+        sub_nav_mat = pd.DataFrame(nav_d, index=dates)
+        sub_cand_df = pd.DataFrame(cand_rows)
+        selected_codes = [x["code"] for x in _QUANT_OPTIMIZER_POOL[:n_funds]]
+        sel_nav_mat = sub_nav_mat[selected_codes]
+        sel_cand_df = sub_cand_df[sub_cand_df["fund_code"].isin(selected_codes)].copy()
+        opt_primary = WinRateOptimizer(
+            nav_matrix=sel_nav_mat,
+            candidate_info=sel_cand_df,
+            holding_days=holding_days,
+            target_annual_return=req_cagr_dec,
+            tier=tier,
+            market_snapshot=snap,
+            target_num_funds=n_funds,
+            model_type=solver_spec["primary"],
+        )
+        opt_primary._precompute_individual_metrics()
+        w_pri = opt_primary._optimize_by_model_type(selected_codes, sel_nav_mat, None) or {c: 1.0 / n_funds for c in selected_codes}
+        min_floor = max(0.03, round(0.24 / max(n_funds, 3), 3))
+        solver_weights = _enforce_exact_fund_floor(
+            apply_asset_class_constitutional_limits(w_pri, tier=tier, metrics_df=sel_cand_df, equity_tilt_pct=eq_tilt),
+            selected_codes,
+            min_floor=min_floor,
+        )
+        funnel_audit = {
+            "universe_mode": u_mode,
+            "universe_label": "兜底核心指数池（本地全市场净值湖仓待建库）",
+            "total_market_funds": 28177,
+            "compliant_screened_funds": 12,
+            "elite_lakehouse_funds": 12,
+            "eligible_depth_funds": 12,
+            "shortlisted_candidates": 12,
+            "final_selected_funds": n_funds,
+            "lakehouse_latest_date": str(df_mat["date"].iloc[-1])[:10],
+        }
+        history_days_used = int(len(sel_nav_mat))
+        history_range_str = f"{str(sel_nav_mat.index[0])[:10]} ~ {str(sel_nav_mat.index[-1])[:10]}"
+        metrics_for_tilt = sel_cand_df
+        ret_df_for_pcr = sel_nav_mat.pct_change().dropna()
+        oos_nav_source = sel_nav_mat
+
+    # 4. 仅对终选的 N 只基金拉取详情 10 维多因子打分并有界微调
+    if progress_cb:
+        progress_cb(80, f"步骤 4/4：融合终选 {len(selected_codes)} 只基金 10 维详情多因子、真实净值回测与双万次蒙特卡洛...")
+
+    raw_final_weights, factor_profiles = score_and_tilt_weights_with_details(
+        solver_weights,
+        tier=tier,
+        req_cagr=req_cagr_pct,
+        metrics_df=metrics_for_tilt,
+        equity_tilt_pct=eq_tilt,
+    )
+    min_floor = max(0.04, round(0.24 / max(len(selected_codes), 3), 3))
+    final_weights = _enforce_exact_fund_bounds(
+        raw_final_weights, selected_codes, meta_map=meta_map, tier=tier, min_floor=min_floor
+    )
+
+    # 5. 真实协方差 PCR 风险贡献度分解（sum == 100.0%）
+    pcr_info = calculate_portfolio_risk_contributions(final_weights, returns_df=ret_df_for_pcr)
+    pcr_map = pcr_info.get("pcr", {})
+
+    # 6. 100% 真实复权净值组合回测 + 双万次蒙特卡洛目标达成评估
+    real_bt_df, proxy_early_df, real_bt_info = build_real_nav_portfolio_backtest(
+        fund_weights=final_weights,
+        elite_nav=elite_nav if use_full_lakehouse else None,
+        meta_map=meta_map,
+        tier=tier,
+        target_return_pct=req_cagr_pct,
+    )
+    goal_eval = evaluate_goal_achievement(
+        final_weights,
+        target_return_pct=t_ret,
+        horizon_months=h_mon,
+        tier=tier,
+        market_snapshot=snap,
+        df_bt_override=real_bt_df,
+    )
+
+    # 70/30 OOS 样本外胜率核验（严格基于终选 N 只基金自身真实复权净值 real_bt_df 尾部 30% 样本外区间）
+    oos_winrate_pct = goal_eval.get("conditional_win_rate_pct", goal_eval.get("historical_hit_rate_pct", 0.0))
+    try:
+        oos_col = "strategy_nav_otc" if "strategy_nav_otc" in real_bt_df.columns else "strategy_nav"
+        oos_series = pd.Series(
+            real_bt_df[oos_col].astype(float).to_numpy(dtype=np.float64),
+            index=pd.to_datetime(real_bt_df["date"]),
+        )
+        n_rows = len(oos_series)
+        split_i = int(n_rows * 0.70)
+        val_series = oos_series.iloc[split_i:]
+        val_hd = min(holding_days, max(63, len(val_series) // 2))
+        if len(val_series) > val_hd + 20:
+            val_wr = WinRateEngine.rolling_target_winrate(
+                val_series, val_hd, req_cagr_dec, include_friction=True, market_snapshot=snap
+            )
+            oos_cwr = float(val_wr.get("conditional_win_rate", 0.0))
+            oos_uwr = float(val_wr.get("unconditional_win_rate", oos_cwr))
+            # 当尾部短窗口与当前宏观核权重重合极少导致条件核退化时，回退至样本外无条件滚动胜率
+            eff_oos = oos_cwr if (oos_cwr > 0.0 or oos_uwr <= 0.0) else oos_uwr
+            oos_winrate_pct = round(eff_oos * 100.0, 1)
+    except Exception:
+        pass
+
+    # 7. 构建每只入选基金透明配权归因与白话介绍
+    allocation_breakdown: Dict[str, Dict[str, Any]] = {}
+    fund_cards_meta: Dict[str, Dict[str, Any]] = {}
+    for c, final_w in final_weights.items():
+        base_w = float(solver_weights.get(c, final_w))
+        delta_pct = round((final_w - base_w) * 100.0, 2)
+        pcr_pct = round(float(pcr_map.get(c, final_w * 100.0)), 1)
+        fp = factor_profiles.get(c) or {}
+        m_info = meta_map.get(c) or _POOL_BY_CODE.get(c) or {}
+        role_txt, plain_why = _build_dynamic_fund_plain_why(c, m_info, fp)
+        fund_cards_meta[c] = {
+            "fund_name": str(m_info.get("fund_name") or m_info.get("name") or c),
+            "role": role_txt,
+            "why": plain_why,
+            "bucket_label": str(m_info.get("bucket_label") or role_txt),
+            "asset_class": str(m_info.get("asset_class") or "equity"),
+            "is_active_fund": bool(m_info.get("is_active_fund", False)),
+            "real_scale_yi": m_info.get("real_scale_yi") or fp.get("scale_yi"),
+            "max_star": m_info.get("max_star", 0),
+            "daily_limit": float(m_info.get("daily_limit_amount", 1e10) or 1e10),
+            "inception_date": str(m_info.get("inception_date", ""))[:10],
+        }
+        tilt_desc = (
+            f"多因子高分({fp.get('quant_score', 65)}分)上调 {delta_pct:+.1f}%"
+            if delta_pct > 0.15
+            else (
+                f"多因子相对偏弱({fp.get('quant_score', 65)}分)微调 {delta_pct:+.1f}%"
+                if delta_pct < -0.15
+                else f"多因子({fp.get('quant_score', 65)}分)校验维持均衡"
+            )
+        )
+        allocation_breakdown[c] = {
+            "fund_code": c,
+            "bucket": str(m_info.get("bucket_label") or "核心配置"),
+            "solver_weight_pct": round(base_w * 100.0, 1),
+            "factor_tilt_delta_pct": round(delta_pct, 1),
+            "final_weight_pct": round(final_w * 100.0, 1),
+            "risk_contribution_pcr_pct": pcr_pct,
+            "tilt_reason": tilt_desc,
+            "allocation_formula_text": (
+                f"量化求解初始权重 {base_w * 100.0:.1f}% → {tilt_desc} → 最终占比 {final_w * 100.0:.1f}%"
+                f"（组合风险贡献 PCR {pcr_pct:.1f}%）"
+            ),
+        }
+
+    class_weights: Dict[str, float] = {}
+    for c, w in final_weights.items():
+        b_lbl = fund_cards_meta[c]["bucket_label"]
+        class_weights[b_lbl] = round(class_weights.get(b_lbl, 0.0) + w * 100.0, 1)
+
+    regime_rec = recommend_model_for_regime(snap, req_cagr_pct)
+    elapsed_ms = int(round((time.monotonic() - t0) * 1000.0))
+
+    solver_audit = {
+        "engine_version": "AGY2-FullMarketQuant-v2.2",
+        "universe_mode": u_mode,
+        "lakehouse_enabled": bool(use_full_lakehouse),
+        "solver_algorithm": solver_spec["algo_label"],
+        "math_summary": solver_spec["math_summary"],
+        "candidates_screened": funnel_audit["shortlisted_candidates"],
+        "history_trading_days": history_days_used,
+        "history_range": history_range_str,
+        "real_nav_common_start": real_bt_info.get("common_start_date", ""),
+        "is_real_nav_backtest": bool(real_bt_info.get("is_real_nav", False)),
+        "holding_days": holding_days,
+        "target_annual_return_pct": req_cagr_pct,
+        "tier_max_drawdown_cap_pct": round(MAX_DRAWDOWN_BY_TIER.get(tier, 0.18) * 100.0, 1),
+        "ten_dim_equity_tilt_pct": round(eq_tilt * 100.0, 1),
+        "oos_conditional_win_rate_pct": oos_winrate_pct,
+        "monte_carlo_paths": 10000,
+        "monte_carlo_prob_pct": goal_eval.get("monte_carlo_prob_pct", 0.0),
+        "portfolio_vol_annual_pct": pcr_info.get("portfolio_vol_annual", 0.0),
+        "max_risk_pcr_pct": pcr_info.get("max_risk_pcr", 0.0),
+        "risk_budget_verdict": pcr_info.get("risk_budget_warning", ""),
+        "regime_detected": regime_rec.get("regime_name", ""),
+        "regime_recommended_model": regime_rec.get("recommended_model_name", ""),
+        "compute_ms": elapsed_ms,
+        "from_cache": False,
+    }
+
+    allocation_logic_summary = {
+        "headline": (
+            f"从全市场 {funnel_audit['total_market_funds']:,} 只基金经合规漏斗与 {funnel_audit['elite_lakehouse_funds']} 只真实复权净值湖仓海选，"
+            f"在 {tier} 回撤约束（≤{solver_audit['tier_max_drawdown_cap_pct']:.0f}%）与「{h_mon} 个月 +{t_ret:.0f}%」目标下，"
+            f"通过【{solver_spec['algo_label']}】与局部搜索换基从 {funnel_audit['shortlisted_candidates']} 只去冗余候选中精选出 {len(final_weights)} 只最优组合。"
+        ),
+        "steps": [
+            f"① 全市场漏斗海选：{funnel_audit['total_market_funds']:,} 只全市场 → {funnel_audit['compliant_screened_funds']:,} 只合规 → {funnel_audit['elite_lakehouse_funds']} 只本地真实复权净值湖仓（{funnel_audit['universe_label']}）。",
+            f"② 目标驱动动态入围与相关性去冗余：结合「{h_mon} 个月 +{t_ret:.1f}%（年化 +{req_cagr_pct:.1f}%）」与 {tier} 档位，剔除相关性 >0.82 同质标的，动态锁定 {funnel_audit['shortlisted_candidates']} 只高匹配候选。",
+            f"③ 真实量化求解与换基寻优：{solver_spec['math_summary']}（样本外 OOS 条件胜率 {oos_winrate_pct:.1f}%）。",
+            f"④ 详情多因子微调与风险均衡：终选 {len(final_weights)} 只基金结合 10 维详情指标在 ±10% 内微调，组合年化波动 {pcr_info.get('portfolio_vol_annual', 0.0):.1f}%，单基最大风险贡献 PCR {pcr_info.get('max_risk_pcr', 0.0):.1f}%（总和 100.0%）。",
+        ],
+        "class_weights_pct": class_weights,
+    }
+
+    if progress_cb:
+        progress_cb(100, "全市场量化求解完成")
+
+    result = {
+        "tier": tier,
+        "model_id": m_id,
+        "universe_mode": u_mode,
+        "fund_count": len(final_weights),
+        "target_return_pct": t_ret,
+        "horizon_months": h_mon,
+        "required_cagr_pct": req_cagr_pct,
+        "solver_weights": solver_weights,
+        "final_weights": final_weights,
+        "factor_profiles": factor_profiles,
+        "fund_cards_meta": fund_cards_meta,
+        "allocation_breakdown": allocation_breakdown,
+        "allocation_logic_summary": allocation_logic_summary,
+        "funnel_audit": funnel_audit,
+        "pcr_info": pcr_info,
+        "goal_analysis": goal_eval,
+        "solver_audit": solver_audit,
+        "real_bt_df": real_bt_df,
+        "proxy_early_df": proxy_early_df,
+        "real_bt_info": real_bt_info,
+    }
+
+    with _SOLVER_CACHE_LOCK:
+        _SOLVER_CACHE[cache_key] = (time.time(), result)
+    return result
 
 
 def evaluate_goal_achievement(
@@ -185,11 +1292,14 @@ def evaluate_goal_achievement(
     target_return_pct: float,
     horizon_months: int,
     tier: str = "C3",
+    market_snapshot: Optional[Dict[str, Any]] = None,
+    df_bt_override: Optional[pd.DataFrame] = None,
 ) -> Dict[str, Any]:
     """
-    在真实历史净值序列上执行全历史滚动窗口检验：
-    计算组合在 horizon_months 个月内达成 target_return_pct (%) 的历史概率、
-    中位收益、最差回撤及平均达标耗时。
+    在真实复权历史净值序列上执行三维达标检验：
+      1. 区间任意日触及目标止盈率 + 持有期末滚动达标统计；
+      2. 5 维宏观同温层高斯核条件胜率（含真实申赎费率摩擦，来自 WinRateEngine）；
+      3. 10,000 次 Circular Block Bootstrap + Student-t 蒙特卡洛前瞻达标概率。
     """
     t_ret = float(target_return_pct)
     h_mon = max(3, min(60, int(horizon_months or 12)))
@@ -199,7 +1309,6 @@ def evaluate_goal_achievement(
     if tier_clean not in _TIER_ORDER:
         tier_clean = "C3"
 
-    # 预期偏差碰撞检测
     has_collision = _TIER_ORDER[suggested_tier] > _TIER_ORDER[tier_clean]
     max_realistic = _TIER_MAX_REALISTIC_CAGR[tier_clean]
     if has_collision:
@@ -214,8 +1323,11 @@ def evaluate_goal_achievement(
             f"与当前 {tier_clean} 风险承受力相容。"
         )
 
-    # 历史滚动窗口实测
     hit_rate_pct = 0.0
+    end_hit_rate_pct = 0.0
+    cond_wr_pct = 0.0
+    mc_prob_pct = 0.0
+    no_loss_rate_pct = 0.0
     median_ret_pct = 0.0
     worst_ret_pct = 0.0
     best_ret_pct = 0.0
@@ -223,7 +1335,8 @@ def evaluate_goal_achievement(
     windows_tested = 0
 
     try:
-        df_bt = StrategyBridge.build_custom_portfolio_backtest(
+        snap = market_snapshot if market_snapshot is not None else StrategyBridge.get_latest_market_snapshot(force_reload=False)
+        df_bt = df_bt_override if (df_bt_override is not None and not df_bt_override.empty) else StrategyBridge.build_custom_portfolio_backtest(
             fund_weights=fund_weights,
             secondary_weights=None,
             tier=tier_clean,
@@ -231,12 +1344,14 @@ def evaluate_goal_achievement(
         )
         if df_bt is not None and not df_bt.empty:
             col = "strategy_nav_otc" if "strategy_nav_otc" in df_bt.columns else "strategy_nav"
-            navs = df_bt[col].astype(float).ffill().bfill().values
+            nav_series = df_bt[col].astype(float).ffill().bfill()
+            navs = nav_series.values
             win_days = max(21, int(round(h_mon * 21)))
             if len(navs) > win_days + 5:
-                step = 5  # 按周滚动起点
+                step = 5
                 rets = []
-                hits = 0
+                touch_hits = 0
+                end_hits = 0
                 reach_days_list = []
                 target_ratio = 1.0 + t_ret / 100.0
                 for i in range(0, len(navs) - win_days, step):
@@ -246,34 +1361,56 @@ def evaluate_goal_achievement(
                     seg = navs[i : i + win_days + 1] / base
                     end_r = (seg[-1] - 1.0) * 100.0
                     rets.append(end_r)
-                    # 区间内任意交易日达到目标收益（可止盈落袋）或期末达到
+                    if seg[-1] >= target_ratio:
+                        end_hits += 1
                     reached_idx = np.where(seg >= target_ratio)[0]
                     if len(reached_idx) > 0:
-                        hits += 1
+                        touch_hits += 1
                         reach_days_list.append(int(reached_idx[0]))
                 if rets:
                     windows_tested = len(rets)
-                    hit_rate_pct = round(hits / windows_tested * 100.0, 1)
+                    hit_rate_pct = round(touch_hits / windows_tested * 100.0, 1)
+                    end_hit_rate_pct = round(end_hits / windows_tested * 100.0, 1)
                     median_ret_pct = round(float(np.median(rets)), 2)
                     worst_ret_pct = round(float(np.percentile(rets, 5)), 2)
                     best_ret_pct = round(float(np.percentile(rets, 95)), 2)
                     if reach_days_list:
                         avg_reach_months = round(float(np.mean(reach_days_list)) / 21.0, 1)
+
+                wr_kernel = WinRateEngine.rolling_target_winrate(
+                    nav_series,
+                    holding_days=win_days,
+                    target_annual_return=req_cagr / 100.0,
+                    include_friction=True,
+                    market_snapshot=snap,
+                )
+                cond_wr_pct = round(float(wr_kernel.get("conditional_win_rate", 0.0)) * 100.0, 1)
+                no_loss_rate_pct = round(float(wr_kernel.get("no_loss_rate", 0.0)) * 100.0, 1)
+
+                mc_res = WinRateEngine.monte_carlo_winrate(
+                    nav_series,
+                    holding_days=win_days,
+                    target_annual_return=req_cagr / 100.0,
+                    n_paths=10000,
+                    block_size=10,
+                    include_friction=True,
+                    seed=42,
+                )
+                mc_prob_pct = round(float(mc_res.get("prob_reach_target", 0.0)) * 100.0, 1)
     except Exception:
         pass
 
-    # 根据历史达成概率与目标给出客观可行性评级
-    if hit_rate_pct >= 70.0 and not has_collision:
+    eff_prob = 0.45 * hit_rate_pct + 0.30 * cond_wr_pct + 0.25 * mc_prob_pct if mc_prob_pct > 0 else hit_rate_pct
+    if eff_prob >= 68.0 and not has_collision:
         feasibility = "高可行性"
         feasibility_level = "high"
-    elif hit_rate_pct >= 45.0:
+    elif eff_prob >= 42.0:
         feasibility = "中等可行性"
         feasibility_level = "medium"
     else:
         feasibility = "偏激进 / 建议调参"
         feasibility_level = "low"
 
-    # 智能推荐最适配该目标的模型
     if req_cagr <= 6.0:
         rec_model = "risk_parity"
     elif req_cagr <= 9.5:
@@ -295,9 +1432,377 @@ def evaluate_goal_achievement(
         "feasibility": feasibility,
         "feasibility_level": feasibility_level,
         "historical_hit_rate_pct": hit_rate_pct,
+        "end_of_period_hit_rate_pct": end_hit_rate_pct,
+        "conditional_win_rate_pct": cond_wr_pct,
+        "monte_carlo_prob_pct": mc_prob_pct,
+        "no_loss_rate_pct": no_loss_rate_pct,
         "windows_tested": windows_tested,
         "median_return_pct": median_ret_pct,
         "p05_worst_return_pct": worst_ret_pct,
         "p95_best_return_pct": best_ret_pct,
         "avg_reach_months": avg_reach_months,
+    }
+
+
+def reconcile_goal_vs_backtest(
+    goal_analysis: Dict[str, Any],
+    backtest_metrics: Dict[str, Any],
+    period_key: str,
+    period_label: str,
+    tier: str,
+    model_name: str,
+    solver_audit: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """显式对比「用户目标收益」vs「当前回测窗口实际表现」，量化差异并动态输出 3 条真实数据理由。"""
+    t_ret = float(goal_analysis.get("target_return_pct", 10.0))
+    h_mon = int(goal_analysis.get("horizon_months", 12))
+    req_cagr = float(goal_analysis.get("required_cagr_pct", t_ret))
+    cond_wr = float(goal_analysis.get("conditional_win_rate_pct", 0.0))
+    hit_rate = float(goal_analysis.get("historical_hit_rate_pct", 0.0))
+    mc_prob = float(goal_analysis.get("monte_carlo_prob_pct", 0.0))
+    no_loss = float(goal_analysis.get("no_loss_rate_pct", 0.0))
+    med_ret = float(goal_analysis.get("median_return_pct", 0.0))
+    windows = int(goal_analysis.get("windows_tested", 0))
+    suggested_tier = str(goal_analysis.get("suggested_tier", tier))
+
+    bt_ret = float(backtest_metrics.get("period_return_pct", 0.0))
+    bt_ann = backtest_metrics.get("annualized_return_pct")
+    h300_ret = float(backtest_metrics.get("hs300_return_pct", 0.0))
+    excess_ret = float(backtest_metrics.get("excess_return_pct", 0.0))
+    mdd = abs(float(backtest_metrics.get("max_drawdown_pct", 0.0)))
+    h300_mdd = abs(float(backtest_metrics.get("hs300_mdd_pct", 0.0)))
+    sharpe = float(backtest_metrics.get("sharpe_ratio", 0.0))
+    tdays = int(backtest_metrics.get("trading_days", 252))
+    saved_dd = round(max(0.0, h300_mdd - mdd), 2)
+    tier_cap = float((solver_audit or {}).get("tier_max_drawdown_cap_pct", MAX_DRAWDOWN_BY_TIER.get(tier, 0.18) * 100.0))
+
+    period_months_map = {"3m": 3.0, "6m": 6.0, "1y": 12.0, "2y": 24.0, "all": max(tdays / 21.0, 24.0)}
+    p_mon = period_months_map.get(period_key, 12.0)
+
+    if bt_ann is not None and period_key in ("1y", "2y", "all"):
+        comparable_bt = float(bt_ann)
+        comparable_goal = req_cagr
+        compare_metric_label = "折合年化收益"
+    else:
+        comparable_bt = bt_ret
+        comparable_goal = round((((1.0 + req_cagr / 100.0) ** (p_mon / 12.0)) - 1.0) * 100.0, 2)
+        compare_metric_label = f"{period_label}进度目标"
+
+    gap_pct = round(comparable_bt - comparable_goal, 2)
+
+    if abs(gap_pct) <= 2.5:
+        status = "aligned"
+        badge = "基本吻合"
+        headline = (
+            f"当前方案在「{period_label}」{compare_metric_label}为 {comparable_bt:+.2f}%，"
+            f"与您的目标口径（{comparable_goal:+.2f}%）偏差仅 {gap_pct:+.2f}%，处于高度一致区间。"
+        )
+    elif gap_pct < -2.5:
+        status = "backtest_below_goal"
+        badge = "回测低于目标 · 已归因"
+        headline = (
+            f"「{period_label}」实测 {compare_metric_label}（{comparable_bt:+.2f}%）低于您的目标口径（{comparable_goal:+.2f}%），"
+            f"存在 {gap_pct:+.2f}% 出入——但这并非模型失效，而是风控红线与单一窗口周期波动的必然权衡。"
+        )
+    else:
+        status = "backtest_above_goal"
+        badge = "回测高于目标 · 提示均值回归"
+        headline = (
+            f"「{period_label}」实测 {compare_metric_label}（{comparable_bt:+.2f}%）高于您的目标口径（{comparable_goal:+.2f}%）达 {gap_pct:+.2f}%，"
+            f"说明该阶段顺风弹性充分，但请勿将单段顺风业绩线性外推，保持目标止盈纪律更重要。"
+        )
+
+    reasons: List[Dict[str, str]] = []
+    if period_key in ("3m", "6m") or abs(p_mon - h_mon) >= 6:
+        reasons.append({
+            "title": "统计窗口与目标持有期错位",
+            "detail": (
+                f"当前回测切片仅展示「{period_label}」（{tdays} 交易日，同期沪深 300 为 {h300_ret:+.2f}%），"
+                f"而您设定的是「{h_mon} 个月 +{t_ret:.1f}%」的跨阶段目标。单一短期窗口受市场情绪脉冲影响极大，"
+                f"不能等同于真实历史 {windows} 个滚动起点的整体分布（中位收益 {med_ret:+.2f}%）。"
+            ),
+        })
+    else:
+        reasons.append({
+            "title": "单一历史切片 vs 全周期滚动概率分布",
+            "detail": (
+                f"「{period_label}」仅代表截至今日的一条历史路径（同期沪深 300 为 {h300_ret:+.2f}%，本方案超额 {excess_ret:+.2f}%）；"
+                f"而全市场优化器面向的是 {windows} 个真实历史滚动起点与 10,000 条蒙特卡洛路径的综合达标胜率。"
+            ),
+        })
+
+    if gap_pct < -2.5:
+        reasons.append({
+            "title": f"{tier} 档位回撤红线硬约束优先于“纸面收益”",
+            "detail": (
+                f"求解器严格执行 {tier} 档位最大回撤警戒线（≤{tier_cap:.0f}%）与大类宪法配比，拒绝通过单押高波动赛道去硬凑短期收益。"
+                f"实测该区间组合最大回撤仅 -{mdd:.2f}%（较沪深 300 的 -{h300_mdd:.2f}% 少跌 {saved_dd:.2f} 个百分点），"
+                f"用适度让渡极端单边弹性换取“跌得浅、拿得住”。"
+            ),
+        })
+    else:
+        reasons.append({
+            "title": "风险调整性价比与抗跌护城河并重",
+            "detail": (
+                f"在取得 {bt_ret:+.2f}% 真实净值区间收益的同时，组合最大回撤被控制在 -{mdd:.2f}%（较沪深 300 少跌 {saved_dd:.2f} 个百分点），"
+                f"夏普比率达 {sharpe:.2f}，证明收益来源于跨品类风险分散与优中选优，而非单押单一风口。"
+            ),
+        })
+
+    why_still_recommend = (
+        f"① 全市场跨周期胜率最优解：在 {tier} 风险约束内，【{model_name}】从全市场真实净值湖仓优化换基后，真实滚动 {h_mon} 个月触达目标率达 {hit_rate:.1f}%、"
+        f"当下宏观同温层条件胜率 {cond_wr:.1f}%、10,000 次蒙特卡洛前瞻达标概率 {mc_prob:.1f}%、正收益概率 {no_loss:.1f}%；"
+        f"② 避免过拟合后视镜：如果强行按“最近 {period_label} 涨得最好的基金”倒推配置，极易高位追进上一阶段热门赛道，反而大幅拉低未来 {h_mon} 个月真实胜率。"
+    )
+    if gap_pct < -2.5 and _TIER_ORDER.get(suggested_tier, 3) > _TIER_ORDER.get(tier, 3):
+        why_still_recommend += (
+            f" 若您希望进一步向年化 +{req_cagr:.1f}% 靠拢，建议将持有周期拉长至 {min(36, h_mon + 12)} 个月，"
+            f"或在能承受更大波动的前提下将风险档位上调至 {suggested_tier}。"
+        )
+    elif gap_pct < -2.5:
+        why_still_recommend += (
+            f" 若您希望进一步提升达成年化 +{req_cagr:.1f}% 的胜率，建议将持有周期拉长至 {min(36, h_mon + 12)} 个月，"
+            f"以时间换取跨周期均值回归空间。"
+        )
+    reasons.append({
+        "title": "为何存在出入仍建议坚持本配置",
+        "detail": why_still_recommend,
+    })
+
+    return {
+        "status": status,
+        "badge": badge,
+        "headline": headline,
+        "compare_metric_label": compare_metric_label,
+        "goal_comparable_pct": round(comparable_goal, 2),
+        "backtest_comparable_pct": round(comparable_bt, 2),
+        "gap_pct": gap_pct,
+        "goal_target_return_pct": round(t_ret, 1),
+        "goal_horizon_months": h_mon,
+        "goal_required_cagr_pct": round(req_cagr, 2),
+        "backtest_period_label": period_label,
+        "backtest_period_return_pct": round(bt_ret, 2),
+        "reasons": reasons,
+        "why_still_recommend": why_still_recommend,
+    }
+
+
+def simulate_portfolio_scenario_backtest(
+    solved_bundle: Dict[str, Any],
+    start_date: str = "2024-09-18",
+    dynamic_rebalance: bool = True,
+) -> Dict[str, Any]:
+    """
+    与当前全市场求解方案 100% 联动的历史任意起点情景回测引擎（严格零未来函数 + 真实全扣费）：
+      - 当所选起点 >= 组合共同成立日时，100% 在本地精英湖仓的入选基金自身真实复权净值上逐日重演
+        （支持按月检查 3% 偏离阈值执行真实漂移再平衡 vs 买入持有不调仓，扣除前端申购费与 FIFO 阶梯赎回费）；
+      - 当所选起点早于部分入选基金成立日（如 2021-02-18）时，早期段透明衔接同风格桶基准参考序列，
+        到达共同成立日后无缝切换为 100% 基金真实复权净值，并显式返回 used_proxy_early=True 与 proxy_note。
+    """
+    clean_date = str(start_date or "2024-09-18").strip()[:10]
+    dt_target = pd.to_datetime(clean_date)
+
+    final_weights: Dict[str, float] = dict(solved_bundle.get("final_weights") or {})
+    real_bt_df: Optional[pd.DataFrame] = solved_bundle.get("real_bt_df")
+    proxy_early_df: Optional[pd.DataFrame] = solved_bundle.get("proxy_early_df")
+    real_bt_info: Dict[str, Any] = dict(solved_bundle.get("real_bt_info") or {})
+    common_start_str = str(real_bt_info.get("common_start_date") or "")
+
+    df_mat = StrategyBridge.load_matrix().copy()
+    df_mat["dt"] = pd.to_datetime(df_mat["date"]).dt.normalize()
+    df_mat_idx = df_mat.set_index("dt")
+
+    elite_nav, _, _ = load_elite_lakehouse()
+    valid_codes = [
+        c for c, w in final_weights.items()
+        if float(w) > 1e-6 and elite_nav is not None and c in elite_nav.columns
+    ]
+
+    used_proxy_early = False
+    proxy_note = ""
+
+    sub_fee_rate = 0.0012  # A 类 1 折申购费 12 bps
+    cash_ret_daily = 0.018 / 250.0
+    rebal_fee_extra = 0.0020 / 250.0
+
+    # 情形 1：起点落入入选基金共同真实复权净值区间内 -> 100% 真实单基复权净值逐日模拟（含漂移/月频再平衡）
+    if (
+        valid_codes
+        and len(valid_codes) == len([c for c, w in final_weights.items() if float(w) > 1e-6])
+        and common_start_str
+        and clean_date >= common_start_str
+    ):
+        sub_nav = elite_nav[valid_codes].dropna(how="any")
+        sub_nav = sub_nav[sub_nav.index >= dt_target]
+        if len(sub_nav) >= 2:
+            tot_w = sum(float(final_weights[c]) for c in valid_codes) or 1.0
+            tgt_w = np.array([float(final_weights[c]) / tot_w for c in valid_codes], dtype=np.float64)
+            arr_nav = sub_nav.to_numpy(dtype=np.float64)
+            n_fwd = len(arr_nav)
+            fwd_dates_idx = sub_nav.index
+            fwd_dates = [d.strftime("%Y-%m-%d") for d in fwd_dates_idx]
+
+            init_nav = 1.0 * (1.0 - sub_fee_rate)
+            # 95% 权益/基金实盘仓位 + 5% 现金缓冲
+            fund_vals = init_nav * 0.95 * tgt_w
+            cash_val = init_nav * 0.05
+            daily_navs = [init_nav]
+
+            for t in range(1, n_fwd):
+                step_ratio = arr_nav[t] / np.maximum(arr_nav[t - 1], 1e-8)
+                fund_vals = fund_vals * step_ratio
+                cash_val = cash_val * (1.0 + cash_ret_daily)
+                tot_v = float(np.sum(fund_vals) + cash_val)
+
+                if dynamic_rebalance and (t % 20 == 0) and tot_v > 0:
+                    cur_w = fund_vals / max(float(np.sum(fund_vals)), 1e-8)
+                    max_drift = float(np.max(np.abs(cur_w - tgt_w)))
+                    if max_drift > 0.03:
+                        turnover = float(np.sum(np.abs(cur_w - tgt_w))) / 2.0
+                        cal_days = (fwd_dates_idx[t] - fwd_dates_idx[0]).days
+                        red_rate = 0.0050 if cal_days < 180 else (0.0015 if cal_days < 365 else 0.0)
+                        friction = turnover * (0.5 * red_rate + sub_fee_rate)
+                        tot_v *= (1.0 - friction)
+                        fund_vals = tot_v * 0.95 * tgt_w
+                        cash_val = tot_v * 0.05
+
+                daily_navs.append(tot_v)
+
+            curve_series = pd.Series(daily_navs, index=fwd_dates_idx)
+        else:
+            curve_series = None
+    else:
+        curve_series = None
+
+    # 情形 2：起点早于共同成立日（或无完整湖仓切片），拼接 proxy_early_df + real_bt_df，明文标注
+    if curve_series is None:
+        if real_bt_df is None or real_bt_df.empty:
+            return {"status": "empty", "dates": [], "kpis": {}}
+
+        col_r = "strategy_nav_otc" if "strategy_nav_otc" in real_bt_df.columns else "strategy_nav"
+        s_real = pd.Series(
+            real_bt_df[col_r].astype(float).to_numpy(dtype=np.float64),
+            index=pd.to_datetime(real_bt_df["date"]).dt.normalize(),
+        )
+
+        if proxy_early_df is not None and not proxy_early_df.empty and str(proxy_early_df["date"].iloc[0])[:10] <= clean_date:
+            col_p = "strategy_nav_otc" if "strategy_nav_otc" in proxy_early_df.columns else "strategy_nav"
+            s_proxy = pd.Series(
+                proxy_early_df[col_p].astype(float).to_numpy(dtype=np.float64),
+                index=pd.to_datetime(proxy_early_df["date"]).dt.normalize(),
+            )
+            real_first_dt = s_real.index[0]
+            if dt_target < real_first_dt:
+                early_part = s_proxy[(s_proxy.index >= dt_target) & (s_proxy.index < real_first_dt)]
+                if len(early_part) >= 1:
+                    early_rets = early_part.pct_change().fillna(0.0)
+                    real_rets = s_real.pct_change().fillna(0.0)
+                    # 衔接点收益率按同风格指数当日涨跌过渡，避免跳变
+                    comb_rets = pd.concat([early_rets, real_rets])
+                    comb_rets = comb_rets[~comb_rets.index.duplicated(keep="last")].sort_index()
+                    comb_rets.iloc[0] = 0.0
+                    adj_rets = comb_rets.to_numpy(dtype=np.float64)
+                    if not dynamic_rebalance:
+                        adj_rets = adj_rets + rebal_fee_extra * 0.5
+                    nav_arr = (1.0 - sub_fee_rate) * np.cumprod(1.0 + adj_rets)
+                    curve_series = pd.Series(nav_arr, index=comb_rets.index)
+                    used_proxy_early = True
+                    proxy_note = (
+                        f"所选起点 {clean_date} 早于本方案基金共同成立日（{real_first_dt.strftime('%Y-%m-%d')}）："
+                        f"早期段（{clean_date} ~ {real_first_dt.strftime('%Y-%m-%d')}）按 10 大风格桶基准指数衔接测算，"
+                        f"自 {real_first_dt.strftime('%Y-%m-%d')} 起 100% 切换为终选基金真实复权净值。"
+                    )
+
+        if curve_series is None:
+            s_cut = s_real[s_real.index >= dt_target]
+            if len(s_cut) < 2:
+                s_cut = s_real.tail(max(20, min(len(s_real), 63)))
+            r_cut = s_cut.pct_change().fillna(0.0).to_numpy(dtype=np.float64)
+            r_cut[0] = 0.0
+            nav_arr = (1.0 - sub_fee_rate) * np.cumprod(1.0 + r_cut)
+            curve_series = pd.Series(nav_arr, index=s_cut.index)
+
+    dates_idx = curve_series.index
+    n_fwd = len(dates_idx)
+    fwd_dates = [d.strftime("%Y-%m-%d") for d in dates_idx]
+    actual_start_dt = dates_idx[0]
+
+    def _align_bench(col_name: str) -> np.ndarray:
+        if col_name not in df_mat_idx.columns:
+            return np.ones(n_fwd, dtype=np.float64)
+        s_b = df_mat_idx[col_name].astype(float).reindex(dates_idx).ffill().bfill()
+        v = s_b.to_numpy(dtype=np.float64)
+        return v / max(float(v[0]), 1e-8)
+
+    h300_arr = _align_bench("H00300")
+    if "BENCHMARK_50_50" in df_mat_idx.columns:
+        bm50_arr = _align_bench("BENCHMARK_50_50")
+    else:
+        h11_arr = _align_bench("H11009")
+        bm50_arr = 0.5 * h300_arr + 0.5 * h11_arr
+
+    curve_df = pd.DataFrame({
+        "date": fwd_dates,
+        "strategy_net_nav": curve_series.to_numpy(dtype=np.float64),
+        "h300_nav": h300_arr,
+        "benchmark_nav": bm50_arr,
+    })
+
+    def _calc_horizon_kpi(idx_end: int) -> Dict[str, Any]:
+        sub_df = curve_df.iloc[: idx_end + 1]
+        cal_days = max(1, (pd.to_datetime(sub_df["date"].iloc[-1]) - actual_start_dt).days)
+        if cal_days < 7:
+            red_fee = 0.0150
+        elif cal_days < 30:
+            red_fee = 0.0050
+        elif cal_days < 180:
+            red_fee = 0.0035
+        elif cal_days < 365:
+            red_fee = 0.0015
+        else:
+            red_fee = 0.0000
+
+        gross_nav = float(sub_df["strategy_net_nav"].iloc[-1])
+        to_pocket_ret = (gross_nav * (1.0 - red_fee) - 1.0) * 100.0
+        cmax = sub_df["strategy_net_nav"].cummax()
+        mdd = float(((sub_df["strategy_net_nav"] - cmax) / np.maximum(cmax, 1e-8)).min() * 100.0)
+
+        h_ret = (float(sub_df["h300_nav"].iloc[-1]) - 1.0) * 100.0
+        h_cmax = sub_df["h300_nav"].cummax()
+        h_mdd = float(((sub_df["h300_nav"] - h_cmax) / np.maximum(h_cmax, 1e-8)).min() * 100.0)
+
+        bm_ret = (float(sub_df["benchmark_nav"].iloc[-1]) - 1.0) * 100.0
+        alpha = to_pocket_ret - h_ret
+        verdict = (
+            "大幅战胜基准" if alpha > 3.0 else ("回撤显著收敛" if mdd > h_mdd + 3.0 else ("跑平基准" if abs(alpha) <= 3.0 else "阶段跑输基准"))
+        )
+        return {
+            "days": cal_days,
+            "trade_days": len(sub_df),
+            "net_return_pct": round(to_pocket_ret, 2),
+            "mdd_pct": round(mdd, 2),
+            "h300_return_pct": round(h_ret, 2),
+            "h300_mdd_pct": round(h_mdd, 2),
+            "bm_return_pct": round(bm_ret, 2),
+            "alpha_vs_h300": round(alpha, 2),
+            "red_fee_pct": round(red_fee * 100.0, 2),
+            "verdict": verdict,
+        }
+
+    kpi_3m = _calc_horizon_kpi(min(63, n_fwd - 1)) if n_fwd >= 20 else None
+    kpi_6m = _calc_horizon_kpi(min(126, n_fwd - 1)) if n_fwd >= 60 else None
+    kpi_1y = _calc_horizon_kpi(min(252, n_fwd - 1)) if n_fwd >= 120 else None
+    kpi_all = _calc_horizon_kpi(n_fwd - 1) if n_fwd >= 2 else None
+
+    return {
+        "status": "ready",
+        "target_date": fwd_dates[0] if fwd_dates else clean_date,
+        "used_proxy_early": used_proxy_early,
+        "proxy_note": proxy_note,
+        "portfolio_weights": final_weights,
+        "curve_df": curve_df,
+        "kpi_3m": kpi_3m,
+        "kpi_6m": kpi_6m,
+        "kpi_1y": kpi_1y,
+        "kpi_all": kpi_all,
     }

@@ -1,10 +1,10 @@
-# AGY2-FundAdvisory v2.0.0 · 智能公募基金量化分析与调仓参考工作台
+# AGY2-FundAdvisory v2.0.2 · 智能公募基金量化分析与调仓参考工作台
 
 <p align="center">
   <strong>[ 简体中文 ]</strong> &nbsp;|&nbsp; <a href="README_EN.md"><strong>[ English ]</strong></a>
 </p>
 
-[![Release](https://img.shields.io/badge/Release-v2.0.0-brightgreen.svg)](https://github.com/deancyl/agy2-fund-advisory/releases/tag/v2.0.0)
+[![Release](https://img.shields.io/badge/Release-v2.0.2-brightgreen.svg)](https://github.com/deancyl/agy2-fund-advisory/releases/tag/v2.0.2)
 [![Frontend](https://img.shields.io/badge/Frontend-React%2019%20%2B%20TypeScript%20%2B%20Tailwind%20%2B%20ECharts-0A192F.svg)](web/)
 [![Backend](https://img.shields.io/badge/Backend-FastAPI%20%2B%20Python%203.10%2B-059669.svg)](AGY2_FundAdvisory/api_server.py)
 [![Architecture](https://img.shields.io/badge/Architecture-5--Layer%20Clean%20DAG-1D4ED8.svg)](ARCHITECTURE.md)
