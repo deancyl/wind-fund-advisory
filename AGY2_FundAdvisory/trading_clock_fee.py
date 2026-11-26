@@ -30,7 +30,7 @@ if "src" in sys.modules and hasattr(sys.modules["src"], "__path__"):
         sys.modules["src"].__path__.insert(0, local_src)
 
 try:
-    from src.parsers.calendar_parser import CalendarParser
+    from trading_calendar import CalendarParser
 except ImportError:
     CalendarParser = None
 

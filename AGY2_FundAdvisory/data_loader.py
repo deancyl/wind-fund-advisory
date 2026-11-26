@@ -36,7 +36,7 @@ if "src" in sys.modules and hasattr(sys.modules["src"], "__path__"):
     if local_src not in sys.modules["src"].__path__:
         sys.modules["src"].__path__.insert(0, local_src)
 
-from src.parsers.calendar_parser import CalendarParser
+from trading_calendar import CalendarParser
 
 MATRIX_CACHE_FILE = runtime_paths.resolve_data_file("processed/aligned_matrix_total_return.parquet")
 CACHE_DIR = MATRIX_CACHE_FILE.parent

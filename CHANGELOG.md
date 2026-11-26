@@ -1,5 +1,11 @@
 # Changelog
 
+## [v2.0.3] - 2026-11-26
+
+### 全新机器零配置开箱即用热修复
+- **彻底解除遗留 `src.parsers.calendar_parser` 依赖**：新增零外部依赖的自包含交易日历模块 `AGY2_FundAdvisory/trading_calendar.py`，并切换 `data_loader.py` 与 `trading_clock_fee.py` 引用，根治新机器部署时因缺失旧 `/src/` 目录导致的 `'CalendarParser' object has no attribute 'get_trade_days'` 崩溃及首页信号加载卡死问题。
+- **随仓附带纯公开市场基准种子数据（~4.9 MB，0 个人隐私数据）**：在 `.gitignore` 中精准白名单放行 7 个公开市场指数与 266 只公募基金复权净值基准文件（`aligned_matrix_total_return.parquet`、`market_elite_nav_matrix.parquet`、`market_elite_meta.parquet`、`market_elite_sync_status.json`、`bond_zh_us_rate.parquet`、`chinabond_yield_curve.parquet`、`index_valuations.parquet`），新机器 `git clone` 后首秒即具备完整十维宏观定调与 266 只真净值湖仓，且所有个人账本/持仓继续 100% 隔离不入库。
+
 ## [v2.0.2] - 2026-11-26
 
 ### 全市场 28,177 只离线真净值湖仓、极端周期修复引擎与全站图表真联动

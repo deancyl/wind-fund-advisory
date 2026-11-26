@@ -1,0 +1,45 @@
+{
+  "status": "ready",
+  "synced_at": "2026-11-26 10:02:33",
+  "latest_date": "2026-11-25",
+  "start_date": "2018-01-02",
+  "trading_days": 2159,
+  "elite_fund_count": 266,
+  "active_fund_count": 87,
+  "index_eligible_count": 153,
+  "bucket_counts": {
+    "pure_bond": 42,
+    "active_balanced_equity": 34,
+    "fixed_income_plus": 28,
+    "broad_index": 26,
+    "active_sector_growth": 25,
+    "quant_mid_small": 24,
+    "overseas_qdii": 24,
+    "sector_theme_index": 24,
+    "dividend_value": 22,
+    "commodity_gold": 17
+  },
+  "funnel_stats": {
+    "total_market_funds": 28177,
+    "compliant_screened_funds": 7374,
+    "elite_candidate_count": 360,
+    "bucket_counts": {
+      "active_balanced_equity": 55,
+      "pure_bond": 45,
+      "active_sector_growth": 42,
+      "fixed_income_plus": 40,
+      "quant_mid_small": 36,
+      "sector_theme_index": 34,
+      "broad_index": 32,
+      "dividend_value": 30,
+      "overseas_qdii": 28,
+      "commodity_gold": 18
+    },
+    "elite_lakehouse_funds": 266
+  },
+  "fetched_new": 360,
+  "failed_count": 0,
+  "aborted_by_circuit_breaker": false,
+  "elapsed_sec": 158.47,
+  "daily_sync_at": "2026-11-26 10:02:33"
+}
