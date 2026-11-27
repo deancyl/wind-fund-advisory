@@ -95,7 +95,7 @@ async def _lifespan(app_inst: FastAPI):
     yield
 
 
-app = FastAPI(title="AGY2-FundAdvisory Local Quant API", version="2.1.0", lifespan=_lifespan)
+app = FastAPI(title="AGY2-FundAdvisory Local Quant API", version="2.1.1", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_CORS_ORIGINS,
@@ -212,6 +212,54 @@ def _compute_mae_stats(quotes_map: Dict[str, Any], total_holdings: int) -> Dict[
         "mae_pct": round(sum(off_diffs) / off_cnt, 4) if off_cnt > 0 else None,
         "dual_source_diff_pct": round(sum(dual_diffs) / len(dual_diffs), 4) if dual_diffs else None,
         "is_official_nav": (total_holdings > 0 and off_cnt == total_holdings),
+    }
+
+
+def _arbitrate_market_verdict(snap: Dict[str, Any]) -> Dict[str, Any]:
+    """联合技术均线状态与十维量化投票做宏观仲裁，保障 overview / blueprint / 报告口径 100% 一致。"""
+    state_code = str(snap.get("market_state_code") or snap.get("regime") or "NEUTRAL").upper()
+    short_label = str(snap.get("market_state") or snap.get("advisory_verdict") or "待同步")
+    detail = str(snap.get("core_action_advice") or snap.get("advisory_takeaway") or "保持均衡配置。")
+    action_tag = (
+        "分批进攻"
+        if ("BULL" in state_code or "OFFENSIVE" in state_code)
+        else ("防守控仓" if ("BEAR" in state_code or "DEFENSE" in state_code or "RISK" in state_code) else "安心持仓")
+    )
+    vote_summary = {"bull": 0, "neutral": 0, "bear": 0}
+    try:
+        tdv_ov = compute_ten_dimension_votes(snapshot=snap) or {}
+        v_list = tdv_ov.get("votes") or tdv_ov.get("dimensions") or []
+        for _v in v_list:
+            _sig = str(_v.get("signal") or _v.get("vote") or "").upper()
+            if any(k in _sig for k in ("BULL", "偏多", "进攻", "低估", "BUY")):
+                vote_summary["bull"] += 1
+            elif any(k in _sig for k in ("BEAR", "偏空", "防守", "高估", "SELL")):
+                vote_summary["bear"] += 1
+            else:
+                vote_summary["neutral"] += 1
+        if ("BEAR" in state_code) and vote_summary["bull"] >= 5 and vote_summary["bull"] >= vote_summary["bear"] + 3:
+            short_label = "左侧筑底分歧"
+            action_tag = "均衡分批布局"
+            detail = (
+                f"技术均线仍处弱势磨底区，但十维宏观投票显著偏多（{vote_summary['bull']}多 / "
+                f"{vote_summary['neutral']}中 / {vote_summary['bear']}空，低估值与宽松利率提供支撑），"
+                f"属典型左侧估值底与技术底背离期：建议股债均衡、逢低分批布局，忌恐慌割肉或满仓单押。"
+            )
+        elif ("BULL" in state_code) and vote_summary["bear"] >= 5 and vote_summary["bear"] >= vote_summary["bull"] + 3:
+            short_label = "高位趋势分歧"
+            action_tag = "逢高止盈控波"
+            detail = (
+                f"趋势均线仍处多头，但十维宏观投票偏空（{vote_summary['bull']}多 / "
+                f"{vote_summary['neutral']}中 / {vote_summary['bear']}空），建议兑现部分浮盈、抬升固收与红利防御比例。"
+            )
+    except Exception:
+        pass
+    return {
+        "state_code": state_code,
+        "short_label": short_label,
+        "action_tag": action_tag,
+        "detail": detail,
+        "vote_summary": vote_summary,
     }
 
 
@@ -478,8 +526,12 @@ def api_v1_overview(ledger_id: Optional[str] = None, force: bool = False) -> Dic
     cum_pnl = round(mkt_val - cost_val, 2)
     cum_pnl_pct = round((cum_pnl / cost_val * 100.0) if cost_val > 0 else 0.0, 2)
 
-    state_code = str(snap.get("market_state_code") or snap.get("regime") or "NEUTRAL").upper()
-    action_tag = "分批进攻" if ("BULL" in state_code or "OFFENSIVE" in state_code) else ("防守控仓" if ("BEAR" in state_code or "DEFENSE" in state_code or "RISK" in state_code) else "安心持仓")
+    arb = _arbitrate_market_verdict(snap)
+    state_code = arb["state_code"]
+    raw_short_label = arb["short_label"]
+    raw_detail = arb["detail"]
+    action_tag = arb["action_tag"]
+    vote_summary = arb["vote_summary"]
     plan_mode = "存量瘦身重构" if lid == "combat_29_funds" else "动态股债平衡"
 
     top_alert = None
@@ -509,11 +561,12 @@ def api_v1_overview(ledger_id: Optional[str] = None, force: bool = False) -> Dic
         "cumulative_pnl_pct": cum_pnl_pct,
         "is_official_nav": mae_stats["is_official_nav"],
         "market_verdict": {
-            "short_label": snap.get("market_state") or snap.get("advisory_verdict") or "待同步",
+            "short_label": raw_short_label,
             "action_tag": action_tag,
             "regime": state_code,
             "plan_mode": plan_mode,
-            "detail_explanation": snap.get("core_action_advice") or snap.get("advisory_takeaway") or "保持均衡配置。",
+            "detail_explanation": raw_detail,
+            "vote_summary": vote_summary,
             "data_safety_note": "每次写入账本前自动生成不可变冷备快照，支持一键可逆还原。",
         },
         "indices": indices,
@@ -1984,7 +2037,7 @@ def _build_blueprint_payload(
 
     # 严格按用户选定的 fund_count 输出精确只数（支持全市场 266+ 精英湖仓任意入选标的）
     items = []
-    regime_label = str(snap.get("market_state") or snap.get("regime") or "中性均衡")
+    regime_label = _arbitrate_market_verdict(snap)["short_label"]
     for code, w_frac in sorted(target_w.items(), key=lambda x: x[1], reverse=True):
         w_pct = round(float(w_frac) * 100.0, 1)
         buy_amt = round(cap * w_pct / 100.0, 2)
@@ -2891,6 +2944,9 @@ def api_v1_tools_etf_premiums() -> Dict[str, Any]:
     except Exception as exc:
         logger.warning("check_etf_premiums 异常: %s", exc)
         alerts = []
+    is_offline = any(bool(a.get("is_offline_snapshot", False)) for a in alerts)
+    first_ts = str(alerts[0].get("timestamp", "")) if alerts else ""
+    first_src = str(alerts[0].get("source_label", "离线快照" if is_offline else "实时行情")) if alerts else "实时行情"
     items = [
         {
             "code": str(a.get("code", "")),
@@ -2898,11 +2954,20 @@ def api_v1_tools_etf_premiums() -> Dict[str, Any]:
             "price": float(a.get("price", 0.0) or 0.0),
             "iopv": float(a.get("iopv", 0.0) or 0.0),
             "premium_pct": round(float(a.get("premium_pct", 0.0) or 0.0), 2),
+            "timestamp": str(a.get("timestamp", "")),
+            "is_offline_snapshot": bool(a.get("is_offline_snapshot", False)),
+            "source_label": str(a.get("source_label", first_src)),
             "advice": "场内溢价超过 0.8% 安全线，建议改用场外联接基金或等待溢价回落，避免高位接盘。",
         }
         for a in alerts
     ]
-    return _sanitize_v1_payload({"alert_count": len(items), "items": items})
+    return _sanitize_v1_payload({
+        "alert_count": len(items),
+        "is_offline_snapshot": is_offline,
+        "snapshot_timestamp": first_ts,
+        "source_label": first_src,
+        "items": items,
+    })
 
 
 @app.get("/api/v1/tools/dividend_advice")
@@ -2955,6 +3020,27 @@ if (_WEB_DIST_DIR / "index.html").exists():
         if candidate.is_file():
             return FileResponse(str(candidate))
         return FileResponse(str(_WEB_DIST_DIR / "index.html"))
+else:
+    from fastapi.responses import HTMLResponse
+
+    @app.get("/", include_in_schema=False)
+    def _serve_setup_guide():
+        html = """<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>AGY2 智投 · 前端构建引导</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif;background:#F8FAFC;color:#0F172A;margin:0;padding:48px 20px}
+.box{max-width:640px;margin:0 auto;background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:28px 32px;box-shadow:0 2px 8px rgba(15,23,42,.04)}
+h1{margin:0 0 10px;font-size:18px;color:#0A1628}p{font-size:13px;line-height:1.7;color:#475569}
+pre{background:#0A1628;color:#F8FAFC;padding:14px 16px;border-radius:8px;font-size:12px;overflow:auto}
+a{color:#1D4ED8;text-decoration:none;font-weight:600}</style></head>
+<body><div class="box">
+<h1>AGY2 后端服务已就绪，请先编译前端静态页面</h1>
+<p>当前未检测到 <code>web/dist/index.html</code>（首次克隆仓库后需编译一次现代 Web 前端）。请在项目根目录执行以下命令，完成后刷新本页即可进入机构级投研工作台：</p>
+<pre>cd web
+npm install
+npm run build</pre>
+<p>后端量化引擎与 REST 接口已经正常启动，你可以先访问 <a href="/docs">OpenAPI 接口文档 (/docs)</a> 或 <a href="/api/v1/lakehouse/status">本地湖仓状态</a>。</p>
+</div></body></html>"""
+        return HTMLResponse(content=html, status_code=200)
 
 
 def export_openapi_contract(output_path: Optional[Path] = None) -> Path:

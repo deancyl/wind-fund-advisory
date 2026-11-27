@@ -156,44 +156,74 @@ def _enforce_exact_fund_bounds(
     n = len(required_codes)
     if n == 0:
         return {}
-    # 随基金数量与风险档位自适应单基上限（同时严守大类宪法红线，防单基溢出推高黄金/QDII上限）
+    # 随基金数量与风险档位自适应单基上限、同风格桶合计上限与债基防御底线，杜绝 C3 全天候单风格扎堆 69% / 单基 PCR 超 50%
     tier_u = str(tier or "C3").upper().strip()
     class_caps_by_tier = {
-        "C1": {"qdii": 0.05, "gold": 0.10, "bond": 0.48, "equity": 0.25},
-        "C2": {"qdii": 0.08, "gold": 0.12, "bond": 0.45, "equity": 0.34},
-        "C3": {"qdii": 0.12, "gold": 0.15, "bond": 0.30, "equity": 0.35},
-        "C4": {"qdii": 0.15, "gold": 0.12, "bond": 0.15, "equity": 0.35},
-        "C5": {"qdii": 0.15, "gold": 0.10, "bond": 0.10, "equity": 0.36},
-    }.get(tier_u, {"qdii": 0.12, "gold": 0.15, "bond": 0.30, "equity": 0.35})
-    eq_single_cap = 0.45 if n <= 3 else (0.38 if n <= 4 else class_caps_by_tier["equity"])
-    # 按同类基金只数平分大类上限（防 2 只 QDII 或 2 只黄金合计突破大类红线）
+        "C1": {"qdii": 0.05, "gold": 0.10, "bond": 0.48, "equity": 0.22},
+        "C2": {"qdii": 0.08, "gold": 0.12, "bond": 0.42, "equity": 0.28},
+        "C3": {"qdii": 0.12, "gold": 0.15, "bond": 0.30, "equity": 0.28},
+        "C4": {"qdii": 0.15, "gold": 0.12, "bond": 0.18, "equity": 0.32},
+        "C5": {"qdii": 0.15, "gold": 0.10, "bond": 0.12, "equity": 0.35},
+    }.get(tier_u, {"qdii": 0.12, "gold": 0.15, "bond": 0.30, "equity": 0.28})
+    # C 档固收/债券总占比最低底线（只要组合里入选了债基）
+    bond_total_floor_by_tier = {"C1": 0.48, "C2": 0.35, "C3": 0.24, "C4": 0.10, "C5": 0.05}
+    # 非纯债单一风格桶合计上限（防两只红利低波合计 69%）
+    bucket_total_cap_by_tier = {"C1": 0.25, "C2": 0.34, "C3": 0.42, "C4": 0.50, "C5": 0.56}
+    eq_single_cap = 0.42 if n <= 3 else (0.34 if n <= 4 else class_caps_by_tier["equity"])
+
     ac_counts: Dict[str, int] = {}
+    bucket_counts: Dict[str, int] = {}
     for c in required_codes:
-        ac = str(((meta_map or {}).get(c) or {}).get("asset_class", "equity")).lower()
+        m = (meta_map or {}).get(c) or {}
+        ac = str(m.get("asset_class", "equity")).lower()
+        b_lbl = str(m.get("bucket_label") or m.get("bucket_10") or ac)
         ac_counts[ac] = ac_counts.get(ac, 0) + 1
+        bucket_counts[b_lbl] = bucket_counts.get(b_lbl, 0) + 1
+
+    bond_cnt = ac_counts.get("bond", 0)
+    per_bond_floor = min_floor
+    if bond_cnt > 0 and n >= 4:
+        target_bond_floor = bond_total_floor_by_tier.get(tier_u, 0.22)
+        per_bond_floor = max(min_floor, min(class_caps_by_tier["bond"] - 0.02, round(target_bond_floor / bond_cnt, 4)))
+
+    floors: Dict[str, float] = {}
     caps: Dict[str, float] = {}
+    eq_bucket_cap = bucket_total_cap_by_tier.get(tier_u, 0.42)
     for c in required_codes:
-        ac = str(((meta_map or {}).get(c) or {}).get("asset_class", "equity")).lower()
+        m = (meta_map or {}).get(c) or {}
+        ac = str(m.get("asset_class", "equity")).lower()
+        b_lbl = str(m.get("bucket_label") or m.get("bucket_10") or ac)
         if ac == "qdii":
             c_cap = class_caps_by_tier["qdii"] / max(ac_counts.get("qdii", 1), 1)
+            c_flr = min_floor
         elif ac == "gold":
             c_cap = class_caps_by_tier["gold"] / max(ac_counts.get("gold", 1), 1)
+            c_flr = min_floor
         elif ac == "bond":
             c_cap = class_caps_by_tier["bond"]
+            c_flr = per_bond_floor
         else:
-            c_cap = eq_single_cap
-        caps[c] = max(min_floor + 0.01, c_cap)
-    # 保证 sum(caps) >= 1.02，防止极端少量基金下无可行解
+            b_cnt = max(bucket_counts.get(b_lbl, 1), 1)
+            c_cap = min(eq_single_cap, eq_bucket_cap / b_cnt) if b_cnt >= 2 else eq_single_cap
+            c_flr = min_floor
+        floors[c] = c_flr
+        caps[c] = max(c_flr + 0.01, c_cap)
+
+    # 保证 sum(floors) <= 0.96 且 sum(caps) >= 1.02，防止极端少量基金下无可行解
+    tot_flr = sum(floors.values())
+    if tot_flr > 0.96:
+        scale_dn = 0.92 / max(tot_flr, 1e-6)
+        floors = {c: max(0.02, v * scale_dn) for c, v in floors.items()}
     tot_cap = sum(caps.values())
     if tot_cap < 1.02:
         scale_up = 1.05 / max(tot_cap, 1e-6)
-        caps = {c: min(0.85, v * scale_up) for c, v in caps.items()}
+        caps = {c: min(0.85, max(floors[c] + 0.01, v * scale_up)) for c, v in caps.items()}
 
-    w = {c: max(min_floor, float(weights.get(c, 1.0 / n))) for c in required_codes}
+    w = {c: max(floors[c], float(weights.get(c, 1.0 / n))) for c in required_codes}
     tot = sum(w.values()) or 1.0
     w = {c: v / tot for c, v in w.items()}
 
-    for _ in range(25):
+    for _ in range(30):
         excess = 0.0
         deficit = 0.0
         free_up: List[str] = []
@@ -202,13 +232,13 @@ def _enforce_exact_fund_bounds(
             if w[c] > caps[c] + 1e-9:
                 excess += w[c] - caps[c]
                 w[c] = caps[c]
-            elif w[c] < min_floor - 1e-9:
-                deficit += min_floor - w[c]
-                w[c] = min_floor
+            elif w[c] < floors[c] - 1e-9:
+                deficit += floors[c] - w[c]
+                w[c] = floors[c]
             else:
                 if w[c] < caps[c] - 1e-6:
                     free_up.append(c)
-                if w[c] > min_floor + 1e-6:
+                if w[c] > floors[c] + 1e-6:
                     free_dn.append(c)
         net = excess - deficit
         if abs(net) < 1e-7:
@@ -219,10 +249,10 @@ def _enforce_exact_fund_bounds(
                 for c in free_up:
                     w[c] += net * ((caps[c] - w[c]) / room)
         elif net < 0 and free_dn:
-            room = sum(w[c] - min_floor for c in free_dn)
+            room = sum(w[c] - floors[c] for c in free_dn)
             if room > 1e-9:
                 for c in free_dn:
-                    w[c] += net * ((w[c] - min_floor) / room)
+                    w[c] += net * ((w[c] - floors[c]) / room)
         else:
             break
 

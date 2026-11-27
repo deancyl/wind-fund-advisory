@@ -986,6 +986,7 @@ class ScenarioRebalanceMixin:
                 try:
                     df_flows = pd.read_parquet(flows_file)
                     df_cat = pd.read_parquet(cat_file)
+                    file_mtime_str = datetime.fromtimestamp(flows_file.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
                     df_cat["etf_code"] = df_cat["ak_symbol"].astype(str).str.replace(r"^[a-zA-Z]+", "", regex=True)
                     merged = df_cat.merge(df_flows, on="etf_code", how="inner")
                     for _, row in merged.iterrows():
@@ -994,8 +995,7 @@ class ScenarioRebalanceMixin:
                         nav = float(row["nav"])
                         nm = str(row.get("etf_name_x", f"ETF_{c}"))
                         cat = str(row.get("category", ""))
-                        chg_pct = float(row.get("change_pct", 0.0))
-                        up_time = str(row.get("updated_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                        up_time = str(row.get("updated_at") or file_mtime_str)
 
                         # 重点针对 QDII 跨境与商品黄金 ETF 进行二级市场溢价甄别
                         is_qdii = (cat == "跨境QDII" or "标普" in nm or "纳指" in nm or "恒生" in nm or "海外" in nm or c in ["513500", "159941"])
@@ -1016,6 +1016,7 @@ class ScenarioRebalanceMixin:
                                 "name": nm,
                                 "category": cat,
                                 "timestamp": up_time,
+                                "source_label": f"本地湖仓截面 ({file_mtime_str})",
                                 "is_target_market": is_target
                             }
                     is_offline_snapshot = True
@@ -1023,15 +1024,15 @@ class ScenarioRebalanceMixin:
                     quotes = {}
 
             if not quotes:
-                # 离线真实截面兜底 (重点展示 QDII 与黄金二级市场溢价，并附带精确时间戳)
-                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                # 离线参考截面兜底：严禁使用 datetime.now() 冒充实时行情，显式标注离线参考
+                ref_ts = "离线参考样本"
                 quotes = {
-                    "510300": {"price": 4.123, "iopv": 4.123, "name": "沪深300ETF华泰柏瑞", "category": "宽基ETF", "timestamp": now_str, "is_target_market": False},
-                    "588000": {"price": 1.320, "iopv": 1.320, "name": "科创50ETF华夏", "category": "宽基ETF", "timestamp": now_str, "is_target_market": False},
-                    "518880": {"price": 8.167, "iopv": 8.167, "name": "黄金ETF华安", "category": "固收商品", "timestamp": now_str, "is_target_market": True},
-                    "513500": {"price": 2.664, "iopv": 2.664, "name": "标普500ETF博时", "category": "跨境QDII", "timestamp": now_str, "is_target_market": True},
-                    "159941": {"price": 1.661, "iopv": 1.4647, "name": "纳指ETF广发", "category": "跨境QDII", "timestamp": now_str, "is_target_market": True},
-                    "159985": {"price": 2.165, "iopv": 2.1062, "name": "豆粕ETF华夏", "category": "固收商品", "timestamp": now_str, "is_target_market": True}
+                    "510300": {"price": 4.123, "iopv": 4.123, "name": "沪深300ETF华泰柏瑞", "category": "宽基ETF", "timestamp": ref_ts, "source_label": "离线参考样本", "is_target_market": False},
+                    "588000": {"price": 1.320, "iopv": 1.320, "name": "科创50ETF华夏", "category": "宽基ETF", "timestamp": ref_ts, "source_label": "离线参考样本", "is_target_market": False},
+                    "518880": {"price": 8.167, "iopv": 8.167, "name": "黄金ETF华安", "category": "固收商品", "timestamp": ref_ts, "source_label": "离线参考样本", "is_target_market": True},
+                    "513500": {"price": 2.664, "iopv": 2.664, "name": "标普500ETF博时", "category": "跨境QDII", "timestamp": ref_ts, "source_label": "离线参考样本", "is_target_market": True},
+                    "159941": {"price": 1.661, "iopv": 1.4647, "name": "纳指ETF广发", "category": "跨境QDII", "timestamp": ref_ts, "source_label": "离线参考样本", "is_target_market": True},
+                    "159985": {"price": 2.165, "iopv": 2.1062, "name": "豆粕ETF华夏", "category": "固收商品", "timestamp": ref_ts, "source_label": "离线参考样本", "is_target_market": True}
                 }
                 is_offline_snapshot = True
 
@@ -1041,7 +1042,8 @@ class ScenarioRebalanceMixin:
                 continue
             price = q.get("price", 1.0)
             iopv = q.get("iopv", 1.0)
-            up_time = q.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            up_time = q.get("timestamp", "离线参考样本")
+            src_label = q.get("source_label", "离线快照" if is_offline_snapshot else "实时行情")
             if iopv > 0:
                 premium_pct = round((price - iopv) / iopv * 100.0, 3)
                 if premium_pct > 0.8:
@@ -1052,6 +1054,7 @@ class ScenarioRebalanceMixin:
                         "iopv": iopv,
                         "premium_pct": premium_pct,
                         "timestamp": up_time,
+                        "source_label": src_label,
                         "category": q.get("category", "ETF"),
                         "is_offline_snapshot": is_offline_snapshot,
                         "level": "HIGH_PREMIUM_WARNING",

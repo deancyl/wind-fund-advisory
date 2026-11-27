@@ -1,10 +1,10 @@
-# AGY2-FundAdvisory v2.1.0 · Institutional Mutual Fund Quant & Rebalancing Workbench
+# AGY2-FundAdvisory v2.1.1 · Institutional Mutual Fund Quant & Rebalancing Workbench
 
 <p align="center">
   <a href="README.md"><strong>[ 简体中文 ]</strong></a> &nbsp;|&nbsp; <strong>[ English ]</strong>
 </p>
 
-[![Release](https://img.shields.io/badge/Release-v2.1.0-brightgreen.svg)](https://github.com/deancyl/agy2-fund-advisory/releases/tag/v2.1.0)
+[![Release](https://img.shields.io/badge/Release-v2.1.1-brightgreen.svg)](https://github.com/deancyl/agy2-fund-advisory/releases/tag/v2.1.1)
 [![Frontend](https://img.shields.io/badge/Frontend-React%2019%20%2B%20TypeScript%20%2B%20Tailwind%20v4%20%2B%20ECharts-0A192F.svg)](web/)
 [![Backend](https://img.shields.io/badge/Backend-FastAPI%20%2B%20Python%203.10%2B-059669.svg)](AGY2_FundAdvisory/api_server.py)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)

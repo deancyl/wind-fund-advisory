@@ -209,11 +209,13 @@ export function BacktestCharts({ data, loading, staleHint }: BacktestChartsProps
           const idx = Number((list[0] as { dataIndex?: number }).dataIndex ?? 0);
           const item = rows[idx];
           if (!item) return '';
+          const pcrColor = item.pcr_pct < 0 ? '#34D399' : '#FBBF24';
+          const pcrNote = item.pcr_pct < 0 ? '（负相关对冲）' : '';
           return `
             <div style="font-weight:700;margin-bottom:4px;">${item.fund_name} (${item.fund_code})</div>
             <div style="color:#94A3B8;font-size:11px;margin-bottom:4px;">风格桶：${item.bucket_label}</div>
             <div>资金配置占比：<strong>${item.weight_pct.toFixed(1)}%</strong></div>
-            <div>真实风险贡献 (PCR)：<strong style="color:#FBBF24;">${item.pcr_pct.toFixed(1)}%</strong></div>
+            <div>真实风险贡献 (PCR)：<strong style="color:${pcrColor};">${item.pcr_pct.toFixed(1)}%${pcrNote}</strong></div>
           `;
         },
       },
@@ -241,8 +243,13 @@ export function BacktestCharts({ data, loading, staleHint }: BacktestChartsProps
           name: '风险贡献 PCR (%)',
           type: 'bar',
           barMaxWidth: 20,
-          data: rows.map((r) => r.pcr_pct),
-          itemStyle: { color: '#D97706', borderRadius: [4, 4, 0, 0] },
+          data: rows.map((r) => ({
+            value: r.pcr_pct,
+            itemStyle:
+              r.pcr_pct < 0
+                ? { color: '#059669', borderRadius: [0, 0, 4, 4] }
+                : { color: '#D97706', borderRadius: [4, 4, 0, 0] },
+          })),
         },
       ],
     };

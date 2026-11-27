@@ -1,5 +1,5 @@
-' AGY2 智投 · 现代 Web 独立应用一键无黑框启动器
-' 单端口架构：静默托管 FastAPI (127.0.0.1:8000) 并以 Edge --app 独立窗口打开
+' AGY2-FundAdvisory Modern Web App Silent Launcher (No Console Window)
+' Single-port architecture: FastAPI (127.0.0.1:8000) + Edge --app mode
 
 Option Explicit
 Dim fso, shell, scriptDir, url, http, i, ready, pyCmd, edgePath
@@ -21,7 +21,11 @@ End Function
 
 If Not IsServerReady() Then
     shell.CurrentDirectory = scriptDir
-    pyCmd = "py -3 -m uvicorn api_server:app --app-dir AGY2_FundAdvisory --host 127.0.0.1 --port 8000"
+    If shell.Run("cmd.exe /c where py >nul 2>&1", 0, True) = 0 Then
+        pyCmd = "py -3 -m uvicorn api_server:app --app-dir AGY2_FundAdvisory --host 127.0.0.1 --port 8000"
+    Else
+        pyCmd = "python -m uvicorn api_server:app --app-dir AGY2_FundAdvisory --host 127.0.0.1 --port 8000"
+    End If
     shell.Run pyCmd, 0, False
     ready = False
     For i = 1 To 30

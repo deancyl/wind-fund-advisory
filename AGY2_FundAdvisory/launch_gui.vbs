@@ -41,8 +41,9 @@ End If
 ' 2. If neither port is listening, launch Streamlit
 If activePort = 0 Then
     pythonExe = "python"
-    If fso.FileExists("C:\Users\deanc\AppData\Local\Programs\Python\Python311\python.exe") Then
-        pythonExe = fso.GetFile("C:\Users\deanc\AppData\Local\Programs\Python\Python311\python.exe").ShortPath
+    localPy = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\Programs\Python\Python311\python.exe"
+    If fso.FileExists(localPy) Then
+        pythonExe = fso.GetFile(localPy).ShortPath
     End If
     WshShell.CurrentDirectory = currentDir
 

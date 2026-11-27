@@ -64,6 +64,7 @@ export function HoldingsPage() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
+    if (!activeLedgerId) return;
     let alive = true;
     setLoading(true);
     setExpLoading(true);

@@ -29,6 +29,11 @@ export function MarketSignalPage() {
   const [votes, setVotes] = useState<Array<Record<string, unknown>>>([]);
   const [watchlist, setWatchlist] = useState<Array<{ code: string; name: string; change_pct: number }>>([]);
   const [etfPremiums, setEtfPremiums] = useState<EtfPremiumItem[]>([]);
+  const [etfMeta, setEtfMeta] = useState<{ isOffline: boolean; timestamp: string; sourceLabel: string }>({
+    isOffline: false,
+    timestamp: '',
+    sourceLabel: '',
+  });
   const [searchQ, setSearchQ] = useState('');
   const [searchHits, setSearchHits] = useState<Array<{ code: string; name: string; sector: string }>>([]);
 
@@ -37,6 +42,7 @@ export function MarketSignalPage() {
   const [crowdingLoading, setCrowdingLoading] = useState(true);
 
   useEffect(() => {
+    if (!activeLedgerId) return;
     let alive = true;
     setLoading(true);
     Promise.allSettled([
@@ -47,7 +53,14 @@ export function MarketSignalPage() {
       if (!alive) return;
       if (v.status === 'fulfilled') setVotes(v.value.votes || []);
       if (w.status === 'fulfilled') setWatchlist(w.value.items || []);
-      if (ep.status === 'fulfilled') setEtfPremiums(ep.value.items || []);
+      if (ep.status === 'fulfilled') {
+        setEtfPremiums(ep.value.items || []);
+        setEtfMeta({
+          isOffline: Boolean(ep.value.is_offline_snapshot),
+          timestamp: String(ep.value.snapshot_timestamp || ''),
+          sourceLabel: String(ep.value.source_label || ''),
+        });
+      }
       setLoading(false);
     });
     return () => {
@@ -57,6 +70,7 @@ export function MarketSignalPage() {
 
   const recCodesKey = (solvedContext.fundCodes || []).join(',');
   useEffect(() => {
+    if (!activeLedgerId && !recCodesKey) return;
     let alive = true;
     const recCodes = recCodesKey ? recCodesKey.split(',').filter(Boolean) : [];
     const effScope = crowdingScope === 'recommended' && recCodes.length > 0 ? 'recommended' : 'holdings';
@@ -324,10 +338,19 @@ export function MarketSignalPage() {
 
           {/* 热门场内 ETF 溢价预警（紧凑吸顶滚动表，杜绝长列表撑爆页面） */}
           <div className="inst-panel rounded-lg overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
+            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/70 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <Radio className="w-4 h-4 text-red-600" />
                 <h2 className="text-xs font-bold text-slate-900">热门场内 ETF 溢价预警（红线 0.8%）</h2>
+                {etfMeta.isOffline && (
+                  <span
+                    data-testid="etf-offline-badge"
+                    title={etfMeta.sourceLabel || '当前展示本地离线截面快照，非盘中实时行情'}
+                    className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-300 text-amber-800 text-[10px] font-semibold"
+                  >
+                    离线快照{etfMeta.timestamp ? ` · ${etfMeta.timestamp}` : ''}
+                  </span>
+                )}
               </div>
               <span className="text-[11px] font-mono text-slate-500 tabular-nums">
                 {etfPremiums.length} 只超红线

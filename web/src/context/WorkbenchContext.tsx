@@ -172,9 +172,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     typeof window !== 'undefined' ? window.innerWidth < 1360 : false
   );
 
-  // 账本、总览、湖仓
+  // 账本、总览、湖仓（初始为空，等待 /api/v1/ledgers 返回本机真实活动账本，避免干净部署盲查固定 ID）
   const [ledgers, setLedgers] = useState<LedgerMeta[]>([]);
-  const [activeLedgerId, setActiveLedgerId] = useState<string>('combat_29_funds');
+  const [activeLedgerId, setActiveLedgerId] = useState<string>('');
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [lakehouse, setLakehouse] = useState<LakehouseStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -259,10 +259,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       try {
         const lRes = await api.getLedgers();
         if (!mountedRef.current) return;
-        setLedgers(lRes.items || []);
-        const lid = targetLedger || lRes.active_ledger_id || 'combat_29_funds';
+        const items = lRes.items || [];
+        setLedgers(items);
+        const lid = targetLedger || lRes.active_ledger_id || items[0]?.id || '';
         setActiveLedgerId(lid);
-        const ov = await api.getOverview(lid, force);
+        const ov = await api.getOverview(lid || undefined, force);
         if (mountedRef.current) setOverview(ov);
       } catch (e) {
         pushToast(e instanceof Error ? e.message : '后端连接失败，请确认 api_server 已启动', 'error');

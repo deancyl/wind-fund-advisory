@@ -1,10 +1,10 @@
-# AGY2-FundAdvisory v2.1.0 · 机构级公募基金量化投研与调仓参考工作台
+# AGY2-FundAdvisory v2.1.1 · 机构级公募基金量化投研与调仓参考工作台
 
 <p align="center">
   <strong>[ 简体中文 ]</strong> &nbsp;|&nbsp; <a href="README_EN.md"><strong>[ English ]</strong></a>
 </p>
 
-[![Release](https://img.shields.io/badge/Release-v2.1.0-brightgreen.svg)](https://github.com/deancyl/agy2-fund-advisory/releases/tag/v2.1.0)
+[![Release](https://img.shields.io/badge/Release-v2.1.1-brightgreen.svg)](https://github.com/deancyl/agy2-fund-advisory/releases/tag/v2.1.1)
 [![Frontend](https://img.shields.io/badge/Frontend-React%2019%20%2B%20TypeScript%20%2B%20Tailwind%20%2B%20ECharts-0A192F.svg)](web/)
 [![Backend](https://img.shields.io/badge/Backend-FastAPI%20%2B%20Python%203.10%2B-059669.svg)](AGY2_FundAdvisory/api_server.py)
 [![Architecture](https://img.shields.io/badge/Architecture-5--Layer%20Clean%20DAG-1D4ED8.svg)](ARCHITECTURE.md)
@@ -47,7 +47,7 @@ flowchart TD
         OV["全局交互层<br/>右侧 Fund Inspector 检查器 / 统一数据与账本中心(所见即所写核对) / Ctrl+K 命令面板 / 跨页保活 Context"]
     end
 
-    subgraph API ["⚡ 统一 REST JSON 底座 (AGY2_FundAdvisory/api_server.py · FastAPI v2.1.0)"]
+    subgraph API ["⚡ 统一 REST JSON 底座 (AGY2_FundAdvisory/api_server.py · FastAPI v2.1.1)"]
         R1["/api/v1/quant/solve · /recommend/blueprint · /charts/* (全链路透传 exclude/include 约束)"]
         R2["/api/v1/overview · /ledgers · /holdings · /rebalance · /import/commit · /lakehouse/*"]
     end

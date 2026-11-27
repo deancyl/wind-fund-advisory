@@ -844,11 +844,24 @@ export function QuantLabPage() {
                                 ¥{Math.round(f.suggested_amount).toLocaleString()}
                               </td>
                               <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                                <span className={`font-semibold ${pcr >= 32 ? 'text-amber-700' : 'text-slate-700'}`}>
+                                <span
+                                  className={`font-semibold ${
+                                    pcr < 0 ? 'text-emerald-700' : pcr >= 32 ? 'text-amber-700' : 'text-slate-700'
+                                  }`}
+                                >
                                   {pcr.toFixed(1)}%
                                 </span>
-                                <div className="text-[10px] text-slate-400">
-                                  {f.factor_tilt_delta_pct !== undefined && Math.abs(f.factor_tilt_delta_pct) >= 0.1
+                                <div
+                                  className={`text-[10px] ${pcr < 0 ? 'text-emerald-700 font-medium' : 'text-slate-400'}`}
+                                  title={
+                                    pcr < 0
+                                      ? '与组合权益主风险呈负相关，起到天然波动对冲作用'
+                                      : undefined
+                                  }
+                                >
+                                  {pcr < 0
+                                    ? '负相关对冲'
+                                    : f.factor_tilt_delta_pct !== undefined && Math.abs(f.factor_tilt_delta_pct) >= 0.1
                                     ? `因子 ${f.factor_tilt_delta_pct >= 0 ? '+' : ''}${f.factor_tilt_delta_pct.toFixed(1)}%`
                                     : '均衡'}
                                 </div>

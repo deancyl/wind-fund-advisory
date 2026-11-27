@@ -619,6 +619,9 @@ export interface EtfPremiumItem {
   iopv: number;
   premium_pct: number;
   advice: string;
+  is_offline_snapshot?: boolean;
+  timestamp?: string;
+  source_label?: string;
 }
 
 export interface DividendAdviceResponse {
@@ -983,7 +986,14 @@ export const api = {
     if (solvedOpts?.includeCodes && solvedOpts.includeCodes.length > 0) q.set('include_codes', solvedOpts.includeCodes.join(','));
     return requestJson<ScenarioBacktestResponse>(`/api/v1/charts/scenario_backtest?${q.toString()}`);
   },
-  getEtfPremiums: () => requestJson<{ alert_count: number; items: EtfPremiumItem[] }>('/api/v1/tools/etf_premiums'),
+  getEtfPremiums: () =>
+    requestJson<{
+      alert_count: number;
+      is_offline_snapshot?: boolean;
+      snapshot_timestamp?: string;
+      source_label?: string;
+      items: EtfPremiumItem[];
+    }>('/api/v1/tools/etf_premiums'),
   getDividendAdvice: (ledgerId?: string) =>
     requestJson<DividendAdviceResponse>(
       `/api/v1/tools/dividend_advice${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`

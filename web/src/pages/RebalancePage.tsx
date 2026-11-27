@@ -6,10 +6,12 @@ import { useWorkbench } from '../context/WorkbenchContext';
 export function RebalancePage() {
   const {
     activeLedgerId,
+    currentLedger,
     refreshTick,
     targetReturnPct,
     horizonMonths,
     setGoal,
+    setActiveTab,
     solvedContext,
     openDataCenter,
     openInspector,
@@ -47,6 +49,7 @@ export function RebalancePage() {
   const inKey = (solvedContext.includeCodes || []).join(',');
 
   useEffect(() => {
+    if (!activeLedgerId) return;
     let alive = true;
     setLoading(true);
     Promise.all([
@@ -85,6 +88,7 @@ export function RebalancePage() {
   }, [activeLedgerId, refreshTick, targetReturnPct, horizonMonths, effTier, targetSource, effModel, effFundCount, effUniverse, exKey, inKey]);
 
   useEffect(() => {
+    if (!activeLedgerId) return;
     let alive = true;
     const t = setTimeout(() => {
       setDcaLoading(true);
@@ -176,6 +180,37 @@ export function RebalancePage() {
 
   if (loading) {
     return <div className="inst-panel rounded-lg p-10 text-center text-xs text-slate-400">正在测算调仓参考方案...</div>;
+  }
+
+  if (data?.is_empty || (currentLedger && currentLedger.holding_count === 0)) {
+    return (
+      <div className="inst-panel rounded-lg p-8 sm:p-10 text-center space-y-4 fade-in" data-testid="rebalance-empty-state">
+        <div className="space-y-1.5 max-w-md mx-auto">
+          <h2 className="text-sm font-bold text-slate-900">
+            当前账本「{currentLedger?.name || activeLedgerId}」暂无实盘持仓
+          </h2>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            调仓执行台需要基于您当前的真实持仓测算偏差、清理碎片尾仓与 C 转 A 省费。请先导入已有持仓，或直接前往量化实验室生成新资金配置蓝图。
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => openDataCenter('import')}
+            className="h-8 px-4 rounded-md text-xs font-semibold bg-[#0A1628] text-white hover:bg-slate-800 cursor-pointer"
+          >
+            导入实盘持仓（文本 / 截图 OCR）
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('quant_lab')}
+            className="h-8 px-4 rounded-md text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 cursor-pointer"
+          >
+            前往量化实验室建仓
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const tailCount = data?.tail_sweep?.count || 0;
@@ -319,6 +354,29 @@ export function RebalancePage() {
               </div>
             </div>
           </div>
+
+          {data.goal_comparison.hit_rate_delta_pct < 0 && (
+            <div
+              data-testid="rebalance-tradeoff-note"
+              className="px-4 py-2.5 border-t border-slate-200 bg-amber-50/50 flex flex-wrap items-center justify-between gap-2 text-[11px] text-amber-950"
+            >
+              <span>
+                <strong>归因说明：</strong>
+                {targetSource === 'ledger_smooth'
+                  ? '当前「稳健低换手」模式优先压缩交易摩擦、清理尾仓并控制回撤底线（P05 改善），因此历史达标率略低于原高弹性持仓；若追求更高达标率，可一键切换对齐量化实验室全市场方案。'
+                  : '新目标方案以风控均衡与回撤底线为优先约束，降低了高波动单一赛道的弹性暴露，历史达标率小幅收敛属风控取舍。'}
+              </span>
+              {targetSource === 'ledger_smooth' && (
+                <button
+                  type="button"
+                  onClick={() => setTargetSource('full_market_solved')}
+                  className="px-2.5 py-1 rounded bg-blue-700 text-white font-semibold hover:bg-blue-800 shrink-0 cursor-pointer"
+                >
+                  切换对齐实验室方案
+                </button>
+              )}
+            </div>
+          )}
         </section>
       )}
 

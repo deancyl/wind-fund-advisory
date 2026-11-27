@@ -1,5 +1,21 @@
 # Changelog
 
+## [v2.1.1] - 2026-11-27
+
+### 初次部署加固与专业量化口径一致性修复
+- **初次部署与跨平台依赖完整补齐**：
+  - `requirements.txt` 补齐 `fastapi`、`uvicorn`、`python-multipart`、`pyarrow`、`akshare`、`pypinyin`、`Pillow`，并为 `pywin32` / `pefile` 添加 `; sys_platform == "win32"` 平台约束，解决干净机器及 macOS/Linux 安装报错与拼音检索缺包问题；
+  - `api_server.py` 根路由在 `web/dist` 未编译时返回中文构建指引页（替代裸 `{"detail":"Not Found"}`）；
+  - `start-agy2-web.vbs` 改用纯 ASCII 注释并自动探测 `py -3` / `python`，同时清除遗留 `launch_gui.vbs` 与 `start_silent_service.vbs` 中的个人本机路径硬编码。
+- **宏观定调全链路仲裁与全天候风格桶分散加固**：
+  - `api_server.py` 提取 `_arbitrate_market_verdict(snap)` 统一仲裁技术均线与十维量化投票，消除顶部/总览与蓝图/报告中“均线报深度大熊市 vs 十维投票 6多1空”自相矛盾问题，全接口一致输出 `左侧筑底分歧 / 均衡分批布局` 及完整 `vote_summary`；
+  - `goal_driven_selector.py` 升级 `_enforce_exact_fund_bounds`，新增分档纯债固收总权重下限（`C1: 48%` ~ `C5: 5%`）与非债单一风格桶总上限（`C1: 25%` ~ `C5: 56%`），使 `C3 均衡 · 全天候 (ERC)` 单一风格桶集中度由 `69.3%` 降至 `42.0%`、纯债底仓由 `11.2%` 升至 `31.0%`、单基最大 PCR 由 `51.5%` 降至 `42.8%`。
+- **数据透明度与专业交互细节完善**：
+  - `scenario_rebalancer.py` 与 `/api/v1/tools/etf_premiums` 彻底移除离线兜底中的伪实时 `datetime.now()`，改用真实文件 `mtime` 或标明 `"离线参考样本"` 并透传 `is_offline_snapshot` / `snapshot_timestamp` / `source_label`，前端「热门场内 ETF 溢价预警」卡片头部显式渲染琥珀色离线快照徽章；
+  - `WorkbenchContext.tsx` 解除初始 `activeLedgerId='combat_29_funds'` 硬编码，并在 `HoldingsPage.tsx`、`MarketSignalPage.tsx`、`RebalancePage.tsx` 补齐未就绪守卫（消除首屏重复请求）与调仓页空账本专业引导态；
+  - `RebalancePage.tsx` 针对「稳健低换手」模式下达标率小幅收敛补充专业归因条与一键切换「对齐实验室方案」入口；
+  - `QuantLabPage.tsx` 矩阵表与 `BacktestCharts.tsx` 资金占比 vs PCR 分组柱状图均针对负 PCR 纯债标的增加翠绿高亮与「负相关对冲」语义注解。
+
 ## [v2.1.0] - 2026-11-27
 
 ### 机构级投研工作台重构（宽屏顶栏 × 实验室可折叠分栏 × 可操控量化终端）
