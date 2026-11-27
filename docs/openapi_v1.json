@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AGY2-FundAdvisory Local Quant API",
-    "version": "2.0.0"
+    "version": "2.1.0"
   },
   "paths": {
     "/api/health": {
@@ -453,6 +453,88 @@
               "default": 12,
               "title": "Horizon Months"
             }
+          },
+          {
+            "name": "tier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "C3",
+              "title": "Tier"
+            }
+          },
+          {
+            "name": "target_source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "ledger_smooth",
+              "title": "Target Source"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "all_weather",
+              "title": "Model"
+            }
+          },
+          {
+            "name": "fund_count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 6,
+              "title": "Fund Count"
+            }
+          },
+          {
+            "name": "universe_mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "full_market",
+              "title": "Universe Mode"
+            }
+          },
+          {
+            "name": "exclude_codes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Exclude Codes"
+            }
+          },
+          {
+            "name": "include_codes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Include Codes"
+            }
           }
         ],
         "responses": {
@@ -762,6 +844,47 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Api V1 Import Ocr Api V1 Import Ocr Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/import/commit": {
+      "post": {
+        "summary": "Api V1 Import Commit",
+        "description": "将用户在预览核对表中校对/删改后的最终持仓列表精确写入账本（100% 所见即所写，写入前自动冷备）。",
+        "operationId": "api_v1_import_commit_api_v1_import_commit_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportCommitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 Import Commit Api V1 Import Commit Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -1749,6 +1872,155 @@
         }
       }
     },
+    "/api/v1/lakehouse/status": {
+      "get": {
+        "summary": "Api V1 Lakehouse Status",
+        "operationId": "api_v1_lakehouse_status_api_v1_lakehouse_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 Lakehouse Status Api V1 Lakehouse Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lakehouse/sync_daily": {
+      "post": {
+        "summary": "Api V1 Lakehouse Sync Daily",
+        "operationId": "api_v1_lakehouse_sync_daily_api_v1_lakehouse_sync_daily_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LakehouseSyncRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Req"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 Lakehouse Sync Daily Api V1 Lakehouse Sync Daily Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quant/solve": {
+      "post": {
+        "summary": "Api V1 Quant Solve Start",
+        "description": "启动异步全市场量化求解任务并立即返回 job_id（供前端 4 阶段真实进度条轮询）。",
+        "operationId": "api_v1_quant_solve_start_api_v1_quant_solve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuantSolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api V1 Quant Solve Start Api V1 Quant Solve Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quant/solve/{job_id}": {
+      "get": {
+        "summary": "Api V1 Quant Solve Status",
+        "operationId": "api_v1_quant_solve_status_api_v1_quant_solve__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Api V1 Quant Solve Status Api V1 Quant Solve  Job Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/recommend/blueprint": {
       "get": {
         "summary": "Api V1 Recommend Blueprint",
@@ -1812,6 +2084,58 @@
               "type": "integer",
               "default": 12,
               "title": "Horizon Months"
+            }
+          },
+          {
+            "name": "universe_mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "full_market",
+              "title": "Universe Mode"
+            }
+          },
+          {
+            "name": "force",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Force"
+            }
+          },
+          {
+            "name": "exclude_codes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Exclude Codes"
+            }
+          },
+          {
+            "name": "include_codes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Include Codes"
             }
           }
         ],
@@ -1895,6 +2219,78 @@
               "default": "1y",
               "title": "Period"
             }
+          },
+          {
+            "name": "target_return_pct",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 10.0,
+              "title": "Target Return Pct"
+            }
+          },
+          {
+            "name": "horizon_months",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 12,
+              "title": "Horizon Months"
+            }
+          },
+          {
+            "name": "universe_mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "full_market",
+              "title": "Universe Mode"
+            }
+          },
+          {
+            "name": "force",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Force"
+            }
+          },
+          {
+            "name": "exclude_codes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Exclude Codes"
+            }
+          },
+          {
+            "name": "include_codes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Include Codes"
+            }
           }
         ],
         "responses": {
@@ -1942,6 +2338,22 @@
                 }
               ],
               "title": "Ledger Id"
+            }
+          },
+          {
+            "name": "codes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Codes"
             }
           }
         ],
@@ -2014,6 +2426,112 @@
               "type": "boolean",
               "default": true,
               "title": "Dynamic Rebalance"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "name": "fund_count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Fund Count"
+            }
+          },
+          {
+            "name": "target_return_pct",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Return Pct"
+            }
+          },
+          {
+            "name": "horizon_months",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon Months"
+            }
+          },
+          {
+            "name": "universe_mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "full_market",
+              "title": "Universe Mode"
+            }
+          },
+          {
+            "name": "exclude_codes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Exclude Codes"
+            }
+          },
+          {
+            "name": "include_codes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Include Codes"
             }
           }
         ],
@@ -2276,6 +2794,48 @@
         "type": "object",
         "title": "HoldingsReconcileRequest"
       },
+      "ImportCommitRequest": {
+        "properties": {
+          "ledger_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ledger Id"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "default": "merge"
+          },
+          "available_cash": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available Cash"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Items",
+            "default": []
+          }
+        },
+        "type": "object",
+        "title": "ImportCommitRequest"
+      },
       "ImportTextRequest": {
         "properties": {
           "ledger_id": {
@@ -2316,6 +2876,17 @@
         ],
         "title": "ImportTextRequest"
       },
+      "LakehouseSyncRequest": {
+        "properties": {
+          "cooldown_minutes": {
+            "type": "integer",
+            "title": "Cooldown Minutes",
+            "default": 30
+          }
+        },
+        "type": "object",
+        "title": "LakehouseSyncRequest"
+      },
       "LedgerImportRequest": {
         "properties": {
           "ledger_id": {
@@ -2351,6 +2922,85 @@
         },
         "type": "object",
         "title": "LedgerImportRequest"
+      },
+      "QuantSolveRequest": {
+        "properties": {
+          "risk_level": {
+            "type": "string",
+            "title": "Risk Level",
+            "default": "C3"
+          },
+          "amount": {
+            "type": "number",
+            "title": "Amount",
+            "default": 50000.0
+          },
+          "fund_count": {
+            "type": "integer",
+            "title": "Fund Count",
+            "default": 6
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": "all_weather"
+          },
+          "target_return_pct": {
+            "type": "number",
+            "title": "Target Return Pct",
+            "default": 10.0
+          },
+          "horizon_months": {
+            "type": "integer",
+            "title": "Horizon Months",
+            "default": 12
+          },
+          "universe_mode": {
+            "type": "string",
+            "title": "Universe Mode",
+            "default": "full_market"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period",
+            "default": "1y"
+          },
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "default": false
+          },
+          "exclude_codes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exclude Codes"
+          },
+          "include_codes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Include Codes"
+          }
+        },
+        "type": "object",
+        "title": "QuantSolveRequest"
       },
       "RebalanceExecuteRequest": {
         "properties": {

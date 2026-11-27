@@ -1,10 +1,10 @@
-# AGY2-FundAdvisory v2.0.3 · 智能公募基金量化分析与调仓参考工作台
+# AGY2-FundAdvisory v2.1.0 · 机构级公募基金量化投研与调仓参考工作台
 
 <p align="center">
   <strong>[ 简体中文 ]</strong> &nbsp;|&nbsp; <a href="README_EN.md"><strong>[ English ]</strong></a>
 </p>
 
-[![Release](https://img.shields.io/badge/Release-v2.0.3-brightgreen.svg)](https://github.com/deancyl/agy2-fund-advisory/releases/tag/v2.0.3)
+[![Release](https://img.shields.io/badge/Release-v2.1.0-brightgreen.svg)](https://github.com/deancyl/agy2-fund-advisory/releases/tag/v2.1.0)
 [![Frontend](https://img.shields.io/badge/Frontend-React%2019%20%2B%20TypeScript%20%2B%20Tailwind%20%2B%20ECharts-0A192F.svg)](web/)
 [![Backend](https://img.shields.io/badge/Backend-FastAPI%20%2B%20Python%203.10%2B-059669.svg)](AGY2_FundAdvisory/api_server.py)
 [![Architecture](https://img.shields.io/badge/Architecture-5--Layer%20Clean%20DAG-1D4ED8.svg)](ARCHITECTURE.md)
@@ -13,50 +13,50 @@
 
 ---
 
-## 📌 项目定位与 v2.0.0 里程碑
+## 📌 项目定位与 v2.1.0 机构级工作台里程碑
 
-**AGY2-FundAdvisory** 是一款面向中国场外公募基金与 ETF 的**本地化、纯开源、跨平台量化分析与调仓参考工作台**。
+**AGY2-FundAdvisory** 是一款面向中国场外公募基金与 ETF 的**本地化、纯开源、跨平台机构级量化投研与调仓参考工作台**。
 
 > **核心定位声明**：本系统**纯粹提供量化模型、宏观信号、持仓体检与调仓分析参考，不连接任何券商/第三方交易接口，不执行任何实盘下单**；所有个人持仓与账本数据 100% 仅保存在用户本机。
 
-### 🚀 v2.0.0 全新升级亮点（彻底重构现代前后端解耦架构）
-1. **全新现代 Web 前端（React 19 + TypeScript + Tailwind CSS + ECharts）**：
-   - 彻底告别旧版单页拥挤侧边栏与慢启动问题，首屏加载提速超 **11 倍（< 1 秒）**；
-   - 采用**私人银行级深海墨蓝 + 琥珀金 + 冷雾灰三层景深视觉体系**，桌面端（`1440px`）与移动端（`390px`）全链路零溢出适配；
-   - **单端口零跨域托管**：FastAPI（`127.0.0.1:8000`）一体化托管构建产物 `web/dist/` 与 `/api/v1/*` REST API，同一套前端代码可直接复用打包桌面端（Tauri `.exe`）与手机端（Capacitor `.apk`）。
-2. **「目标时间区间 × 目标收益」+「基金详情多因子」量化选基与调仓闭环**：
-   - 支持用户设定**目标持有周期（6个月 / 1年 / 2年 / 3年）与目标收益率（%）**，结合 4 套量化配置模型（全天候动态均衡 / 风险平价抗跌 / 高股息红利防御 / 杠铃攻守策略）与 C1~C5 风险档位，自动反推所需年化、检测风险-收益碰撞，并在 8 年真实历史净值上跑滚动窗口实算**历史达成概率**；
-   - 实时并发拉取每只候选基金的真实详情量化数据（夏普、卡玛、最大回撤、年化波动率、净值新高率、信息比率、跟踪误差、规模、费率、经理稳定性），生成 **0~100 多因子量化综合得分** 并优化配置权重。
-3. **全站一键钻取「10 维度基金深度详情工作台」**：
-   - 点击任意推荐基金、持仓基金或调仓标的，均可进入全屏详情页，完整覆盖：
-     **业绩走势图、单位/累计净值图、历史业绩表、历史净值表、自定义金额定投收益测算表、4 大类 + 8 小类量化分析指标与雷达图、持仓资产/行业/前十大重仓股、现任与历任基金经理、基金档案与产品概要、交易规则费率阶梯、最新官方公告**。
-4. **工程洁净分层与全面脱敏**：
-   - 5 层单向依赖 DAG（Layer-0 零依赖 `domain_models.py` + `runtime_paths.py` 跨平台数据目录隔离），全部个人持仓与账本快照均不纳入版本库，开箱纯净安全。
+### 🚀 v2.1.0 核心升级亮点（机构级投研工作台重构）
+1. **全新「宽屏顶栏 × 实验室可折叠分栏 × 4 大互斥工作区」信息架构**：
+   - `48px` 极简深海墨蓝顶栏 + `34px` 实盘状态 Ticker 带（实时呈现宏观定调、沪深300/科创50/中证红利与真净值湖仓同步态），告别长瀑布流与窄侧边栏堆砌；
+   - **量化实验室（默认首屏）**：支持可折叠左侧参数控制台与 4 个单屏下划线子视图（`组合方案矩阵` / `净值与情景回测` / `极端周期与止盈` / `A/B 方案对比`），折叠侧栏即享 100% 满宽图表视野；
+   - **市场与信号 / 实盘与风控 / 调仓执行**三大宽屏工作区职责完全隔离，原抽屉中的十维量化投票矩阵、ETF 溢价预警（吸顶滚动表）、底层重仓股重叠穿透、A/C 类份额费率精算器全部按专业投研工作流正式归位。
+2. **可操控量化沙盒与 A/B 公平对比**：
+   - 组合配置矩阵表内置真实 `MA20乖离/短线温度`、风险贡献 `PCR` 与行内一键 **「锁定必选 / 排除重算」**，排除与锁定约束全链路贯通求解器、缓存、净值回测、历史情景与调仓对齐（零幽灵复活），并内置 C 档大类冲突校验与 `index_only` 自动解绑主动锁；
+   - 支持最多 4 组方案快照持久化至 `localStorage` 并排对比（强制对齐「近 1 年 + 全周期」双口径 + 湖仓截止日过期检测 + 标的权重 & PCR 横向 Diff），支持一键导出 **Markdown 投研报告** 与 **JSON**；
+   - 全站核心量化指标统一配备 `?` **专业口径审计浮卡**（公式、窗口、数据源、假设），全面清除彩虹渐变 KPI 与常驻新手读图框。
+3. **无跳页基金检查器、统一数据中心与 `Ctrl/Cmd + K` 全局命令面板**：
+   - 点击全站任意基金从右侧滑出 `520px` **Fund Inspector 检查器**（展示配权公式推导、精准近 1 年收益曲线、阶段业绩、十大重仓与一键排除/锁定，不丢页面状态），支持一键展开全屏 5 维档案；
+   - 顶栏「数据与账本」统一承载**所见即所写导入核对表**（文本粘贴与离线 OCR 均先预览、支持改金额与删误识别行后经 `/api/v1/import/commit` 落盘）、多账本管理、冷备快照还原与湖仓盘后安全日更，全站 **0 个浏览器原生 `prompt/confirm/alert`**；
+   - 跨 Tab 懒加载保活机制保障后台异步求解不中断、切页零重载；新机器 `git clone` 自带 7 个纯公开市场基准种子数据（~4.9 MB，0 个人隐私）与自包含交易日历，零配置开箱即用。
 
 ---
 
-## 🏗️ 系统架构（v2.0.0 现代前后端解耦）
+## 🏗️ 系统架构（v2.1.0 机构级前后端解耦）
 
 ```mermaid
 flowchart TD
-    subgraph Client ["🎨 现代跨平台前端 (web/ · React 19 + TypeScript + Tailwind + ECharts)"]
-        P1["入口 1 · 今日信号与选基<br/>大势定调 / 目标收益×4大模型的量化选基 / 多周期回测与历史情景 / 拥挤度象限"]
-        P2["入口 2 · 我的持仓与体检<br/>多模导入(文本/离线OCR/手录) / 体检预警 / 资产缺口与行业穿透 / 净值对账 / 压测 / 调仓追踪"]
-        P3["入口 3 · 调仓参考方案<br/>调仓前后达标率对比 / 分组参考清单与本地保存 / 增量新钱定投 / 限购分批与分红建议"]
-        FD["深度视图 · 10 维度基金详情工作台<br/>走势与定投 / 4大类8小类量化指标 / 持仓分布 / 历任经理 / 档案公告规则"]
-        DR["二级抽屉 · 专业量化分析工具箱<br/>自选检索增删 / 热门ETF溢价预警 / A·C费率对比器 / 十维投票 / 冷备还原"]
+    subgraph Client ["🎨 机构级跨平台前端 (web/ · React 19 + TypeScript + Tailwind v4 + ECharts)"]
+        W1["工作区 1 · 量化实验室 (默认首屏)<br/>可折叠参数台 / 排除与锁定约束 / 组合矩阵表 / 净值与情景回测 / 极端止盈 / A-B对比 / 报告导出"]
+        W2["工作区 2 · 市场与信号<br/>宏观定调 / 十维量化投票矩阵 / 自选监控 / 场内ETF溢价滚动表 / 拥挤度四象限"]
+        W3["工作区 3 · 实盘与风控<br/>持仓明细与净值对账 / 大类缺口与申万行业穿透 / 底层重仓重叠 / CVaR99压测与影子追踪"]
+        W4["工作区 4 · 调仓执行<br/>平滑低换手 vs 实验室对齐 / 三阶清单与本地打卡 / 增量新钱DCA / 限购拆单 / A-C费率精算"]
+        OV["全局交互层<br/>右侧 Fund Inspector 检查器 / 统一数据与账本中心(所见即所写核对) / Ctrl+K 命令面板 / 跨页保活 Context"]
     end
 
-    subgraph API ["⚡ 统一 REST JSON 底座 (AGY2_FundAdvisory/api_server.py · FastAPI)"]
-        R1["/api/v1/overview · /ledgers · /holdings · /rebalance · /cashflow/plan"]
-        R2["/api/v1/recommend/blueprint · /funds/{code}/detail · /charts/* · /diagnose/* · /tools/*"]
+    subgraph API ["⚡ 统一 REST JSON 底座 (AGY2_FundAdvisory/api_server.py · FastAPI v2.1.0)"]
+        R1["/api/v1/quant/solve · /recommend/blueprint · /charts/* (全链路透传 exclude/include 约束)"]
+        R2["/api/v1/overview · /ledgers · /holdings · /rebalance · /import/commit · /lakehouse/*"]
     end
 
-    subgraph Engine ["🧠 量化引擎与三层高可用数据管道"]
-        E1["goal_driven_selector.py (目标收益滚动达成率 + 基金详情多因子评分)"]
-        E2["fund_detail_service.py (东财/天天基金并发真数据 + 8小类专业指标引擎)"]
-        E3["strategy_bridge.py / advisory_engine.py / portfolio_manager.py"]
-        E4["本地湖仓 Parquet + 开放实时行情源 + LedgerBackupVault 不可变冷备"]
+    subgraph Engine ["🧠 量化引擎与防封禁真净值湖仓"]
+        E1["goal_driven_selector.py (28,177漏斗 + SLSQP/HRP/CVaR + 排除/锁定可行性校验)"]
+        E2["market_lakehouse.py + extreme_cycle_analyzer.py (266只真复权净值湖仓 + 万次MC修复与止盈)"]
+        E3["fund_detail_service.py / strategy_bridge.py / advisory_engine.py / portfolio_manager.py"]
+        E4["trading_calendar.py (自包含交易日历) + LedgerBackupVault 不可变冷备"]
     end
 
     Client <--> API
@@ -108,10 +108,10 @@ cd web && npm run dev
 ## 🧪 质量门禁与自动化测试
 
 ```powershell
-# 1. 核心基础设施与 FastAPI 解耦回归测试
-py -3 -m pytest -q tests/test_infra.py tests/test_api_server_decoupled.py
+# 1. 核心基础设施、全市场湖仓与工作台约束闭环回归测试 (27 项)
+py -3 -m pytest -q tests/test_infra.py tests/test_api_server_decoupled.py tests/test_goal_optimizer_and_extreme_cycles.py tests/test_full_market_lakehouse_and_solver.py tests/test_full_linkage_plan_a.py tests/test_institutional_workbench_api.py
 
-# 2. 六维全链路端到端实测（功能 / 视觉 / 操作 / 性能 / 准确性 / Cookie安全）
+# 2. 六维全链路三端实机验收（1440px / 1280px / 390px 零溢出 + 排除重算 + A/B对比 + 检查器）
 py -3 scripts/verify_route1_web_six_dim.py
 ```
 
@@ -121,13 +121,17 @@ py -3 scripts/verify_route1_web_six_dim.py
 
 ```text
 agy2-fund-advisory/
-├── web/                              # v2.0.0 现代前端 (React 19 + TS + Tailwind + ECharts)
+├── web/                              # v2.1.0 机构级前端 (React 19 + TS + Tailwind v4 + ECharts)
 │   ├── src/api/client.ts             # 强类型 REST API 客户端
-│   ├── src/pages/                    # SignalPage / HoldingsPage / RebalancePage / FundDetailPage
-│   └── src/components/               # TopBar / ImportModal / ProAnalysisDrawer / charts/*
+│   ├── src/context/WorkbenchContext.tsx # 顶层状态保活、异步求解与 A/B 快照对比引擎
+│   ├── src/pages/                    # QuantLabPage / MarketSignalPage / HoldingsPage / RebalancePage / FundDetailPage
+│   └── src/components/               # TopBar / FundInspectorDrawer / DataCenterModal / CommandPalette / SnapshotCompareView / MetricTooltip / ConfirmDialog / charts/*
 ├── AGY2_FundAdvisory/                # Python 量化后端与 FastAPI 服务
 │   ├── api_server.py                 # 统一 /api/v1/* REST 接口与单端口静态托管
-│   ├── goal_driven_selector.py       # 目标收益×周期×基金详情多因子量化决策引擎
+│   ├── goal_driven_selector.py       # 全市场目标驱动量化求解与排除/锁定约束引擎
+│   ├── market_lakehouse.py           # 28,177 全市场漏斗与防封禁盘后增量真净值湖仓
+│   ├── extreme_cycle_analyzer.py     # 极端行情万次 MC 修复天数与三阶止盈锚点引擎
+│   ├── trading_calendar.py           # 自包含交易日历（零遗留外部依赖）
 │   ├── fund_detail_service.py        # 10 维度基金深度详情并发服务与指标计算
 │   ├── domain_models.py              # Layer-0 零依赖领域模型
 │   ├── strategy_bridge.py            # 宏观信号、跨周期回测与资产定权大脑

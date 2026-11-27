@@ -1,9 +1,8 @@
 import { useMemo, useState } from 'react';
 import type * as echarts from 'echarts';
-import { ShieldAlert, Clock, TrendingUp, Target } from 'lucide-react';
 import type { ExtremeCycleAnalysis } from '../../api/client';
 import { EChartBox } from '../EChartBox';
-import { ChartReadingGuide } from '../ChartReadingGuide';
+import { MetricTooltip } from '../MetricTooltip';
 
 interface ExtremeCyclePanelProps {
   data?: ExtremeCycleAnalysis | null;
@@ -153,7 +152,7 @@ export function ExtremeCyclePanel({
 
   if (loading && !data) {
     return (
-      <section className="card-elevated rounded-2xl p-6 text-center text-xs text-slate-400">
+      <section className="inst-panel rounded-lg p-8 text-center text-xs text-slate-400">
         正在基于 10,000 次蒙特卡洛与 2018–2026 历史极端行情测算修复天数、完整周期与止盈锚点...
       </section>
     );
@@ -173,37 +172,31 @@ export function ExtremeCyclePanel({
   const normalTroughRec = exp.trough_to_recovery_tdays.normal_median ?? exp.trough_to_recovery_tdays.median;
 
   return (
-    <section className="card-elevated rounded-2xl p-5 sm:p-6 space-y-5">
-      {/* 头部标题 + 子页签切换 */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div>
+    <section className="inst-panel rounded-lg overflow-hidden space-y-0">
+      {/* 头部标题 + 统一下划线子页签 */}
+      <div className="px-4 sm:px-5 pt-4 border-b border-slate-200 flex flex-col lg:flex-row lg:items-end justify-between gap-3">
+        <div className="pb-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="w-1 h-4 rounded-full bg-rose-600" />
-            <h2 className="text-base font-bold text-slate-900">
-              极端行情修复天数、完整周期与量化止盈锚点
-            </h2>
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 tabular-nums">
-              {data.date_range} · {exp.n_simulations.toLocaleString()} 次蒙特卡洛
+            <h2 className="text-sm font-bold text-slate-900">极端行情修复天数、完整周期与量化止盈锚点</h2>
+            <span className="text-[11px] font-mono text-slate-400 tabular-nums">
+              {data.date_range} · {exp.n_simulations.toLocaleString()} 次 MC
             </span>
+            <MetricTooltip specKey="mc_prob" />
           </div>
-          <p className="text-xs text-slate-500 mt-1 pl-3">
-            基于上方当前方案精确权重实时测算：遇极端大跌预计多久回本、历史高点→低点→新高完整周期有多长、收益大概多少、在哪里止盈最合理
-          </p>
         </div>
 
-        <div className="inline-flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
+        <div className="flex items-center gap-5 shrink-0">
           {[
             { id: 'recovery', label: '预计与历史修复天数' },
-            { id: 'cycles', label: '高点→低点→新高周期' },
-            { id: 'take_profit', label: '三阶量化止盈点' },
+            { id: 'cycles', label: '完整周期拆解' },
+            { id: 'take_profit', label: '三阶量化止盈锚点' },
           ].map((t) => (
             <button
               key={t.id}
               type="button"
+              data-active={subTab === t.id}
               onClick={() => setSubTab(t.id as 'recovery' | 'cycles' | 'take_profit')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                subTab === t.id ? 'bg-[#0A192F] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className="inst-subtab"
             >
               {t.label}
             </button>
@@ -211,96 +204,65 @@ export function ExtremeCyclePanel({
         </div>
       </div>
 
-      {/* 顶部 4 枚核心结论卡 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 tabular-nums">
-        <div className="p-4 rounded-xl bg-gradient-to-b from-blue-50/70 to-white border border-blue-100 space-y-1">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-900">
-            <Clock className="w-3.5 h-3.5 text-blue-600" />
-            <span>极端情景预计修复（前瞻 MC）</span>
+      {/* 顶部 4 列无彩虹底纯排版指标带 */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200 border-b border-slate-200 bg-slate-50/40 tabular-nums">
+        <div className="p-4">
+          <div className="text-[11px] text-slate-500">前瞻 MC 预计修复</div>
+          <div className="text-xl font-extrabold text-slate-900 mt-1">
+            {normalPeakRec} <span className="text-xs font-medium text-slate-500">交易日</span>
           </div>
-          <div className="text-2xl font-extrabold text-blue-800">
-            {normalPeakRec} <span className="text-xs font-semibold">交易日</span>
-          </div>
-          <div className="text-[11px] text-slate-600">
-            约 <strong>{normalPeakRecM} 个月</strong>（谷底回本约 {normalTroughRec} 交易日）
-          </div>
-          <div className="text-[11px] text-slate-400">
-            极端冲击 VaR95 -{exp.extreme_shock_var95_pct.toFixed(1)}% · 3年修复率 {exp.recovery_prob_within_3y_pct.toFixed(1)}%
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            约 {normalPeakRecM} 月（谷底回本 {normalTroughRec} 天） · VaR95 -{exp.extreme_shock_var95_pct.toFixed(1)}%
           </div>
         </div>
 
-        <div className="p-4 rounded-xl bg-gradient-to-b from-emerald-50/70 to-white border border-emerald-100 space-y-1">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-900">
-            <ShieldAlert className="w-3.5 h-3.5 text-emerald-600" />
-            <span>历史极端真实修复天数</span>
+        <div className="p-4">
+          <div className="text-[11px] text-slate-500">历史极端真实修复</div>
+          <div className="text-xl font-extrabold text-emerald-700 mt-1">
+            均 {hist.avg_underwater_tdays} <span className="text-xs font-medium text-slate-500">交易日</span>
           </div>
-          <div className="text-2xl font-extrabold text-emerald-700">
-            均 {hist.avg_underwater_tdays} <span className="text-xs font-semibold">交易日</span>
-          </div>
-          <div className="text-[11px] text-slate-600">
-            约 <strong>{hist.avg_underwater_months} 个月</strong> · 历史最长 {hist.max_underwater_tdays} 交易日（{hist.max_underwater_months}月）
-          </div>
-          <div className="text-[11px] text-emerald-700 font-medium">
-            {hist.days_faster_than_hs300 > 0
-              ? `较同期沪深 300 平均快 ${hist.days_faster_than_hs300} 交易日解套`
-              : `同期沪深 300 平均水下 ${hist.hs300_avg_underwater_tdays} 交易日`}
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            约 {hist.avg_underwater_months} 月 · 最长 {hist.max_underwater_tdays} 天
+            {hist.days_faster_than_hs300 > 0 ? ` · 比300快${hist.days_faster_than_hs300}天` : ''}
           </div>
         </div>
 
-        <div className="p-4 rounded-xl bg-gradient-to-b from-amber-50/70 to-white border border-amber-100 space-y-1">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-900">
-            <TrendingUp className="w-3.5 h-3.5 text-amber-600" />
-            <span>历史完整周期（高→低→新高）</span>
+        <div className="p-4">
+          <div className="text-[11px] text-slate-500">历史完整周期（高→低→新高）</div>
+          <div className="text-xl font-extrabold text-slate-900 mt-1">
+            约 {cycSum.avg_full_cycle_months} <span className="text-xs font-medium text-slate-500">个月</span>
           </div>
-          <div className="text-2xl font-extrabold text-amber-700">
-            约 {cycSum.avg_full_cycle_months} <span className="text-xs font-semibold">个月</span>
-          </div>
-          <div className="text-[11px] text-slate-600">
-            前高→新高均赚 <strong className="text-red-600">+{cycSum.avg_peak_to_next_peak_return_pct.toFixed(1)}%</strong> · 低点→新高 <strong className="text-red-600">+{cycSum.avg_trough_to_next_peak_return_pct.toFixed(1)}%</strong>
-          </div>
-          <div className="text-[11px] text-slate-400">
-            共提取 {cycSum.completed_cycles_count} 轮完整周期（区间 {cycSum.full_cycle_months_range[0]}~{cycSum.full_cycle_months_range[1]} 月）
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            前高→新高均 <strong className="text-red-600">+{cycSum.avg_peak_to_next_peak_return_pct.toFixed(1)}%</strong> · {cycSum.completed_cycles_count} 轮完整样本
           </div>
         </div>
 
-        <div className="p-4 rounded-xl bg-gradient-to-b from-rose-50/70 to-white border border-rose-100 space-y-1">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-rose-900">
-            <Target className="w-3.5 h-3.5 text-rose-600" />
-            <span>量化建议止盈区间</span>
-          </div>
-          <div className="text-2xl font-extrabold text-rose-700">
+        <div className="p-4">
+          <div className="text-[11px] text-slate-500">量化建议止盈区间</div>
+          <div className="text-xl font-extrabold text-red-600 mt-1">
             +{tp.recommended_zone_pct[0].toFixed(1)}% ~ +{tp.recommended_zone_pct[1].toFixed(1)}%
           </div>
-          <div className="text-[11px] text-slate-600">
-            移动回撤锁盈线：盈利达标后回撤 <strong>-{tp.trailing_stop_drawdown_pct.toFixed(1)}%</strong>
-          </div>
-          <div className="text-[11px] text-slate-500">
-            当下定位：<strong className="text-slate-800">{pos.tag}</strong>
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            移动锁盈 -{tp.trailing_stop_drawdown_pct.toFixed(1)}% · 当下 <strong className="text-slate-800">{pos.tag}</strong>
           </div>
         </div>
       </div>
 
+      <div className="p-4 sm:p-5">
       {/* 子视图 1：预计修复天数 vs 历史四大极端行情真实修复天数 */}
       {subTab === 'recovery' && (
         <div className="space-y-4">
-          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 leading-relaxed flex flex-wrap items-center justify-between gap-2">
-            <span>
-              <strong>模型口径说明：</strong>历史真实修复天数反映 A 股极端杀跌后叠加估值均值回归的实际解套速度（平均 <strong>{hist.avg_underwater_tdays} 交易日</strong>）；
-              前瞻蒙特卡洛（{exp.n_simulations.toLocaleString()} 条 Block Bootstrap + Student-t 路径）在无均值回归的保守压力假设下，给出极端冲击（CVaR 99% -{exp.extreme_shock_cvar99_pct.toFixed(1)}%）的
-              <strong>常规修复中位 {normalPeakRec} 交易日 / 全路径保守中位 {exp.peak_to_recovery_tdays.median} 交易日 / P90 极端 {exp.peak_to_recovery_tdays.p90} 交易日</strong>（较同期沪深 300 快 {Math.max(0, exp.days_faster_than_hs300)} 交易日）。
-            </span>
+          <div className="px-3.5 py-2 rounded-md bg-slate-50 border border-slate-200 text-xs text-slate-600 leading-relaxed tabular-nums">
+            <strong className="text-slate-800">口径摘要：</strong>
+            历史均水下 {hist.avg_underwater_tdays} 交易日；前瞻 MC（CVaR99 -{exp.extreme_shock_cvar99_pct.toFixed(1)}%）常规中位{' '}
+            <strong>{normalPeakRec} 天</strong> / 保守中位 {exp.peak_to_recovery_tdays.median} 天 / P90 极端 {exp.peak_to_recovery_tdays.p90} 天。
           </div>
 
           <EChartBox option={recoveryBarOption} height={260} />
 
-          <ChartReadingGuide
-            howToRead="蓝柱为当前方案从高点下跌到完全收复前高的总交易日数，灰柱为同期沪深 300 所需解套天数；柱子越矮说明抗跌且修复越快。"
-            actionSignal="历史经验表明，遭遇极端回撤时切忌在谷底割肉——多资产低波组合往往比宽基大盘提前数月至数年完成解套。"
-          />
-
           {hist.events.some((e) => e.is_proxy_simulated) && (
-            <div className="px-3.5 py-2 rounded-lg bg-amber-50/70 border border-amber-200 text-[11px] text-amber-900 leading-relaxed">
-              <strong>透明数据口径提示：</strong>主回测净值与共同存续期内的历史事件均 100% 采用入选基金自身真实复权净值；仅标有「同风格基准参考」的早期历史事件（早于组合中最年轻基金的成立日）采用对应风格桶基准指数作压力参考，绝不污染真实业绩曲线。
+            <div className="px-3.5 py-2 rounded-md bg-amber-50/60 border-l-4 border-l-amber-500 text-[11px] text-amber-950 leading-relaxed">
+              <strong>透明口径声明：</strong>共同存续期内的事件 100% 采用终选基金真实复权净值；标有「同风格基准参考」的早期历史事件（早于组合中最年轻基金成立日）采用风格桶基准指数作压力参考。
             </div>
           )}
 
@@ -471,6 +433,7 @@ export function ExtremeCyclePanel({
           </div>
         </div>
       )}
+      </div>
     </section>
   );
 }

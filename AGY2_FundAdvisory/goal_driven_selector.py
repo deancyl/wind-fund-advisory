@@ -808,6 +808,21 @@ def _build_dynamic_fund_plain_why(code: str, meta: Dict[str, Any], fp: Dict[str,
     return b_label, "，".join(parts) + "。"
 
 
+def _normalize_code_list(codes: Optional[List[str]]) -> List[str]:
+    out: List[str] = []
+    if not codes:
+        return out
+    for raw in codes:
+        s = str(raw or "").strip()
+        if not s:
+            continue
+        if s.isdigit():
+            s = s.zfill(6)
+        if s not in out:
+            out.append(s)
+    return sorted(out)
+
+
 def solve_goal_driven_portfolio(
     risk_level: str = "C3",
     fund_count: int = 6,
@@ -818,10 +833,12 @@ def solve_goal_driven_portfolio(
     market_snapshot: Optional[Dict[str, Any]] = None,
     force_recompute: bool = False,
     progress_cb: Optional[Callable[[int, str], None]] = None,
+    exclude_codes: Optional[List[str]] = None,
+    include_codes: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     全站唯一单源 · 全市场目标驱动真量化求解引擎：
-    28,177 全市场漏斗 -> 360+ 真实复权净值湖仓 -> 目标驱动动态初筛 30~36 只（相关性去冗余）
+    28,177 全市场漏斗 -> 360+ 真实复权净值湖仓 -> 目标驱动动态初筛 30~36 只（相关性去冗余 + 排除/锁定约束）
     -> WinRateOptimizer 真优化与局部搜索换基 -> 终选 N 只详情 10 维多因子微调 -> 真实净值回测 & 双万次蒙特卡洛。
     """
     tier = str(risk_level or "C3").upper().strip()
@@ -837,7 +854,25 @@ def solve_goal_driven_portfolio(
     t_ret = max(2.0, min(60.0, float(target_return_pct or 10.0)))
     h_mon = max(3, min(60, int(horizon_months or 12)))
 
-    cache_key = (tier, m_id, n_funds, round(t_ret, 1), h_mon, u_mode)
+    norm_include = _normalize_code_list(include_codes)
+    norm_exclude = [c for c in _normalize_code_list(exclude_codes) if c not in norm_include]
+    constraint_warnings: List[str] = []
+    if len(norm_include) > n_funds:
+        constraint_warnings.append(
+            f"锁定基金数量（{len(norm_include)} 只）超出组合只数上限（{n_funds} 只），已按代码顺序保留前 {n_funds} 只锁定标的。"
+        )
+        norm_include = norm_include[:n_funds]
+
+    cache_key = (
+        tier,
+        m_id,
+        n_funds,
+        round(t_ret, 1),
+        h_mon,
+        u_mode,
+        tuple(norm_exclude),
+        tuple(norm_include),
+    )
     now_ts = time.time()
     if not force_recompute:
         with _SOLVER_CACHE_LOCK:
@@ -880,6 +915,7 @@ def solve_goal_driven_portfolio(
     meta_map: Dict[str, Dict[str, Any]] = {}
     funnel_audit: Dict[str, Any] = {}
 
+    eff_include: List[str] = []
     if use_full_lakehouse:
         if progress_cb:
             progress_cb(32, f"步骤 2/4：扫描本地 {elite_nav.shape[1]} 只真实复权净值并按目标执行相关性去冗余...")
@@ -892,6 +928,66 @@ def solve_goal_driven_portfolio(
             universe_mode=u_mode,
             market_snapshot=snap,
         )
+
+        # 前置校验锁定基金（兼容仅指数池自动剥离主动基 + 湖仓覆盖核验）
+        if norm_include:
+            meta_lookup = {str(r["fund_code"]): r.to_dict() for _, r in elite_meta.iterrows()} if elite_meta is not None else {}
+            scanned_code_set = set(scanned_df["fund_code"].astype(str).tolist())
+            for inc_c in norm_include:
+                m_row = meta_lookup.get(inc_c)
+                if m_row is None or inc_c not in elite_nav.columns:
+                    constraint_warnings.append(f"锁定标的 {inc_c} 不在本地真净值湖仓中，已自动跳过该锁定约束。")
+                    continue
+                if u_mode == "index_only" and bool(m_row.get("is_active_fund", False)):
+                    constraint_warnings.append(
+                        f"已切换至「仅指数/宽基低费池」，自动解除主动基金 {m_row.get('fund_name', inc_c)} ({inc_c}) 的锁定约束。"
+                    )
+                    continue
+                if inc_c not in scanned_code_set:
+                    constraint_warnings.append(
+                        f"锁定标的 {m_row.get('fund_name', inc_c)} ({inc_c}) 历史深度不足跨周期门禁，已放宽深度要求强制保留参与优化。"
+                    )
+                    # 补入一行基础指标记录，确保进入候选表
+                    s_col = elite_nav[inc_c].dropna()
+                    if len(s_col) >= 120:
+                        rets_i = s_col.pct_change().dropna()
+                        ann_v = float(rets_i.std() * np.sqrt(252)) if len(rets_i) > 2 else 0.15
+                        ann_r = float((s_col.iloc[-1] / max(float(s_col.iloc[0]), 1e-8)) ** (252.0 / len(s_col)) - 1.0)
+                        cmax_i = s_col.cummax()
+                        mdd_i = float(((s_col - cmax_i) / np.maximum(cmax_i, 1e-8)).min())
+                        extra_row = dict(m_row)
+                        extra_row.update({
+                            "fund_code": inc_c,
+                            "fund_name": str(m_row.get("fund_name", inc_c)),
+                            "bucket_10": str(m_row.get("bucket_10", "broad_index")),
+                            "bucket_label": str(m_row.get("bucket_label", "核心配置")),
+                            "asset_class": str(m_row.get("asset_class", "equity")),
+                            "is_active_fund": bool(m_row.get("is_active_fund", False)),
+                            "ann_return": ann_r,
+                            "ann_vol": ann_v,
+                            "sharpe": (ann_r - 0.02) / max(ann_v, 1e-4),
+                            "max_drawdown": mdd_i,
+                            "calmar": ann_r / max(abs(mdd_i), 0.02),
+                            "cond_win_rate": 0.5,
+                            "no_loss_rate": 0.65,
+                            "valid_days": int(len(s_col)),
+                            "_goal_rank": 99.0,
+                        })
+                        scanned_df = pd.concat([scanned_df, pd.DataFrame([extra_row])], ignore_index=True)
+                    else:
+                        continue
+                eff_include.append(inc_c)
+
+        # 应用黑名单排除（保障至少保留 n_funds + 4 只可选标的防无解崩溃）
+        if norm_exclude:
+            filtered_df = scanned_df[~scanned_df["fund_code"].isin(norm_exclude)].copy()
+            if len(filtered_df) >= n_funds:
+                scanned_df = filtered_df
+            else:
+                constraint_warnings.append(
+                    f"排除基金过多导致可用池不足 {n_funds} 只，系统已放宽部分排除约束以保障组合可行解。"
+                )
+
         shortlisted_codes, sub_meta = _shortlist_goal_driven_candidates(
             scanned_df=scanned_df,
             nav_df=elite_nav,
@@ -901,17 +997,32 @@ def solve_goal_driven_portfolio(
             n_funds=n_funds,
             universe_mode=u_mode,
         )
+        # 强制确保所有有效锁定标的都在 shortlisted_codes 与 sub_meta 中（绝不覆盖 _goal_rank 列）
+        existing_sub_codes = set(sub_meta["fund_code"].astype(str).tolist())
+        extra_inc_rows = []
+        for inc_c in eff_include:
+            if inc_c not in shortlisted_codes and inc_c in scanned_df["fund_code"].values:
+                shortlisted_codes.insert(0, inc_c)
+            if inc_c not in existing_sub_codes:
+                m_sub = scanned_df[scanned_df["fund_code"] == inc_c].copy()
+                if not m_sub.empty:
+                    m_sub["_goal_rank"] = 99.0
+                    extra_inc_rows.append(m_sub)
+        if extra_inc_rows:
+            sub_meta = pd.concat([sub_meta, *extra_inc_rows], ignore_index=True)
 
         # 防止个别晚成立基金过度截断共同区间：按有效历史覆盖度确保共同区间 >= max(1100, holding_days + 200)
+        # 绝不剔除用户显式锁定的基金
         min_common = max(1100, holding_days + 200)
         cand_mat = elite_nav[shortlisted_codes].copy()
-        # 剔除最早有效日明显晚于其他基金导致公共区间不足的极端晚成立基金
         while len(shortlisted_codes) > max(n_funds + 6, 16):
             common_len = len(cand_mat.dropna(how="any"))
             if common_len >= min_common:
                 break
-            # 移除最早有效日最晚（即最年轻）的一只候选
-            youngest = max(shortlisted_codes, key=lambda c: cand_mat[c].first_valid_index() or pd.Timestamp("2099-01-01"))
+            removable = [c for c in shortlisted_codes if c not in eff_include]
+            if not removable:
+                break
+            youngest = max(removable, key=lambda c: cand_mat[c].first_valid_index() or pd.Timestamp("2099-01-01"))
             shortlisted_codes.remove(youngest)
             cand_mat = elite_nav[shortlisted_codes].copy()
 
@@ -935,23 +1046,38 @@ def solve_goal_driven_portfolio(
         opt_primary._individual_metrics = sub_cand_df.copy()
         opt_res_pri = opt_primary.optimize()
         w_pri_raw = dict(opt_res_pri.get("optimal_weights") or {})
-        selected_codes = list(w_pri_raw.keys())[:n_funds]
+        selected_codes = [c for c in list(w_pri_raw.keys()) if c not in norm_exclude][:n_funds]
+
+        # 强制合入全部有效锁定标的（优先替换权重最小的非锁定标的）
+        for inc_c in eff_include:
+            if inc_c not in selected_codes:
+                if len(selected_codes) < n_funds:
+                    selected_codes.append(inc_c)
+                else:
+                    non_locked = [c for c in selected_codes if c not in eff_include]
+                    if non_locked:
+                        drop_c = min(non_locked, key=lambda c: float(w_pri_raw.get(c, 0.0)))
+                        selected_codes = [c for c in selected_codes if c != drop_c] + [inc_c]
 
         # 若极端约束导致只数不足 n_funds，按 _goal_rank 补齐多样化标的
         if len(selected_codes) < n_funds:
             for c in sub_cand_df.sort_values("_goal_rank", ascending=False)["fund_code"].tolist():
-                if c not in selected_codes:
+                if c not in selected_codes and c not in norm_exclude:
                     selected_codes.append(c)
                 if len(selected_codes) >= n_funds:
                     break
 
-        # 强制保障资产多元化底线（防 C1~C3 缺少防御债券，或 C3~C5 权益只数不足导致单基突破上限/推高防御敞口）
+        # 强制保障资产多元化底线（防 C1~C3 缺少防御债券，或 C3~C5 权益只数不足；绝不替换用户锁定基金）
         sel_meta_df = sub_cand_df[sub_cand_df["fund_code"].isin(selected_codes)].copy()
         has_bond = bool((sel_meta_df["asset_class"] == "bond").any())
         if (not has_bond) and tier in ("C1", "C2", "C3") and len(selected_codes) >= 3:
-            bond_cands = sub_cand_df[sub_cand_df["asset_class"] == "bond"].sort_values("_goal_rank", ascending=False)["fund_code"].tolist()
-            if bond_cands:
-                min_c = min(selected_codes, key=lambda c: float(w_pri_raw.get(c, 0.0)))
+            bond_cands = [
+                c for c in sub_cand_df[sub_cand_df["asset_class"] == "bond"].sort_values("_goal_rank", ascending=False)["fund_code"].tolist()
+                if c not in norm_exclude and c not in selected_codes
+            ]
+            non_locked = [c for c in selected_codes if c not in eff_include]
+            if bond_cands and non_locked:
+                min_c = min(non_locked, key=lambda c: float(w_pri_raw.get(c, 0.0)))
                 selected_codes = [c for c in selected_codes if c != min_c] + [bond_cands[0]]
 
         # C3~C5 且基金只数 >= 4 时，确保至少包含 2~3 只不同风格 A 股权益基金，避免 3 只债基挤占权益名额
@@ -961,23 +1087,35 @@ def solve_goal_driven_portfolio(
         if len(cur_eq_codes) < min_eq_req:
             eq_cands = [
                 c for c in sub_cand_df[sub_cand_df["asset_class"] == "equity"].sort_values("_goal_rank", ascending=False)["fund_code"].tolist()
-                if c not in selected_codes
+                if c not in selected_codes and c not in norm_exclude
             ]
-            # 从超额冗余的非权益类（例如 C3 里超过 2 只的债基，或超过 1 只的黄金/QDII）替换权重最小者
             for eq_c in eq_cands:
                 if len(cur_eq_codes) >= min_eq_req:
                     break
                 cur_meta = sub_cand_df[sub_cand_df["fund_code"].isin(selected_codes)]
-                non_eq = cur_meta[cur_meta["asset_class"] != "equity"]
+                non_eq = cur_meta[(cur_meta["asset_class"] != "equity") & (~cur_meta["fund_code"].isin(eff_include))]
                 if non_eq.empty:
                     break
-                # 优先替换同大类数量 >= 2 的冗余防御标的，确保仍保留至少 1 只债基
                 ac_cnts = non_eq["asset_class"].value_counts().to_dict()
                 dup_non_eq = non_eq[non_eq["asset_class"].map(lambda a: ac_cnts.get(a, 0) >= 2)]
                 pool_drop = dup_non_eq["fund_code"].tolist() if not dup_non_eq.empty else non_eq["fund_code"].tolist()
                 drop_c = min(pool_drop, key=lambda c: float(w_pri_raw.get(c, 0.0)))
                 selected_codes = [c for c in selected_codes if c != drop_c] + [eq_c]
                 cur_eq_codes.append(eq_c)
+
+        # 检查锁定基金与当前 C 档大类宪法红线的潜在张力，给出清晰量化提示
+        if eff_include:
+            inc_meta = sub_cand_df[sub_cand_df["fund_code"].isin(eff_include)]
+            inc_eq_cnt = int((inc_meta["asset_class"] == "equity").sum())
+            inc_qdii_cnt = int((inc_meta["asset_class"] == "qdii").sum())
+            if tier in ("C1", "C2") and inc_eq_cnt >= 2:
+                constraint_warnings.append(
+                    f"在 {tier} 保守档位下锁定了 {inc_eq_cnt} 只权益基金，系统已严格按 {tier} 权益大类上限自动压低单只配权以守住回撤底线。"
+                )
+            if inc_qdii_cnt >= 2:
+                constraint_warnings.append(
+                    f"同时锁定了 {inc_qdii_cnt} 只海外 QDII 基金，系统已按 {tier} 海外上限平分其配置权重以防跨境汇率/溢价风险过度集中。"
+                )
 
         # 在最终入选的 N 只真基金上运行双核权重融合（主核 + 目标条件胜率/CVaR/半凯利副核）
         sel_nav_mat = sub_nav_mat[selected_codes].dropna(how="any")
@@ -1239,6 +1377,15 @@ def solve_goal_driven_portfolio(
         "regime_recommended_model": regime_rec.get("recommended_model_name", ""),
         "compute_ms": elapsed_ms,
         "from_cache": False,
+        "exclude_count": len(norm_exclude),
+        "include_count": len(eff_include),
+    }
+
+    constraint_audit = {
+        "exclude_codes": norm_exclude,
+        "include_codes": eff_include,
+        "requested_include_codes": norm_include,
+        "warnings": constraint_warnings,
     }
 
     allocation_logic_summary = {
@@ -1277,6 +1424,7 @@ def solve_goal_driven_portfolio(
         "pcr_info": pcr_info,
         "goal_analysis": goal_eval,
         "solver_audit": solver_audit,
+        "constraint_audit": constraint_audit,
         "real_bt_df": real_bt_df,
         "proxy_early_df": proxy_early_df,
         "real_bt_info": real_bt_info,

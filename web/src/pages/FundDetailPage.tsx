@@ -215,25 +215,25 @@ export function FundDetailPage({ fundCode, onBack }: FundDetailPageProps) {
   const dayUp = data.daily_return_pct >= 0;
 
   return (
-    <div className="space-y-6 fade-in">
-      {/* 顶部返回 + 深海墨蓝基金档案头 */}
-      <div className="hero-navy text-white rounded-2xl p-5 sm:p-6 shadow-lg border border-[#1E3A5F] space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="space-y-4 fade-in">
+      {/* 顶部返回 + 机构深海墨蓝基金档案头 */}
+      <div className="topbar-navy text-white rounded-lg p-4 sm:p-5 border border-slate-800 space-y-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/10 border border-white/15 text-slate-100 hover:bg-white/20 cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-white/10 border border-white/15 text-slate-100 hover:bg-white/20 cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>返回工作台</span>
           </button>
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="px-2.5 py-0.5 rounded-full bg-white/10 border border-white/15 text-slate-200">{data.fund_type}</span>
-            <span className="px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30 font-semibold">
+            <span className="px-2 py-0.5 rounded bg-white/10 border border-white/15 text-slate-200">{data.fund_type}</span>
+            <span className="px-2 py-0.5 rounded bg-amber-400/20 text-amber-300 border border-amber-400/30 font-semibold">
               {data.risk_level}
             </span>
             {data.is_fallback && (
-              <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-200">离线快照</span>
+              <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-200">离线快照</span>
             )}
           </div>
         </div>
@@ -241,7 +241,7 @@ export function FundDetailPage({ fundCode, onBack }: FundDetailPageProps) {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
             <div className="flex items-baseline gap-2.5">
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">{data.fund_name}</h1>
+              <h1 className="text-lg sm:text-xl font-bold tracking-tight text-white">{data.fund_name}</h1>
               <span className="font-mono text-sm text-slate-300">{data.fund_code}</span>
             </div>
             <p className="text-xs text-slate-300 mt-1">
@@ -253,35 +253,34 @@ export function FundDetailPage({ fundCode, onBack }: FundDetailPageProps) {
           <div className="flex items-end gap-6 tabular-nums">
             <div>
               <div className="text-[11px] text-slate-300">最新单位净值 ({data.nav_date || '--'})</div>
-              <div className="text-2xl font-extrabold text-white mt-0.5">{data.latest_nav.toFixed(4)}</div>
+              <div className="text-xl font-extrabold text-white mt-0.5">{data.latest_nav.toFixed(4)}</div>
             </div>
             <div>
               <div className="text-[11px] text-slate-300">日涨跌幅</div>
-              <div className={`text-2xl font-extrabold mt-0.5 ${dayUp ? 'text-rose-400' : 'text-emerald-400'}`}>
+              <div className={`text-xl font-extrabold mt-0.5 ${dayUp ? 'text-rose-400' : 'text-emerald-400'}`}>
                 {dayUp ? '+' : ''}
                 {data.daily_return_pct.toFixed(2)}%
               </div>
             </div>
             <div className="hidden sm:block">
               <div className="text-[11px] text-slate-300">累计净值</div>
-              <div className="text-lg font-bold text-slate-200 mt-0.5">{data.latest_ac_nav.toFixed(4)}</div>
+              <div className="text-base font-bold text-slate-200 mt-0.5">{data.latest_ac_nav.toFixed(4)}</div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 5 大详情标签导航 */}
-      <div className="flex flex-wrap items-center gap-1.5 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-xs">
+      {/* 统一下划线 5 大详情标签导航 */}
+      <div className="inst-panel rounded-lg px-4 flex items-center gap-5 overflow-x-auto no-scrollbar border-b border-slate-200">
         {DETAIL_TABS.map(({ id, label, icon: Icon }) => {
           const active = tab === id;
           return (
             <button
               key={id}
               type="button"
+              data-active={active}
               onClick={() => setTab(id)}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                active ? 'bg-[#0A192F] text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              }`}
+              className="inst-subtab inline-flex items-center gap-1.5"
             >
               <Icon className="w-3.5 h-3.5" />
               <span>{label}</span>

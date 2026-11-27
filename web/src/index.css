@@ -3,9 +3,10 @@
 
 @layer base {
   html {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    background-color: #F3F6FA;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background-color: #F8FAFC;
     color: #0F172A;
+    -webkit-font-smoothing: antialiased;
   }
 }
 
@@ -13,22 +14,62 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 机构顶栏：克制深海墨蓝，无多余高光 */
 .topbar-navy {
-  background: linear-gradient(90deg, #091529 0%, #0F223D 100%);
+  background: #0A1628;
 }
 
-.hero-navy {
-  background: linear-gradient(135deg, #0A192F 0%, #112645 55%, #1A365D 100%);
+.ticker-bar {
+  background: #FFFFFF;
+  border-bottom: 1px solid #E2E8F0;
 }
 
-.gold-badge {
-  background: linear-gradient(135deg, #D4A146 0%, #B8862B 100%);
-}
-
-.card-elevated {
+/* 机构面板容器：利落 1px 细实线 + 极克制阴影，淘汰厚重卡片感 */
+.card-elevated,
+.inst-panel {
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.03);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+/* 统一下划线式 Sub-Tab（全站唯一子页签语法） */
+.inst-subtab {
+  position: relative;
+  padding: 0.625rem 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748B;
+  transition: color 0.15s ease;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.inst-subtab:hover {
+  color: #0F172A;
+}
+
+.inst-subtab[data-active="true"] {
+  color: #0F172A;
+}
+
+.inst-subtab[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: #1D4ED8;
+  border-radius: 2px 2px 0 0;
+}
+
+/* 隐藏横向滚动条（用于移动端 Ticker 带） */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 /* modern-web-guidance: dialog scroll containment */
@@ -38,13 +79,17 @@ dialog:modal {
   padding: 0;
   border: none;
   background: transparent;
-  max-width: min(560px, calc(100vw - 2rem));
+  max-width: min(760px, calc(100vw - 1.5rem));
   width: 100%;
 }
 
+dialog.dialog-sm:modal {
+  max-width: min(440px, calc(100vw - 1.5rem));
+}
+
 dialog::backdrop {
-  background: rgba(15, 23, 42, 0.6);
-  backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.52);
+  backdrop-filter: blur(2px);
   overflow: hidden;
   overscroll-behavior: contain;
 }
@@ -53,7 +98,7 @@ dialog::backdrop {
 .table-wrapper {
   overflow: auto;
   max-inline-size: 100%;
-  max-block-size: min(560px, 72vh);
+  max-block-size: min(580px, 70vh);
   container-type: inline-size;
 }
 
@@ -83,10 +128,19 @@ dialog::backdrop {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(3px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 .fade-in {
-  animation: fadeIn 0.2s ease-out;
+  animation: fadeIn 0.16s ease-out;
+}
+
+.slide-in-right {
+  animation: slideInRight 0.18s ease-out;
 }

@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type * as echarts from 'echarts';
 import type { BacktestCurvesResponse } from '../../api/client';
 import { EChartBox } from '../EChartBox';
-import { ChartReadingGuide } from '../ChartReadingGuide';
+import { MetricTooltip } from '../MetricTooltip';
 
 interface BacktestChartsProps {
   data: BacktestCurvesResponse | null;
@@ -153,7 +153,7 @@ export function BacktestCharts({ data, loading, staleHint }: BacktestChartsProps
         type: 'category',
         data: data.dates,
         boundaryGap: false,
-        axisLabel: { color: '#64748B', fontSize: 10, formatter: (v: string) => v.slice(0, 4) },
+        axisLabel: { color: '#64748B', fontSize: 10, formatter: (v: string) => v.slice(0, 7) },
       },
       yAxis: {
         type: 'value',
@@ -175,7 +175,7 @@ export function BacktestCharts({ data, loading, staleHint }: BacktestChartsProps
         type: 'category',
         data: data.dates,
         boundaryGap: false,
-        axisLabel: { color: '#64748B', fontSize: 10, formatter: (v: string) => v.slice(0, 4) },
+        axisLabel: { color: '#64748B', fontSize: 10, formatter: (v: string) => v.slice(0, 7) },
       },
       yAxis: {
         type: 'value',
@@ -252,8 +252,8 @@ export function BacktestCharts({ data, loading, staleHint }: BacktestChartsProps
 
   if (loading) {
     return (
-      <div className="card-elevated rounded-2xl p-6 text-center text-xs text-slate-500">
-        正在加载当前方案真实复权净值、动态回撤与风险贡献结构图...
+      <div className="inst-panel rounded-lg p-8 text-center text-xs text-slate-400">
+        正在加载真实复权净值、动态回撤与风险贡献结构图...
       </div>
     );
   }
@@ -262,65 +262,45 @@ export function BacktestCharts({ data, loading, staleHint }: BacktestChartsProps
   return (
     <div className="space-y-4">
       {staleHint && (
-        <div className="px-3.5 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 font-medium">
+        <div className="inst-panel rounded-lg px-3.5 py-2 border-l-4 border-l-amber-500 text-xs text-amber-900 font-medium">
           {staleHint}
         </div>
       )}
 
       {/* 累计净值对比 */}
-      <div className="card-elevated rounded-2xl p-5 space-y-3.5">
+      <div className="inst-panel rounded-lg p-4 sm:p-5 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="w-1 h-4 rounded-full bg-red-600" />
-            <h3 className="text-base font-bold text-slate-900">
+            <h3 className="text-sm font-bold text-slate-900">
               {data.period_label || '所选周期'}累计净值对比（起始归一化 1.000）
             </h3>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
               {data.primary_name}
             </span>
           </div>
-          <span className="text-[11px] font-mono text-slate-400">{data.date_range || '支持鼠标悬停对比各阶段净值'}</span>
+          <span className="text-[11px] font-mono text-slate-400">{data.date_range}</span>
         </div>
-        <ChartReadingGuide
-          howToRead={`对比【${data.primary_name}】在 ${data.period_label || '当前区间'}（${data.date_range || ''}）的真实复权净值增长与沪深300/红利/纯债基准表现。`}
-          actionSignal="若策略红线/实盘蓝虚线斜率更稳、下跌阶段回撤显著浅于沪深300，说明跨资产分散与选基有效。"
-        />
         <EChartBox option={navOption} height={350} />
       </div>
 
       {/* 下方双图：动态回撤对比 + 资金占比 vs 真实风险贡献(PCR)对照 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="card-elevated rounded-2xl p-5 space-y-3">
-          <div className="flex items-center gap-2">
-            <span className="w-1 h-4 rounded-full bg-emerald-600" />
-            <h3 className="text-sm font-bold text-slate-900">动态回撤对比（水下深度）</h3>
+        <div className="inst-panel rounded-lg p-4 sm:p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold text-slate-900">动态回撤对比（水下深度）</h3>
+            <span className="text-[11px] text-slate-400">95% 实盘校准口径</span>
           </div>
-          <ChartReadingGuide
-            howToRead="曲线越贴近 0% 说明抗跌能力越强，深坑越浅越容易拿得住。"
-            actionSignal="若当前回撤明显小于沪深300且处于修复期，坚持持有不轻易割肉。"
-          />
           <EChartBox option={ddOption} height={260} />
         </div>
 
-        <div className="card-elevated rounded-2xl p-5 space-y-3">
-          <div className="flex items-center gap-2">
-            <span className="w-1 h-4 rounded-full bg-indigo-600" />
-            <h3 className="text-sm font-bold text-slate-900">
-              {hasPcrChart ? '当前方案：资金占比 vs 真实风险贡献 (PCR)' : '资产仓位变迁（大类配比）'}
+        <div className="inst-panel rounded-lg p-4 sm:p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold text-slate-900">
+              {hasPcrChart ? '资金占比 vs 真实风险贡献 (PCR)' : '资产仓位变迁（大类配比）'}
+              {hasPcrChart && <MetricTooltip specKey="pcr" align="right" />}
             </h3>
+            <span className="text-[11px] text-slate-400">Ledoit-Wolf 协方差分解</span>
           </div>
-          <ChartReadingGuide
-            howToRead={
-              hasPcrChart
-                ? '蓝柱为每只入选基金分到的资金占比，琥珀柱为其在 Ledoit-Wolf 真实协方差矩阵下实际贡献的组合波动风险（PCR 总和 100%）。'
-                : '观察不同大类资产（权益、纯债、黄金、海外）的仓位结构分布。'
-            }
-            actionSignal={
-              hasPcrChart
-                ? '纯债/黄金资金占比高但风险贡献极低（起压舱石作用），权益基金若风险贡献均衡则说明没有把风险全赌在单一赛道。'
-                : '用于验证策略是否真正做到多元分散，而非单押单一风格。'
-            }
-          />
           <EChartBox option={hasPcrChart ? pcrCompareOption : allocOption} height={260} />
         </div>
       </div>

@@ -1,218 +1,116 @@
-import { useCallback, useEffect, useState } from 'react';
-import { api, type LedgerMeta, type OverviewResponse, type SolvedPortfolioContext } from './api/client';
-import { TopBar, type MainTab } from './components/TopBar';
-import { ImportModal } from './components/ImportModal';
-import { ProAnalysisDrawer } from './components/ProAnalysisDrawer';
-import { SignalPage } from './pages/SignalPage';
+import { useEffect, useState } from 'react';
+import { WorkbenchProvider, useWorkbench, type MainTab } from './context/WorkbenchContext';
+import { TopBar } from './components/TopBar';
+import { QuantLabPage } from './pages/QuantLabPage';
+import { MarketSignalPage } from './pages/MarketSignalPage';
 import { HoldingsPage } from './pages/HoldingsPage';
 import { RebalancePage } from './pages/RebalancePage';
 import { FundDetailPage } from './pages/FundDetailPage';
+import { FundInspectorDrawer } from './components/FundInspectorDrawer';
+import { DataCenterModal } from './components/DataCenterModal';
+import { CommandPalette } from './components/CommandPalette';
+import { ConfirmDialog } from './components/ConfirmDialog';
 
-export function App() {
-  const [activeTab, setActiveTab] = useState<MainTab>('signal');
-  const [selectedFundCode, setSelectedFundCode] = useState<string | null>(null);
-  const [targetReturnPct, setTargetReturnPct] = useState<number>(10);
-  const [horizonMonths, setHorizonMonths] = useState<number>(12);
-  const [solvedCtx, setSolvedCtx] = useState<SolvedPortfolioContext>({
-    riskLevel: 'C3',
-    modelId: 'all_weather',
-    fundCount: 6,
-    targetReturnPct: 10,
-    horizonMonths: 12,
-    universeMode: 'full_market',
-    fundCodes: [],
+function WorkbenchShell() {
+  const {
+    activeTab,
+    fullDetailFundCode,
+    closeFullDetail,
+    confirmModal,
+    closeConfirm,
+    toasts,
+  } = useWorkbench();
+
+  // 懒加载 + 保活：首次进入某个工作区后保持挂载，切 Tab 零重载、后台求解零中断
+  const [visited, setVisited] = useState<Record<MainTab, boolean>>({
+    quant_lab: true,
+    market: false,
+    holdings: false,
+    rebalance: false,
   });
-  const [ledgers, setLedgers] = useState<LedgerMeta[]>([]);
-  const [activeLedgerId, setActiveLedgerId] = useState<string>('combat_29_funds');
-  const [overview, setOverview] = useState<OverviewResponse | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshTick, setRefreshTick] = useState(0);
-
-  const [importOpen, setImportOpen] = useState(false);
-  const [proDrawerOpen, setProDrawerOpen] = useState(false);
-  const [toast, setToast] = useState('');
-
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast((cur) => (cur === msg ? '' : cur)), 3000);
-  }, []);
-
-  const loadCore = useCallback(async (targetLedger?: string, force = false) => {
-    setRefreshing(true);
-    try {
-      const lRes = await api.getLedgers();
-      setLedgers(lRes.items || []);
-      const lid = targetLedger || lRes.active_ledger_id || 'combat_29_funds';
-      setActiveLedgerId(lid);
-      const ov = await api.getOverview(lid, force);
-      setOverview(ov);
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : '后端连接失败，请确认 api_server 已启动');
-    } finally {
-      setRefreshing(false);
-    }
-  }, [showToast]);
 
   useEffect(() => {
-    loadCore();
-  }, [loadCore]);
-
-  const handleSwitchLedger = async (id: string) => {
-    try {
-      await api.setActiveLedger(id);
-      setActiveLedgerId(id);
-      await loadCore(id, false);
-      setRefreshTick((t) => t + 1);
-      const found = ledgers.find((l) => l.id === id);
-      showToast(`已切换账本：${found?.name || id}`);
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : '切换账本失败');
-    }
-  };
-
-  const handleCreateLedger = async () => {
-    const name = window.prompt('请输入新账本名称（例如：我的实盘组合）：', '我的实盘组合');
-    if (!name || !name.trim()) return;
-    try {
-      const res = await api.createLedger(name.trim(), 0);
-      await loadCore(res.ledger_id, true);
-      setRefreshTick((t) => t + 1);
-      setActiveTab('holdings');
-      showToast(`已新建空白账本「${res.name}」，现在可以导入你的持仓`);
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : '新建账本失败');
-    }
-  };
-
-  const handleRefresh = async () => {
-    await loadCore(activeLedgerId, true);
-    setRefreshTick((t) => t + 1);
-    showToast('已同步最新行情与持仓估值');
-  };
-
-  const handleDataMutated = async (msg: string) => {
-    await loadCore(activeLedgerId, true);
-    setRefreshTick((t) => t + 1);
-    showToast(msg);
-  };
-
-  const currentLedger = ledgers.find((l) => l.id === activeLedgerId);
+    setVisited((prev) => (prev[activeTab] ? prev : { ...prev, [activeTab]: true }));
+    // 切换可见面板后通知 ECharts 重算容器尺寸，避免从 hidden 恢复时坍缩
+    const t = setTimeout(() => window.dispatchEvent(new Event('resize')), 40);
+    return () => clearTimeout(t);
+  }, [activeTab]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F3F6FA]">
-      <TopBar
-        activeTab={activeTab}
-        onTabChange={(t) => {
-          setSelectedFundCode(null);
-          setActiveTab(t);
-        }}
-        ledgers={ledgers}
-        activeLedgerId={activeLedgerId}
-        onSwitchLedger={handleSwitchLedger}
-        onCreateLedger={handleCreateLedger}
-        onOpenImport={() => setImportOpen(true)}
-        onRefresh={handleRefresh}
-        refreshing={refreshing}
-        onOpenProDrawer={() => setProDrawerOpen(true)}
-      />
+    <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
+      <TopBar />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
-        {selectedFundCode ? (
-          <FundDetailPage fundCode={selectedFundCode} onBack={() => setSelectedFundCode(null)} />
+      <main className="flex-1 max-w-[1480px] w-full mx-auto px-3 sm:px-5 py-4 sm:py-5">
+        {fullDetailFundCode ? (
+          <FundDetailPage fundCode={fullDetailFundCode} onBack={closeFullDetail} />
         ) : (
           <>
-            {activeTab === 'signal' && (
-              <SignalPage
-                overview={overview}
-                ledgerId={activeLedgerId}
-                targetReturnPct={targetReturnPct}
-                horizonMonths={horizonMonths}
-                initialSolvedCtx={solvedCtx}
-                onSolvedContextChange={setSolvedCtx}
-                onChangeGoal={(ret, mon) => {
-                  setTargetReturnPct(ret);
-                  setHorizonMonths(mon);
-                }}
-                onGoHoldings={() => setActiveTab('holdings')}
-                onOpenProDrawer={() => setProDrawerOpen(true)}
-                onSelectFund={(code) => {
-                  setSelectedFundCode(code);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-              />
+            {visited.quant_lab && (
+              <div className={activeTab === 'quant_lab' ? '' : 'hidden'}>
+                <QuantLabPage />
+              </div>
             )}
-
-            {activeTab === 'holdings' && (
-              <HoldingsPage
-                overview={overview}
-                ledgerId={activeLedgerId}
-                isDemoLedger={Boolean(currentLedger?.is_demo)}
-                ledgerName={currentLedger?.name || activeLedgerId}
-                refreshTick={refreshTick}
-                onOpenImport={() => setImportOpen(true)}
-                onGoRebalance={() => setActiveTab('rebalance')}
-                onDataMutated={handleDataMutated}
-                onSelectFund={(code) => {
-                  setSelectedFundCode(code);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-              />
+            {visited.market && (
+              <div className={activeTab === 'market' ? '' : 'hidden'}>
+                <MarketSignalPage />
+              </div>
             )}
-
-            {activeTab === 'rebalance' && (
-              <RebalancePage
-                ledgerId={activeLedgerId}
-                refreshTick={refreshTick}
-                targetReturnPct={targetReturnPct}
-                horizonMonths={horizonMonths}
-                solvedContext={solvedCtx}
-                onChangeGoal={(ret, mon) => {
-                  setTargetReturnPct(ret);
-                  setHorizonMonths(mon);
-                }}
-                onOpenImport={() => setImportOpen(true)}
-                onToast={showToast}
-                onSelectFund={(code) => {
-                  setSelectedFundCode(code);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-              />
+            {visited.holdings && (
+              <div className={activeTab === 'holdings' ? '' : 'hidden'}>
+                <HoldingsPage />
+              </div>
+            )}
+            {visited.rebalance && (
+              <div className={activeTab === 'rebalance' ? '' : 'hidden'}>
+                <RebalancePage />
+              </div>
             )}
           </>
         )}
       </main>
 
-      <footer className="border-t border-slate-200/80 bg-white/60 py-4 text-center text-[11px] text-slate-400">
-        AGY2 智投 · 纯本地量化基金分析与调仓参考工作台（不连接任何券商交易接口，数据仅存于本机）
+      <footer className="border-t border-slate-200 bg-white py-3 text-center text-[11px] text-slate-400">
+        AGY2 智投 · 机构级纯本地量化投研与调仓参考工作台（不连接任何券商交易接口，数据仅存于本机）
       </footer>
 
-      <ImportModal
-        open={importOpen}
-        ledgerId={activeLedgerId}
-        onClose={() => setImportOpen(false)}
-        onSuccess={handleDataMutated}
-      />
+      <FundInspectorDrawer />
+      <DataCenterModal />
+      <CommandPalette />
+      <ConfirmDialog config={confirmModal} onClose={closeConfirm} />
 
-      <ProAnalysisDrawer
-        open={proDrawerOpen}
-        ledgerId={activeLedgerId}
-        onClose={() => setProDrawerOpen(false)}
-        onRestored={() => {
-          setProDrawerOpen(false);
-          handleDataMutated('账本已还原至所选快照');
-        }}
-      />
-
-      {toast && (
+      {/* 栈式 Toast（底部居中避开右侧检查器抽屉，多条依次排列不覆盖） */}
+      {toasts.length > 0 && (
         <div
           role="status"
           aria-live="polite"
-          className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl bg-[#0A192F] text-white text-xs font-medium shadow-xl border border-white/10 fade-in"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 max-w-md pointer-events-none"
         >
-          {toast}
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className={`px-3.5 py-2.5 rounded-lg text-xs font-medium shadow-xl border fade-in ${
+                t.tone === 'error'
+                  ? 'bg-red-700 text-white border-red-800'
+                  : t.tone === 'warning'
+                  ? 'bg-amber-900 text-amber-50 border-amber-700'
+                  : 'bg-[#0A1628] text-white border-slate-700'
+              }`}
+            >
+              {t.text}
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
+
+export function App() {
+  return (
+    <WorkbenchProvider>
+      <WorkbenchShell />
+    </WorkbenchProvider>
+  );
+}
+
 export default App;

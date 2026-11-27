@@ -95,7 +95,7 @@ async def _lifespan(app_inst: FastAPI):
     yield
 
 
-app = FastAPI(title="AGY2-FundAdvisory Local Quant API", version="2.0.3", lifespan=_lifespan)
+app = FastAPI(title="AGY2-FundAdvisory Local Quant API", version="2.1.0", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_CORS_ORIGINS,
@@ -598,6 +598,8 @@ def api_v1_rebalance(
     model: str = "all_weather",
     fund_count: int = 6,
     universe_mode: str = "full_market",
+    exclude_codes: Optional[str] = None,
+    include_codes: Optional[str] = None,
 ) -> Dict[str, Any]:
     _, lid, pm, snap = _get_active_context(ledger_id)
     clean_tier = str(tier or "C3").upper().strip()
@@ -613,6 +615,8 @@ def api_v1_rebalance(
     if u_mode not in ("full_market", "index_only"):
         u_mode = "full_market"
     n_funds = max(3, min(8, int(fund_count or 6)))
+    ex_list = _parse_code_list(exclude_codes)
+    in_list = _parse_code_list(include_codes)
 
     solved_for_reb: Optional[Dict[str, Any]] = None
     cards_meta_reb: Dict[str, Dict[str, Any]] = {}
@@ -627,11 +631,16 @@ def api_v1_rebalance(
             universe_mode=u_mode,
             market_snapshot=snap,
             force_recompute=False,
+            exclude_codes=ex_list,
+            include_codes=in_list,
         )
         tw = dict(solved_for_reb["final_weights"])
         cards_meta_reb = dict(solved_for_reb.get("fund_cards_meta") or {})
         u_lbl = "全市场量化海选" if u_mode == "full_market" else "仅指数低费池"
-        target_summary = f"已对齐首页全市场方案：{_QUANT_MODELS_META[clean_model]['name']} · {clean_tier} · {u_lbl} · {n_funds}只"
+        c_suffix = ""
+        if ex_list or in_list:
+            c_suffix = f" · 排除{len(ex_list)}/锁定{len(in_list)}"
+        target_summary = f"已对齐量化实验室方案：{_QUANT_MODELS_META[clean_model]['name']} · {clean_tier} · {u_lbl} · {n_funds}只{c_suffix}"
     else:
         tw = _target_weights_for_ledger(lid, snap)
         target_summary = "稳健低换手模式：优先平滑优化存量持仓、保护现有核心底仓"
@@ -1007,6 +1016,60 @@ def api_v1_import_ocr(request: Request) -> Dict[str, Any]:
             "applied": applied,
             "parsed_count": len(parsed),
             "items": parsed,
+        })
+
+
+class ImportCommitRequest(BaseModel):
+    ledger_id: Optional[str] = None
+    mode: str = "merge"  # merge | overwrite
+    available_cash: Optional[float] = None
+    items: List[Dict[str, Any]] = []
+
+
+@app.post("/api/v1/import/commit")
+def api_v1_import_commit(req: ImportCommitRequest) -> Dict[str, Any]:
+    """将用户在预览核对表中校对/删改后的最终持仓列表精确写入账本（100% 所见即所写，写入前自动冷备）。"""
+    clean_items: List[Dict[str, Any]] = []
+    for raw in (req.items or []):
+        if not isinstance(raw, dict):
+            continue
+        code = str(raw.get("fund_code") or raw.get("code") or "").strip()
+        if code.isdigit():
+            code = code.zfill(6)
+        if not re.match(r"^\d{6}$", code):
+            continue
+        mv = float(raw.get("market_value") or raw.get("amount") or 0.0)
+        sh = float(raw.get("shares") or 0.0)
+        if mv <= 0 and sh <= 0:
+            continue
+        row = dict(raw)
+        row["fund_code"] = code
+        row["fund_name"] = str(raw.get("fund_name") or raw.get("name") or code).strip()
+        if mv > 0:
+            row["market_value"] = round(mv, 2)
+        if sh > 0:
+            row["shares"] = round(sh, 4)
+        clean_items.append(row)
+
+    if not clean_items:
+        raise HTTPException(status_code=400, detail="没有有效的待写入基金记录")
+
+    write_mode = "overwrite" if str(req.mode or "merge").strip().lower() == "overwrite" else "merge"
+    with _LEDGER_WRITE_LOCK:
+        _, lid, pm, _ = _get_active_context(req.ledger_id)
+        LedgerBackupVault.create_snapshot(reason=f"api_import_commit_{lid}")
+        pm.import_from_smart_text(
+            clean_items,
+            available_cash=float(req.available_cash if req.available_cash is not None else pm.available_cash),
+            replace_existing=(write_mode == "overwrite"),
+        )
+        pm.save_state()
+        _invalidate_overview_cache(lid)
+        return _sanitize_v1_payload({
+            "ledger_id": lid,
+            "mode": write_mode,
+            "applied": True,
+            "committed_count": len(clean_items),
         })
 
 
@@ -1855,6 +1918,28 @@ _QUANT_JOBS: Dict[str, Dict[str, Any]] = {}
 _QUANT_JOBS_LOCK = threading.Lock()
 
 
+def _parse_code_list(raw: Any) -> List[str]:
+    if not raw:
+        return []
+    tokens: List[str] = []
+    if isinstance(raw, str):
+        tokens = [t.strip() for t in re.split(r"[,;\s]+", raw) if t.strip()]
+    elif isinstance(raw, (list, tuple, set)):
+        tokens = [str(t or "").strip() for t in raw if str(t or "").strip()]
+    out: List[str] = []
+    for tok in tokens:
+        c = tok.zfill(6) if tok.isdigit() else tok
+        if c and c not in out:
+            out.append(c)
+    return sorted(out)
+
+
+def _constraint_cache_tag(exclude_codes: List[str], include_codes: List[str]) -> str:
+    ex_s = ",".join(exclude_codes) if exclude_codes else "-"
+    in_s = ",".join(include_codes) if include_codes else "-"
+    return f"ex:{ex_s}|in:{in_s}"
+
+
 class QuantSolveRequest(BaseModel):
     risk_level: str = "C3"
     amount: float = 50000.0
@@ -1865,6 +1950,8 @@ class QuantSolveRequest(BaseModel):
     universe_mode: str = "full_market"
     period: str = "1y"
     force: bool = False
+    exclude_codes: Optional[List[str]] = None
+    include_codes: Optional[List[str]] = None
 
 
 class LakehouseSyncRequest(BaseModel):
@@ -1912,9 +1999,16 @@ def _build_blueprint_payload(
         ab = alloc_breakdown.get(code) or {}
 
         quant_signal = ""
+        b20_val: Optional[float] = None
+        crowd_score_val: Optional[float] = None
+        ret20_val: Optional[float] = None
+        q_tag_val = ""
         try:
             cr = pm.get_fund_smart_money_crowding(code) or {}
             b20 = float(cr.get("bias_20", 0.0) or 0.0)
+            b20_val = round(b20, 2)
+            crowd_score_val = round(float(cr.get("crowding_score", 50.0) or 50.0), 1)
+            ret20_val = round(float(cr.get("ret_20d", 0.0) or 0.0), 2)
             q_raw = _clean_text(cr.get("quadrant_tag") or "")
             q_rename = {
                 "低估击球区": "低估布局区",
@@ -1923,6 +2017,7 @@ def _build_blueprint_payload(
                 "右侧主升/偏热区": "高位偏热区",
             }
             q_tag = q_rename.get(q_raw, q_raw)
+            q_tag_val = q_tag
             if q_tag:
                 quant_signal = f"当前处于【{q_tag}】（MA20乖离 {b20:+.1f}%），"
         except Exception:
@@ -1969,6 +2064,10 @@ def _build_blueprint_payload(
             "solver_weight_pct": solver_w_pct,
             "factor_tilt_delta_pct": tilt_delta_pct,
             "risk_contribution_pcr_pct": pcr_pct,
+            "bias_20": b20_val,
+            "crowding_score": crowd_score_val,
+            "ret_20d": ret20_val,
+            "quadrant_tag": q_tag_val,
             "fee_note": fee_note,
             "quota_note": quota_note,
             "action_guide": quota_note or "不限购，可按建议金额分批或一次配置",
@@ -2000,6 +2099,7 @@ def _build_blueprint_payload(
         "market_regime": regime_label,
         "goal_analysis": goal_analysis,
         "solver_audit": solver_audit,
+        "constraint_audit": solved.get("constraint_audit") or {"exclude_codes": [], "include_codes": [], "warnings": []},
         "funnel_audit": funnel_audit,
         "real_bt_info": real_bt_info,
         "allocation_logic_summary": allocation_logic_summary,
@@ -2021,10 +2121,16 @@ def _build_backtest_curves_payload(
     u_mode: str,
     snap: Dict[str, Any],
     force: bool = False,
+    exclude_codes: Optional[List[str]] = None,
+    include_codes: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     import numpy as np
     from extreme_cycle_analyzer import analyze_extreme_recovery_and_cycles
     from goal_driven_selector import reconcile_goal_vs_backtest, solve_goal_driven_portfolio
+
+    ex_list = _parse_code_list(exclude_codes)
+    in_list = _parse_code_list(include_codes)
+    c_tag = _constraint_cache_tag(ex_list, in_list)
 
     period_days_map = {"3m": 63, "6m": 126, "1y": 252, "2y": 504, "all": 0}
     period_label_map = {"3m": "近 3 个月", "6m": "近 6 个月", "1y": "近 1 年", "2y": "近 2 年", "all": "全周期 (共同存续至今)"}
@@ -2059,6 +2165,8 @@ def _build_backtest_curves_payload(
                 universe_mode=u_mode,
                 market_snapshot=snap,
                 force_recompute=bool(force),
+                exclude_codes=ex_list,
+                include_codes=in_list,
             )
         primary_w = dict(solved_bundle["final_weights"])
         secondary_w = None
@@ -2162,7 +2270,7 @@ def _build_backtest_curves_payload(
         )
 
     # 极端市场预计修复天数、历史修复天数、完整牛熊周期与量化止盈锚点（全周期 df_bt + 早期透明参考）
-    ext_key = (clean_tier, mode, clean_model, n_funds, round(t_ret, 1), h_mon, u_mode)
+    ext_key = (clean_tier, mode, clean_model, n_funds, round(t_ret, 1), h_mon, u_mode, c_tag)
     extreme_cycle_analysis = None
     if not force:
         with _EXTREME_CYCLE_LOCK:
@@ -2181,6 +2289,30 @@ def _build_backtest_curves_payload(
         )
         with _EXTREME_CYCLE_LOCK:
             _EXTREME_CYCLE_CACHE[ext_key] = (time.time(), extreme_cycle_analysis)
+
+    # 计算固定双口径摘要（近 1 年 & 全周期）供 A/B 方案对比严格对齐口径
+    def _quick_window_summary(sub_df: Any) -> Dict[str, Any]:
+        col_s = "strategy_nav_otc" if "strategy_nav_otc" in sub_df.columns else "strategy_nav"
+        s_nav = _rebase(sub_df[col_s])
+        s_dd = _dd_series(s_nav)
+        nd = max(len(sub_df), 1)
+        ret_p = round((float(s_nav.iloc[-1]) - 1.0) * 100.0, 2)
+        ann_p = round((float(s_nav.iloc[-1]) ** (252.0 / nd) - 1.0) * 100.0, 2) if nd >= 180 else ret_p
+        dr = s_nav.pct_change().dropna()
+        sd = float(dr.std()) if len(dr) > 2 else 0.0
+        sh = round(((float(dr.mean()) * 252.0 - 0.02) / (sd * np.sqrt(252.0))), 2) if sd > 1e-8 else 0.0
+        return {
+            "return_pct": ret_p,
+            "annualized_return_pct": ann_p,
+            "max_drawdown_pct": round(float(s_dd.min()), 2),
+            "sharpe_ratio": sh,
+            "trading_days": nd,
+        }
+
+    benchmark_horizons = {
+        "y1": _quick_window_summary(df_bt.tail(252) if len(df_bt) > 252 else df_bt),
+        "all": _quick_window_summary(df_bt),
+    }
 
     # 抽样用于前端 ECharts 渲染（约 260 点）
     n_rows = len(df_win)
@@ -2262,6 +2394,7 @@ def _build_backtest_curves_payload(
         "goal_reconciliation": goal_reconciliation,
         "extreme_cycle_analysis": extreme_cycle_analysis,
         "metrics": metrics_obj,
+        "benchmark_horizons": benchmark_horizons,
         "dates": dates,
         "nav": {
             "primary": _pick(nav_pri, 4),
@@ -2338,6 +2471,9 @@ def api_v1_quant_solve_start(req: QuantSolveRequest) -> Dict[str, Any]:
     clean_period = str(req.period or "1y").strip().lower()
     if clean_period not in ("3m", "6m", "1y", "2y", "all"):
         clean_period = "1y"
+    ex_list = _parse_code_list(req.exclude_codes)
+    in_list = _parse_code_list(req.include_codes)
+    c_tag = _constraint_cache_tag(ex_list, in_list)
 
     job_id = uuid.uuid4().hex[:12]
     now_ts = time.time()
@@ -2381,6 +2517,8 @@ def api_v1_quant_solve_start(req: QuantSolveRequest) -> Dict[str, Any]:
                 market_snapshot=snap,
                 force_recompute=bool(req.force),
                 progress_cb=_cb,
+                exclude_codes=ex_list,
+                include_codes=in_list,
             )
             with _QUANT_JOBS_LOCK:
                 if job_id in _QUANT_JOBS:
@@ -2412,8 +2550,10 @@ def api_v1_quant_solve_start(req: QuantSolveRequest) -> Dict[str, Any]:
                 u_mode=u_mode,
                 snap=snap,
                 force=bool(req.force),
+                exclude_codes=ex_list,
+                include_codes=in_list,
             )
-            cache_key = f"{tier}:model_live:{model_id}:{n_funds}:{clean_period}:{round(t_ret, 1)}:{h_mon}:{u_mode}"
+            cache_key = f"{tier}:model_live:{model_id}:{n_funds}:{clean_period}:{round(t_ret, 1)}:{h_mon}:{u_mode}:{c_tag}"
             with _BACKTEST_CURVES_LOCK:
                 _BACKTEST_CURVES_CACHE[cache_key] = (time.time(), bt_payload)
 
@@ -2474,6 +2614,8 @@ def api_v1_recommend_blueprint(
     horizon_months: int = 12,
     universe_mode: str = "full_market",
     force: bool = False,
+    exclude_codes: Optional[str] = None,
+    include_codes: Optional[str] = None,
 ) -> Dict[str, Any]:
     from goal_driven_selector import solve_goal_driven_portfolio
 
@@ -2490,6 +2632,8 @@ def api_v1_recommend_blueprint(
     cap = max(1000.0, float(amount or 50000.0))
     t_ret = max(2.0, min(60.0, float(target_return_pct or 10.0)))
     h_mon = max(3, min(60, int(horizon_months or 12)))
+    ex_list = _parse_code_list(exclude_codes)
+    in_list = _parse_code_list(include_codes)
 
     _, _, pm, snap = _get_active_context(None)
     solved = solve_goal_driven_portfolio(
@@ -2501,6 +2645,8 @@ def api_v1_recommend_blueprint(
         universe_mode=u_mode,
         market_snapshot=snap,
         force_recompute=bool(force),
+        exclude_codes=ex_list,
+        include_codes=in_list,
     )
     return _build_blueprint_payload(
         solved=solved,
@@ -2527,6 +2673,8 @@ def api_v1_charts_backtest_curves(
     horizon_months: int = 12,
     universe_mode: str = "full_market",
     force: bool = False,
+    exclude_codes: Optional[str] = None,
+    include_codes: Optional[str] = None,
 ) -> Dict[str, Any]:
     clean_tier = str(tier or "C3").upper().strip()
     if clean_tier not in _RISK_TIER_META:
@@ -2543,8 +2691,11 @@ def api_v1_charts_backtest_curves(
     clean_period = str(period or "1y").strip().lower()
     if clean_period not in ("3m", "6m", "1y", "2y", "all"):
         clean_period = "1y"
+    ex_list = _parse_code_list(exclude_codes)
+    in_list = _parse_code_list(include_codes)
+    c_tag = _constraint_cache_tag(ex_list, in_list)
 
-    cache_key = f"{clean_tier}:{mode}:{clean_model}:{n_funds}:{clean_period}:{round(t_ret, 1)}:{h_mon}:{u_mode}"
+    cache_key = f"{clean_tier}:{mode}:{clean_model}:{n_funds}:{clean_period}:{round(t_ret, 1)}:{h_mon}:{u_mode}:{c_tag}"
     if not force:
         with _BACKTEST_CURVES_LOCK:
             cached = _BACKTEST_CURVES_CACHE.get(cache_key)
@@ -2564,6 +2715,8 @@ def api_v1_charts_backtest_curves(
         u_mode=u_mode,
         snap=snap,
         force=bool(force),
+        exclude_codes=ex_list,
+        include_codes=in_list,
     )
     with _BACKTEST_CURVES_LOCK:
         _BACKTEST_CURVES_CACHE[cache_key] = (time.time(), payload)
@@ -2631,6 +2784,8 @@ def api_v1_charts_scenario_backtest(
     target_return_pct: Optional[float] = None,
     horizon_months: Optional[int] = None,
     universe_mode: str = "full_market",
+    exclude_codes: Optional[str] = None,
+    include_codes: Optional[str] = None,
 ) -> Dict[str, Any]:
     clean_tier = str(tier or "C3").upper().strip()
     if clean_tier not in _RISK_TIER_META:
@@ -2655,6 +2810,8 @@ def api_v1_charts_scenario_backtest(
         n_funds = max(3, min(8, int(fund_count or 6)))
         t_ret = max(2.0, min(60.0, float(target_return_pct if target_return_pct is not None else 10.0)))
         h_mon = max(3, min(60, int(horizon_months if horizon_months is not None else 12)))
+        ex_list = _parse_code_list(exclude_codes)
+        in_list = _parse_code_list(include_codes)
 
         snap = StrategyBridge.get_latest_market_snapshot(force_reload=False)
         solved = solve_goal_driven_portfolio(
@@ -2666,6 +2823,8 @@ def api_v1_charts_scenario_backtest(
             universe_mode=u_mode,
             market_snapshot=snap,
             force_recompute=False,
+            exclude_codes=ex_list,
+            include_codes=in_list,
         )
         res = simulate_portfolio_scenario_backtest(
             solved_bundle=solved,

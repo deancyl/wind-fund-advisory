@@ -85,6 +85,23 @@ export interface SolvedPortfolioContext {
   horizonMonths: number;
   universeMode: UniverseMode;
   fundCodes: string[];
+  excludeCodes?: string[];
+  includeCodes?: string[];
+}
+
+export interface ConstraintAudit {
+  exclude_codes: string[];
+  include_codes: string[];
+  requested_include_codes?: string[];
+  warnings: string[];
+}
+
+export interface BenchmarkHorizonSummary {
+  return_pct: number;
+  annualized_return_pct: number;
+  max_drawdown_pct: number;
+  sharpe_ratio: number;
+  trading_days: number;
 }
 
 export interface FunnelAudit {
@@ -201,6 +218,10 @@ export interface BlueprintItem {
   solver_weight_pct?: number;
   factor_tilt_delta_pct?: number;
   risk_contribution_pcr_pct?: number;
+  bias_20?: number | null;
+  crowding_score?: number | null;
+  ret_20d?: number | null;
+  quadrant_tag?: string;
   fee_note?: string;
   quota_note?: string;
   action_guide?: string;
@@ -222,6 +243,7 @@ export interface BlueprintResponse {
   market_regime: string;
   goal_analysis?: GoalAnalysis;
   solver_audit?: SolverAudit;
+  constraint_audit?: ConstraintAudit;
   funnel_audit?: FunnelAudit;
   real_bt_info?: RealBacktestInfo;
   allocation_logic_summary?: AllocationLogicSummary;
@@ -444,6 +466,10 @@ export interface BacktestCurvesResponse {
   goal_reconciliation?: GoalReconciliation | null;
   extreme_cycle_analysis?: ExtremeCycleAnalysis | null;
   metrics?: BacktestMetrics;
+  benchmark_horizons?: {
+    y1: BenchmarkHorizonSummary;
+    all: BenchmarkHorizonSummary;
+  };
   dates: string[];
   nav: {
     primary: number[];
@@ -796,17 +822,24 @@ export const api = {
     targetReturnPct = 10,
     horizonMonths = 12,
     force = false,
-    universeMode: UniverseMode = 'full_market'
-  ) =>
-    requestJson<BlueprintResponse>(
-      `/api/v1/recommend/blueprint?risk_level=${encodeURIComponent(riskLevel)}&amount=${encodeURIComponent(
-        String(amount)
-      )}&fund_count=${encodeURIComponent(String(fundCount))}&model=${encodeURIComponent(
-        model
-      )}&target_return_pct=${encodeURIComponent(String(targetReturnPct))}&horizon_months=${encodeURIComponent(
-        String(horizonMonths)
-      )}&universe_mode=${encodeURIComponent(universeMode)}${force ? '&force=true' : ''}`
-    ),
+    universeMode: UniverseMode = 'full_market',
+    excludeCodes?: string[],
+    includeCodes?: string[]
+  ) => {
+    const q = new URLSearchParams({
+      risk_level: riskLevel,
+      amount: String(amount),
+      fund_count: String(fundCount),
+      model,
+      target_return_pct: String(targetReturnPct),
+      horizon_months: String(horizonMonths),
+      universe_mode: universeMode,
+    });
+    if (force) q.set('force', 'true');
+    if (excludeCodes && excludeCodes.length > 0) q.set('exclude_codes', excludeCodes.join(','));
+    if (includeCodes && includeCodes.length > 0) q.set('include_codes', includeCodes.join(','));
+    return requestJson<BlueprintResponse>(`/api/v1/recommend/blueprint?${q.toString()}`);
+  },
   startQuantSolve: (params: {
     risk_level: string;
     amount: number;
@@ -817,6 +850,8 @@ export const api = {
     universe_mode: UniverseMode;
     period: string;
     force?: boolean;
+    exclude_codes?: string[];
+    include_codes?: string[];
   }) =>
     requestJson<QuantSolveJobResponse>('/api/v1/quant/solve', {
       method: 'POST',
@@ -847,17 +882,25 @@ export const api = {
     targetReturnPct = 10,
     horizonMonths = 12,
     force = false,
-    universeMode: UniverseMode = 'full_market'
-  ) =>
-    requestJson<BacktestCurvesResponse>(
-      `/api/v1/charts/backtest_curves?tier=${encodeURIComponent(tier)}&model=${encodeURIComponent(
-        model
-      )}&fund_count=${encodeURIComponent(String(fundCount))}&period=${encodeURIComponent(period)}&mode=${encodeURIComponent(
-        mode
-      )}&target_return_pct=${encodeURIComponent(String(targetReturnPct))}&horizon_months=${encodeURIComponent(
-        String(horizonMonths)
-      )}&universe_mode=${encodeURIComponent(universeMode)}${force ? '&force=true' : ''}`
-    ),
+    universeMode: UniverseMode = 'full_market',
+    excludeCodes?: string[],
+    includeCodes?: string[]
+  ) => {
+    const q = new URLSearchParams({
+      tier,
+      model,
+      fund_count: String(fundCount),
+      period,
+      mode,
+      target_return_pct: String(targetReturnPct),
+      horizon_months: String(horizonMonths),
+      universe_mode: universeMode,
+    });
+    if (force) q.set('force', 'true');
+    if (excludeCodes && excludeCodes.length > 0) q.set('exclude_codes', excludeCodes.join(','));
+    if (includeCodes && includeCodes.length > 0) q.set('include_codes', includeCodes.join(','));
+    return requestJson<BacktestCurvesResponse>(`/api/v1/charts/backtest_curves?${q.toString()}`);
+  },
   getCrowdingQuadrant: (ledgerId?: string, codes?: string[]) => {
     const q = new URLSearchParams();
     if (ledgerId) q.set('ledger_id', ledgerId);
@@ -923,6 +966,8 @@ export const api = {
       targetReturnPct?: number;
       horizonMonths?: number;
       universeMode?: UniverseMode;
+      excludeCodes?: string[];
+      includeCodes?: string[];
     }
   ) => {
     const q = new URLSearchParams();
@@ -934,6 +979,8 @@ export const api = {
     if (solvedOpts?.targetReturnPct !== undefined) q.set('target_return_pct', String(solvedOpts.targetReturnPct));
     if (solvedOpts?.horizonMonths !== undefined) q.set('horizon_months', String(solvedOpts.horizonMonths));
     if (solvedOpts?.universeMode) q.set('universe_mode', solvedOpts.universeMode);
+    if (solvedOpts?.excludeCodes && solvedOpts.excludeCodes.length > 0) q.set('exclude_codes', solvedOpts.excludeCodes.join(','));
+    if (solvedOpts?.includeCodes && solvedOpts.includeCodes.length > 0) q.set('include_codes', solvedOpts.includeCodes.join(','));
     return requestJson<ScenarioBacktestResponse>(`/api/v1/charts/scenario_backtest?${q.toString()}`);
   },
   getEtfPremiums: () => requestJson<{ alert_count: number; items: EtfPremiumItem[] }>('/api/v1/tools/etf_premiums'),
@@ -967,6 +1014,8 @@ export const api = {
       model?: string;
       fundCount?: number;
       universeMode?: UniverseMode;
+      excludeCodes?: string[];
+      includeCodes?: string[];
     }
   ) => {
     const q = new URLSearchParams();
@@ -978,6 +1027,8 @@ export const api = {
     if (opts?.model) q.set('model', opts.model);
     if (opts?.fundCount !== undefined) q.set('fund_count', String(opts.fundCount));
     if (opts?.universeMode) q.set('universe_mode', opts.universeMode);
+    if (opts?.excludeCodes && opts.excludeCodes.length > 0) q.set('exclude_codes', opts.excludeCodes.join(','));
+    if (opts?.includeCodes && opts.includeCodes.length > 0) q.set('include_codes', opts.includeCodes.join(','));
     return requestJson<RebalanceResponse>(`/api/v1/rebalance?${q.toString()}`);
   },
   getCheckin: () =>
@@ -1011,6 +1062,16 @@ export const api = {
     }
     return res.json() as Promise<{ parsed_count: number; applied: boolean; items: Array<Record<string, unknown>> }>;
   },
+  commitImport: (
+    items: Array<Record<string, unknown>>,
+    mode: 'merge' | 'overwrite',
+    ledger_id?: string,
+    available_cash?: number
+  ) =>
+    requestJson<{ applied: boolean; committed_count: number; mode: string }>('/api/v1/import/commit', {
+      method: 'POST',
+      body: JSON.stringify({ ledger_id, mode, items, available_cash }),
+    }),
   reconcileManual: (updates: Array<{ fund_code: string; fund_name?: string; shares: number; cost_price: number; current_nav?: number }>, ledger_id?: string) =>
     requestJson<{ applied: boolean; modified_count: number }>('/api/v1/holdings/reconcile', {
       method: 'POST',

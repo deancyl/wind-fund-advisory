@@ -1,5 +1,24 @@
 # Changelog
 
+## [v2.1.0] - 2026-11-27
+
+### 机构级投研工作台重构（宽屏顶栏 × 实验室可折叠分栏 × 可操控量化终端）
+- **一级信息架构彻底重构（4 大互斥工作区 + 34px 实盘状态 Ticker）**：
+  - 全新 `48px` 极简深海墨蓝顶栏 + `34px` 实盘状态 Ticker 带（宏观定调、沪深300/科创50/中证红利、本地真净值湖仓与盘后安全日更），彻底取代旧首页占 1/3 屏高的大块广告牌英雄区与 6 屏无限瀑布流；
+  - 拆分为 **量化实验室（默认首屏）**、**市场与信号**、**实盘与风控**、**调仓执行** 4 大纯粹工作区，正式移除原 `448px` 垃圾桶式 `ProAnalysisDrawer`，将十维量化投票矩阵、场内 ETF 溢价预警（吸顶限高滚动表）、底层重仓股交叉重叠穿透、A/C 类份额费率精算器全部按专业投研工作流无损归位。
+- **从“静态报表”进化为“可操控量化终端”**：
+  - **单基排除 / 锁定全链路闭环**：`goal_driven_selector.py` 与 `api_server.py` 五大端点（`/quant/solve`、`/recommend/blueprint`、`/charts/backtest_curves`、`/charts/scenario_backtest`、`/rebalance`）全面透传 `exclude_codes` / `include_codes` 及缓存键，彻底杜绝下游“幽灵复活”；内置前置大类约束冲突校验与 `index_only` 自动解绑主动基金锁定提示；
+  - **高密度组合配置矩阵表**：替代旧版 6 张臃肿卡片，支持按权重/PCR/量化分/MA20乖离排序，直接透传单基真实 `MA20乖离/短线温度`，支持行内一键「锁定 / 排除」立即全市场重算；
+  - **A/B 多方案公平对比与投研报告导出**：新增 `SnapshotCompareView`（`localStorage` 持久化最多 4 组方案），强制绑定湖仓截止日与固定「近 1 年 + 全周期」双口径指标（`benchmark_horizons`）防错窗对比，提供标的权重 & PCR 横向 Diff 矩阵及过期快照一键重算刷新；支持一键导出 Markdown 投研报告与结构化 JSON。
+- **机构级视觉净化与零原生弹窗交互层**：
+  - 清零全站彩虹渐变 KPI 卡、6 色左竖杠、三层叠罗汉异色横幅与常驻 `ChartReadingGuide` 新手教学框，全站统一底线式 Underline Sub-Tabs 与 `?` 专业口径审计浮卡（`MetricTooltip`）；
+  - 新增右侧 `520px` 浮层 **Fund Inspector 检查器**（不跳页、不挤压主图表，展示配权公式、精准近 1 年走势、十大重仓与锁定/排除快捷控制，支持一键展开全屏 5 维档案）；
+  - 新增统一 **数据与账本中心**（`DataCenterModal`）与自定义 **确认弹窗**（`ConfirmDialog`），文本粘贴与离线 OCR 均先走预览核对表（支持改金额、删误识别行后经 `POST /api/v1/import/commit` 所见即所写落盘），全站彻底清零 `window.prompt / confirm / alert`；
+  - 新增 `Ctrl/Cmd + K` **全局命令与全市场基金检索面板**（`CommandPalette`），并通过 `WorkbenchContext` 懒加载保活机制保障跨 Tab 切换零重载、后台求解不中断。
+- **质量与三端验证**：
+  - 新增 `tests/test_institutional_workbench_api.py`，全套核心回归 **27/27 PASSED**，四大只读裁判文件 SHA256 100% 校验一致；
+  - 升级 `scripts/verify_route1_web_six_dim.py` 覆盖单基排除重算、A/B 双方案对比、检查器、数据中心核对表与三端视口（`1440×900` / `1280×800` / `390×844` 均 `0px` 水平溢出，`0` 控制台/网络报错）。
+
 ## [v2.0.3] - 2026-11-26
 
 ### 全新机器零配置开箱即用热修复

@@ -1,36 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, Check, RefreshCw, ChevronDown, ChevronRight, CalendarClock, Coins } from 'lucide-react';
-import {
-  api,
-  type DividendAdviceResponse,
-  type RebalanceItem,
-  type RebalanceResponse,
-  type SolvedPortfolioContext,
-} from '../api/client';
+import { Copy, Check, RefreshCw, ChevronDown, ChevronRight, CalendarClock, Coins, Calculator } from 'lucide-react';
+import { api, type DividendAdviceResponse, type RebalanceItem, type RebalanceResponse } from '../api/client';
+import { useWorkbench } from '../context/WorkbenchContext';
 
-interface RebalancePageProps {
-  ledgerId: string;
-  refreshTick: number;
-  targetReturnPct: number;
-  horizonMonths: number;
-  solvedContext?: SolvedPortfolioContext;
-  onChangeGoal: (ret: number, mon: number) => void;
-  onOpenImport: () => void;
-  onToast: (msg: string) => void;
-  onSelectFund: (code: string) => void;
-}
+export function RebalancePage() {
+  const {
+    activeLedgerId,
+    refreshTick,
+    targetReturnPct,
+    horizonMonths,
+    setGoal,
+    solvedContext,
+    openDataCenter,
+    openInspector,
+    pushToast,
+  } = useWorkbench();
 
-export function RebalancePage({
-  ledgerId,
-  refreshTick,
-  targetReturnPct,
-  horizonMonths,
-  solvedContext,
-  onChangeGoal,
-  onOpenImport,
-  onToast,
-  onSelectFund,
-}: RebalancePageProps) {
   const [data, setData] = useState<RebalanceResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [targetSource, setTargetSource] = useState<'ledger_smooth' | 'full_market_solved'>('ledger_smooth');
@@ -41,30 +26,41 @@ export function RebalancePage({
   const [showHold, setShowHold] = useState(false);
   const [showTails, setShowTails] = useState(false);
 
+  // 增量定投（DCA）
   const [dcaAmount, setDcaAmount] = useState(3000);
   const [dcaSummary, setDcaSummary] = useState('');
   const [dcaLoading, setDcaLoading] = useState(false);
   const [dcaItems, setDcaItems] = useState<Array<{ fund_code: string; fund_name: string; amount: number; weight_pct?: number; reason?: string }>>([]);
   const [divAdvice, setDivAdvice] = useState<DividendAdviceResponse | null>(null);
 
-  const effTier = solvedContext?.riskLevel || 'C3';
-  const effModel = solvedContext?.modelId || 'all_weather';
-  const effFundCount = solvedContext?.fundCount || 6;
-  const effUniverse = solvedContext?.universeMode || 'full_market';
+  // A/C 类份额费率精算器（从原 ProAnalysisDrawer 正式归位至调仓执行台）
+  const [acAmount, setAcAmount] = useState(50000);
+  const [acDays, setAcDays] = useState(180);
+  const [acSubFee, setAcSubFee] = useState(0.15);
+  const [acSalesFee, setAcSalesFee] = useState(0.4);
+
+  const effTier = solvedContext.riskLevel || 'C3';
+  const effModel = solvedContext.modelId || 'all_weather';
+  const effFundCount = solvedContext.fundCount || 6;
+  const effUniverse = solvedContext.universeMode || 'full_market';
+  const exKey = (solvedContext.excludeCodes || []).join(',');
+  const inKey = (solvedContext.includeCodes || []).join(',');
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
     Promise.all([
-      api.getRebalance(ledgerId, targetReturnPct, horizonMonths, {
+      api.getRebalance(activeLedgerId, targetReturnPct, horizonMonths, {
         tier: effTier,
         targetSource,
         model: effModel,
         fundCount: effFundCount,
         universeMode: effUniverse,
+        excludeCodes: exKey ? exKey.split(',') : undefined,
+        includeCodes: inKey ? inKey.split(',') : undefined,
       }),
       api.getCheckin(),
-      api.getDividendAdvice(ledgerId).catch(() => null),
+      api.getDividendAdvice(activeLedgerId).catch(() => null),
     ])
       .then(([reb, chk, divRes]) => {
         if (!alive) return;
@@ -86,14 +82,14 @@ export function RebalancePage({
     return () => {
       alive = false;
     };
-  }, [ledgerId, refreshTick, targetReturnPct, horizonMonths, effTier, targetSource, effModel, effFundCount, effUniverse]);
+  }, [activeLedgerId, refreshTick, targetReturnPct, horizonMonths, effTier, targetSource, effModel, effFundCount, effUniverse, exKey, inKey]);
 
   useEffect(() => {
     let alive = true;
     const t = setTimeout(() => {
       setDcaLoading(true);
       api
-        .planCashflow(Math.max(500, dcaAmount || 3000), ledgerId)
+        .planCashflow(Math.max(500, dcaAmount || 3000), activeLedgerId)
         .then((res) => {
           if (!alive) return;
           const raw = (res.dca_plan || {}) as Record<string, unknown>;
@@ -111,7 +107,7 @@ export function RebalancePage({
                 fund_name: name,
                 amount: amt,
                 weight_pct: Number.isFinite(pct) ? pct : undefined,
-                reason: String(x.reason || x.note || '优先补齐当前低配核心资产'),
+                reason: String(x.reason || x.note || '优先补齐低配核心底仓'),
               };
             })
           );
@@ -125,7 +121,7 @@ export function RebalancePage({
       alive = false;
       clearTimeout(t);
     };
-  }, [dcaAmount, ledgerId, refreshTick]);
+  }, [dcaAmount, activeLedgerId, refreshTick]);
 
   const actionableList = useMemo(() => {
     if (!data) return [];
@@ -158,11 +154,11 @@ export function RebalancePage({
       const nowStr = new Date().toLocaleTimeString('zh-CN', { hour12: false });
       setLastSavedTime(nowStr);
       setSaveStatus('saved');
-      onToast(nextChecked ? `已勾选 ${code} 并自动保存至本机（${nowStr}）` : `已取消勾选 ${code} 并同步保存`);
+      pushToast(nextChecked ? `已勾选 ${code} 并保存至本机（${nowStr}）` : `已取消勾选 ${code}`, 'success');
     } catch (e) {
       setCheckedSet(prev);
       setSaveStatus('error');
-      onToast(e instanceof Error ? `保存失败：${e.message}` : '保存勾选状态失败，请重试');
+      pushToast(e instanceof Error ? `保存失败：${e.message}` : '保存勾选状态失败', 'error');
     }
   };
 
@@ -171,15 +167,15 @@ export function RebalancePage({
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      onToast('已复制调仓参考清单到剪贴板，请自行对照基金 App 操作');
+      pushToast('已复制调仓参考清单到剪贴板', 'success');
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      onToast('复制失败，请手动选中文本复制');
+      pushToast('复制失败，请手动选中复制', 'warning');
     }
   };
 
   if (loading) {
-    return <div className="card-elevated rounded-2xl p-10 text-center text-xs text-slate-500">正在测算今日调仓参考方案...</div>;
+    return <div className="inst-panel rounded-lg p-10 text-center text-xs text-slate-400">正在测算调仓参考方案...</div>;
   }
 
   const tailCount = data?.tail_sweep?.count || 0;
@@ -189,31 +185,62 @@ export function RebalancePage({
   const holdCount = data?.buffer_hold?.count || 0;
   const doneCount = actionableList.filter((x) => checkedSet.has(x.code)).length;
 
+  const breakEvenDays = acSalesFee > 0 ? Math.round((acSubFee / acSalesFee) * 365) : 365;
+  const costA = (acAmount * acSubFee) / 100;
+  const costC = (acAmount * (acSalesFee / 100) * acDays) / 365;
+  const recommendA = acDays >= breakEvenDays;
+
   return (
-    <div className="space-y-6 fade-in">
-      {/* 醒目定位声明 + 一键复制 + 次日同步 */}
-      <section className="hero-navy text-white rounded-2xl px-5 py-4 flex flex-wrap items-center justify-between gap-4 shadow-md">
-        <div className="text-xs leading-relaxed max-w-2xl">
-          <span className="inline-block px-2 py-0.5 rounded bg-amber-400/20 text-amber-300 font-semibold mr-2">
-            纯量化分析参考 · 不涉及实盘交易
-          </span>
-          <span className="text-slate-200">
-            以下清单供你核对后自行在支付宝 / 天天基金 App 操作；勾选仅作当天防漏记录，次日份额确认后点击「次日更新持仓」覆盖导入即可完成闭环。
-          </span>
+    <div className="space-y-4 fade-in" data-testid="rebalance-page">
+      {/* 1. 顶部目标基准切换 + 一键复制 + 次日同步 */}
+      <section className="inst-panel rounded-lg px-4 py-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold text-slate-900">调仓目标组合来源</span>
+            <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[10px] font-semibold text-slate-600">
+              纯量化参考 · 本地不连券商
+            </span>
+          </div>
+          <p className="text-xs text-slate-500">
+            {data?.target_summary || '默认采用稳健低换手模式保护存量核心基金；可一键切换对齐量化实验室最新全市场方案。'}
+          </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div className="inline-flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-md border border-slate-200" role="group" aria-label="调仓目标来源">
+            <button
+              type="button"
+              onClick={() => setTargetSource('ledger_smooth')}
+              className={`px-2.5 py-1.5 rounded text-xs font-semibold cursor-pointer ${
+                targetSource === 'ledger_smooth' ? 'bg-[#0A1628] text-white' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              稳健低换手（平滑调优·默认）
+            </button>
+            <button
+              type="button"
+              onClick={() => setTargetSource('full_market_solved')}
+              data-testid="btn-rebalance-align-fullmarket"
+              className={`px-2.5 py-1.5 rounded text-xs font-semibold cursor-pointer ${
+                targetSource === 'full_market_solved' ? 'bg-blue-700 text-white' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              对齐实验室方案（{effTier}·{effFundCount}只）
+            </button>
+          </div>
+
           <button
             type="button"
-            onClick={handleCopy}
-            className="px-4 py-2 rounded-xl text-xs font-semibold gold-badge text-[#091529] hover:brightness-110 shadow-sm inline-flex items-center gap-1.5 cursor-pointer"
+            onClick={() => void handleCopy()}
+            className="h-8 px-3 rounded-md text-xs font-semibold bg-amber-500 text-[#0A1628] hover:bg-amber-400 inline-flex items-center gap-1.5 cursor-pointer"
           >
             {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? '已复制清单' : '一键复制参考清单'}</span>
+            <span>{copied ? '已复制清单' : '复制参考清单'}</span>
           </button>
           <button
             type="button"
-            onClick={onOpenImport}
-            className="px-3.5 py-2 rounded-xl text-xs font-medium bg-white/10 border border-white/15 text-white hover:bg-white/20 inline-flex items-center gap-1.5 cursor-pointer"
+            onClick={() => openDataCenter('import')}
+            className="h-8 px-3 rounded-md text-xs font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 inline-flex items-center gap-1.5 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>次日更新持仓</span>
@@ -221,62 +248,26 @@ export function RebalancePage({
         </div>
       </section>
 
-      {/* 调仓目标基准模式切换（稳健低换手保护存量 vs 一键对齐首页全市场方案） */}
-      <section className="card-elevated rounded-2xl p-4 sm:px-5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div className="space-y-0.5">
-          <div className="text-xs font-bold text-slate-900">调仓目标组合来源</div>
-          <p className="text-xs text-slate-500">
-            {data?.target_summary || '默认采用稳健低换手模式保护存量核心基金；如需切换为首页全市场最新选基方案，可一键切换对齐。'}
-          </p>
-        </div>
-        <div className="inline-flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0" role="group" aria-label="调仓目标来源">
-          <button
-            type="button"
-            onClick={() => setTargetSource('ledger_smooth')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              targetSource === 'ledger_smooth' ? 'bg-[#0A192F] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            稳健低换手（平滑调优·默认）
-          </button>
-          <button
-            type="button"
-            onClick={() => setTargetSource('full_market_solved')}
-            data-testid="btn-rebalance-align-fullmarket"
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              targetSource === 'full_market_solved' ? 'bg-[#1D4ED8] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            对齐首页全市场方案（{effTier}·{effFundCount}只）
-          </button>
-        </div>
-      </section>
-
-      {/* 目标收益达成度对比卡（调仓前 vs 调仓后） */}
+      {/* 2. 目标收益达成概率改善对比 + 3 步重构摘要（统一纯白硬边分栏） */}
       {data?.goal_comparison && (
-        <section className="card-elevated rounded-2xl p-5 space-y-3.5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">
-                目标收益达成概率对比（调仓前当前持仓 vs 按建议调仓后 · {effTier} 档）
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                以你设定的「{horizonMonths} 个月内目标收益 +{targetReturnPct}%」为尺子，检验本次调仓对达标概率与抗跌底线的实际改善
-              </p>
+        <section className="inst-panel rounded-lg overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/70 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs font-bold text-slate-900">
+              目标达成概率对比（调仓前 vs 调仓后 · {effTier} 档）
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs">
+            <div className="flex items-center gap-2 text-xs">
               <select
                 value={horizonMonths}
-                onChange={(e) => onChangeGoal(targetReturnPct, Number(e.target.value))}
+                onChange={(e) => setGoal(targetReturnPct, Number(e.target.value))}
                 aria-label="调仓目标周期"
-                className="h-8 px-2 rounded-lg bg-slate-50 border border-slate-200 font-semibold text-slate-700"
+                className="h-7 px-2 rounded bg-white border border-slate-300 font-semibold text-slate-700"
               >
                 <option value={6}>6 个月</option>
                 <option value={12}>1 年</option>
                 <option value={24}>2 年</option>
                 <option value={36}>3 年</option>
               </select>
-              <label className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 font-semibold text-slate-700">
+              <label className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-slate-300 font-semibold text-slate-700">
                 <span>目标</span>
                 <input
                   type="number"
@@ -284,18 +275,18 @@ export function RebalancePage({
                   max={60}
                   step={1}
                   value={targetReturnPct}
-                  onChange={(e) => onChangeGoal(Math.max(2, Math.min(60, Number(e.target.value) || 10)), horizonMonths)}
+                  onChange={(e) => setGoal(Number(e.target.value) || 10, horizonMonths)}
                   aria-label="调仓目标收益率百分比"
-                  className="w-14 h-6 px-1.5 rounded bg-white border border-slate-300 text-center font-bold text-blue-700 tabular-nums"
+                  className="w-12 h-5 text-center font-bold text-blue-700 tabular-nums focus:outline-none"
                 />
                 <span>%</span>
               </label>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs tabular-nums">
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-              <div className="text-slate-500">调仓前 · 历史达标概率</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-200 text-xs tabular-nums">
+            <div className="p-4">
+              <div className="text-[11px] text-slate-500">调仓前 · 历史达标概率</div>
               <div className="text-xl font-extrabold text-slate-800 mt-1">
                 {data.goal_comparison.before.historical_hit_rate_pct.toFixed(1)}%
               </div>
@@ -303,23 +294,27 @@ export function RebalancePage({
                 P05 最差情景：{data.goal_comparison.before.p05_worst_return_pct.toFixed(2)}%
               </div>
             </div>
-            <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200">
-              <div className="text-blue-800">调仓后 · 历史达标概率</div>
-              <div className="text-xl font-extrabold text-blue-800 mt-1">
+            <div className="p-4">
+              <div className="text-[11px] text-slate-500">调仓后 · 历史达标概率</div>
+              <div className="text-xl font-extrabold text-blue-700 mt-1">
                 {data.goal_comparison.after.historical_hit_rate_pct.toFixed(1)}%
               </div>
-              <div className="text-[11px] text-blue-700/80 mt-0.5">
+              <div className="text-[11px] text-slate-500 mt-0.5">
                 P05 最差情景：{data.goal_comparison.after.p05_worst_return_pct.toFixed(2)}%
               </div>
             </div>
-            <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200">
-              <div className="text-emerald-800">调仓量化改善幅度</div>
-              <div className="text-xl font-extrabold text-emerald-700 mt-1">
-                达标率 {data.goal_comparison.hit_rate_delta_pct >= 0 ? '+' : ''}
+            <div className="p-4 bg-slate-50/40">
+              <div className="text-[11px] text-slate-500">调仓量化改善幅度</div>
+              <div
+                className={`text-xl font-extrabold mt-1 ${
+                  data.goal_comparison.hit_rate_delta_pct >= 0 ? 'text-red-600' : 'text-emerald-700'
+                }`}
+              >
+                {data.goal_comparison.hit_rate_delta_pct >= 0 ? '+' : ''}
                 {data.goal_comparison.hit_rate_delta_pct.toFixed(1)}%
               </div>
-              <div className="text-[11px] text-emerald-700 mt-0.5">
-                最差情景底线变化 {data.goal_comparison.worst_return_delta_pct >= 0 ? '+' : ''}
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                底线改善 {data.goal_comparison.worst_return_delta_pct >= 0 ? '+' : ''}
                 {data.goal_comparison.worst_return_delta_pct.toFixed(2)}%
               </div>
             </div>
@@ -327,81 +322,77 @@ export function RebalancePage({
         </section>
       )}
 
-      {/* ① 当前组合 3 步重构摘要 */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="card-elevated rounded-2xl p-4 border-t-4 border-t-amber-500">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-amber-700">STEP 01 · 清理碎片尾仓</span>
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-semibold">{tailCount} 只</span>
+      {/* 3 步重构摘要条 */}
+      <section className="inst-panel rounded-lg grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-200 tabular-nums">
+        <div className="p-4">
+          <div className="flex items-center justify-between text-[11px] text-slate-500">
+            <span className="font-bold text-slate-700">STEP 01 · 清理碎片尾仓</span>
+            <span className="font-mono font-semibold">{tailCount} 只</span>
           </div>
-          <div className="text-lg font-extrabold text-slate-900 mt-1.5 tabular-nums">
+          <div className="text-base font-extrabold text-slate-900 mt-1">
             {tailCount > 0 ? `回收 ¥${tailCash.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '暂无碎片尾仓'}
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            {tailCount > 0 ? '单只不足 ¥200 且满免赎期，清仓归拢减少盯盘负担。' : '持仓精简整洁，无需清理尾仓。'}
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            {tailCount > 0 ? '单只不足 ¥200 且满免赎期，清仓归拢' : '持仓精简整洁，无需清理'}
           </p>
         </div>
 
-        <div className="card-elevated rounded-2xl p-4 border-t-4 border-t-indigo-600">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-indigo-700">STEP 02 · C 转 A 省管理费</span>
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-semibold">{cCount} 笔</span>
+        <div className="p-4">
+          <div className="flex items-center justify-between text-[11px] text-slate-500">
+            <span className="font-bold text-slate-700">STEP 02 · C 转 A 省管理费</span>
+            <span className="font-mono font-semibold">{cCount} 笔</span>
           </div>
-          <div className="text-lg font-extrabold text-slate-900 mt-1.5">
+          <div className="text-base font-extrabold text-slate-900 mt-1">
             {cCount > 0 ? '年省 0.40% 服务费' : '暂无高费 C 类置换'}
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            {cCount > 0 ? '满 30 天免赎回费置换为同款 A 类，长期持有更省钱。' : '当前份额类别结构合理。'}
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            {cCount > 0 ? '满 30 天免赎回费置换同款 A 类' : '当前份额类别结构合理'}
           </p>
         </div>
 
-        <div className="card-elevated rounded-2xl p-4 border-t-4 border-t-blue-600">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-blue-700">STEP 03 · 核心仓位再平衡</span>
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-semibold">{coreCount} 笔</span>
+        <div className="p-4">
+          <div className="flex items-center justify-between text-[11px] text-slate-500">
+            <span className="font-bold text-slate-700">STEP 03 · 核心仓位再平衡</span>
+            <span className="font-mono font-semibold">{coreCount} 笔</span>
           </div>
-          <div className="text-lg font-extrabold text-slate-900 mt-1.5">
-            {coreCount > 0 ? '对齐今日量化目标仓位' : '核心仓位已达标'}
+          <div className="text-base font-extrabold text-slate-900 mt-1">
+            {coreCount > 0 ? '对齐今日目标仓位' : '核心仓位在安全缓冲内'}
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            {coreCount > 0 ? '高抛超配、低吸欠配，压低组合波动与回撤。' : `其余 ${holdCount} 只核心仓位在安全缓冲区内，安心持有。`}
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            {coreCount > 0 ? '高抛超配、低吸欠配，控制偏离' : `其余 ${holdCount} 只核心标的安心持有`}
           </p>
         </div>
       </section>
 
-      {/* ② 分组调仓参考清单 */}
-      <section className="card-elevated rounded-2xl overflow-hidden">
-        <div className="p-4 sm:px-5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+      {/* 3. 执行清单主表（带本地勾选持久化） */}
+      <section className="inst-panel rounded-lg overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/70 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-base font-bold text-slate-900">建议调整明细（附白话理由）</h2>
-            <p className="text-xs text-slate-500 mt-0.5">勾选左侧复选框记录你在基金 App 中已手动完成的笔数</p>
+            <h2 className="text-xs font-bold text-slate-900">建议调整执行清单（勾选记录已在 App 手动完成的笔数）</h2>
           </div>
-          <div className="flex items-center gap-2">
-            {saveStatus === 'saving' && (
-              <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">正在保存...</span>
-            )}
+          <div className="flex items-center gap-2 text-xs">
+            {saveStatus === 'saving' && <span className="text-slate-500">正在保存...</span>}
             {saveStatus === 'saved' && (
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
-                <Check className="w-3.5 h-3.5" />
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
+                <Check className="w-3 h-3" />
                 已保存至本机 {lastSavedTime}
               </span>
             )}
             {saveStatus === 'error' && (
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200">
-                保存失败，请重试
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200">
+                保存失败
               </span>
             )}
-            <span className="text-xs font-semibold px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 tabular-nums">
-              本地已记录 {doneCount} / {actionableList.length} 笔
+            <span className="text-[11px] font-mono font-semibold px-2.5 py-0.5 rounded bg-white border border-slate-200 text-slate-700 tabular-nums">
+              已打卡 {doneCount} / {actionableList.length}
             </span>
           </div>
         </div>
 
         {actionableList.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-500">当前组合处于目标安全缓冲区内，今日无需买卖操作，安心持有即可。</div>
+          <div className="p-8 text-center text-xs text-slate-500">当前组合处于目标安全缓冲区内，今日无需买卖操作。</div>
         ) : (
           <div className="divide-y divide-slate-100">
-            {/* 先展示 C转A 和 核心调仓 */}
             {actionableList
               .filter((x) => x.group !== '清理尾仓')
               .map(({ group, item, code, name, amount }) => {
@@ -410,22 +401,22 @@ export function RebalancePage({
                 return (
                   <label
                     key={`${group}-${code}`}
-                    className={`p-4 sm:px-5 flex items-start gap-3.5 cursor-pointer hover:bg-slate-50/80 transition-colors ${
-                      done ? 'opacity-55 bg-slate-50/50' : ''
+                    className={`px-4 py-3 flex items-start gap-3 cursor-pointer hover:bg-blue-50/30 transition-colors ${
+                      done ? 'opacity-55 bg-slate-50/60' : ''
                     }`}
                   >
                     <input
                       type="checkbox"
                       checked={done}
-                      onChange={() => toggleCheck(code, amount)}
-                      className="mt-1 w-4 h-4 accent-[#0A192F]"
+                      onChange={() => void toggleCheck(code, amount)}
+                      className="mt-0.5 w-4 h-4 accent-[#0A1628]"
                     />
                     <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700">{group}</span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600">{group}</span>
                           <span
-                            className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
                               isBuy ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                             }`}
                           >
@@ -435,43 +426,37 @@ export function RebalancePage({
                             type="button"
                             onClick={(e) => {
                               e.preventDefault();
-                              onSelectFund(code);
+                              openInspector(code);
                             }}
-                            className={`font-bold text-sm text-slate-900 hover:text-blue-700 hover:underline cursor-pointer ${done ? 'line-through' : ''}`}
+                            className={`font-bold text-xs text-slate-900 hover:text-blue-700 hover:underline cursor-pointer ${done ? 'line-through' : ''}`}
                           >
-                            {name} <span className="font-mono text-xs text-slate-400">({code})</span>
+                            {name} <span className="font-mono text-[11px] text-slate-400">({code})</span>
                           </button>
-                          {done && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              ✓ 已记录并保存
-                            </span>
-                          )}
                         </div>
                         <span className="font-extrabold text-sm text-slate-900 tabular-nums">
                           ¥{Math.abs(amount).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500">
-                        {item.reason || (isBuy ? '当前权重低于今日量化目标，建议补齐核心底仓' : '当前权重偏高或风格重叠，建议适度兑现归拢')}
+                      <p className="text-[11px] text-slate-500">
+                        {item.reason || (isBuy ? '当前权重低于量化目标，建议补齐' : '当前权重偏高或风格重叠，建议适度减配')}
                       </p>
                     </div>
                   </label>
                 );
               })}
 
-            {/* 碎片尾仓折叠组，避免 19 条霸屏 */}
             {tailCount > 0 && (
               <div>
                 <button
                   type="button"
                   onClick={() => setShowTails(!showTails)}
-                  className="w-full px-5 py-3.5 flex items-center justify-between text-xs font-semibold text-amber-800 bg-amber-50/50 hover:bg-amber-50 transition-colors cursor-pointer"
+                  className="w-full px-4 py-2.5 flex items-center justify-between text-xs font-semibold text-amber-900 bg-amber-50/40 hover:bg-amber-50 cursor-pointer"
                 >
                   <span className="inline-flex items-center gap-1.5">
-                    {showTails ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                    展开查看 {tailCount} 只碎片尾仓清理清单（合计回收 ¥{tailCash.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}）
+                    {showTails ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    展开 {tailCount} 只碎片尾仓清理清单（回收 ¥{tailCash.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}）
                   </span>
-                  <span className="text-amber-700">全部满 7 天免惩罚费</span>
+                  <span className="text-[11px] text-amber-800">均满 7 天免惩罚费</span>
                 </button>
                 {showTails && (
                   <div className="divide-y divide-slate-100 bg-slate-50/40">
@@ -482,7 +467,7 @@ export function RebalancePage({
                         return (
                           <label
                             key={`tail-${code}`}
-                            className={`px-5 py-2.5 flex items-center justify-between gap-3 cursor-pointer text-xs hover:bg-slate-100/70 ${
+                            className={`px-4 py-2 flex items-center justify-between gap-3 cursor-pointer text-xs hover:bg-slate-100/70 ${
                               done ? 'opacity-50 line-through' : ''
                             }`}
                           >
@@ -490,13 +475,13 @@ export function RebalancePage({
                               <input
                                 type="checkbox"
                                 checked={done}
-                                onChange={() => toggleCheck(code, amount)}
-                                className="w-3.5 h-3.5 accent-[#0A192F]"
+                                onChange={() => void toggleCheck(code, amount)}
+                                className="w-3.5 h-3.5 accent-[#0A1628]"
                               />
                               <span className="font-medium text-slate-800">{name}</span>
-                              <span className="font-mono text-slate-400">{code}</span>
+                              <span className="font-mono text-[11px] text-slate-400">{code}</span>
                             </span>
-                            <span className="font-semibold text-emerald-700 tabular-nums">
+                            <span className="font-mono font-semibold text-emerald-700 tabular-nums">
                               卖出 ¥{Math.abs(amount).toFixed(2)}
                             </span>
                           </label>
@@ -509,25 +494,29 @@ export function RebalancePage({
           </div>
         )}
 
-        {/* 维持持有折叠条 */}
         {holdCount > 0 && (
           <div className="border-t border-slate-200">
             <button
               type="button"
               onClick={() => setShowHold(!showHold)}
-              className="w-full px-5 py-3 flex items-center justify-between text-xs text-slate-500 hover:bg-slate-50 cursor-pointer"
+              className="w-full px-4 py-2.5 flex items-center justify-between text-xs text-slate-500 hover:bg-slate-50 cursor-pointer"
             >
               <span className="inline-flex items-center gap-1.5">
                 {showHold ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                维持不动的核心持仓（{holdCount} 只，权重偏差在安全缓冲区内）
+                维持不动的核心持仓（{holdCount} 只，偏差在安全缓冲内）
               </span>
             </button>
             {showHold && (
-              <div className="px-5 pb-4 flex flex-wrap gap-2">
+              <div className="px-4 pb-3 flex flex-wrap gap-1.5">
                 {(data?.buffer_hold?.items || []).map((it, idx) => (
-                  <span key={idx} className="px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-700">
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => openInspector(String(it.fund_code || it.code || ''))}
+                    className="px-2 py-1 rounded bg-slate-100 hover:bg-blue-50 text-xs text-slate-700 cursor-pointer"
+                  >
                     {it.fund_name || it.name} <span className="font-mono text-slate-400">{it.fund_code || it.code}</span>
-                  </span>
+                  </button>
                 ))}
               </div>
             )}
@@ -535,17 +524,14 @@ export function RebalancePage({
         )}
       </section>
 
-      {/* ③ 增量新钱定投方案（不动老基金） */}
-      <section className="card-elevated rounded-2xl p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* 4. 增量新钱定投方案（DCA） */}
+      <section className="inst-panel rounded-lg p-4 sm:p-5 space-y-3.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="w-1 h-4 rounded-full bg-emerald-600" />
-              <h2 className="text-base font-bold text-slate-900">不想卖老基金？用每月新钱补齐偏离</h2>
-            </div>
-            <p className="text-xs text-slate-500 mt-1 pl-3">输入计划新增投入金额，系统自动优先分配给当前欠配的优质底仓</p>
+            <h2 className="text-xs font-bold text-slate-900">增量新钱补齐偏离（不卖老基金 · 智能定投）</h2>
+            <p className="text-[11px] text-slate-500 mt-0.5">{dcaSummary || '输入本月新增资金，自动优先分配至低配核心底仓'}</p>
           </div>
-          <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-600 shrink-0">
             <span>本月新增资金 (¥)</span>
             <input
               type="number"
@@ -553,83 +539,77 @@ export function RebalancePage({
               step={500}
               value={dcaAmount}
               onChange={(e) => setDcaAmount(Number(e.target.value))}
-              className="w-28 h-9 px-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 font-bold tabular-nums text-sm focus:border-blue-600 focus:bg-white focus:outline-none"
+              className="w-28 h-8 px-2.5 rounded-md bg-white border border-slate-300 text-slate-900 font-bold tabular-nums text-xs focus:border-blue-600 focus:outline-none"
             />
           </label>
         </div>
 
-        {dcaSummary && (
-          <div className="px-3.5 py-2 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs text-emerald-900">
-            {dcaSummary}
-          </div>
-        )}
-
         {dcaLoading && dcaItems.length === 0 ? (
           <div className="text-xs text-slate-400 py-2">正在计算增量定投分配方案...</div>
-        ) : dcaItems.length === 0 ? (
-          <div className="text-xs text-slate-400 py-2">输入金额后自动生成增量定投参考方案...</div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {dcaItems.map((d) => (
-              <div
-                key={d.fund_code}
-                onClick={() => onSelectFund(d.fund_code)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onSelectFund(d.fund_code);
-                  }
-                }}
-                className="p-4 rounded-xl bg-slate-50/80 border border-slate-200 hover:border-blue-400 hover:bg-white transition-all space-y-1.5 cursor-pointer"
-              >
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-mono text-slate-400">{d.fund_code}</span>
-                  {d.weight_pct !== undefined && (
-                    <span className="font-bold text-blue-700">目标占比 {d.weight_pct.toFixed(1)}%</span>
-                  )}
-                </div>
-                <div className="font-bold text-sm text-slate-900">{d.fund_name}</div>
-                <div className="text-lg font-extrabold text-slate-900 tabular-nums">
-                  ¥{d.amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-                <div className="text-xs text-slate-500">{d.reason}</div>
-              </div>
-            ))}
+          <div className="overflow-x-auto border border-slate-200 rounded-md">
+            <table className="w-full text-xs text-left tabular-nums">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
+                  <th className="py-2 px-3 font-semibold">补齐标的</th>
+                  <th className="py-2 px-3 font-semibold text-right">建议定投金额</th>
+                  <th className="py-2 px-3 font-semibold text-right">目标占比</th>
+                  <th className="py-2 px-3 font-semibold">分配理由</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {dcaItems.map((d) => (
+                  <tr
+                    key={d.fund_code}
+                    onClick={() => openInspector(d.fund_code)}
+                    className="hover:bg-blue-50/30 cursor-pointer"
+                  >
+                    <td className="py-2 px-3">
+                      <span className="font-semibold text-slate-900 hover:text-blue-700">{d.fund_name}</span>{' '}
+                      <span className="font-mono text-[11px] text-slate-400">{d.fund_code}</span>
+                    </td>
+                    <td className="py-2 px-3 text-right font-bold text-slate-900">
+                      ¥{d.amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td className="py-2 px-3 text-right text-blue-700 font-semibold">
+                      {d.weight_pct !== undefined ? `${d.weight_pct.toFixed(1)}%` : '--'}
+                    </td>
+                    <td className="py-2 px-3 text-slate-500">{d.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </section>
 
-      {/* ④ 大额限购分批买入计划 + 宏观分红方式建议 */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="card-elevated rounded-2xl p-5 space-y-3">
-          <div className="flex items-center gap-2">
-            <CalendarClock className="w-4 h-4 text-blue-700" />
-            <h2 className="text-sm font-bold text-slate-900">大额限购分批买入计划与到账说明</h2>
+      {/* 5. 交易摩擦三合一：大额限购拆单 + 分红方式 + A/C 类份额费率精算器 */}
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* 大额限购拆单 */}
+        <div className="inst-panel rounded-lg p-4 space-y-2.5">
+          <div className="flex items-center gap-1.5">
+            <CalendarClock className="w-4 h-4 text-slate-700" />
+            <h2 className="text-xs font-bold text-slate-900">大额限购分批买入计划</h2>
           </div>
           {(data?.quota_split_plans || []).length === 0 ? (
-            <p className="text-xs text-slate-500">当前参考买入清单中暂无限购拆单需求，可按单日完成配置。</p>
+            <p className="text-xs text-slate-500">当前买入清单暂无限购拆单需求，可单日完成配置。</p>
           ) : (
-            <div className="space-y-2.5 text-xs">
+            <div className="space-y-2 text-xs">
               {(data?.quota_split_plans || []).map((q) => (
-                <div key={q.fund_code} className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <div key={q.fund_code} className="p-2.5 rounded bg-slate-50 border border-slate-200 space-y-1">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-slate-900">
-                      {q.fund_name} <span className="font-mono text-slate-400">({q.fund_code})</span>
-                    </span>
+                    <span className="font-bold text-slate-900 truncate">{q.fund_name}</span>
                     <span
-                      className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                        q.needs_split ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 ${
+                        q.needs_split ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-emerald-50 text-emerald-700'
                       }`}
                     >
-                      {q.needs_split ? `需分 ${q.days_needed} 个交易日买入` : '单日可一次买完'}
+                      {q.needs_split ? `分 ${q.days_needed} 日` : '单日买完'}
                     </span>
                   </div>
-                  <div className="text-slate-600 tabular-nums">
-                    计划买入 <strong>¥{Number(q.total_amount || 0).toLocaleString()}</strong>
-                    {q.daily_limit ? ` · 单日限额 ¥${Number(q.daily_limit).toLocaleString()}` : ''}
-                    {q.settlement?.description ? ` · ${q.settlement.description}` : ''}
+                  <div className="text-[11px] text-slate-500 tabular-nums">
+                    ¥{Number(q.total_amount || 0).toLocaleString()}
+                    {q.daily_limit ? ` · 限额 ¥${Number(q.daily_limit).toLocaleString()}` : ''}
                   </div>
                 </div>
               ))}
@@ -637,24 +617,89 @@ export function RebalancePage({
           )}
         </div>
 
-        <div className="card-elevated rounded-2xl p-5 space-y-3">
+        {/* 宏观分红方式建议 */}
+        <div className="inst-panel rounded-lg p-4 space-y-2.5">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Coins className="w-4 h-4 text-amber-600" />
-              <h2 className="text-sm font-bold text-slate-900">基金分红方式建议</h2>
+            <div className="flex items-center gap-1.5">
+              <Coins className="w-4 h-4 text-slate-700" />
+              <h2 className="text-xs font-bold text-slate-900">基金分红方式建议</h2>
             </div>
             {divAdvice && (
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-                当前首选：{divAdvice.recommended_label}
+              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                {divAdvice.recommended_label}
               </span>
             )}
           </div>
           <p className="text-xs text-slate-600 leading-relaxed">
-            {divAdvice?.summary || '根据当前市场估值分位，建议低估区间优先选择“红利再投资”免申购费滚份额，高估区间优先选择“现金分红”落袋为安。'}
+            {divAdvice?.summary || '低估区间优先选择「红利再投资」免申购费滚份额，高估区间选择「现金分红」落袋为安。'}
           </p>
-          <p className="text-[11px] text-slate-400">
-            提示：可在支付宝 / 天天基金 App 的单只基金持仓详情页中修改“分红方式”，修改后次个交易日生效且完全免费。
-          </p>
+        </div>
+
+        {/* A/C 类份额费率精算器（原抽屉归位） */}
+        <div className="inst-panel rounded-lg p-4 space-y-2.5 text-xs">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <Calculator className="w-4 h-4 text-blue-700" />
+              <h2 className="text-xs font-bold text-slate-900">A / C 类份额费率对比器</h2>
+            </div>
+            <span className="text-[10px] font-mono text-slate-500">盈亏平衡点 {breakEvenDays} 天</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 tabular-nums">
+            <label className="space-y-0.5">
+              <span className="text-[10px] text-slate-500">投入金额 (¥)</span>
+              <input
+                type="number"
+                value={acAmount}
+                min={1000}
+                step={5000}
+                onChange={(e) => setAcAmount(Math.max(1000, Number(e.target.value) || 10000))}
+                className="w-full h-7 px-2 rounded bg-slate-50 border border-slate-200 text-xs font-semibold"
+              />
+            </label>
+            <label className="space-y-0.5">
+              <span className="text-[10px] text-slate-500">预计持有 (天)</span>
+              <input
+                type="number"
+                value={acDays}
+                min={7}
+                step={30}
+                onChange={(e) => setAcDays(Math.max(7, Number(e.target.value) || 30))}
+                className="w-full h-7 px-2 rounded bg-slate-50 border border-slate-200 text-xs font-semibold"
+              />
+            </label>
+            <label className="space-y-0.5">
+              <span className="text-[10px] text-slate-500">A类申购费 (%)</span>
+              <input
+                type="number"
+                value={acSubFee}
+                min={0}
+                max={2}
+                step={0.05}
+                onChange={(e) => setAcSubFee(Math.max(0, Number(e.target.value) || 0))}
+                className="w-full h-7 px-2 rounded bg-slate-50 border border-slate-200 text-xs font-semibold"
+              />
+            </label>
+            <label className="space-y-0.5">
+              <span className="text-[10px] text-slate-500">C类年服务费 (%)</span>
+              <input
+                type="number"
+                value={acSalesFee}
+                min={0}
+                max={2}
+                step={0.05}
+                onChange={(e) => setAcSalesFee(Math.max(0, Number(e.target.value) || 0))}
+                className="w-full h-7 px-2 rounded bg-slate-50 border border-slate-200 text-xs font-semibold"
+              />
+            </label>
+          </div>
+          <div className="p-2 rounded bg-slate-50 border border-slate-200 flex items-center justify-between tabular-nums">
+            <span className="text-slate-600">
+              A类 <strong>¥{costA.toFixed(1)}</strong> vs C类 <strong>¥{costC.toFixed(1)}</strong>
+            </span>
+            <span className="font-bold text-blue-700">
+              {recommendA ? `优选 A类（省 ¥${(costC - costA).toFixed(1)}）` : `优选 C类（省 ¥${(costA - costC).toFixed(1)}）`}
+            </span>
+          </div>
         </div>
       </section>
     </div>
