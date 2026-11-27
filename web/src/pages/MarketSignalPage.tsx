@@ -141,39 +141,39 @@ export function MarketSignalPage() {
   return (
     <div className="space-y-4 fade-in" data-testid="market-signal-page">
       {/* 1. 顶部宏观定调与核心指数极简信息带（零大块广告牌） */}
-      <section className="inst-panel rounded-lg overflow-hidden">
-        <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <section className="inst-panel rounded-xl overflow-hidden">
+        <div className="px-4 sm:px-5 py-3.5 inst-panel-header flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-[#0A1628] text-white text-[11px] font-bold">
+              <span className="px-2.5 py-0.5 rounded-md bg-[#0B192C] text-white text-[11px] font-bold">
                 {verdict?.short_label || '大势信号研判中'}
               </span>
               {verdict?.action_tag && (
-                <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-semibold">
+                <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200 text-[11px] font-semibold">
                   {verdict.action_tag}
                 </span>
               )}
-              <span className="text-[11px] text-slate-400">
+              <span className="text-[11px] text-slate-500">
                 {overview?.is_official_nav ? '已同步盘后官方净值' : '盘中实时行情已连接'}
               </span>
             </div>
-            <h1 className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
+            <h1 className="text-sm sm:text-[15px] font-bold text-slate-900 leading-snug">
               {verdict?.detail_explanation || '正在根据十维量化投票与宏观估值水位汇总今日市场定调...'}
             </h1>
           </div>
 
-          <div className="flex items-center gap-4 text-xs tabular-nums shrink-0">
-            <div className="text-center">
-              <div className="text-[10px] text-slate-400">偏多</div>
-              <div className="font-extrabold text-red-600 text-base">{bullCount}</div>
+          <div className="flex items-center gap-2 text-xs tabular-nums shrink-0">
+            <div className="px-3 py-1.5 rounded-lg bg-red-50/70 border border-red-200/70 text-center min-w-[54px]">
+              <div className="text-[10px] font-medium text-red-700">偏多</div>
+              <div className="font-extrabold text-[#C81E1E] text-base leading-tight">{bullCount}</div>
             </div>
-            <div className="text-center">
-              <div className="text-[10px] text-slate-400">中性</div>
-              <div className="font-extrabold text-slate-600 text-base">{neutralCount}</div>
+            <div className="px-3 py-1.5 rounded-lg bg-slate-100/80 border border-slate-200 text-center min-w-[54px]">
+              <div className="text-[10px] font-medium text-slate-500">中性</div>
+              <div className="font-extrabold text-slate-700 text-base leading-tight">{neutralCount}</div>
             </div>
-            <div className="text-center">
-              <div className="text-[10px] text-slate-400">偏空</div>
-              <div className="font-extrabold text-emerald-700 text-base">{bearCount}</div>
+            <div className="px-3 py-1.5 rounded-lg bg-emerald-50/70 border border-emerald-200/70 text-center min-w-[54px]">
+              <div className="text-[10px] font-medium text-emerald-800">偏空</div>
+              <div className="font-extrabold text-[#047857] text-base leading-tight">{bearCount}</div>
             </div>
           </div>
         </div>

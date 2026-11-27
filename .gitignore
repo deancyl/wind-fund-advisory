@@ -75,6 +75,7 @@ scratch/
 
 # User private assets & screenshots
 投资组合/
+data/cashflows_*.json
 
 # Third-party copyrighted large documents & submodules
 李大霄/*.pdf

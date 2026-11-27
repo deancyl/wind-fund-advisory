@@ -29,9 +29,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pytest
 
-      - name: Run Phase 1 Quant Integrity, Seed Bootstrap & Infra Gate
+      - name: Run Phase 1 & Phase 2 Quant Integrity, Seed Bootstrap & Infra Gate
         run: |
-          python -m pytest tests/test_phase1_quant_integrity.py tests/test_akshare_compat_and_seed_bootstrap.py tests/test_infra.py -v
+          python -m pytest tests/test_phase1_quant_integrity.py tests/test_phase2_money_making_workflow.py tests/test_akshare_compat_and_seed_bootstrap.py tests/test_infra.py -v
 
   frontend-build-gate:
     runs-on: ubuntu-latest

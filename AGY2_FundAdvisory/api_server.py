@@ -238,7 +238,7 @@ except Exception:
     pass
 
 
-app = FastAPI(title="AGY2-FundAdvisory Local Quant API", version="2.2.0", lifespan=_lifespan)
+app = FastAPI(title="AGY2-FundAdvisory Local Quant API", version="2.3.0", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_CORS_ORIGINS,
@@ -764,6 +764,15 @@ def api_v1_holdings(ledger_id: Optional[str] = None) -> Dict[str, Any]:
     except Exception:
         pass
 
+    tp_map: Dict[str, Dict[str, Any]] = {}
+    try:
+        from market_lakehouse import load_elite_lakehouse
+        from phase2_workflow_engine import evaluate_holding_take_profit_radar
+        nav_df_tp, _, _ = load_elite_lakehouse()
+        tp_map = evaluate_holding_take_profit_radar(holdings, nav_matrix=nav_df_tp)
+    except Exception:
+        tp_map = {}
+
     rows = []
     for code, h in holdings.items():
         sh = float(getattr(h, "shares", 0.0))
@@ -799,10 +808,17 @@ def api_v1_holdings(ledger_id: Optional[str] = None) -> Dict[str, Any]:
             "est_diff_pct": est_diff,
             "holding_days": h_days,
             "redemption_fee_status": _redemption_fee_status(h_days, s_cls),
+            "take_profit": tp_map.get(str(code).strip().zfill(6)),
             "risk_tags": risk_map.get(code, []),
         })
     rows.sort(key=lambda x: x["market_value"], reverse=True)
-    return _sanitize_v1_payload({"ledger_id": lid, "count": len(rows), "items": rows})
+    tp_summary = {
+        "lock_count": sum(1 for r in rows if (r.get("take_profit") or {}).get("status") == "LOCK_PARTIAL"),
+        "watch_count": sum(1 for r in rows if (r.get("take_profit") or {}).get("status") == "TARGET_REACHED"),
+        "penalty_count": sum(1 for r in rows if (r.get("take_profit") or {}).get("status") == "HOLD_PENALTY"),
+        "deep_value_count": sum(1 for r in rows if (r.get("take_profit") or {}).get("status") == "DEEP_VALUE_ZONE"),
+    }
+    return _sanitize_v1_payload({"ledger_id": lid, "count": len(rows), "take_profit_summary": tp_summary, "items": rows})
 
 
 @app.get("/api/v1/rebalance")
@@ -3200,6 +3216,146 @@ def api_v1_tools_dividend_advice(ledger_id: Optional[str] = None) -> Dict[str, A
         "recommended_label": rec_label,
         "summary": summary,
     })
+
+
+# =====================================================================
+# Phase 2 (v2.3.0): 分批建仓向导 / 14:30 尾盘速决 / 真实流水与 XIRR
+# =====================================================================
+
+class StagedEntryRequest(BaseModel):
+    items: List[Dict[str, Any]]
+    total_amount: float = 50000.0
+    horizon_months: int = 24
+    mode: str = "smart_3_tranche"
+    market_regime: str = ""
+
+
+class CashflowRecordRequest(BaseModel):
+    ledger_id: Optional[str] = None
+    date: str
+    tx_type: str = "BUY"
+    amount: float
+    fund_code: str = ""
+    fund_name: str = ""
+    note: str = ""
+
+
+@app.post("/api/v1/plan/staged_entry")
+def api_v1_plan_staged_entry(req: StagedEntryRequest) -> Dict[str, Any]:
+    from phase2_workflow_engine import build_staged_entry_plan
+
+    plan = build_staged_entry_plan(
+        items=req.items,
+        total_amount=req.total_amount,
+        horizon_months=req.horizon_months,
+        mode=req.mode,
+        market_regime=req.market_regime,
+    )
+    return _sanitize_v1_payload(plan)
+
+
+@app.get("/api/v1/trading/cutoff_brief")
+def api_v1_trading_cutoff_brief(
+    ledger_id: Optional[str] = None,
+    target_profit_pct: float = 15.0,
+) -> Dict[str, Any]:
+    from market_lakehouse import load_elite_lakehouse
+    from phase2_workflow_engine import build_cutoff_quick_brief, evaluate_holding_take_profit_radar
+
+    _, lid, pm, snap = _get_active_context(ledger_id)
+    holdings = getattr(pm, "holdings", {}) or {}
+    nav_df_tp, _, _ = load_elite_lakehouse()
+    tp_map = evaluate_holding_take_profit_radar(
+        holdings, nav_matrix=nav_df_tp, target_profit_pct=target_profit_pct
+    )
+    h_rows = [
+        {
+            "fund_code": str(code).strip().zfill(6),
+            "fund_name": str(getattr(h, "fund_name", code)),
+            "take_profit": tp_map.get(str(code).strip().zfill(6), {}),
+        }
+        for code, h in holdings.items()
+    ]
+    reb_summary: Optional[Dict[str, Any]] = None
+    try:
+        if holdings:
+            reb_summary = api_v1_rebalance(ledger_id=lid)
+    except Exception:
+        reb_summary = None
+
+    verdict = _arbitrate_market_verdict(snap)
+    brief = build_cutoff_quick_brief(
+        holdings_rows=h_rows,
+        rebalance_summary=reb_summary,
+        market_verdict=verdict,
+    )
+    brief["ledger_id"] = lid
+    return _sanitize_v1_payload(brief)
+
+
+@app.get("/api/v1/ledger/cashflows")
+def api_v1_ledger_cashflows_get(ledger_id: Optional[str] = None) -> Dict[str, Any]:
+    from phase2_workflow_engine import summarize_ledger_xirr
+
+    _, lid, pm, _ = _get_active_context(ledger_id)
+    holdings = getattr(pm, "holdings", {}) or {}
+    total_eq = float(getattr(pm, "total_equity", 0.0) or 0.0)
+    avail_cash = float(getattr(pm, "available_cash", 0.0) or 0.0)
+    return _sanitize_v1_payload(
+        summarize_ledger_xirr(
+            ledger_id=lid,
+            holdings=holdings,
+            total_equity=total_eq,
+            available_cash=avail_cash,
+        )
+    )
+
+
+@app.post("/api/v1/ledger/cashflows")
+def api_v1_ledger_cashflows_add(req: CashflowRecordRequest) -> Dict[str, Any]:
+    from phase2_workflow_engine import append_ledger_cashflow, summarize_ledger_xirr
+
+    with _LEDGER_WRITE_LOCK:
+        _, lid, pm, _ = _get_active_context(req.ledger_id)
+        try:
+            rec = append_ledger_cashflow(
+                ledger_id=lid,
+                tx_date=req.date,
+                tx_type=req.tx_type,
+                amount=req.amount,
+                fund_code=req.fund_code,
+                fund_name=req.fund_name,
+                note=req.note,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        holdings = getattr(pm, "holdings", {}) or {}
+        summary = summarize_ledger_xirr(
+            ledger_id=lid,
+            holdings=holdings,
+            total_equity=float(getattr(pm, "total_equity", 0.0) or 0.0),
+            available_cash=float(getattr(pm, "available_cash", 0.0) or 0.0),
+        )
+        return _sanitize_v1_payload({"added": rec, "summary": summary})
+
+
+@app.delete("/api/v1/ledger/cashflows/{record_id}")
+def api_v1_ledger_cashflows_delete(record_id: str, ledger_id: Optional[str] = None) -> Dict[str, Any]:
+    from phase2_workflow_engine import delete_ledger_cashflow, summarize_ledger_xirr
+
+    with _LEDGER_WRITE_LOCK:
+        _, lid, pm, _ = _get_active_context(ledger_id)
+        deleted = delete_ledger_cashflow(lid, record_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"未找到交易流水记录: {record_id}")
+        holdings = getattr(pm, "holdings", {}) or {}
+        summary = summarize_ledger_xirr(
+            ledger_id=lid,
+            holdings=holdings,
+            total_equity=float(getattr(pm, "total_equity", 0.0) or 0.0),
+            available_cash=float(getattr(pm, "available_cash", 0.0) or 0.0),
+        )
+        return _sanitize_v1_payload({"deleted": True, "record_id": record_id, "summary": summary})
 
 
 # =====================================================================

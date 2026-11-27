@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, Check, RefreshCw, ChevronDown, ChevronRight, CalendarClock, Coins, Calculator } from 'lucide-react';
-import { api, type DividendAdviceResponse, type RebalanceItem, type RebalanceResponse } from '../api/client';
+import { Copy, Check, RefreshCw, ChevronDown, ChevronRight, CalendarClock, Coins, Calculator, Clock, ShieldCheck } from 'lucide-react';
+import { api, type CutoffQuickBriefResponse, type DividendAdviceResponse, type RebalanceItem, type RebalanceResponse } from '../api/client';
 import { useWorkbench } from '../context/WorkbenchContext';
 
 export function RebalancePage() {
@@ -19,6 +19,7 @@ export function RebalancePage() {
   } = useWorkbench();
 
   const [data, setData] = useState<RebalanceResponse | null>(null);
+  const [cutoffBrief, setCutoffBrief] = useState<CutoffQuickBriefResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [targetSource, setTargetSource] = useState<'ledger_smooth' | 'full_market_solved'>('ledger_smooth');
   const [checkedSet, setCheckedSet] = useState<Set<string>>(new Set());
@@ -64,11 +65,13 @@ export function RebalancePage() {
       }),
       api.getCheckin(),
       api.getDividendAdvice(activeLedgerId).catch(() => null),
+      api.getCutoffBrief(activeLedgerId, targetReturnPct).catch(() => null),
     ])
-      .then(([reb, chk, divRes]) => {
+      .then(([reb, chk, divRes, briefRes]) => {
         if (!alive) return;
         setData(reb);
         if (divRes) setDivAdvice(divRes);
+        if (briefRes) setCutoffBrief(briefRes);
         const codes = new Set<string>();
         const rawMap = chk?.checked_codes || {};
         for (const [k, v] of Object.entries(rawMap)) {
@@ -227,8 +230,72 @@ export function RebalancePage() {
 
   return (
     <div className="space-y-4 fade-in" data-testid="rebalance-page">
+      {/* 0. 14:30 尾盘实盘速决条（单行极简，复用 TradingClock 15:00 申赎生死线 + Top 3 动作） */}
+      {cutoffBrief && (
+        <section
+          data-testid="cutoff-quick-brief-bar"
+          className={`inst-panel rounded-xl px-4 py-3 border-l-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs ${
+            cutoffBrief.is_golden_window
+              ? 'border-l-amber-500 bg-amber-50/40'
+              : cutoffBrief.is_after_market || !cutoffBrief.is_trade_day
+              ? 'border-l-slate-400'
+              : 'border-l-blue-600'
+          }`}
+        >
+          <div className="flex flex-wrap items-center gap-2.5 min-w-0">
+            <span
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold shrink-0 ${
+                cutoffBrief.is_golden_window
+                  ? 'bg-amber-500 text-[#0B192C]'
+                  : cutoffBrief.is_after_market || !cutoffBrief.is_trade_day
+                  ? 'bg-slate-800 text-white'
+                  : 'bg-[#0B192C] text-white'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>{cutoffBrief.window_label}</span>
+              {cutoffBrief.countdown_str && cutoffBrief.countdown_str !== '00:00' && cutoffBrief.countdown_str !== '--:--' && (
+                <span className="font-mono ml-1 opacity-90">距15:00 {cutoffBrief.countdown_str}</span>
+              )}
+            </span>
+            <span className="text-slate-700 leading-snug">
+              生效成交日 <strong className="font-mono text-slate-900">{cutoffBrief.effective_trade_date}</strong> · {cutoffBrief.message}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            {cutoffBrief.priority_actions.length === 0 ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-semibold">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                今日无紧急动作，安心持有
+              </span>
+            ) : (
+              cutoffBrief.priority_actions.map((act, idx) => (
+                <button
+                  key={`${act.tag}-${idx}`}
+                  type="button"
+                  onClick={() => act.fund_code && openInspector(act.fund_code)}
+                  title={act.summary}
+                  className={`px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer transition-colors ${
+                    act.tone === 'profit_lock'
+                      ? 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
+                      : act.tone === 'buy'
+                      ? 'bg-red-50 border-red-200 text-[#C81E1E] hover:bg-red-100'
+                      : act.tone === 'sell'
+                      ? 'bg-emerald-50 border-emerald-200 text-[#047857] hover:bg-emerald-100'
+                      : 'bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100'
+                  }`}
+                >
+                  {act.tag}：{act.fund_name}
+                </button>
+              ))
+            )}
+          </div>
+        </section>
+      )}
+
       {/* 1. 顶部目标基准切换 + 一键复制 + 次日同步 */}
-      <section className="inst-panel rounded-lg px-4 py-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <section className="inst-panel rounded-xl px-4 py-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold text-slate-900">调仓目标组合来源</span>

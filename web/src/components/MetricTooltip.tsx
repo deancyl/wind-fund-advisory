@@ -73,6 +73,20 @@ export const METRIC_SPECS: Record<string, MetricAuditSpec> = {
     source: 'stress_test & ExtremeCycleAnalyzer',
     note: '比传统 VaR 更严谨的一致性风险度量，刻画真正发生黑天鹅踩踏时组合可能承受的平均最大浮亏深度。',
   },
+  xirr: {
+    title: '资金加权年化收益率 (XIRR)',
+    formula: '∑ CF_i / (1 + XIRR)^((d_i − d_0) / 365) = 0',
+    window: '精确纳入每一笔买入、定投、赎回与现金分红的时间权重',
+    source: 'phase2_workflow_engine · 牛顿迭代+二分求解',
+    note: '普通简单收益率会被中途大额加仓/定投严重稀释或扭曲；XIRR 是银行/机构衡量定投族真实赚钱效率的金标准。记录真实交易流水后可零误差核算。',
+  },
+  trailing_tp: {
+    title: '三阶移动止盈与守果雷达',
+    formula: '浮盈 ≥ 目标线 (+15%) 且自阶段高点回撤 ≥ 4.5%（满 7 天免惩罚费）→ 触发落袋 1/3',
+    window: '结合本地真净值湖仓追踪建仓以来阶段最高净值与当前回撤',
+    source: 'phase2_workflow_engine 实算',
+    note: '帮场外买基人克服“涨了舍不得卖、跌回原点白坐过山车”的人性弱点：达标后让利润奔跑，高位拐头回撤 4.5% 时分批落袋至中短债安全垫。',
+  },
 };
 
 interface MetricTooltipProps {

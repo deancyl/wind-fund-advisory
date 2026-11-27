@@ -65,7 +65,7 @@ export function CrowdingQuadrantChart({
         },
       },
       legend: { top: 0, right: 0, textStyle: { fontSize: 11, color: '#475569' } },
-      grid: { top: 44, left: 48, right: 24, bottom: 40 },
+      grid: { top: 48, left: 50, right: 24, bottom: 42 },
       xAxis: {
         type: 'value',
         name: 'MA20 均线乖离率 Bias20 (%)',
@@ -79,9 +79,11 @@ export function CrowdingQuadrantChart({
       yAxis: {
         type: 'value',
         name: '交易拥挤度热力 (0~100)',
+        nameGap: 14,
         nameTextStyle: { color: '#64748B', fontSize: 11 },
-        min: 15,
+        min: 10,
         max: 90,
+        interval: 20,
         splitLine: { lineStyle: { color: '#F1F5F9' } },
       },
       series: Object.entries(groups).map(([name, g], idx) => ({
@@ -105,16 +107,17 @@ export function CrowdingQuadrantChart({
               markLine: {
                 silent: true,
                 symbol: 'none',
+                label: { show: false },
                 lineStyle: { type: 'dashed', color: '#CBD5E1', width: 1.5 },
                 data: [{ xAxis: 0 }, { yAxis: 50 }],
               },
               markArea: {
                 silent: true,
                 data: [
-                  [{ coord: [minX, 15], itemStyle: { color: 'rgba(16, 185, 129, 0.04)' }, label: { show: true, position: 'insideBottomLeft', formatter: '低估布局区（适合分批低吸）', color: '#059669', fontSize: 11 } }, { coord: [0, 50] }],
+                  [{ coord: [minX, 10], itemStyle: { color: 'rgba(16, 185, 129, 0.04)' }, label: { show: true, position: 'insideBottomLeft', formatter: '低估布局区（适合分批低吸）', color: '#059669', fontSize: 11 } }, { coord: [0, 50] }],
                   [{ coord: [0, 50], itemStyle: { color: 'rgba(245, 158, 11, 0.04)' }, label: { show: true, position: 'insideTopRight', formatter: '高位偏热区（忌盲目追高）', color: '#D97706', fontSize: 11 } }, { coord: [maxX, 90] }],
                   [{ coord: [minX, 50], itemStyle: { color: 'rgba(244, 63, 94, 0.03)' }, label: { show: true, position: 'insideTopLeft', formatter: '分歧避险区（观望防守）', color: '#E11D48', fontSize: 11 } }, { coord: [0, 90] }],
-                  [{ coord: [0, 15], itemStyle: { color: 'rgba(14, 165, 233, 0.03)' }, label: { show: true, position: 'insideBottomRight', formatter: '温和修复区（稳健持有）', color: '#0284C7', fontSize: 11 } }, { coord: [maxX, 50] }],
+                  [{ coord: [0, 10], itemStyle: { color: 'rgba(14, 165, 233, 0.03)' }, label: { show: true, position: 'insideBottomRight', formatter: '温和修复区（稳健持有）', color: '#0284C7', fontSize: 11 } }, { coord: [maxX, 50] }],
                 ],
               },
             }

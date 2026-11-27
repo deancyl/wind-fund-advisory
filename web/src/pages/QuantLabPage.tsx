@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import {
   Play,
   RefreshCw,
@@ -15,10 +15,12 @@ import {
   ArrowUpDown,
   X,
   Cpu,
+  Layers,
 } from 'lucide-react';
 import { useWorkbench } from '../context/WorkbenchContext';
 import type { UniverseMode } from '../api/client';
 import { MetricTooltip } from '../components/MetricTooltip';
+import { StagedEntryModal } from '../components/StagedEntryModal';
 import { BacktestCharts } from '../components/charts/BacktestCharts';
 import { ScenarioBacktestPanel } from '../components/charts/ScenarioBacktestPanel';
 import { ExtremeCyclePanel } from '../components/charts/ExtremeCyclePanel';
@@ -75,6 +77,7 @@ const SOLVE_STAGES = [
 
 export function QuantLabPage() {
   const {
+    setActiveTab,
     sidebarCollapsed,
     setSidebarCollapsed,
     riskLevel,
@@ -118,8 +121,10 @@ export function QuantLabPage() {
   const [subTab, setSubTab] = useState<LabSubTab>('matrix');
   const [btMode, setBtMode] = useState<'full' | 'scenario'>('full');
   const [showAuditDetail, setShowAuditDetail] = useState(false);
+  const [stagedEntryOpen, setStagedEntryOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('weight_pct');
   const [sortAsc, setSortAsc] = useState(false);
+  const matrixCaptionId = useId();
 
   const liveCapital = Math.max(1000, amount || 50000);
 
@@ -662,15 +667,15 @@ export function QuantLabPage() {
           {subTab === 'matrix' && (
             <div className="space-y-4 fade-in">
               {/* 4 列极简无彩虹底纯排版 KPI 带 */}
-              <section className="inst-panel rounded-lg grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200 tabular-nums">
+              <section className="inst-panel rounded-xl grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200 tabular-nums">
                 <div className="p-4">
-                  <div className="flex items-center justify-between text-[11px] text-slate-500">
+                  <div className="flex items-center justify-between text-[11px] font-medium text-slate-500">
                     <span>{curves?.period_label || '近1年'}实盘校准收益</span>
                     <select
                       value={period}
                       onChange={(e) => setPeriod(e.target.value)}
                       aria-label="回测统计周期"
-                      className="text-[10px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 cursor-pointer"
+                      className="text-[10px] font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 cursor-pointer"
                     >
                       {BACKTEST_PERIODS.map((p) => (
                         <option key={p.id} value={p.id}>
@@ -680,8 +685,8 @@ export function QuantLabPage() {
                     </select>
                   </div>
                   <div
-                    className={`text-2xl font-extrabold mt-1 ${
-                      (curves?.metrics?.period_return_pct ?? 0) >= 0 ? 'text-red-600' : 'text-emerald-700'
+                    className={`inst-kpi-val mt-1.5 ${
+                      (curves?.metrics?.period_return_pct ?? 0) >= 0 ? 'text-[#C81E1E]' : 'text-[#047857]'
                     }`}
                   >
                     {curves?.metrics
@@ -698,11 +703,11 @@ export function QuantLabPage() {
                 </div>
 
                 <div className="p-4">
-                  <div className="text-[11px] text-slate-500">
+                  <div className="text-[11px] font-medium text-slate-500">
                     区间最大回撤
                     <MetricTooltip specKey="cvar99" />
                   </div>
-                  <div className="text-2xl font-extrabold mt-1 text-emerald-700">
+                  <div className="inst-kpi-val mt-1.5 text-[#047857]">
                     {curves?.metrics ? `-${Math.abs(curves.metrics.max_drawdown_pct).toFixed(2)}%` : '--'}
                   </div>
                   <div className="text-[11px] text-slate-500 mt-1">
@@ -715,11 +720,11 @@ export function QuantLabPage() {
                 </div>
 
                 <div className="p-4">
-                  <div className="text-[11px] text-slate-500">
+                  <div className="text-[11px] font-medium text-slate-500">
                     滚动目标触达率
                     <MetricTooltip specKey="rolling_hit" />
                   </div>
-                  <div className="text-2xl font-extrabold mt-1 text-slate-900">
+                  <div className="inst-kpi-val mt-1.5 text-slate-900">
                     {blueprint?.goal_analysis ? `${blueprint.goal_analysis.historical_hit_rate_pct.toFixed(1)}%` : '--'}
                   </div>
                   <div className="text-[11px] text-slate-500 mt-1">
@@ -732,11 +737,11 @@ export function QuantLabPage() {
                 </div>
 
                 <div className="p-4">
-                  <div className="text-[11px] text-slate-500">
-                    风险调整夏普 / OOS 胜率
+                  <div className="text-[11px] font-medium text-slate-500">
+                    风险调整夏普 / OOS 盲测
                     <MetricTooltip specKey="sharpe" align="right" />
                   </div>
-                  <div className="text-2xl font-extrabold mt-1 text-slate-900">
+                  <div className="inst-kpi-val mt-1.5 text-slate-900">
                     {curves?.metrics ? curves.metrics.sharpe_ratio.toFixed(2) : '--'}
                     <span className="text-sm font-semibold text-slate-400 mx-1.5">/</span>
                     <span className="text-lg font-bold text-blue-700">
@@ -744,7 +749,7 @@ export function QuantLabPage() {
                     </span>
                   </div>
                   <div className="text-[11px] text-slate-500 mt-1">
-                    OOS 样本外核验
+                    严格 OOS 核验
                     <MetricTooltip specKey="oos_winrate" align="right" />
                     <span className="mx-1 text-slate-300">·</span>
                     最大 PCR {solverAudit?.max_risk_pcr_pct?.toFixed(1) ?? '--'}%
@@ -752,11 +757,11 @@ export function QuantLabPage() {
                 </div>
               </section>
 
-              {/* 高密度专业组合配置矩阵表（替代臃肿 6 卡片） */}
-              <section className="inst-panel rounded-lg overflow-hidden" data-testid="portfolio-matrix-table">
-                <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50/70 flex flex-wrap items-center justify-between gap-2 text-xs">
+              {/* 高密度专业组合配置矩阵表（合并配比+金额消除 1440px 横向滚动条，内嵌一键分批建仓向导 CTA） */}
+              <section className="inst-panel rounded-xl overflow-hidden" data-testid="portfolio-matrix-table">
+                <div className="px-4 py-2.5 inst-panel-header flex flex-wrap items-center justify-between gap-2 text-xs">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="font-bold text-slate-900">
+                    <h2 id={matrixCaptionId} className="font-bold text-slate-900">
                       组合配置与风险预算矩阵（{sortedItems.length} 只
                       {sortedItems.length > 0
                         ? ` · 权重 ${sortedItems.reduce((acc, it) => acc + Number(it.weight_pct || 0), 0).toFixed(1)}%`
@@ -766,15 +771,27 @@ export function QuantLabPage() {
                     {realBtInfo?.is_real_nav && (
                       <span
                         data-testid="real-nav-backtest-badge"
-                        className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold"
+                        className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-semibold"
                       >
                         100% 基金真实复权净值 · 存续自 {realBtInfo.common_start_date}
                       </span>
                     )}
                   </div>
-                  <span className="text-[11px] text-slate-500 tabular-nums">
-                    拟投本金 <strong className="text-slate-900">¥{liveCapital.toLocaleString()}</strong> · 点击任意行打开右侧检查器
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <span className="text-[11px] text-slate-500 tabular-nums hidden sm:inline">
+                      拟投 <strong className="text-slate-900">¥{liveCapital.toLocaleString()}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      disabled={sortedItems.length === 0}
+                      onClick={() => setStagedEntryOpen(true)}
+                      data-testid="btn-open-staged-entry"
+                      className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500 text-[#0B192C] hover:bg-amber-400 shadow-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-40 transition-colors"
+                    >
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>分批建仓计划</span>
+                    </button>
+                  </div>
                 </div>
 
                 {solving && !blueprint ? (
@@ -782,41 +799,40 @@ export function QuantLabPage() {
                     正在本地真净值湖仓执行全市场量化寻优...
                   </div>
                 ) : (
-                  <div className="table-wrapper">
+                  <div tabIndex={0} role="region" aria-labelledby={matrixCaptionId} className="table-wrapper">
                     <table className="text-left text-xs tabular-nums">
                       <thead>
-                        <tr className="border-b border-slate-200 bg-white text-slate-500">
-                          <th scope="col" className="py-2.5 px-4 font-semibold whitespace-nowrap">基金标的</th>
-                          <th scope="col" className="py-2.5 px-3 font-semibold whitespace-nowrap">风格桶 / 属性</th>
-                          <th scope="col" className="py-2.5 px-3 font-semibold text-right whitespace-nowrap">
+                        <tr className="border-b border-slate-200 bg-white text-slate-500 text-[11px]">
+                          <th scope="col" className="py-2.5 px-3 font-semibold whitespace-nowrap">基金标的</th>
+                          <th scope="col" className="py-2.5 px-2.5 font-semibold whitespace-nowrap">风格桶</th>
+                          <th scope="col" className="py-2.5 px-2.5 font-semibold text-right whitespace-nowrap">
                             <button type="button" onClick={() => handleSort('weight_pct')} className="inline-flex items-center gap-1 hover:text-slate-900 cursor-pointer">
-                              <span>目标权重</span>
+                              <span>配比 / 建议金额</span>
                               <ArrowUpDown className="w-3 h-3" />
                             </button>
                           </th>
-                          <th scope="col" className="py-2.5 px-3 font-semibold text-right whitespace-nowrap">建议金额</th>
-                          <th scope="col" className="py-2.5 px-3 font-semibold text-right whitespace-nowrap">
+                          <th scope="col" className="py-2.5 px-2.5 font-semibold text-right whitespace-nowrap">
                             <button type="button" onClick={() => handleSort('risk_contribution_pcr_pct')} className="inline-flex items-center gap-1 hover:text-slate-900 cursor-pointer">
-                              <span>风险贡献 PCR</span>
+                              <span>风险 PCR</span>
                               <ArrowUpDown className="w-3 h-3" />
                             </button>
                             <MetricTooltip specKey="pcr" align="right" />
                           </th>
-                          <th scope="col" className="py-2.5 px-3 font-semibold text-right whitespace-nowrap">
+                          <th scope="col" className="py-2.5 px-2 font-semibold text-right whitespace-nowrap">
                             <button type="button" onClick={() => handleSort('quant_score')} className="inline-flex items-center gap-1 hover:text-slate-900 cursor-pointer">
                               <span>量化分</span>
                               <ArrowUpDown className="w-3 h-3" />
                             </button>
                           </th>
-                          <th scope="col" className="py-2.5 px-3 font-semibold text-right whitespace-nowrap">
+                          <th scope="col" className="py-2.5 px-2.5 font-semibold text-right whitespace-nowrap">
                             <button type="button" onClick={() => handleSort('bias_20')} className="inline-flex items-center gap-1 hover:text-slate-900 cursor-pointer">
-                              <span>MA20乖离 / 温度</span>
+                              <span>乖离 / 温度</span>
                               <ArrowUpDown className="w-3 h-3" />
                             </button>
                             <MetricTooltip specKey="bias20" align="right" />
                           </th>
-                          <th scope="col" className="py-2.5 px-3 font-semibold whitespace-nowrap">限购与费率</th>
-                          <th scope="col" className="py-2.5 px-4 font-semibold text-right whitespace-nowrap">约束操作</th>
+                          <th scope="col" className="py-2.5 px-2.5 font-semibold whitespace-nowrap">限购与费率</th>
+                          <th scope="col" className="py-2.5 px-3 font-semibold text-right whitespace-nowrap">操作</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -833,13 +849,16 @@ export function QuantLabPage() {
                               onClick={() => openInspector(f.fund_code)}
                               className={`hover:bg-blue-50/40 transition-colors cursor-pointer ${solving ? 'opacity-60' : ''}`}
                             >
-                              <th scope="row" className="py-2.5 px-4 font-normal">
+                              <th scope="row" className="py-2.5 px-3 font-normal max-w-[235px]">
                                 <div className="flex items-center gap-1.5">
-                                  <span className="font-semibold text-slate-900 hover:text-blue-700 whitespace-nowrap">
+                                  <span
+                                    className="font-semibold text-slate-900 hover:text-blue-700 truncate"
+                                    title={f.fund_name}
+                                  >
                                     {f.fund_name}
                                   </span>
                                   {isLocked && (
-                                    <span className="px-1 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-semibold">
+                                    <span className="px-1 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-semibold shrink-0">
                                       已锁
                                     </span>
                                   )}
@@ -849,31 +868,33 @@ export function QuantLabPage() {
                                   {f.real_scale_yi ? ` · ${Number(f.real_scale_yi).toFixed(1)}亿` : ''}
                                 </div>
                               </th>
-                              <td className="py-2.5 px-3 whitespace-nowrap">
-                                <div className="text-slate-700 font-medium">{f.bucket_label || f.role}</div>
+                              <td className="py-2.5 px-2.5 whitespace-nowrap">
+                                <div className="text-slate-800 font-medium">{f.bucket_label || f.role}</div>
                                 <div className="text-[10px] text-slate-400">
-                                  {f.is_active_fund ? '主动精选' : '低费指数/工具'}
+                                  {f.is_active_fund ? '主动精选' : '低费指数'}
                                 </div>
                               </td>
-                              <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                                <div className="font-bold text-slate-900">{f.weight_pct.toFixed(1)}%</div>
-                                <div className="w-16 h-1 rounded-full bg-slate-100 ml-auto mt-1 overflow-hidden">
-                                  <div className="h-full bg-blue-700" style={{ width: `${Math.min(100, f.weight_pct * 2.2)}%` }} />
+                              <td className="py-2.5 px-2.5 text-right whitespace-nowrap">
+                                <div className="flex items-baseline justify-end gap-1.5">
+                                  <span className="font-extrabold text-slate-900">{f.weight_pct.toFixed(1)}%</span>
+                                  <span className="text-[11px] font-semibold text-blue-800">
+                                    ¥{Math.round(f.suggested_amount).toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="w-20 h-1 rounded-full bg-slate-100 ml-auto mt-1 overflow-hidden">
+                                  <div className="h-full bg-blue-700 rounded-full" style={{ width: `${Math.min(100, f.weight_pct * 2.4)}%` }} />
                                 </div>
                               </td>
-                              <td className="py-2.5 px-3 text-right font-semibold text-slate-800 whitespace-nowrap">
-                                ¥{Math.round(f.suggested_amount).toLocaleString()}
-                              </td>
-                              <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                              <td className="py-2.5 px-2.5 text-right whitespace-nowrap">
                                 <span
                                   className={`font-semibold ${
-                                    pcr < 0 ? 'text-emerald-700' : pcr >= 32 ? 'text-amber-700' : 'text-slate-700'
+                                    pcr < 0 ? 'text-[#047857]' : pcr >= 32 ? 'text-amber-700' : 'text-slate-700'
                                   }`}
                                 >
                                   {pcr.toFixed(1)}%
                                 </span>
                                 <div
-                                  className={`text-[10px] ${pcr < 0 ? 'text-emerald-700 font-medium' : 'text-slate-400'}`}
+                                  className={`text-[10px] ${pcr < 0 ? 'text-[#047857] font-medium' : 'text-slate-400'}`}
                                   title={
                                     pcr < 0
                                       ? '与组合权益主风险呈负相关，起到天然波动对冲作用'
@@ -887,15 +908,15 @@ export function QuantLabPage() {
                                     : '均衡'}
                                 </div>
                               </td>
-                              <td className="py-2.5 px-3 text-right font-bold text-slate-900 whitespace-nowrap">
+                              <td className="py-2.5 px-2 text-right font-bold text-slate-900 whitespace-nowrap">
                                 {f.quant_score ?? '--'}
                               </td>
-                              <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                              <td className="py-2.5 px-2.5 text-right whitespace-nowrap">
                                 {b20 !== null && b20 !== undefined ? (
                                   <div>
                                     <span
                                       className={`font-mono font-semibold ${
-                                        hot ? 'text-amber-700' : cool ? 'text-emerald-700' : 'text-slate-700'
+                                        hot ? 'text-amber-700' : cool ? 'text-[#047857]' : 'text-slate-700'
                                       }`}
                                     >
                                       {b20 >= 0 ? '+' : ''}
@@ -909,7 +930,7 @@ export function QuantLabPage() {
                                   <span className="text-slate-300">--</span>
                                 )}
                               </td>
-                              <td className="py-2.5 px-3 whitespace-nowrap">
+                              <td className="py-2.5 px-2.5 whitespace-nowrap">
                                 <div>
                                   {f.quota_note ? (
                                     <span
@@ -920,7 +941,7 @@ export function QuantLabPage() {
                                     </span>
                                   ) : (
                                     <span className="text-[11px] text-slate-500">
-                                      不限购 · 费率 {(f.factor_profile?.total_fee_pct ?? 0.6).toFixed(2)}%
+                                      不限购 · {(f.factor_profile?.total_fee_pct ?? 0.6).toFixed(2)}%
                                     </span>
                                   )}
                                 </div>
@@ -930,13 +951,13 @@ export function QuantLabPage() {
                                     className="text-[10px] text-blue-700 font-medium mt-0.5"
                                   >
                                     {f.c_share_code && f.c_share_code !== f.fund_code
-                                      ? `≤1年省费：可看 C 类 ${f.c_share_code}`
-                                      : '≤1年建议关注同基 C 类'}
+                                      ? `≤1年省费：C类 ${f.c_share_code}`
+                                      : '≤1年建议关注C类'}
                                   </div>
                                 )}
                               </td>
                               <td
-                                className="py-2.5 px-4 text-right whitespace-nowrap"
+                                className="py-2.5 px-3 text-right whitespace-nowrap"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <div className="inline-flex items-center gap-1">
@@ -944,24 +965,24 @@ export function QuantLabPage() {
                                     type="button"
                                     onClick={() => toggleIncludeCode(f.fund_code, true)}
                                     title={isLocked ? '解除锁定并重算' : '锁定必选并重算'}
-                                    className={`px-2 py-1 rounded text-[11px] font-medium border inline-flex items-center gap-1 cursor-pointer ${
+                                    className={`px-2 py-1 rounded text-[11px] font-medium border inline-flex items-center gap-0.5 cursor-pointer ${
                                       isLocked
                                         ? 'bg-blue-700 text-white border-blue-700'
                                         : 'bg-white text-slate-600 border-slate-200 hover:border-blue-500 hover:text-blue-700'
                                     }`}
                                   >
                                     <Lock className="w-3 h-3" />
-                                    <span>{isLocked ? '解锁' : '锁定'}</span>
+                                    <span>{isLocked ? '解锁' : '锁'}</span>
                                   </button>
                                   <button
                                     type="button"
                                     data-testid={`btn-exclude-${f.fund_code}`}
                                     onClick={() => toggleExcludeCode(f.fund_code, true)}
                                     title="排除此基金并立即全市场重算"
-                                    className="px-2 py-1 rounded text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:border-red-500 hover:text-red-600 inline-flex items-center gap-1 cursor-pointer"
+                                    className="px-2 py-1 rounded text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:border-red-500 hover:text-red-600 inline-flex items-center gap-0.5 cursor-pointer"
                                   >
                                     <Ban className="w-3 h-3" />
-                                    <span>排除</span>
+                                    <span>排</span>
                                   </button>
                                 </div>
                               </td>
@@ -1146,6 +1167,17 @@ export function QuantLabPage() {
           {subTab === 'compare' && <SnapshotCompareView />}
         </div>
       </div>
+
+      <StagedEntryModal
+        open={stagedEntryOpen}
+        items={sortedItems}
+        totalAmount={liveCapital}
+        horizonMonths={horizonMonths}
+        marketRegime={blueprint?.market_regime}
+        onClose={() => setStagedEntryOpen(false)}
+        onGoRebalance={() => setActiveTab('rebalance')}
+        onNotify={pushToast}
+      />
     </div>
   );
 }

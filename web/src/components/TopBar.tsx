@@ -36,22 +36,22 @@ export function TopBar() {
 
   return (
     <header className="sticky top-0 z-30 shadow-xs">
-      {/* 第 1 层：48px 极简机构顶栏 */}
+      {/* 第 1 层：极简私行风机构顶栏 */}
       <div className="topbar-navy text-white border-b border-white/10">
-        <div className="max-w-[1480px] mx-auto px-3 sm:px-5 h-12 flex items-center justify-between gap-2">
+        <div className="max-w-[1480px] mx-auto px-3 sm:px-5 min-h-[3.25rem] py-1.5 flex items-center justify-between gap-2">
           {/* 左：品牌 + 4 个纯净一级工作区 */}
           <div className="flex items-center gap-4 min-w-0">
             <button
               type="button"
               onClick={() => setActiveTab('quant_lab')}
-              className="flex items-center gap-2 shrink-0 cursor-pointer"
+              className="flex items-center gap-2.5 shrink-0 cursor-pointer group"
             >
-              <span className="w-7 h-7 rounded-md bg-amber-500 text-[#0A1628] flex items-center justify-center font-extrabold text-xs tracking-tight">
+              <span className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-400 to-amber-500 text-[#0B192C] flex items-center justify-center font-extrabold text-xs tracking-tight shadow-sm ring-1 ring-amber-300/40 group-hover:brightness-105 transition">
                 A2
               </span>
-              <span className="font-bold text-sm tracking-tight text-white">AGY2</span>
-              <span className="hidden 2xl:inline-block text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-slate-300 font-medium">
-                本地纯量化 · 不连券商
+              <span className="font-extrabold text-sm tracking-tight text-white">AGY2 智投</span>
+              <span className="hidden 2xl:inline-block text-[11px] px-2 py-0.5 rounded-full bg-white/10 border border-white/10 text-slate-200 font-medium">
+                场外基金纯量化 · 本地隐私
               </span>
             </button>
 
@@ -64,13 +64,13 @@ export function TopBar() {
                     type="button"
                     onClick={() => setActiveTab(id)}
                     aria-current={active ? 'page' : undefined}
-                    className={`h-8 px-3 rounded-md text-xs whitespace-nowrap inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    className={`min-h-8 px-3.5 py-1.5 rounded-lg text-xs whitespace-nowrap inline-flex items-center gap-1.5 transition-all cursor-pointer ${
                       active
-                        ? 'bg-white text-[#0A1628] font-bold shadow-xs'
+                        ? 'bg-white text-[#0B192C] font-bold shadow-sm'
                         : 'text-slate-300 hover:text-white hover:bg-white/10 font-medium'
                     }`}
                   >
-                    <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <Icon className={`w-3.5 h-3.5 shrink-0 ${active ? 'text-blue-700' : ''}`} aria-hidden="true" />
                     <span>{label}</span>
                   </button>
                 );
@@ -84,7 +84,7 @@ export function TopBar() {
               value={activeLedgerId}
               onChange={(e) => void switchLedger(e.target.value)}
               aria-label="切换当前账本"
-              className="h-8 max-w-[110px] sm:max-w-[175px] px-2 rounded-md text-xs bg-white/10 border border-white/15 text-slate-100 focus:outline-none focus:border-amber-400 hover:bg-white/15 cursor-pointer truncate"
+              className="min-h-8 max-w-[120px] sm:max-w-[230px] px-2.5 rounded-lg text-xs bg-white/10 border border-white/15 text-slate-100 focus:outline-none focus:border-amber-400 hover:bg-white/15 cursor-pointer truncate"
             >
               {ledgers.map((l) => (
                 <option key={l.id} value={l.id} className="text-slate-900">

@@ -559,6 +559,111 @@ export interface CrowdingPoint {
   in_holdings: boolean;
 }
 
+export interface TakeProfitSignal {
+  status: 'HOLD_PENALTY' | 'LOCK_PARTIAL' | 'TARGET_REACHED' | 'DEEP_VALUE_ZONE' | 'NORMAL';
+  label: string;
+  tone: 'danger' | 'profit_lock' | 'profit_watch' | 'caution' | 'neutral';
+  floating_pnl_pct: number;
+  peak_nav: number;
+  drawdown_from_peak_pct: number;
+  target_profit_pct: number;
+  trailing_dd_pct: number;
+  suggested_redeem_ratio: number;
+  action_tip: string;
+}
+
+export interface TakeProfitSummary {
+  lock_count: number;
+  watch_count: number;
+  penalty_count: number;
+  deep_value_count: number;
+}
+
+export interface StagedEntryOrder {
+  fund_code: string;
+  fund_name: string;
+  bucket_label: string;
+  amount: number;
+  tranche_ratio_pct: number;
+  daily_limit: number;
+  split_days: number;
+  is_hot_throttled: boolean;
+  c_share_code?: string | null;
+  execution_note: string;
+}
+
+export interface StagedEntryPlanResponse {
+  mode: 'smart_3_tranche' | 'dca_4_week' | 'lump_sum';
+  mode_label: string;
+  total_amount: number;
+  horizon_months: number;
+  fund_count: number;
+  hot_throttled_count: number;
+  quota_split_count: number;
+  tranches: Array<{
+    index: number;
+    title: string;
+    trigger: string;
+    subtotal: number;
+    orders: StagedEntryOrder[];
+  }>;
+  copyable_checklist_text: string;
+}
+
+export interface CutoffPriorityAction {
+  priority: number;
+  tag: string;
+  tone: string;
+  fund_code: string;
+  fund_name: string;
+  summary: string;
+}
+
+export interface CutoffQuickBriefResponse {
+  ledger_id?: string;
+  window_type: string;
+  window_label: string;
+  message: string;
+  is_trade_day: boolean;
+  is_golden_window: boolean;
+  is_after_market: boolean;
+  current_time_str: string;
+  seconds_to_close: number;
+  countdown_str: string;
+  effective_trade_date: string;
+  market_verdict_label: string;
+  profit_lock_count: number;
+  penalty_lock_count: number;
+  priority_actions: CutoffPriorityAction[];
+}
+
+export interface CashflowRecord {
+  id: string;
+  date: string;
+  tx_type: 'BUY' | 'SELL' | 'DIVIDEND' | 'DEPOSIT' | 'WITHDRAW';
+  amount: number;
+  signed_cashflow: number;
+  fund_code: string;
+  fund_name: string;
+  note: string;
+  created_at?: string;
+}
+
+export interface CashflowSummaryResponse {
+  ledger_id: string;
+  xirr_pct: number | null;
+  simple_return_pct: number;
+  total_invested: number;
+  total_withdrawn: number;
+  net_invested: number;
+  current_equity: number;
+  net_profit: number;
+  is_estimated: boolean;
+  source_label: string;
+  record_count: number;
+  records: CashflowRecord[];
+}
+
 export interface HoldingRow {
   fund_code: string;
   fund_name: string;
@@ -580,6 +685,7 @@ export interface HoldingRow {
     status_code: string;
     label: string;
   };
+  take_profit?: TakeProfitSignal;
   risk_tags: string[];
 }
 
@@ -960,7 +1066,7 @@ export const api = {
     );
   },
   getHoldings: (ledgerId?: string) =>
-    requestJson<{ ledger_id: string; count: number; items: HoldingRow[] }>(
+    requestJson<{ ledger_id: string; count: number; take_profit_summary?: TakeProfitSummary; items: HoldingRow[] }>(
       `/api/v1/holdings${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`
     ),
   deleteHolding: (code: string, ledgerId?: string) =>
@@ -1045,9 +1151,12 @@ export const api = {
       `/api/v1/tools/dividend_advice${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`
     ),
   getAuditTrackers: (ledgerId?: string) =>
-    requestJson<{ shadow_tracker?: Record<string, unknown>; forward_audit?: Record<string, unknown> }>(
-      `/api/v1/audit/trackers${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`
-    ),
+    requestJson<{
+      shadow_tracker?: Record<string, unknown>;
+      forward_audit?: Record<string, unknown>;
+      recent_logs_count?: number;
+      recent_logs?: Array<Record<string, unknown>>;
+    }>(`/api/v1/audit/trackers${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`),
   freezeShadowBaseline: (ledger_id: string, baseline_name?: string) =>
     requestJson<{ frozen: boolean; baseline_name: string; frozen_date: string }>('/api/v1/shadow/freeze', {
       method: 'POST',
@@ -1133,4 +1242,43 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ ledger_id, updates, dry_run: false }),
     }),
+  buildStagedEntryPlan: (params: {
+    items: BlueprintItem[];
+    total_amount: number;
+    horizon_months: number;
+    mode: 'smart_3_tranche' | 'dca_4_week' | 'lump_sum';
+    market_regime?: string;
+  }) =>
+    requestJson<StagedEntryPlanResponse>('/api/v1/plan/staged_entry', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+  getCutoffBrief: (ledgerId?: string, targetProfitPct = 15) => {
+    const q = new URLSearchParams();
+    if (ledgerId) q.set('ledger_id', ledgerId);
+    q.set('target_profit_pct', String(targetProfitPct));
+    return requestJson<CutoffQuickBriefResponse>(`/api/v1/trading/cutoff_brief?${q.toString()}`);
+  },
+  getLedgerCashflows: (ledgerId?: string) =>
+    requestJson<CashflowSummaryResponse>(
+      `/api/v1/ledger/cashflows${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`
+    ),
+  addLedgerCashflow: (params: {
+    ledger_id?: string;
+    date: string;
+    tx_type: 'BUY' | 'SELL' | 'DIVIDEND' | 'DEPOSIT' | 'WITHDRAW';
+    amount: number;
+    fund_code?: string;
+    fund_name?: string;
+    note?: string;
+  }) =>
+    requestJson<{ added: CashflowRecord; summary: CashflowSummaryResponse }>('/api/v1/ledger/cashflows', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+  deleteLedgerCashflow: (recordId: string, ledgerId?: string) =>
+    requestJson<{ deleted: boolean; record_id: string; summary: CashflowSummaryResponse }>(
+      `/api/v1/ledger/cashflows/${encodeURIComponent(recordId)}${ledgerId ? `?ledger_id=${encodeURIComponent(ledgerId)}` : ''}`,
+      { method: 'DELETE' }
+    ),
 };

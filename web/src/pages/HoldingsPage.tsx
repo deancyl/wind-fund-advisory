@@ -13,11 +13,21 @@ import {
   ShieldAlert,
   Layers,
   ArrowUpDown,
+  ReceiptText,
+  FileCheck2,
 } from 'lucide-react';
-import { api, type ExposureResponse, type HoldingRow, type RiskCheckResponse } from '../api/client';
+import {
+  api,
+  type CashflowSummaryResponse,
+  type ExposureResponse,
+  type HoldingRow,
+  type RiskCheckResponse,
+  type TakeProfitSummary,
+} from '../api/client';
 import { useWorkbench } from '../context/WorkbenchContext';
 import { ExposureCharts } from '../components/charts/ExposureCharts';
 import { MetricTooltip } from '../components/MetricTooltip';
+import { CashflowModal } from '../components/CashflowModal';
 
 type HoldingSubTab = 'list' | 'exposure' | 'stress';
 type SortField = 'market_value' | 'day_chg' | 'floating_pnl_pct' | 'holding_days';
@@ -42,6 +52,9 @@ export function HoldingsPage() {
 
   const [subTab, setSubTab] = useState<HoldingSubTab>('list');
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
+  const [tpSummary, setTpSummary] = useState<TakeProfitSummary | null>(null);
+  const [cashflowSummary, setCashflowSummary] = useState<CashflowSummaryResponse | null>(null);
+  const [cashflowModalOpen, setCashflowModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [exposure, setExposure] = useState<ExposureResponse | null>(null);
   const [expLoading, setExpLoading] = useState(true);
@@ -49,6 +62,8 @@ export function HoldingsPage() {
   const [overlap, setOverlap] = useState<Record<string, unknown>>({});
   const [stress, setStress] = useState<Record<string, unknown>>({});
   const [shadowComp, setShadowComp] = useState<Record<string, unknown>>({});
+  const [forwardAudit, setForwardAudit] = useState<Record<string, unknown>>({});
+  const [recentAuditLogs, setRecentAuditLogs] = useState<Array<Record<string, unknown>>>([]);
   const [freezing, setFreezing] = useState(false);
 
   const [tableView, setTableView] = useState<'holdings' | 'reconcile'>('holdings');
@@ -71,12 +86,21 @@ export function HoldingsPage() {
     api
       .getHoldings(activeLedgerId)
       .then((res) => {
-        if (alive) setHoldings(res.items || []);
+        if (alive) {
+          setHoldings(res.items || []);
+          setTpSummary(res.take_profit_summary || null);
+        }
       })
       .catch(() => {})
       .finally(() => {
         if (alive) setLoading(false);
       });
+    api
+      .getLedgerCashflows(activeLedgerId)
+      .then((res) => {
+        if (alive) setCashflowSummary(res);
+      })
+      .catch(() => {});
     api
       .getDiagnoseExposure(activeLedgerId)
       .then((res) => {
@@ -107,7 +131,11 @@ export function HoldingsPage() {
     api
       .getAuditTrackers(activeLedgerId)
       .then((res) => {
-        if (alive) setShadowComp((res?.shadow_tracker || {}) as Record<string, unknown>);
+        if (alive) {
+          setShadowComp((res?.shadow_tracker || {}) as Record<string, unknown>);
+          setForwardAudit((res?.forward_audit || {}) as Record<string, unknown>);
+          setRecentAuditLogs(Array.isArray(res?.recent_logs) ? res.recent_logs : []);
+        }
       })
       .catch(() => {});
     return () => {
@@ -338,16 +366,16 @@ export function HoldingsPage() {
         </div>
       )}
 
-      {/* 顶部 4 列无彩虹底机构级资产 KPI 带 */}
-      <section className="inst-panel rounded-lg grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200 tabular-nums">
+      {/* 顶部 4 列无彩虹底机构级资产 KPI 带（含真实年化 XIRR 与记流水入口） */}
+      <section className="inst-panel rounded-xl grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200 tabular-nums">
         <div className="p-4">
-          <div className="flex items-center justify-between text-[11px] text-slate-500">
+          <div className="flex items-center justify-between text-[11px] font-medium text-slate-500">
             <span>组合总资产（含现金）</span>
             <button type="button" onClick={handleEditCash} className="text-blue-700 font-semibold hover:underline cursor-pointer">
               改现金
             </button>
           </div>
-          <div className="text-xl font-extrabold text-slate-900 mt-1">
+          <div className="inst-kpi-val text-slate-900 mt-1.5">
             ¥{totalEq.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-[11px] text-slate-500 mt-1">
@@ -356,10 +384,10 @@ export function HoldingsPage() {
         </div>
 
         <div className="p-4">
-          <div className="text-[11px] text-slate-500">今日估算盈亏</div>
+          <div className="text-[11px] font-medium text-slate-500">今日估算盈亏</div>
           <div
-            className={`text-xl font-extrabold mt-1 ${
-              (overview?.today_est_pnl ?? 0) >= 0 ? 'text-red-600' : 'text-emerald-700'
+            className={`inst-kpi-val mt-1.5 ${
+              (overview?.today_est_pnl ?? 0) >= 0 ? 'text-[#C81E1E]' : 'text-[#047857]'
             }`}
           >
             {(overview?.today_est_pnl ?? 0) >= 0 ? '+' : '-'}¥
@@ -372,31 +400,69 @@ export function HoldingsPage() {
         </div>
 
         <div className="p-4">
-          <div className="text-[11px] text-slate-500">累计持仓盈亏</div>
+          <div className="flex items-center justify-between text-[11px] font-medium text-slate-500">
+            <span className="inline-flex items-center">
+              累计盈亏 / 年化 XIRR
+              <MetricTooltip specKey="xirr" />
+            </span>
+            <button
+              type="button"
+              onClick={() => setCashflowModalOpen(true)}
+              data-testid="btn-open-cashflow-modal"
+              className="text-blue-700 font-semibold hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+            >
+              <ReceiptText className="w-3 h-3" />
+              <span>记流水</span>
+            </button>
+          </div>
           <div
-            className={`text-xl font-extrabold mt-1 ${
-              (overview?.cumulative_pnl ?? 0) >= 0 ? 'text-red-600' : 'text-emerald-700'
+            className={`inst-kpi-val mt-1.5 ${
+              (overview?.cumulative_pnl ?? 0) >= 0 ? 'text-[#C81E1E]' : 'text-[#047857]'
             }`}
           >
             {(overview?.cumulative_pnl ?? 0) >= 0 ? '+' : '-'}¥
             {Math.abs(overview?.cumulative_pnl ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">
-            收益率 {(overview?.cumulative_pnl_pct ?? 0) >= 0 ? '+' : ''}
-            {(overview?.cumulative_pnl_pct ?? 0).toFixed(2)}% · 共 {holdings.length} 只基金
+          <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-x-1.5">
+            <span>
+              简单 {(overview?.cumulative_pnl_pct ?? 0) >= 0 ? '+' : ''}
+              {(overview?.cumulative_pnl_pct ?? 0).toFixed(2)}%
+            </span>
+            <span className="text-slate-300">·</span>
+            <span
+              title={cashflowSummary?.source_label || '资金加权年化收益率'}
+              className={`font-semibold ${
+                cashflowSummary?.xirr_pct === null || cashflowSummary?.xirr_pct === undefined
+                  ? 'text-slate-400'
+                  : cashflowSummary.xirr_pct >= 0
+                  ? 'text-[#C81E1E]'
+                  : 'text-[#047857]'
+              }`}
+            >
+              XIRR{' '}
+              {cashflowSummary?.xirr_pct !== null && cashflowSummary?.xirr_pct !== undefined
+                ? `${cashflowSummary.xirr_pct >= 0 ? '+' : ''}${cashflowSummary.xirr_pct.toFixed(1)}%`
+                : '--'}
+            </span>
           </div>
         </div>
 
         <div className="p-4">
-          <div className="text-[11px] text-slate-500">
+          <div className="text-[11px] font-medium text-slate-500">
             风控状态 / 极端 CVaR99
             <MetricTooltip specKey="cvar99" align="right" />
           </div>
-          <div className="text-xl font-extrabold text-slate-900 mt-1">
-            {cvar99 !== null ? <span className="text-emerald-700">-{Math.abs(cvar99).toFixed(1)}%</span> : `${alerts.length} 预警`}
+          <div className="inst-kpi-val text-slate-900 mt-1.5">
+            {cvar99 !== null ? <span className="text-[#047857]">-{Math.abs(cvar99).toFixed(1)}%</span> : `${alerts.length} 预警`}
           </div>
           <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between gap-2">
-            <span>{tailCount > 0 ? `含 ${tailCount} 只 <¥200 尾仓` : '无碎片尾仓'}</span>
+            <span>
+              {tpSummary && tpSummary.lock_count > 0
+                ? `${tpSummary.lock_count} 只触发移动止盈`
+                : tailCount > 0
+                ? `含 ${tailCount} 只 <¥200 尾仓`
+                : '无碎片尾仓'}
+            </span>
             <button
               type="button"
               onClick={() => setActiveTab('rebalance')}
@@ -560,9 +626,10 @@ export function HoldingsPage() {
                       </th>
                       <th scope="col" className="py-2.5 px-3 font-semibold whitespace-nowrap">
                         <button type="button" onClick={() => toggleSort('holding_days')} className="inline-flex items-center gap-1 hover:text-slate-900 cursor-pointer">
-                          <span>持有天数 / 赎回费</span>
+                          <span>持有天数 / 止盈守果</span>
                           <ArrowUpDown className="w-3 h-3" />
                         </button>
+                        <MetricTooltip specKey="trailing_tp" align="right" />
                       </th>
                       <th scope="col" className="py-2.5 px-4 font-semibold text-right whitespace-nowrap">操作</th>
                     </tr>
@@ -641,18 +708,41 @@ export function HoldingsPage() {
                               {cumPct.toFixed(2)}%
                             </td>
                             <td className="py-2.5 px-3 whitespace-nowrap">
-                              <span className="font-medium text-slate-800">{h.holding_days ?? 0}天</span>
-                              <span
-                                className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                  isPenalty
-                                    ? 'bg-red-50 text-red-700 border border-red-200'
-                                    : mv < 200
-                                    ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                                    : 'bg-slate-100 text-slate-600'
-                                }`}
-                              >
-                                {h.redemption_fee_status?.label || '正常'}
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-medium text-slate-800">{h.holding_days ?? 0}天</span>
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                    isPenalty
+                                      ? 'bg-red-50 text-red-700 border border-red-200'
+                                      : mv < 200
+                                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                      : 'bg-slate-100 text-slate-600'
+                                  }`}
+                                >
+                                  {h.redemption_fee_status?.label || '正常'}
+                                </span>
+                              </div>
+                              {h.take_profit && h.take_profit.status !== 'NORMAL' && (
+                                <div className="mt-1">
+                                  <span
+                                    title={h.take_profit.action_tip}
+                                    className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                                      h.take_profit.status === 'LOCK_PARTIAL'
+                                        ? 'bg-amber-50 text-amber-900 border-amber-300'
+                                        : h.take_profit.status === 'TARGET_REACHED'
+                                        ? 'bg-red-50 text-[#C81E1E] border-red-200'
+                                        : h.take_profit.status === 'HOLD_PENALTY'
+                                        ? 'bg-red-50 text-red-700 border-red-200'
+                                        : 'bg-blue-50 text-blue-800 border-blue-200'
+                                    }`}
+                                  >
+                                    {h.take_profit.label}
+                                    {h.take_profit.drawdown_from_peak_pct < -0.5 && h.take_profit.status !== 'HOLD_PENALTY'
+                                      ? ` (高点${h.take_profit.drawdown_from_peak_pct.toFixed(1)}%)`
+                                      : ''}
+                                  </span>
+                                </div>
+                              )}
                             </td>
                             <td className="py-2.5 px-4 text-right whitespace-nowrap">
                               {isEditing ? (
@@ -813,10 +903,11 @@ export function HoldingsPage() {
         </div>
       )}
 
-      {/* ==================== 子视图 3：极端行情压力测试 + 调仓影子追踪 ==================== */}
+      {/* ==================== 子视图 3：极端行情压力测试 + 调仓影子追踪 + 前瞻实盘审计 ==================== */}
       {subTab === 'stress' && (
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 fade-in">
-          <div className="inst-panel rounded-lg p-4 sm:p-5 flex flex-col justify-between gap-4">
+        <div className="space-y-4 fade-in">
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="inst-panel rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
@@ -907,8 +998,73 @@ export function HoldingsPage() {
               </table>
             </div>
           </div>
-        </section>
+          </section>
+
+          {/* 前瞻实盘审计日志（只读冻结验真） */}
+          <section className="inst-panel rounded-xl overflow-hidden" data-testid="forward-audit-card">
+            <div className="px-4 py-3 inst-panel-header flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <FileCheck2 className="w-4 h-4 text-blue-700" />
+                <h3 className="text-xs font-bold text-slate-900">前瞻实盘审计日志（每日只读冻结 · 持续检验历史裁决真实表现）</h3>
+              </div>
+              <span className="text-[11px] font-mono text-slate-500 tabular-nums">
+                已归档 {recentAuditLogs.length} 条快照
+                {forwardAudit?.status ? ` · ${String(forwardAudit.status)}` : ''}
+              </span>
+            </div>
+            {recentAuditLogs.length === 0 ? (
+              <div className="p-4 text-xs text-slate-500">
+                前瞻实盘审计已在系统启动与每日盘后自动开启（每日最多冻结 1 条不可篡改快照），后续将按 30/90/180 天自动对照沪深 300 验真。
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left tabular-nums">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-white text-slate-500 text-[11px]">
+                      <th className="py-2 px-4 font-semibold">冻结日期</th>
+                      <th className="py-2 px-3 font-semibold">宏观状态</th>
+                      <th className="py-2 px-3 font-semibold">定调动作</th>
+                      <th className="py-2 px-3 font-semibold text-right">沪深300基准点位</th>
+                      <th className="py-2 px-4 font-semibold text-right">跟踪基金数</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {[...recentAuditLogs].reverse().slice(0, 8).map((lg, i) => {
+                      const tw = (lg.target_weights || {}) as Record<string, unknown>;
+                      const pt = Number(lg.hs300_point ?? lg.c300_close ?? 0);
+                      return (
+                        <tr key={i} className="hover:bg-slate-50/70">
+                          <td className="py-2 px-4 font-mono text-slate-800">{String(lg.date || lg.trade_date || '--')}</td>
+                          <td className="py-2 px-3 font-medium text-slate-700">{String(lg.market_regime || 'NEUTRAL')}</td>
+                          <td className="py-2 px-3">
+                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-semibold">
+                              {String(lg.verdict_action || 'HOLD')}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono text-slate-700">
+                            {pt > 0 ? pt.toLocaleString('zh-CN', { maximumFractionDigits: 1 }) : '--'}
+                          </td>
+                          <td className="py-2 px-4 text-right font-mono text-slate-600">{Object.keys(tw).length} 只</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
       )}
+
+      <CashflowModal
+        open={cashflowModalOpen}
+        ledgerId={activeLedgerId}
+        ledgerName={ledgerName}
+        summary={cashflowSummary}
+        onUpdated={(next) => setCashflowSummary(next)}
+        onClose={() => setCashflowModalOpen(false)}
+        onNotify={pushToast}
+      />
     </div>
   );
 }

@@ -37,7 +37,7 @@ function WorkbenchShell() {
   }, [activeTab]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
+    <div className="min-h-screen flex flex-col bg-[#F4F7FB]">
       <TopBar />
 
       <main className="flex-1 max-w-[1480px] w-full mx-auto px-3 sm:px-5 py-4 sm:py-5">
