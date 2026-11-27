@@ -1,5 +1,32 @@
 # Changelog
 
+## [v2.3.0] - 2026-11-28
+
+### Phase 2：中国场外公募「赚钱 + 保收益」实操闭环与私人银行级 WebUI 美化
+- **四大核心赚钱与守收益工作流引擎（`AGY2_FundAdvisory/phase2_workflow_engine.py` + `api_server.py`）**：
+  - **智能分批建仓向导（`POST /api/v1/plan/staged_entry` + `StagedEntryModal.tsx`）**：按计划投入资金、当前宏观温度与估值位置生成 3~6 期分批建仓节奏、每期触发阈值与分标的金额明细；
+  - **14:30 截单速览条（`GET /api/v1/trading/cutoff_brief`）**：紧贴中国场外公募 T 日 15:00 申赎截单规则，在市场与信号/调仓执行页直观呈现当日动作、7 天免罚红线与 T+1/T+2 确认日历；
+  - **持仓级三阶移动止盈雷达（集成至 `/api/v1/holdings` + `HoldingsPage.tsx`）**：逐只追踪持仓收益率与高点回撤，按「浮盈达标 / 回撤预警 / 分批落袋」三阶触发止盈守护，防范“坐过山车”；
+  - **精确 XIRR 资金加权年化收益与私有现金流账本（`GET/POST/DELETE /api/v1/ledger/cashflows` + `CashflowModal.tsx`）**：支持按账本独立记录申购/赎回/分红流水（`data/cashflows_*.json` 本地私有、`.gitignore` 隔离），牛顿法精确求解个人真实 XIRR。
+- **全站私人银行级制度化视觉打磨（`web/src/index.css` + 4 大页面与组件）**：
+  - 统一温润画布 `#F4F7FB`、无单位行高、`rem` 流式 KPI 字号、`color-mix(in oklab, ...)` 语义高亮、`forced-colors` 无障碍回退与原生 `<dialog>` 弹窗交互；
+  - 量化实验室矩阵表合并配比/建议金额列，实测 `1440×900` 桌面端 `0px` 横向滚动条、`390×844` 移动端零页面溢出；优化顶栏账本选择器宽度与 ECharts 拥挤度四象限坐标轴间距，彻底消除标签重叠。
+- **测试与 CI 升级**：
+  - 新增 `tests/test_phase2_money_making_workflow.py`（5 项全覆盖），并接入 `.github/workflows/ci-quality-gate.yml`；全量回归 **41/41 PASS**，GitHub Actions 前端构建与后端量化门禁双绿通过。
+
+## [v2.2.0] - 2026-11-27
+
+### Phase 1：中国场外公募量化底座加固、真 Walk-Forward 样本外验证与云端每日数据管道
+- **中国场外公募主数据与 13 大类净值湖仓净化**：
+  - 引入 `data/master/fund_catalog.parquet` 与 `data/master/fund_trading_rules.parquet`，将场外基金精细划分为 13 个资产风格桶（新增独立 `short_bond` 短债盾）；
+  - 全链路剔除锁定期/持有期封闭基、仅场内 ETF、挂羊头卖狗肉伪海外与伪黄金基金，清洗出 269 只纯净场外真复权净值湖仓，确保买入建议 100% 可在银行/支付宝/天天基金直接申购。
+- **严格样本外防泄漏与宏观择时内核对齐**：
+  - `winrate_engine.py` 实现严格 70/30 样本外切分与真 Walk-Forward 滚动盲测，彻底隔离样本内调参与样本外绩效评估；
+  - `advisory_engine.py`、`goal_driven_selector.py` 与 `portfolio_optimizer.py` 对齐宏观信号内核，新增熊市左尾降仓阻尼与 A/C 类份额申赎费率真实映射。
+- **GitHub Actions 云端每日公开数据管道与国内免代理同步**：
+  - 新增 `.github/workflows/daily-market-data.yml` 与 `scripts/build_daily_public_bundle.py`，工作日盘后自动构建全量与移动端紧凑二进制数据包，通过量化防泄漏门禁后发布至 `data-latest` Release；
+  - 新增 `AGY2_FundAdvisory/remote_bundle_sync.py` 支持国内免代理镜像拉取与 SHA256 校验，并同步更新 `Dockerfile` 预置 `seed_data/master/`；新增 `tests/test_phase1_quant_integrity.py`（11 项全通过）。
+
 ## [v2.1.2] - 2026-11-27
 
 ### AkShare 1.20+ 全量双版本兼容、无种子容灾重建与 Docker 官方化
