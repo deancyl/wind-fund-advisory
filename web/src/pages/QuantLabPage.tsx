@@ -740,7 +740,11 @@ export function QuantLabPage() {
                 <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50/70 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="font-bold text-slate-900">
-                      组合配置与风险预算矩阵（{sortedItems.length} 只 · 权重 100.0%）
+                      组合配置与风险预算矩阵（{sortedItems.length} 只
+                      {sortedItems.length > 0
+                        ? ` · 权重 ${sortedItems.reduce((acc, it) => acc + Number(it.weight_pct || 0), 0).toFixed(1)}%`
+                        : ' · 暂无可用方案'}
+                      ）
                     </h2>
                     {realBtInfo?.is_real_nav && (
                       <span

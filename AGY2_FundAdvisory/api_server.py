@@ -91,11 +91,22 @@ def _warmup_engine_background() -> None:
 
 @asynccontextmanager
 async def _lifespan(app_inst: FastAPI):
+    try:
+        runtime_paths.bootstrap_public_seeds()
+    except Exception as exc:
+        logger.warning("启动种子自举异常（已跳过）: %s", exc)
     threading.Thread(target=_warmup_engine_background, name="agy2-api-warmup", daemon=True).start()
     yield
 
 
-app = FastAPI(title="AGY2-FundAdvisory Local Quant API", version="2.1.1", lifespan=_lifespan)
+# 模块加载时也幂等执行一次种子自举（保障非 lifespan 测试或单测挂载空 AGY2_DATA_DIR 时立即可用）
+try:
+    runtime_paths.bootstrap_public_seeds()
+except Exception:
+    pass
+
+
+app = FastAPI(title="AGY2-FundAdvisory Local Quant API", version="2.1.2", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_CORS_ORIGINS,
@@ -491,7 +502,20 @@ def api_v1_overview(ledger_id: Optional[str] = None, force: bool = False) -> Dic
             if cached and (now_ts - cached[0]) < _OVERVIEW_TTL_SEC:
                 return cached[1]
 
-    _, lid, pm, snap = _get_active_context(req_lid)
+    try:
+        _, lid, pm, snap = _get_active_context(req_lid)
+        snap_error = ""
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # 极端容灾降级（如完全断网且空数据卷无基准种子）：仍优先返回实时指数与账本资产，不把整站顶栏打成 500
+        lid = req_lid
+        try:
+            pm = mlm.get_pm(lid)
+        except Exception:
+            pm = None
+        snap = {}
+        snap_error = str(exc)
     holdings = getattr(pm, "holdings", {}) or {}
     codes = list(holdings.keys())
 
@@ -526,12 +550,19 @@ def api_v1_overview(ledger_id: Optional[str] = None, force: bool = False) -> Dic
     cum_pnl = round(mkt_val - cost_val, 2)
     cum_pnl_pct = round((cum_pnl / cost_val * 100.0) if cost_val > 0 else 0.0, 2)
 
-    arb = _arbitrate_market_verdict(snap)
-    state_code = arb["state_code"]
-    raw_short_label = arb["short_label"]
-    raw_detail = arb["detail"]
-    action_tag = arb["action_tag"]
-    vote_summary = arb["vote_summary"]
+    if snap_error:
+        state_code = "DEGRADED"
+        raw_short_label = "行情基线待初始化"
+        action_tag = "检查种子/网络"
+        raw_detail = f"未能加载全收益基线矩阵（{snap_error[:160]}）；请确认 data/processed 公开种子文件完整或容器可访问公网行情源。"
+        vote_summary = {"bull": 0, "neutral": 0, "bear": 0}
+    else:
+        arb = _arbitrate_market_verdict(snap)
+        state_code = arb["state_code"]
+        raw_short_label = arb["short_label"]
+        raw_detail = arb["detail"]
+        action_tag = arb["action_tag"]
+        vote_summary = arb["vote_summary"]
     plan_mode = "存量瘦身重构" if lid == "combat_29_funds" else "动态股债平衡"
 
     top_alert = None
@@ -567,6 +598,7 @@ def api_v1_overview(ledger_id: Optional[str] = None, force: bool = False) -> Dic
             "plan_mode": plan_mode,
             "detail_explanation": raw_detail,
             "vote_summary": vote_summary,
+            "degraded": bool(snap_error),
             "data_safety_note": "每次写入账本前自动生成不可变冷备快照，支持一键可逆还原。",
         },
         "indices": indices,
@@ -575,8 +607,9 @@ def api_v1_overview(ledger_id: Optional[str] = None, force: bool = False) -> Dic
         "top_risk_alert": top_alert,
     }
     sanitized = _sanitize_v1_payload(payload)
-    with _OVERVIEW_CACHE_LOCK:
-        _OVERVIEW_CACHE[lid] = (time.time(), sanitized)
+    if not snap_error:
+        with _OVERVIEW_CACHE_LOCK:
+            _OVERVIEW_CACHE[lid] = (time.time(), sanitized)
     return sanitized
 
 
@@ -3008,7 +3041,7 @@ if (_WEB_DIST_DIR / "index.html").exists():
     if _assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="web_assets")
 
-    @app.get("/", include_in_schema=False)
+    @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
     def _serve_spa_root():
         return FileResponse(str(_WEB_DIST_DIR / "index.html"))
 
@@ -3023,7 +3056,7 @@ if (_WEB_DIST_DIR / "index.html").exists():
 else:
     from fastapi.responses import HTMLResponse
 
-    @app.get("/", include_in_schema=False)
+    @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
     def _serve_setup_guide():
         html = """<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>AGY2 智投 · 前端构建引导</title>

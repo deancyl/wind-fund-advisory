@@ -1,0 +1,20 @@
+name: agy2-fund-advisory
+
+services:
+  agy2:
+    container_name: agy2-fund-advisory
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${AGY2_HOST_PORT:-8000}:8000"
+    volumes:
+      # 持久化用户账本、冷备快照与增量缓存；随仓 7 个公开市场基准种子内置于 /app/seed_data，
+      # 即使挂载空白 ./data 目录也会在首次启动时自动幂等补齐，绝不覆盖用户个人账本。
+      - ./data:/app/data
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=8000
+      - AGY2_DATA_DIR=/app/data
+      - AGY2_SEED_DIR=/app/seed_data
+    restart: unless-stopped

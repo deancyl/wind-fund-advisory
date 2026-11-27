@@ -671,8 +671,8 @@ class IndexValuationEngine:
 
             elif itype == "cs_parquet":
                 try:
-                    import akshare as ak
-                    df_cs = ak.stock_zh_index_value_csindex(symbol=it["cs_code"])
+                    import akshare_compat
+                    df_cs = akshare_compat.index_value_csindex(symbol=it["cs_code"])
                     pe_val = float(df_cs['市盈率1'].iloc[-1])
                 except Exception:
                     pass
@@ -977,7 +977,9 @@ class DataLoader:
     HOLDOUT_START = "2025-07-01"
 
     def __init__(self, cache_file: Optional[Path] = None):
-        self.cache_file = cache_file or MATRIX_CACHE_FILE
+        self.cache_file = Path(cache_file) if cache_file is not None else runtime_paths.resolve_data_file(
+            "processed/aligned_matrix_total_return.parquet"
+        )
         self.calendar = CalendarParser()
         self.df_matrix: Optional[pd.DataFrame] = None
 
@@ -1044,8 +1046,8 @@ class DataLoader:
         cal_latest = self.calendar.latest_date
         if not all_trade_days or (cal_latest and today > datetime.strptime(cal_latest, "%Y%m%d").date()):
             try:
-                import akshare as ak
-                df_td = ak.tool_trade_date_hist_sina()
+                import akshare_compat
+                df_td = akshare_compat.trade_date_hist_sina()
                 ak_trade_dates = [pd.to_datetime(d).strftime("%Y%m%d") for d in df_td['trade_date']]
                 all_set = set(all_trade_days) | {d for d in ak_trade_dates if "20180101" <= d <= today.strftime("%Y%m%d")}
                 all_trade_days = sorted(list(all_set))
@@ -1072,7 +1074,7 @@ class DataLoader:
 
         # 存在落后交易日，开始增量拉取
         try:
-            import akshare as ak
+            import akshare_compat
 
             cs_symbols = {
                 'H00300': 'H00300_沪深300全收益',
@@ -1139,11 +1141,11 @@ class DataLoader:
             except Exception as e_sina:
                 print(f"[DataLoader] Warning fetching Sina realtime composite quotes: {e_sina}")
 
-            # 3. 拉取 csindex 官方全收益数据
+            # 3. 拉取 csindex 官方全收益数据（兼容 AkShare 1.18~1.20+）
             cs_data = {}
             for sym in cs_symbols.keys():
                 try:
-                    df_cs = ak.stock_zh_index_hist_csindex(symbol=sym, start_date=start_fetch_str, end_date=end_fetch_str)
+                    df_cs = akshare_compat.index_hist_csindex(symbol=sym, start_date=start_fetch_str, end_date=end_fetch_str)
                     df_cs['date'] = pd.to_datetime(df_cs['日期'])
                     df_cs = df_cs[['date', '收盘']].rename(columns={'收盘': sym})
                     cs_data[sym] = df_cs
@@ -1153,7 +1155,7 @@ class DataLoader:
             # 4. 拉取科创50
             df_star = pd.DataFrame(columns=['date', 'STAR50_STITCH'])
             try:
-                df_star = ak.stock_zh_index_daily_em(symbol='sh000688', start_date=start_fetch_str, end_date=end_fetch_str)
+                df_star = akshare_compat.index_daily_em(symbol='sh000688', start_date=start_fetch_str, end_date=end_fetch_str)
                 df_star['date'] = pd.to_datetime(df_star['date'])
                 df_star = df_star[['date', 'close']].rename(columns={'close': 'STAR50_STITCH'})
             except Exception:
@@ -1162,7 +1164,7 @@ class DataLoader:
             # 5. 拉取 SGE 黄金现货
             df_au = pd.DataFrame(columns=['date', 'AU9999'])
             try:
-                df_au = ak.spot_hist_sge(symbol='Au99.99')
+                df_au = akshare_compat.spot_hist_sge(symbol='Au99.99')
                 df_au['date'] = pd.to_datetime(df_au['date'])
                 df_au = df_au[['date', 'close']].rename(columns={'close': 'AU9999'})
             except Exception:
@@ -1254,18 +1256,20 @@ class DataLoader:
 
     def _build_matrix_from_source(self, start_date: str = "2018-01-01", end_date: Optional[str] = None) -> pd.DataFrame:
         """
-        从官方 CSIndex、本地湖仓及交易日历构建标准化全收益矩阵
+        从官方 CSIndex、本地湖仓或公开 AkShare 源及交易日历构建标准化全收益矩阵。
+        彻底解除对未入库私有中间 Parquet 的硬依赖：本地中间文件缺失时自动改用公开接口重建。
         """
-        import akshare as ak
+        import akshare_compat
 
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache_dir = self.cache_file.parent
+        cache_dir.mkdir(parents=True, exist_ok=True)
         effective_end_date = end_date or datetime.now().strftime("%Y-%m-%d")
         trade_days = self.calendar.get_trade_days(start_date, effective_end_date)
         df_master = pd.DataFrame({'date': [f"{d[:4]}-{d[4:6]}-{d[6:]}" for d in trade_days]})
         df_master['date'] = pd.to_datetime(df_master['date'])
         df_master = df_master.sort_values('date').reset_index(drop=True)
 
-        # 1. 官方全收益与财富指数
+        # 1. 官方全收益与财富指数（兼容 AkShare 1.18~1.20+）
         cs_symbols = {
             'H00300': 'H00300_沪深300全收益',
             'H00905': 'H00905_中证500全收益',
@@ -1277,58 +1281,129 @@ class DataLoader:
         }
 
         end_date_clean = pd.to_datetime(effective_end_date).strftime("%Y%m%d")
+        start_date_clean = pd.to_datetime(start_date).strftime("%Y%m%d")
         for sym, desc in cs_symbols.items():
-            cache_f = CACHE_DIR / f"csindex_{sym}.parquet"
+            cache_f = cache_dir / f"csindex_{sym}.parquet"
             if cache_f.exists():
                 df_cs = pd.read_parquet(cache_f)
             else:
-                df_cs = ak.stock_zh_index_hist_csindex(symbol=sym, start_date='20180101', end_date=end_date_clean)
+                df_cs = akshare_compat.index_hist_csindex(
+                    symbol=sym, start_date=start_date_clean, end_date=end_date_clean
+                )
                 df_cs['日期'] = pd.to_datetime(df_cs['日期'])
                 df_cs.to_parquet(cache_f)
 
             df_cs['date'] = pd.to_datetime(df_cs['日期'])
             df_cs = df_cs[['date', '收盘']].rename(columns={'收盘': sym})
             df_master = df_master.merge(df_cs, on='date', how='left')
-            df_master[sym] = df_master[sym].ffill()
+            df_master[sym] = pd.to_numeric(df_master[sym], errors='coerce').ffill().bfill()
 
-        # 2. 本地湖仓：科创50拼接、SGE黄金现货、海外标普与汇率
+        # 2. 科创50拼接、SGE黄金现货、海外标普（本地中间文件优先，缺失时无缝改走公开 AkShare）
         conn = duckdb.connect()
 
-        # 科创50 (000688.SH) + 创业板指 (399006.SZ) 前向收益率回溯拼接
-        df_star = conn.execute("SELECT date, close as star50 FROM read_parquet('data/processed/indices/000688.SH.parquet') WHERE date >= '2018-01-01'").fetchdf()
+        # 2.1 科创50 (000688.SH) + 创业板指 (399006.SZ) 前向收益率回溯拼接
+        star_p = runtime_paths.resolve_data_file("processed/indices/000688.SH.parquet")
+        cyb_p = runtime_paths.resolve_data_file("processed/indices/399006.SZ.parquet")
+        df_star = pd.DataFrame(columns=['date', 'star50'])
+        df_cyb = pd.DataFrame(columns=['date', 'cyb'])
+        if star_p.exists() and cyb_p.exists():
+            df_star = conn.execute(
+                f"SELECT date, close as star50 FROM read_parquet('{star_p.as_posix()}') WHERE date >= '{start_date}'"
+            ).fetchdf()
+            df_cyb = conn.execute(
+                f"SELECT date, close as cyb FROM read_parquet('{cyb_p.as_posix()}') WHERE date >= '{start_date}'"
+            ).fetchdf()
+        else:
+            try:
+                raw_star = akshare_compat.index_daily_em(symbol='sh000688', start_date=start_date_clean, end_date=end_date_clean)
+                if raw_star is not None and not raw_star.empty and {'date', 'close'}.issubset(raw_star.columns):
+                    df_star = raw_star[['date', 'close']].rename(columns={'close': 'star50'})
+            except Exception:
+                pass
+            try:
+                raw_cyb = akshare_compat.index_daily_em(symbol='sz399006', start_date=start_date_clean, end_date=end_date_clean)
+                if raw_cyb is not None and not raw_cyb.empty and {'date', 'close'}.issubset(raw_cyb.columns):
+                    df_cyb = raw_cyb[['date', 'close']].rename(columns={'close': 'cyb'})
+            except Exception:
+                pass
+
         df_star['date'] = pd.to_datetime(df_star['date'])
-
-        df_cyb = conn.execute("SELECT date, close as cyb FROM read_parquet('data/processed/indices/399006.SZ.parquet') WHERE date >= '2018-01-01'").fetchdf()
         df_cyb['date'] = pd.to_datetime(df_cyb['date'])
-
         df_tech = df_master[['date']].merge(df_star, on='date', how='left').merge(df_cyb, on='date', how='left')
+        df_tech['star50'] = pd.to_numeric(df_tech['star50'], errors='coerce')
+        df_tech['cyb'] = pd.to_numeric(df_tech['cyb'], errors='coerce').ffill().bfill()
         star_first_valid_idx = df_tech['star50'].first_valid_index()
-        cyb_rets = df_tech['cyb'].pct_change()
-        stitched_star = df_tech['star50'].copy()
+        if star_first_valid_idx is not None:
+            cyb_rets = df_tech['cyb'].pct_change().fillna(0.0)
+            stitched_star = df_tech['star50'].ffill().copy()
+            for i in range(int(star_first_valid_idx) - 1, -1, -1):
+                r_cyb = float(cyb_rets.iloc[i + 1])
+                denom = (1.0 + r_cyb) if abs(1.0 + r_cyb) > 1e-6 else 1.0
+                stitched_star.iloc[i] = float(stitched_star.iloc[i + 1]) / denom
+            df_master['STAR50_STITCH'] = stitched_star.ffill().bfill()
+        else:
+            df_master['STAR50_STITCH'] = df_master['H00905'].copy()
 
-        for i in range(star_first_valid_idx - 1, -1, -1):
-            r_cyb = cyb_rets.iloc[i + 1]
-            stitched_star.iloc[i] = stitched_star.iloc[i + 1] / (1.0 + r_cyb)
+        # 2.2 黄金现货 (AU9999)
+        au_p = runtime_paths.resolve_data_file("processed/indices/AU9999.SGE.parquet")
+        df_au = pd.DataFrame(columns=['date', 'AU9999'])
+        if au_p.exists():
+            df_au = conn.execute(
+                f"SELECT date, close as AU9999 FROM read_parquet('{au_p.as_posix()}') WHERE date >= '{start_date}'"
+            ).fetchdf()
+        else:
+            try:
+                raw_au = akshare_compat.spot_hist_sge(symbol='Au99.99')
+                if raw_au is not None and not raw_au.empty and {'date', 'close'}.issubset(raw_au.columns):
+                    df_au = raw_au[['date', 'close']].rename(columns={'close': 'AU9999'})
+            except Exception:
+                try:
+                    raw_au_etf = akshare_compat.etf_hist_em(symbol='518880', start_date=start_date_clean, end_date=end_date_clean)
+                    if raw_au_etf is not None and not raw_au_etf.empty and {'日期', '收盘'}.issubset(raw_au_etf.columns):
+                        df_au = raw_au_etf[['日期', '收盘']].rename(columns={'日期': 'date', '收盘': 'AU9999'})
+                except Exception:
+                    pass
+        if not df_au.empty:
+            df_au['date'] = pd.to_datetime(df_au['date'])
+            df_master = df_master.merge(df_au, on='date', how='left')
+            df_master['AU9999'] = pd.to_numeric(df_master['AU9999'], errors='coerce').ffill().bfill()
+        else:
+            df_master['AU9999'] = 1000.0
 
-        df_master['STAR50_STITCH'] = stitched_star
+        # 2.3 标普500 人民币计价 (SPX_CNY)
+        spx_p = runtime_paths.resolve_data_file("global/global_indices.parquet")
+        fx_p = runtime_paths.resolve_data_file("global/fx_rates.parquet")
+        if spx_p.exists() and fx_p.exists():
+            df_spx = conn.execute(
+                f"SELECT date, close as spx FROM read_parquet('{spx_p.as_posix()}') WHERE index_code='SPX' AND date >= '{start_date}'"
+            ).fetchdf()
+            df_spx['date'] = pd.to_datetime(df_spx['date'])
+            df_fx = conn.execute(
+                f"SELECT date, usd_cny FROM read_parquet('{fx_p.as_posix()}') WHERE date >= '{start_date}'"
+            ).fetchdf()
+            df_fx['date'] = pd.to_datetime(df_fx['date'])
+            df_overseas = df_master[['date']].merge(df_spx, on='date', how='left').merge(df_fx, on='date', how='left')
+            df_overseas['spx'] = pd.to_numeric(df_overseas['spx'], errors='coerce').ffill().bfill()
+            df_overseas['usd_cny'] = pd.to_numeric(df_overseas['usd_cny'], errors='coerce').ffill().bfill()
+            fx_base = float(df_overseas['usd_cny'].iloc[0]) if float(df_overseas['usd_cny'].iloc[0]) > 0 else 1.0
+            df_master['SPX_CNY'] = df_overseas['spx'] * (df_overseas['usd_cny'] / fx_base)
+        else:
+            df_spx_etf = pd.DataFrame(columns=['date', 'SPX_CNY'])
+            try:
+                raw_spx = akshare_compat.etf_hist_em(symbol='513500', start_date=start_date_clean, end_date=end_date_clean)
+                if raw_spx is not None and not raw_spx.empty and {'日期', '收盘'}.issubset(raw_spx.columns):
+                    df_spx_etf = raw_spx[['日期', '收盘']].rename(columns={'日期': 'date', '收盘': 'SPX_CNY'})
+                    df_spx_etf['date'] = pd.to_datetime(df_spx_etf['date'])
+                    df_spx_etf['SPX_CNY'] = pd.to_numeric(df_spx_etf['SPX_CNY'], errors='coerce') * 1000.0
+            except Exception:
+                pass
+            if not df_spx_etf.empty:
+                df_master = df_master.merge(df_spx_etf, on='date', how='left')
+                df_master['SPX_CNY'] = df_master['SPX_CNY'].ffill().bfill()
+            else:
+                df_master['SPX_CNY'] = df_master['H00300'].copy()
 
-        # 黄金现货
-        df_au = conn.execute("SELECT date, close as AU9999 FROM read_parquet('data/processed/indices/AU9999.SGE.parquet') WHERE date >= '2018-01-01'").fetchdf()
-        df_au['date'] = pd.to_datetime(df_au['date'])
-        df_master = df_master.merge(df_au, on='date', how='left')
-        df_master['AU9999'] = df_master['AU9999'].ffill()
-
-        # 标普500 (SPX) 汇率折算 (USD/CNY)
-        df_spx = conn.execute("SELECT date, close as spx FROM read_parquet('data/global/global_indices.parquet') WHERE index_code='SPX' AND date >= '2018-01-01'").fetchdf()
-        df_spx['date'] = pd.to_datetime(df_spx['date'])
-
-        df_fx = conn.execute("SELECT date, usd_cny FROM read_parquet('data/global/fx_rates.parquet') WHERE date >= '2018-01-01'").fetchdf()
-        df_fx['date'] = pd.to_datetime(df_fx['date'])
-
-        df_overseas = df_master[['date']].merge(df_spx, on='date', how='left').merge(df_fx, on='date', how='left')
-        df_overseas['spx'] = df_overseas['spx'].ffill()
-        df_overseas['usd_cny'] = df_overseas['usd_cny'].ffill()
-        df_master['SPX_CNY'] = df_overseas['spx'] * (df_overseas['usd_cny'] / df_overseas['usd_cny'].iloc[0])
+        conn.close()
 
         # 股债 30/70 静态基准 (起始归一化 1000)
         h300_norm = df_master['H00300'] / df_master['H00300'].iloc[0] * 1000.0
@@ -1340,6 +1415,7 @@ class DataLoader:
         h11009_norm = df_master['H11009'] / df_master['H11009'].iloc[0] * 1000.0
         df_master['BENCHMARK_50_50'] = 0.25 * h300_norm + 0.25 * h905_norm + 0.50 * h11009_norm
 
+        self.cache_file.parent.mkdir(parents=True, exist_ok=True)
         df_master.to_parquet(self.cache_file)
         return df_master
 
@@ -3852,8 +3928,8 @@ def sync_macro_and_fx_parquet_if_stale(
     latest_bond_date = datetime.now().strftime("%Y-%m-%d")
     if stale_bond:
         try:
-            import akshare as ak
-            df_live = ak.bond_zh_us_rate()
+            import akshare_compat
+            df_live = akshare_compat.bond_zh_us_yield()
             if df_live is not None and not df_live.empty:
                 col_map = {
                     '日期': 'date',

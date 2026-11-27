@@ -1,10 +1,10 @@
-# AGY2-FundAdvisory v2.1.1 · 机构级公募基金量化投研与调仓参考工作台
+# AGY2-FundAdvisory v2.1.2 · 机构级公募基金量化投研与调仓参考工作台
 
 <p align="center">
   <strong>[ 简体中文 ]</strong> &nbsp;|&nbsp; <a href="README_EN.md"><strong>[ English ]</strong></a>
 </p>
 
-[![Release](https://img.shields.io/badge/Release-v2.1.1-brightgreen.svg)](https://github.com/deancyl/agy2-fund-advisory/releases/tag/v2.1.1)
+[![Release](https://img.shields.io/badge/Release-v2.1.2-brightgreen.svg)](https://github.com/deancyl/agy2-fund-advisory/releases/tag/v2.1.2)
 [![Frontend](https://img.shields.io/badge/Frontend-React%2019%20%2B%20TypeScript%20%2B%20Tailwind%20%2B%20ECharts-0A192F.svg)](web/)
 [![Backend](https://img.shields.io/badge/Backend-FastAPI%20%2B%20Python%203.10%2B-059669.svg)](AGY2_FundAdvisory/api_server.py)
 [![Architecture](https://img.shields.io/badge/Architecture-5--Layer%20Clean%20DAG-1D4ED8.svg)](ARCHITECTURE.md)
@@ -47,7 +47,7 @@ flowchart TD
         OV["全局交互层<br/>右侧 Fund Inspector 检查器 / 统一数据与账本中心(所见即所写核对) / Ctrl+K 命令面板 / 跨页保活 Context"]
     end
 
-    subgraph API ["⚡ 统一 REST JSON 底座 (AGY2_FundAdvisory/api_server.py · FastAPI v2.1.1)"]
+    subgraph API ["⚡ 统一 REST JSON 底座 (AGY2_FundAdvisory/api_server.py · FastAPI v2.1.2)"]
         R1["/api/v1/quant/solve · /recommend/blueprint · /charts/* (全链路透传 exclude/include 约束)"]
         R2["/api/v1/overview · /ledgers · /holdings · /rebalance · /import/commit · /lakehouse/*"]
     end
@@ -94,7 +94,17 @@ cd ..
   ```
   浏览器访问 `http://127.0.0.1:8000/` 即可使用（OpenAPI 文档位于 `http://127.0.0.1:8000/docs`）。
 
-### 3. 前后端开发热更新模式
+### 3. Docker 一键容器化部署与安全升级（推荐 NAS / 服务器）
+仓库内置多阶段构建 [Dockerfile](Dockerfile) 与 [docker-compose.yml](docker-compose.yml)，并将随仓 7 个公开市场基准种子预置到镜像只读目录 `/app/seed_data`（`AGY2_SEED_DIR=/app/seed_data`）：
+
+```bash
+# 首次部署或拉取新版升级（自动按需补齐 7 个公开基线种子，绝不覆盖宿主机个人账本）
+AGY2_HOST_PORT=8000 docker compose up -d --build
+```
+
+> **增量源码包升级重要提示**：若使用 `tar` 解压源码包覆盖既有部署目录，请**仅排除个人私有账本与备份目录**（如 `--exclude="data/ledgers*" --exclude="data/backups*" --exclude="data/cache*"`），**切勿使用 `--exclude="data/*"`**，否则会跳过随仓发布的公开市场基准种子（`data/processed/*`、`data/macro/*`、`data/mart/*`）。
+
+### 4. 前后端开发热更新模式
 ```powershell
 # 终端 1：启动 FastAPI 后端
 py -3 -m uvicorn api_server:app --app-dir AGY2_FundAdvisory --host 127.0.0.1 --port 8000

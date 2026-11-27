@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Union
@@ -19,6 +20,7 @@ import runtime_paths
 
 _CALENDAR_CACHE_FILE = runtime_paths.get_cache_dir() / "cn_trade_dates.json"
 _MEM_TRADE_DAYS: Optional[List[str]] = None
+_CALENDAR_LOAD_LOCK = threading.Lock()
 
 
 def _generate_weekday_fallback(start_ymd: str = "20150101", end_ymd: Optional[str] = None) -> List[str]:
@@ -37,7 +39,8 @@ class CalendarParser:
     """中国 A 股交易日历与计算引擎（零外部私有依赖版）"""
 
     def __init__(self, file_path: Optional[Union[str, Path]] = None):
-        self.file_path = Path(file_path) if file_path else _CALENDAR_CACHE_FILE
+        self._default_cache_file = runtime_paths.get_cache_dir() / "cn_trade_dates.json"
+        self.file_path = Path(file_path) if file_path else self._default_cache_file
         self._trade_days_str: List[str] = []
         self._trade_days_set = set()
         self._load()
@@ -46,7 +49,7 @@ class CalendarParser:
         global _MEM_TRADE_DAYS
 
         # 0. 若调用方显式指定了自定义 .dat 文件且存在，优先读取（兼容旧调用）
-        if self.file_path != _CALENDAR_CACHE_FILE and self.file_path.exists():
+        if self.file_path != self._default_cache_file and self.file_path.exists():
             days: List[str] = []
             try:
                 with open(self.file_path, "r", encoding="ascii", errors="ignore") as f:
@@ -61,46 +64,53 @@ class CalendarParser:
             except Exception:
                 pass
 
-        # 1. 进程内高速缓存
+        # 1. 进程内高速缓存（双检锁防御并发冷启动触发 V8 py_mini_racer 竞态崩溃）
         if _MEM_TRADE_DAYS:
             self._trade_days_str = list(_MEM_TRADE_DAYS)
             self._trade_days_set = set(self._trade_days_str)
             return
 
-        # 2. 本地 JSON 缓存
-        loaded: List[str] = []
-        if _CALENDAR_CACHE_FILE.exists():
-            try:
-                raw = json.loads(_CALENDAR_CACHE_FILE.read_text(encoding="utf-8"))
-                if isinstance(raw, list):
-                    loaded = sorted({str(x).replace("-", "")[:8] for x in raw if len(str(x).replace("-", "")) >= 8})
-            except Exception:
-                loaded = []
+        with _CALENDAR_LOAD_LOCK:
+            if _MEM_TRADE_DAYS:
+                self._trade_days_str = list(_MEM_TRADE_DAYS)
+                self._trade_days_set = set(self._trade_days_str)
+                return
 
-        # 3. 若缓存为空，尝试通过 AkShare 公开交易日历同步一次并缓存
-        if not loaded:
-            try:
-                import akshare as ak
-                df_td = ak.tool_trade_date_hist_sina()
-                if df_td is not None and not df_td.empty and "trade_date" in df_td.columns:
-                    loaded = sorted({
-                        str(d).replace("-", "")[:8]
-                        for d in df_td["trade_date"].tolist()
-                        if str(d).replace("-", "")[:8].isdigit()
-                    })
-                    if loaded:
-                        _CALENDAR_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-                        _CALENDAR_CACHE_FILE.write_text(json.dumps(loaded), encoding="utf-8")
-            except Exception:
-                loaded = []
+            cache_f = self._default_cache_file
+            # 2. 本地 JSON 缓存
+            loaded: List[str] = []
+            if cache_f.exists():
+                try:
+                    raw = json.loads(cache_f.read_text(encoding="utf-8"))
+                    if isinstance(raw, list):
+                        loaded = sorted({str(x).replace("-", "")[:8] for x in raw if len(str(x).replace("-", "")) >= 8})
+                except Exception:
+                    loaded = []
 
-        # 4. 离线兜底：生成 2015 ~ 明年的标准周一至周五工作日序列
-        if not loaded:
-            loaded = _generate_weekday_fallback("20150101")
+            # 3. 若缓存为空，尝试通过 AkShare 公开交易日历同步一次并缓存（兼容 1.18~1.20+）
+            if not loaded:
+                try:
+                    import akshare_compat
+                    df_td = akshare_compat.trade_date_hist_sina()
+                    if df_td is not None and not df_td.empty and "trade_date" in df_td.columns:
+                        loaded = sorted({
+                            str(d).replace("-", "")[:8]
+                            for d in df_td["trade_date"].tolist()
+                            if str(d).replace("-", "")[:8].isdigit()
+                        })
+                        if loaded:
+                            cache_f.parent.mkdir(parents=True, exist_ok=True)
+                            cache_f.write_text(json.dumps(loaded), encoding="utf-8")
+                except Exception:
+                    loaded = []
 
-        _MEM_TRADE_DAYS = list(loaded)
-        self._trade_days_str = loaded
-        self._trade_days_set = set(loaded)
+            # 4. 离线兜底：生成 2015 ~ 明年的标准周一至周五工作日序列
+            if not loaded:
+                loaded = _generate_weekday_fallback("20150101")
+
+            _MEM_TRADE_DAYS = list(loaded)
+            self._trade_days_str = loaded
+            self._trade_days_set = set(loaded)
 
     @property
     def total_count(self) -> int:

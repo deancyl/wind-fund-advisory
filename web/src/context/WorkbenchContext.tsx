@@ -91,6 +91,7 @@ interface WorkbenchContextValue {
   activeLedgerId: string;
   currentLedger?: LedgerMeta;
   overview: OverviewResponse | null;
+  overviewError: string;
   lakehouse: LakehouseStatus | null;
   refreshing: boolean;
   refreshTick: number;
@@ -176,6 +177,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [ledgers, setLedgers] = useState<LedgerMeta[]>([]);
   const [activeLedgerId, setActiveLedgerId] = useState<string>('');
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
+  const [overviewError, setOverviewError] = useState<string>('');
   const [lakehouse, setLakehouse] = useState<LakehouseStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
@@ -264,9 +266,14 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
         const lid = targetLedger || lRes.active_ledger_id || items[0]?.id || '';
         setActiveLedgerId(lid);
         const ov = await api.getOverview(lid || undefined, force);
-        if (mountedRef.current) setOverview(ov);
+        if (mountedRef.current) {
+          setOverview(ov);
+          setOverviewError('');
+        }
       } catch (e) {
-        pushToast(e instanceof Error ? e.message : '后端连接失败，请确认 api_server 已启动', 'error');
+        const msg = e instanceof Error ? e.message : '后端连接失败，请确认 api_server 已启动';
+        if (mountedRef.current) setOverviewError(msg);
+        pushToast(msg, 'error');
       } finally {
         if (mountedRef.current) setRefreshing(false);
       }
@@ -706,6 +713,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     activeLedgerId,
     currentLedger,
     overview,
+    overviewError,
     lakehouse,
     refreshing,
     refreshTick,

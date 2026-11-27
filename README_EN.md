@@ -1,10 +1,10 @@
-# AGY2-FundAdvisory v2.1.1 · Institutional Mutual Fund Quant & Rebalancing Workbench
+# AGY2-FundAdvisory v2.1.2 · Institutional Mutual Fund Quant & Rebalancing Workbench
 
 <p align="center">
   <a href="README.md"><strong>[ 简体中文 ]</strong></a> &nbsp;|&nbsp; <strong>[ English ]</strong>
 </p>
 
-[![Release](https://img.shields.io/badge/Release-v2.1.1-brightgreen.svg)](https://github.com/deancyl/agy2-fund-advisory/releases/tag/v2.1.1)
+[![Release](https://img.shields.io/badge/Release-v2.1.2-brightgreen.svg)](https://github.com/deancyl/agy2-fund-advisory/releases/tag/v2.1.2)
 [![Frontend](https://img.shields.io/badge/Frontend-React%2019%20%2B%20TypeScript%20%2B%20Tailwind%20v4%20%2B%20ECharts-0A192F.svg)](web/)
 [![Backend](https://img.shields.io/badge/Backend-FastAPI%20%2B%20Python%203.10%2B-059669.svg)](AGY2_FundAdvisory/api_server.py)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -29,3 +29,9 @@ cd web && npm install && npm run build && cd ..
 python -m uvicorn api_server:app --app-dir AGY2_FundAdvisory --host 127.0.0.1 --port 8000
 ```
 Open `http://127.0.0.1:8000/` in your browser (or double-click `start-agy2-web.vbs` on Windows).
+
+### Docker Deployment (NAS / Linux Server)
+```bash
+AGY2_HOST_PORT=8000 docker compose up -d --build
+```
+The official `Dockerfile` bundles the 7 public market baseline seeds into `/app/seed_data` (`AGY2_SEED_DIR`) and automatically bootstraps missing seeds into the mounted `/app/data` volume on startup without touching personal ledgers or backups.

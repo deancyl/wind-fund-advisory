@@ -547,7 +547,7 @@ class MarketScreener:
                 progress_callback(0, total_to_fetch, f"需从网络获取 {total_to_fetch} 只基金净值...")
 
             try:
-                import akshare as ak
+                import akshare_compat
                 import threading
                 from concurrent.futures import ThreadPoolExecutor
 
@@ -557,9 +557,9 @@ class MarketScreener:
 
                 def _fetch_single_fund(code: str):
                     try:
-                        df = ak.fund_open_fund_daily_em(
-                            fund=code,
-                            start_date=start_date.replace("-", ""),
+                        df = akshare_compat.open_fund_nav_history(
+                            code=code,
+                            start_date=start_date,
                         )
                         if df is not None and not df.empty:
                             df_clean = pd.DataFrame()

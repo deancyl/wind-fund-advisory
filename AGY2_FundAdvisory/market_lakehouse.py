@@ -32,12 +32,30 @@ import pandas as pd
 
 import runtime_paths
 
-WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
-PROCESSED_DIR = WORKSPACE_ROOT / "data" / "processed"
-CACHE_ELITE_DIR = WORKSPACE_ROOT / "data" / "cache" / "elite_nav"
-ELITE_NAV_MATRIX_PATH = PROCESSED_DIR / "market_elite_nav_matrix.parquet"
-ELITE_META_PATH = PROCESSED_DIR / "market_elite_meta.parquet"
-ELITE_STATUS_PATH = PROCESSED_DIR / "market_elite_sync_status.json"
+WORKSPACE_ROOT = runtime_paths.get_workspace_root()
+PROCESSED_DIR = runtime_paths.get_data_dir() / "processed"
+CACHE_ELITE_DIR = runtime_paths.get_cache_dir() / "elite_nav"
+ELITE_NAV_MATRIX_PATH = runtime_paths.resolve_data_file("processed/market_elite_nav_matrix.parquet")
+ELITE_META_PATH = runtime_paths.resolve_data_file("processed/market_elite_meta.parquet")
+ELITE_STATUS_PATH = runtime_paths.resolve_data_file("processed/market_elite_sync_status.json")
+
+
+def _read_elite_nav_path() -> Path:
+    return runtime_paths.resolve_data_file("processed/market_elite_nav_matrix.parquet")
+
+
+def _read_elite_meta_path() -> Path:
+    return runtime_paths.resolve_data_file("processed/market_elite_meta.parquet")
+
+
+def _read_elite_status_path() -> Path:
+    return runtime_paths.resolve_data_file("processed/market_elite_sync_status.json")
+
+
+def _write_processed_path(filename: str) -> Path:
+    p = runtime_paths.get_data_dir() / "processed" / filename
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
 
 # 10 大资产风格桶中文名、宪法资产大类映射与默认均衡配额（合计约 360 只）
 BUCKET_10_CONFIG: Dict[str, Dict[str, Any]] = {
@@ -678,11 +696,15 @@ def _assemble_lakehouse_parquet(
         aligned_cols[code] = reindexed
     nav_mat = pd.DataFrame(aligned_cols, index=cal_index)
 
+    nav_out = _write_processed_path("market_elite_nav_matrix.parquet")
+    meta_out = _write_processed_path("market_elite_meta.parquet")
+    status_out = _write_processed_path("market_elite_sync_status.json")
+
     nav_mat.index.name = "date"
-    nav_mat.to_parquet(ELITE_NAV_MATRIX_PATH)
+    nav_mat.to_parquet(nav_out)
 
     meta_df = pd.DataFrame(meta_rows).drop_duplicates(subset=["fund_code"]).reset_index(drop=True)
-    meta_df.to_parquet(ELITE_META_PATH, index=False)
+    meta_df.to_parquet(meta_out, index=False)
 
     status = {
         "status": "ready",
@@ -704,7 +726,7 @@ def _assemble_lakehouse_parquet(
         "elapsed_sec": elapsed_sec,
         "daily_sync_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
-    ELITE_STATUS_PATH.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
+    status_out.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # 失效内存缓存
     with _LAKEHOUSE_MEM_LOCK:
@@ -720,7 +742,9 @@ def incremental_daily_sync(cooldown_minutes: int = 30) -> Dict[str, Any]:
     防封禁盘后增量日更（360 只仅需 7~8 次 FundMNFInfo 批量 HTTP 请求，< 2 秒）：
     基于官方披露的 PDATE 与 NAVCHGRT 累乘复权追加最新交易日，绝不触发封禁、绝不引入分红伪回撤。
     """
-    if not ELITE_NAV_MATRIX_PATH.exists() or not ELITE_META_PATH.exists():
+    nav_in = _read_elite_nav_path()
+    meta_in = _read_elite_meta_path()
+    if not nav_in.exists() or not meta_in.exists():
         return {"status": "not_initialized", "message": "精英净值湖仓尚未初始化，请先运行首次建库脚本。"}
 
     status_old = get_lakehouse_status()
@@ -738,8 +762,8 @@ def incremental_daily_sync(cooldown_minutes: int = 30) -> Dict[str, Any]:
             pass
 
     t0 = time.monotonic()
-    nav_mat = pd.read_parquet(ELITE_NAV_MATRIX_PATH)
-    meta_df = pd.read_parquet(ELITE_META_PATH)
+    nav_mat = pd.read_parquet(nav_in)
+    meta_df = pd.read_parquet(meta_in)
     codes = [str(c) for c in nav_mat.columns]
 
     updates_by_date: Dict[pd.Timestamp, Dict[str, float]] = {}
@@ -793,7 +817,7 @@ def incremental_daily_sync(cooldown_minutes: int = 30) -> Dict[str, Any]:
 
     if appended_days > 0:
         nav_mat = nav_mat.sort_index()
-        nav_mat.to_parquet(ELITE_NAV_MATRIX_PATH)
+        nav_mat.to_parquet(_write_processed_path("market_elite_nav_matrix.parquet"))
         with _LAKEHOUSE_MEM_LOCK:
             _LAKEHOUSE_MEM_CACHE["mtime"] = 0.0
 
@@ -802,7 +826,9 @@ def incremental_daily_sync(cooldown_minutes: int = 30) -> Dict[str, Any]:
     status_old["daily_sync_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     status_old["last_daily_requests"] = requests_sent
     status_old["last_daily_appended_days"] = appended_days
-    ELITE_STATUS_PATH.write_text(json.dumps(status_old, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_processed_path("market_elite_sync_status.json").write_text(
+        json.dumps(status_old, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     return {
         "status": "ok",
@@ -815,21 +841,29 @@ def incremental_daily_sync(cooldown_minutes: int = 30) -> Dict[str, Any]:
 
 
 def load_elite_lakehouse() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], Dict[str, Any]]:
-    """高速内存缓存读取本地全市场精英复权净值矩阵与元数据表（< 5ms 热读）。"""
-    if not ELITE_NAV_MATRIX_PATH.exists() or not ELITE_META_PATH.exists():
+    """高速内存缓存读取本地全市场精英复权净值矩阵与元数据表（< 5ms 热读，全面响应 AGY2_DATA_DIR / AGY2_SEED_DIR）。"""
+    nav_p = _read_elite_nav_path()
+    meta_p = _read_elite_meta_path()
+    if not nav_p.exists() or not meta_p.exists():
         return None, None, {"status": "not_initialized"}
 
-    mtime = ELITE_NAV_MATRIX_PATH.stat().st_mtime + ELITE_META_PATH.stat().st_mtime
+    cache_key = f"{nav_p}|{meta_p}"
+    mtime = nav_p.stat().st_mtime + meta_p.stat().st_mtime
     with _LAKEHOUSE_MEM_LOCK:
-        if _LAKEHOUSE_MEM_CACHE["nav"] is not None and abs(_LAKEHOUSE_MEM_CACHE["mtime"] - mtime) < 1e-6:
+        if (
+            _LAKEHOUSE_MEM_CACHE["nav"] is not None
+            and _LAKEHOUSE_MEM_CACHE.get("key") == cache_key
+            and abs(_LAKEHOUSE_MEM_CACHE["mtime"] - mtime) < 1e-6
+        ):
             return _LAKEHOUSE_MEM_CACHE["nav"], _LAKEHOUSE_MEM_CACHE["meta"], get_lakehouse_status()
 
-    nav_df = pd.read_parquet(ELITE_NAV_MATRIX_PATH)
+    nav_df = pd.read_parquet(nav_p)
     nav_df.index = pd.to_datetime(nav_df.index)
-    meta_df = pd.read_parquet(ELITE_META_PATH)
+    meta_df = pd.read_parquet(meta_p)
     meta_df["fund_code"] = meta_df["fund_code"].astype(str).str.strip().str.zfill(6)
 
     with _LAKEHOUSE_MEM_LOCK:
+        _LAKEHOUSE_MEM_CACHE["key"] = cache_key
         _LAKEHOUSE_MEM_CACHE["mtime"] = mtime
         _LAKEHOUSE_MEM_CACHE["nav"] = nav_df
         _LAKEHOUSE_MEM_CACHE["meta"] = meta_df
@@ -838,9 +872,10 @@ def load_elite_lakehouse() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFram
 
 
 def get_lakehouse_status() -> Dict[str, Any]:
-    if ELITE_STATUS_PATH.exists():
+    status_p = _read_elite_status_path()
+    if status_p.exists():
         try:
-            return json.loads(ELITE_STATUS_PATH.read_text(encoding="utf-8"))
+            return json.loads(status_p.read_text(encoding="utf-8"))
         except Exception:
             pass
     return {"status": "not_initialized", "elite_fund_count": 0}
@@ -874,8 +909,9 @@ def import_wind_nav_file(input_path: Path) -> Dict[str, Any]:
             s.loc[fv:] = s.loc[fv:].ffill(limit=5) / float(s.loc[fv])
         wide[c] = s
 
-    if ELITE_NAV_MATRIX_PATH.exists():
-        old = pd.read_parquet(ELITE_NAV_MATRIX_PATH)
+    nav_in = _read_elite_nav_path()
+    if nav_in.exists():
+        old = pd.read_parquet(nav_in)
         old.index = pd.to_datetime(old.index)
         merged = old.combine_first(wide)
         for c in wide.columns:
@@ -884,7 +920,7 @@ def import_wind_nav_file(input_path: Path) -> Dict[str, Any]:
         merged = wide
 
     merged = merged.sort_index()
-    merged.to_parquet(ELITE_NAV_MATRIX_PATH)
+    merged.to_parquet(_write_processed_path("market_elite_nav_matrix.parquet"))
     with _LAKEHOUSE_MEM_LOCK:
         _LAKEHOUSE_MEM_CACHE["mtime"] = 0.0
     return {"status": "imported", "imported_funds": int(wide.shape[1]), "total_lakehouse_funds": int(merged.shape[1]), "rows": int(len(merged))}

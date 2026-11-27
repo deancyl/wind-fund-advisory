@@ -1,5 +1,20 @@
 # Changelog
 
+## [v2.1.2] - 2026-11-27
+
+### AkShare 1.20+ 全量双版本兼容、无种子容灾重建与 Docker 官方化
+- **新增 AkShare 跨版本兼容层（`AGY2_FundAdvisory/akshare_compat.py`）**：
+  - 一次性兼容 AkShare `1.14~1.19` 与 `1.20.41~1.20.70+` 的全部 **7 处更名/重构接口**：`index_hist_csindex`（原 `stock_zh_index_hist_csindex`）、`index_value_csindex`（原 `stock_zh_index_value_csindex`）、`index_zh_daily_em`（原 `stock_zh_index_daily_em`）、`index_zh_spot_em`（原 `stock_zh_index_spot_em`，默认查 `沪深重要指数`）、`calendar_trade_date_hist_sina`（原 `tool_trade_date_hist_sina`）、`bond_zh_us_yield_em`（原 `bond_zh_us_rate`）与单基历史净值 `fund_open_fund_info_em`（修复 `market_screener.py` 对 `fund_open_fund_daily_em` 的参数失配）；
+  - 彻底根治新机器/容器按 `requirements.txt` 安装新版 AkShare（如 `1.20.70`）后触发 `AttributeError` 导致 6 个核心接口返回 HTTP 500 的问题；并在 `akshare_compat.py`、`trading_calendar.py`、`strategy_bridge.py` 补充进程级并发锁，根治空卷冷启动多线程同时初始化 `py_mini_racer` (V8) 触发 `IsConfigurablePoolInitialized` 崩溃的隐患。
+- **彻底解除私有中间表硬依赖 & 引入启动种子自举（Docker 持久化卷免疫）**：
+  - `data_loader.py` 的 `_build_matrix_from_source()` 不再硬读 5 个未入库私有中间 Parquet（`000688.SH.parquet`、`399006.SZ.parquet`、`AU9999.SGE.parquet`、`global_indices.parquet`、`fx_rates.parquet`），本地缺失时自动通过公开接口（`sh000688` + `sz399006`、`Au99.99`/`518880`、`513500`）在线重建完整 2018-至今全收益矩阵；
+  - `runtime_paths.py` 新增 `AGY2_SEED_DIR` 与幂等原子自举函数 `bootstrap_public_seeds()`，`market_lakehouse.py` 与 `strategy_bridge.py` 全面切换至动态路径解析；
+  - 仓库正式内置官方多阶段 `Dockerfile`、`docker-compose.yml`、`.dockerignore`，将 7 个公开市场基准种子预置至镜像只读目录 `/app/seed_data`，彻底杜绝宿主机空白 `- ./data:/app/data` 挂载卷遮盖种子文件，并补齐 `requirements-api.txt` 与 `pyproject.toml` 依赖清单。
+- **后端容灾降级与前端边界打磨**：
+  - `api_server.py` 根路由 `/` 正式支持 `GET` 与 `HEAD`（消除反向代理/探针 `405 Method Not Allowed` 日志刷屏）；`/api/v1/overview` 在极端无网+空卷故障下优先返回实时指数并输出显式 `DEGRADED` 状态而非 HTTP 500；
+  - `QuantLabPage.tsx` 在求解无结果（`0 只`）时不再误显示 `权重 100.0%`，`TopBar.tsx` 补齐总览加载失败后的常驻重试指示；
+  - 新增持久化回归测试套件 `tests/test_akshare_compat_and_seed_bootstrap.py`，全链路实测模拟 AkShare 1.20.70 严格模块、空 `AGY2_DATA_DIR` 种子自举与无私有文件在线重建。
+
 ## [v2.1.1] - 2026-11-27
 
 ### 初次部署加固与专业量化口径一致性修复

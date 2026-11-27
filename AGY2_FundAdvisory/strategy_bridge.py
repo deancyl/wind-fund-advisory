@@ -2256,19 +2256,28 @@ class StrategyBridge:
 
     @classmethod
     def load_matrix(cls, force_reload: bool = False, auto_sync: bool = True) -> pd.DataFrame:
-        """加载全收益标准化矩阵，支持自动增量同步自愈"""
+        """加载全收益标准化矩阵，支持动态解析 AGY2_DATA_DIR/AGY2_SEED_DIR、并发双检锁与自动增量同步自愈"""
         if cls._cached_matrix is not None and not force_reload:
             return cls._cached_matrix
-        dl = DataLoader(cache_file=MATRIX_FILE)
-        if auto_sync:
-            try:
-                df = dl.sync_latest_market_data()
-            except Exception:
+        lock = getattr(cls, "_matrix_load_lock", None)
+        if lock is None:
+            import threading
+            lock = threading.Lock()
+            cls._matrix_load_lock = lock
+        with lock:
+            if cls._cached_matrix is not None and not force_reload:
+                return cls._cached_matrix
+            mat_path = runtime_paths.resolve_data_file("processed/aligned_matrix_total_return.parquet")
+            dl = DataLoader(cache_file=mat_path)
+            if auto_sync:
+                try:
+                    df = dl.sync_latest_market_data()
+                except Exception:
+                    df = dl.load_total_return_matrix()
+            else:
                 df = dl.load_total_return_matrix()
-        else:
-            df = dl.load_total_return_matrix()
-        cls._cached_matrix = df
-        return df
+            cls._cached_matrix = df
+            return df
 
     @classmethod
     def stitch_today_live_tail(
@@ -2869,14 +2878,17 @@ class StrategyBridge:
             structure_desc = f"中证500 vs 沪深300 动量差 {diff_500_300:+.1f}%，风格分化不显著"
             structure_color = "#94a3b8"
 
-        # 4. 宏观利率与股债性价比 (ERP)
+        # 4. 宏观利率与股债性价比 (ERP)（动态解析 AGY2_DATA_DIR / AGY2_SEED_DIR）
         treasury_10y = 0.0
         us_treasury_10y = 0.0
         cn_us_spread_bp = 0.0
+        rate_file = runtime_paths.resolve_data_file("macro/bond_zh_us_rate.parquet")
+        bond_file = runtime_paths.resolve_data_file("macro/chinabond_yield_curve.parquet")
+        val_file = runtime_paths.resolve_data_file("mart/index_valuations.parquet")
 
-        if RATE_FILE.exists():
+        if rate_file.exists():
             try:
-                df_rate_init = pd.read_parquet(RATE_FILE)
+                df_rate_init = pd.read_parquet(rate_file)
                 if 'cn_yield_10y' in df_rate_init.columns and not df_rate_init.empty:
                     c_valid = df_rate_init['cn_yield_10y'].dropna()
                     if not c_valid.empty:
@@ -2893,9 +2905,9 @@ class StrategyBridge:
                         cn_us_spread_bp = round(float(s_valid.iloc[-1]) * 100.0, 1)
             except Exception:
                 pass
-        elif BOND_FILE.exists():
+        elif bond_file.exists():
             try:
-                df_bond = pd.read_parquet(BOND_FILE)
+                df_bond = pd.read_parquet(bond_file)
                 if 'y_10y' in df_bond.columns and not df_bond.empty:
                     treasury_10y = float(df_bond['y_10y'].dropna().iloc[-1])
             except Exception:
@@ -2912,14 +2924,14 @@ class StrategyBridge:
         pe_ttm_300 = 12.23
         erp_percentile = 81.9
         erp_val = 6.54
-        if VALUATION_FILE.exists():
+        if val_file.exists():
             try:
-                df_val = pd.read_parquet(VALUATION_FILE)
+                df_val = pd.read_parquet(val_file)
                 h300_val = df_val[df_val['index_code'] == '000300.SH'].copy()
                 if not h300_val.empty:
                     pe_ttm_300 = float(h300_val['pe_ttm'].dropna().iloc[-1])
-                    if RATE_FILE.exists():
-                        df_rate = pd.read_parquet(RATE_FILE)
+                    if rate_file.exists():
+                        df_rate = pd.read_parquet(rate_file)
                         h300_val['date'] = pd.to_datetime(h300_val['date'])
                         df_rate['date'] = pd.to_datetime(df_rate['date'])
                         merged_erp = pd.merge_asof(

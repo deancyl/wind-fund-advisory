@@ -16,6 +16,7 @@ export function TopBar() {
     activeLedgerId,
     switchLedger,
     overview,
+    overviewError,
     lakehouse,
     refreshing,
     refreshAll,
@@ -137,20 +138,38 @@ export function TopBar() {
       <div className="ticker-bar">
         <div className="max-w-[1480px] mx-auto px-3 sm:px-5 h-8.5 flex items-center justify-between gap-3 overflow-x-auto no-scrollbar text-[11px] tabular-nums whitespace-nowrap">
           <div className="flex items-center gap-3 shrink-0">
-            <button
-              type="button"
-              onClick={() => setActiveTab('market')}
-              className="inline-flex items-center gap-1.5 font-semibold text-slate-800 hover:text-blue-700 cursor-pointer"
-              title="点击查看宏观十维量化投票与市场全景"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
-              <span>{verdict?.short_label || '大势研判中'}</span>
-              {verdict?.action_tag && (
-                <span className="px-1.5 py-0.2 rounded bg-slate-100 border border-slate-200 text-[10px] font-semibold text-slate-700">
-                  {verdict.action_tag}
-                </span>
-              )}
-            </button>
+            {overviewError && !overview ? (
+              <button
+                type="button"
+                onClick={() => void refreshAll()}
+                className="inline-flex items-center gap-1.5 font-semibold text-amber-800 hover:text-red-700 cursor-pointer"
+                title={overviewError}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                <span>行情总览异常（点击重试）</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setActiveTab('market')}
+                className="inline-flex items-center gap-1.5 font-semibold text-slate-800 hover:text-blue-700 cursor-pointer"
+                title={verdict?.detail_explanation || '点击查看宏观十维量化投票与市场全景'}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${verdict?.regime === 'DEGRADED' ? 'bg-amber-500' : 'bg-blue-600'}`} />
+                <span>{verdict?.short_label || '大势研判中'}</span>
+                {verdict?.action_tag && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-semibold border ${
+                      verdict.regime === 'DEGRADED'
+                        ? 'bg-amber-50 border-amber-300 text-amber-800'
+                        : 'bg-slate-100 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {verdict.action_tag}
+                  </span>
+                )}
+              </button>
+            )}
 
             <span className="text-slate-200">|</span>
 

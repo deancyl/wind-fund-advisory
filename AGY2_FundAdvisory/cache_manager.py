@@ -222,9 +222,9 @@ class SmartCacheManager:
                 if abs(float(q_300.gszzl or 0.0)) > 3.0:
                     return True
             else:
-                import akshare as ak
-                df_idx = ak.stock_zh_index_spot_em()
-                row_300 = df_idx[df_idx["代码"] == "000300"]
+                import akshare_compat
+                df_idx = akshare_compat.index_spot_em(symbol="沪深重要指数")
+                row_300 = df_idx[df_idx["代码"].astype(str) == "000300"]
                 if not row_300.empty:
                     change_pct = abs(float(row_300.iloc[0].get("涨跌幅", 0)))
                     if change_pct > 3.0:
