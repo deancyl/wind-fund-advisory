@@ -61,6 +61,15 @@ export interface ToastMessage {
 
 const SNAPSHOT_STORAGE_KEY = 'agy2_saved_snapshots_v1';
 
+// 贴合低利率环境（10Y 国债 ~1.6%）的各风险档位务实默认目标，用户在未手动改目标时切换档位自动联动
+const TIER_PRAGMATIC_GOALS: Record<string, { ret: number; mon: number }> = {
+  C1: { ret: 3, mon: 12 },
+  C2: { ret: 5, mon: 12 },
+  C3: { ret: 15, mon: 24 },
+  C4: { ret: 24, mon: 24 },
+  C5: { ret: 45, mon: 36 },
+};
+
 function loadSnapshotsFromStorage(): SavedSnapshot[] {
   try {
     const raw = window.localStorage.getItem(SNAPSHOT_STORAGE_KEY);
@@ -183,14 +192,15 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [refreshTick, setRefreshTick] = useState(0);
   const [syncingDaily, setSyncingDaily] = useState(false);
 
-  // 量化求解器参数（顶层常驻保活）
-  const [riskLevel, setRiskLevel] = useState('C3');
+  // 量化求解器参数（顶层常驻保活；前端首屏默认低费指数核心 + C3 2年+15% 务实目标）
+  const [riskLevel, setRiskLevelState] = useState('C3');
   const [modelId, setModelId] = useState('all_weather');
   const [fundCount, setFundCount] = useState(6);
   const [amount, setAmount] = useState(50000);
-  const [targetReturnPct, setTargetReturnPct] = useState(10);
-  const [horizonMonths, setHorizonMonths] = useState(12);
-  const [universeMode, setUniverseMode] = useState<UniverseMode>('full_market');
+  const [targetReturnPct, setTargetReturnPct] = useState(15);
+  const [horizonMonths, setHorizonMonths] = useState(24);
+  const [universeMode, setUniverseMode] = useState<UniverseMode>('index_only');
+  const goalManuallyEditedRef = useRef(false);
   const [period, setPeriodState] = useState('1y');
   const [excludeCodes, setExcludeCodes] = useState<string[]>([]);
   const [includeCodes, setIncludeCodes] = useState<string[]>([]);
@@ -296,7 +306,19 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     setActiveTabState(tab);
   }, []);
 
+  const setRiskLevel = useCallback((v: string) => {
+    setRiskLevelState(v);
+    if (!goalManuallyEditedRef.current) {
+      const preset = TIER_PRAGMATIC_GOALS[v];
+      if (preset) {
+        setTargetReturnPct(preset.ret);
+        setHorizonMonths(preset.mon);
+      }
+    }
+  }, []);
+
   const setGoal = useCallback((ret: number, mon: number) => {
+    goalManuallyEditedRef.current = true;
     setTargetReturnPct(Math.max(2, Math.min(60, Math.round(ret) || 10)));
     setHorizonMonths(mon);
   }, []);

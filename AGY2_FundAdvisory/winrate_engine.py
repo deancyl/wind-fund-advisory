@@ -88,20 +88,102 @@ def extract_state_vector(snapshot: Optional[Dict[str, Any]]) -> Optional[np.ndar
     return np.array([erp, bias20, mom60, vol, dr007], dtype=np.float64)
 
 
+_MACRO_FEAT_CACHE: Dict[str, Any] = {"mtime": 0.0, "path": "", "df": None}
+
+
+def load_aligned_macro_feature_frame() -> Optional[pd.DataFrame]:
+    """
+    加载全历史真实宏观状态特征表（基于 aligned_matrix_total_return.parquet 中的 H00300 沪深300全收益），
+    确保纯债/黄金/权益等任意单只基金在算「宏观同温层条件胜率」时，对比的是同一套历史宏观状态空间，
+    彻底根治用纯债自身净值伪造 erp_proxy 与 dr007_proxy 导致的 11.7σ 空间错配。
+    """
+    try:
+        import runtime_paths
+        mat_p = runtime_paths.resolve_data_file("processed/aligned_matrix_total_return.parquet")
+    except Exception:
+        return None
+    if not mat_p.exists():
+        return None
+
+    mtime = mat_p.stat().st_mtime
+    p_str = str(mat_p)
+    if _MACRO_FEAT_CACHE["df"] is not None and _MACRO_FEAT_CACHE["path"] == p_str and abs(_MACRO_FEAT_CACHE["mtime"] - mtime) < 1e-6:
+        return _MACRO_FEAT_CACHE["df"]
+
+    try:
+        df = pd.read_parquet(mat_p)
+        if "date" not in df.columns or "H00300" not in df.columns or len(df) < 60:
+            return None
+        dt_idx = pd.to_datetime(df["date"]).dt.normalize()
+        s = pd.Series(df["H00300"].astype(float).ffill().bfill().to_numpy(dtype=np.float64), index=dt_idx)
+        s = s[~s.index.duplicated(keep="last")].sort_index()
+        arr = s.to_numpy(dtype=np.float64)
+        n = len(arr)
+
+        ma20 = s.rolling(20, min_periods=1).mean().to_numpy(dtype=np.float64)
+        bias20 = np.where(ma20 > 0, (arr / ma20 - 1.0) * 100.0, 0.0)
+
+        base_idx = np.maximum(0, np.arange(n) - 60)
+        mom60 = np.where(arr[base_idx] > 0, (arr / arr[base_idx] - 1.0) * 100.0, 0.0)
+
+        ret = np.zeros(n, dtype=np.float64)
+        ret[1:] = arr[1:] / np.maximum(arr[:-1], 1e-8) - 1.0
+        ewma_vol = pd.Series(ret).ewm(span=20, min_periods=1).std().bfill().fillna(0.01).to_numpy(dtype=np.float64) * np.sqrt(250.0)
+
+        roll_min = s.rolling(250, min_periods=1).min().to_numpy(dtype=np.float64)
+        roll_max = s.rolling(250, min_periods=1).max().to_numpy(dtype=np.float64)
+        spread = np.maximum(roll_max - roll_min, 1e-6)
+        norm_p = (arr - roll_min) / spread
+        erp_proxy = np.clip((1.0 - norm_p) * 80.0 + 10.0, 5.0, 95.0)
+
+        # 历史矩阵无日频 DR007 利差列时置 0.0（由 compute_kernel_weights 自动按零方差掩码忽略，绝不伪造 2*bias20！）
+        dr007_neutral = np.zeros(n, dtype=np.float64)
+
+        macro_df = pd.DataFrame(
+            {
+                "erp_proxy": erp_proxy,
+                "bias20": bias20,
+                "mom60": mom60,
+                "ewma_vol": ewma_vol,
+                "dr007_proxy": dr007_neutral,
+            },
+            index=s.index,
+        )
+        _MACRO_FEAT_CACHE["mtime"] = mtime
+        _MACRO_FEAT_CACHE["path"] = p_str
+        _MACRO_FEAT_CACHE["df"] = macro_df
+        return macro_df
+    except Exception:
+        return None
+
+
 def compute_historical_feature_matrix(
     nav_series: pd.Series,
     holding_days: int,
 ) -> np.ndarray:
     """
-    对日频净值序列计算每个滚动窗口起点 t (0 <= t < n - holding_days) 处的 5 维历史特征向量:
-    [ERP分位(或逆价格分位代理), Bias20均线乖离(%), Mom60动量(%), EWMA波动率, DR007利差(或流动性代理)]
-    全程 NumPy 向量化，零 Python 显式循环。
+    对日频净值序列计算每个滚动窗口起点 t (0 <= t < n - holding_days) 处的 5 维历史宏观特征向量:
+    [宏观ERP分位代理, 沪深300 Bias20乖离(%), 沪深300 Mom60动量(%), 沪深300 EWMA波动率, DR007中性掩码]
+    当 nav_series 带 DatetimeIndex 且与宏观历史表存在日期重叠时，严格对齐同一套真实宏观特征空间；
+    仅在无日期索引的合成测试序列下回退至序列自身特征（且零伪造 DR007）。
     """
     nav = np.asarray(nav_series, dtype=np.float64)
     n = len(nav)
     M = n - holding_days
     if M <= 0:
         return np.empty((0, 5), dtype=np.float64)
+
+    # 优先对齐全历史真实宏观状态矩阵（让纯债与权益处于 100% 一致的宏观坐标系）
+    if isinstance(nav_series, pd.Series) and isinstance(nav_series.index, pd.DatetimeIndex):
+        macro_df = load_aligned_macro_feature_frame()
+        if macro_df is not None and not macro_df.empty:
+            head_idx = pd.to_datetime(nav_series.index[:M]).normalize()
+            m_start, m_end = macro_df.index[0], macro_df.index[-1]
+            in_range = (head_idx >= m_start - pd.Timedelta(days=10)) & (head_idx <= m_end + pd.Timedelta(days=10))
+            if float(np.mean(in_range)) >= 0.50:
+                aligned = macro_df.reindex(head_idx, method="ffill").bfill().ffill()
+                if len(aligned) == M and not aligned.isna().any().any():
+                    return aligned.to_numpy(dtype=np.float64)
 
     s_nav = pd.Series(nav)
 
@@ -121,15 +203,14 @@ def compute_historical_feature_matrix(
     ewma_vol = (s_ret.ewm(span=20, min_periods=1).std().bfill().fillna(0.01).values * np.sqrt(250.0))[:M]
 
     # 4. ERP 分位代理 (0~100)
-    # 价格处于 250 天低位 -> ERP 极高 (80~90+); 处于高位 -> ERP 极低 (10~20)
     roll_min = s_nav.rolling(250, min_periods=1).min().values[:M]
     roll_max = s_nav.rolling(250, min_periods=1).max().values[:M]
     spread = np.maximum(roll_max - roll_min, 1e-6)
     norm_p = (nav_head - roll_min) / spread
     erp_proxy = np.clip((1.0 - norm_p) * 80.0 + 10.0, 5.0, 95.0)
 
-    # 5. DR007 利差代理 (bp)
-    dr007_proxy = np.clip(bias20 * 2.0, -50.0, 50.0)
+    # 5. 无真实历史 DR007 列时置 0（零方差掩码，严禁伪造 2 * bias20）
+    dr007_proxy = np.zeros(M, dtype=np.float64)
 
     features = np.column_stack([erp_proxy, bias20, mom60, ewma_vol, dr007_proxy])
     return features
@@ -146,6 +227,7 @@ def compute_kernel_weights(
 ) -> np.ndarray:
     """
     计算历史状态向量与当下状态 target_state 的标准化马氏/欧氏距离 d_t，
+    自动忽略历史不可观测的零方差维度（防止缺失维造成极端 z-score 失真），
     动态自适应调节高斯核带宽 h 确保有效样本容量 N_eff >= min(min_eff_abs, min_eff_ratio * M)，
     并融合 (1 - uniform_fusion_weight) * 当下同温层核权重 + uniform_fusion_weight * 全周期均匀权重。
     """
@@ -155,12 +237,16 @@ def compute_kernel_weights(
 
     mean_vec = np.nanmean(historical_features, axis=0)
     std_vec = np.nanstd(historical_features, axis=0)
-    std_vec = np.where(std_vec < 1e-6, 1.0, std_vec)
+    active_mask = std_vec >= 1e-6
+    safe_std = np.where(active_mask, std_vec, 1.0)
 
-    Z = (historical_features - mean_vec) / std_vec
-    z_target = (target_state - mean_vec) / std_vec
+    Z = (historical_features - mean_vec) / safe_std
+    z_target = (target_state - mean_vec) / safe_std
 
-    d2 = np.sum((Z - z_target) ** 2, axis=1)
+    if np.any(active_mask):
+        d2 = np.sum((Z[:, active_mask] - z_target[active_mask]) ** 2, axis=1)
+    else:
+        d2 = np.zeros(M, dtype=np.float64)
     d2_shift = d2 - np.min(d2)  # 数值稳定性保护
 
     # 动态调节带宽 h 保证有效样本容量 N_eff >= min(60, 0.35 M)

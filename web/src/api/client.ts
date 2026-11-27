@@ -150,6 +150,38 @@ export interface QuantSolveJobResponse {
   };
 }
 
+export interface WalkForwardSplit {
+  train_cutoff: string;
+  test_start: string;
+  test_end: string;
+  test_days: number;
+  realized_return_pct: number;
+  realized_ann_return_pct: number;
+  realized_mdd_pct: number;
+  positive: boolean;
+  hit_target: boolean;
+  selected_codes?: string[];
+}
+
+export interface WalkForwardAudit {
+  method: string;
+  strict_70_30_oos_winrate_pct: number;
+  wf_oos_winrate_pct: number;
+  wf_oos_positive_rate_pct: number;
+  wf_avg_return_pct: number;
+  wf_worst_mdd_pct: number;
+  splits: WalkForwardSplit[];
+  note?: string;
+}
+
+export interface UniverseComparisonItem {
+  label: string;
+  tagline: string;
+  pros: string;
+  cons: string;
+  recommended: boolean;
+}
+
 export interface SolverAudit {
   engine_version: string;
   universe_mode?: UniverseMode;
@@ -165,7 +197,12 @@ export interface SolverAudit {
   target_annual_return_pct: number;
   tier_max_drawdown_cap_pct: number;
   ten_dim_equity_tilt_pct: number;
+  oos_method?: string;
   oos_conditional_win_rate_pct: number;
+  wf_oos_positive_rate_pct?: number;
+  wf_avg_return_pct?: number;
+  wf_worst_mdd_pct?: number;
+  survivorship_bias_disclaimer?: string;
   monte_carlo_paths: number;
   monte_carlo_prob_pct: number;
   portfolio_vol_annual_pct: number;
@@ -198,12 +235,15 @@ export interface BlueprintItem {
   fund_code: string;
   fund_name: string;
   role: string;
+  bucket_10?: string;
   bucket_label?: string;
+  style_cluster?: string;
   asset_class?: string;
   is_active_fund?: boolean;
   real_scale_yi?: number | null;
   max_star?: number;
   inception_date?: string;
+  purchase_status?: string;
   why: string;
   quant_reason?: string;
   quant_score?: number;
@@ -222,6 +262,9 @@ export interface BlueprintItem {
   crowding_score?: number | null;
   ret_20d?: number | null;
   quadrant_tag?: string;
+  c_share_code?: string | null;
+  c_share_name?: string | null;
+  share_class_tip?: string;
   fee_note?: string;
   quota_note?: string;
   action_guide?: string;
@@ -238,11 +281,14 @@ export interface BlueprintResponse {
   model_meta: QuantModelMeta;
   all_models: QuantModelMeta[];
   universe_mode?: UniverseMode;
+  universe_comparison?: Record<UniverseMode, UniverseComparisonItem>;
   fund_count: number;
   total_amount: number;
   market_regime: string;
   goal_analysis?: GoalAnalysis;
   solver_audit?: SolverAudit;
+  walk_forward_audit?: WalkForwardAudit;
+  survivorship_bias_disclaimer?: string;
   constraint_audit?: ConstraintAudit;
   funnel_audit?: FunnelAudit;
   real_bt_info?: RealBacktestInfo;

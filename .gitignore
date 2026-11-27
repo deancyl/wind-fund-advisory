@@ -56,12 +56,14 @@ scratch/
 !data/global/.gitkeep
 !data/derivatives/.gitkeep
 
-# Public market baseline seed data (100% public indices & fund NAVs, zero personal data, ~4.9MB)
-# Ensures fresh `git clone` on any new machine works out-of-the-box without Wind or manual bootstrap
+# Public market baseline seed data (100% public indices, catalogs & fund NAVs, zero personal data, ~7.3MB)
+# Ensures fresh `git clone`, Docker & GitHub Actions work out-of-the-box without Wind or flaky cold-start crawls
 !data/processed/aligned_matrix_total_return.parquet
 !data/processed/market_elite_nav_matrix.parquet
 !data/processed/market_elite_meta.parquet
 !data/processed/market_elite_sync_status.json
+!data/master/fund_catalog.parquet
+!data/master/fund_trading_rules.parquet
 !data/macro/bond_zh_us_rate.parquet
 !data/macro/chinabond_yield_curve.parquet
 !data/mart/index_valuations.parquet

@@ -72,19 +72,151 @@ _ALLOWED_CORS_ORIGINS = [
     "capacitor://localhost",
 ] + _EXTRA_CORS_ORIGINS
 
+_C_SHARE_MAP_LOCK = threading.Lock()
+_C_SHARE_MAP_CACHE: Optional[Dict[str, Dict[str, str]]] = None
+
+_UNIVERSE_COMPARISON_META: Dict[str, Dict[str, Any]] = {
+    "index_only": {
+        "label": "低费指数核心",
+        "tagline": "低费透明 · 零风格漂移 · 适合多数场外投资者长期拿稳",
+        "pros": "运作费率低（0.15%~0.60%）、无经理离职/风格漂移风险、跨周期回撤更可控",
+        "cons": "难赚极端个股超额；场外美股/海外被动指数受外汇额度常有限购",
+        "recommended": True,
+    },
+    "full_market": {
+        "label": "全市场含主动",
+        "tagline": "含绩优主动权益与固收+ · 搏结构市超额与更宽海外额度",
+        "pros": "可纳入长跑主动基金、固收+及高限额大厂主动全球 QDII，震荡结构市弹性更强",
+        "cons": "年运作费率偏高（1.2%~1.5%），存在基金经理风格漂移或阶段性跑输指数风险",
+        "recommended": False,
+    },
+}
+
+
+def _normalize_base_fund_name_for_share(name: str) -> str:
+    s = re.sub(r"\s+", "", str(name or ""))
+    # 剥离尾部分类后缀（保留 (QDII)/(LOF) 主体，去除末尾 A/B/C/D/E/I/H 及“A类/C类/A份额”）
+    s = re.sub(r"(?:[（(][A-Z]类?[）)]|[A-Z](?:类|份额)?)$", "", s)
+    return s.strip()
+
+
+def _lookup_c_share_sibling(code: str, fund_name: str) -> Optional[Dict[str, str]]:
+    """从公开 fund_catalog.parquet 检索同基金对应的无锁定期场外 C 类份额代码（用于 ≤12 个月短期省费提示）。"""
+    global _C_SHARE_MAP_CACHE
+    with _C_SHARE_MAP_LOCK:
+        if _C_SHARE_MAP_CACHE is None:
+            idx_map: Dict[str, Dict[str, str]] = {}
+            try:
+                import pandas as pd
+                from market_lakehouse import is_lockup_or_banned_fund
+
+                cat_path = runtime_paths.get_data_dir() / "master" / "fund_catalog.parquet"
+                if cat_path.exists():
+                    df_cat = pd.read_parquet(cat_path)
+                    code_col = next((c for c in ("基金代码", "symbol", "fund_code") if c in df_cat.columns), None)
+                    name_col = next((c for c in ("基金简称", "name", "fund_name") if c in df_cat.columns), None)
+                    if code_col and name_col:
+                        for raw_c, raw_n in zip(df_cat[code_col], df_cat[name_col]):
+                            fn = str(raw_n or "").strip()
+                            if not re.search(r"(?:[（(]C类?[）)]|C(?:类|份额)?)$", fn):
+                                continue
+                            fc = str(raw_c or "").strip().zfill(6)
+                            if is_lockup_or_banned_fund(fn, fc):
+                                continue
+                            base_n = _normalize_base_fund_name_for_share(fn)
+                            if base_n and base_n not in idx_map:
+                                idx_map[base_n] = {"code": fc, "name": fn}
+            except Exception:
+                idx_map = {}
+            _C_SHARE_MAP_CACHE = idx_map
+        cmap = _C_SHARE_MAP_CACHE
+
+    base_q = _normalize_base_fund_name_for_share(fund_name)
+    if not base_q:
+        return None
+    hit = cmap.get(base_q)
+    if hit and hit["code"] != str(code).strip().zfill(6):
+        return hit
+    return None
+
+
+def _record_daily_forward_audit_snapshot(pm: Any = None, snap: Optional[Dict[str, Any]] = None) -> bool:
+    """每日幂等冻结一次前瞻实盘裁决快照（同交易日最多落盘 1 条，耗时 <10ms，绝不阻塞主线程）。"""
+    try:
+        import forward_audit_logger
+        from market_lakehouse import load_elite_lakehouse
+
+        cur_snap = snap if snap is not None else StrategyBridge.get_latest_market_snapshot(force_reload=False)
+        regime = str((cur_snap or {}).get("market_state_code") or (cur_snap or {}).get("market_state") or "NEUTRAL")
+        hs300_pt = float((cur_snap or {}).get("hs300_close") or (cur_snap or {}).get("hs300_point") or 0.0)
+        if hs300_pt <= 0.0:
+            try:
+                q_300 = fetch_realtime_index_quote("sh000300", use_cache=True) or {}
+                hs300_pt = float(q_300.get("price") or q_300.get("close") or 0.0)
+            except Exception:
+                hs300_pt = 0.0
+
+        # 优先采用最近一次已缓存求解权重，其次取当前活跃账本持仓权重，不触发重求解阻塞启动
+        target_w: Dict[str, float] = {}
+        try:
+            from goal_driven_selector import _SOLVER_CACHE, _SOLVER_CACHE_LOCK
+            with _SOLVER_CACHE_LOCK:
+                if _SOLVER_CACHE:
+                    latest_item = max(_SOLVER_CACHE.values(), key=lambda x: x[0])
+                    target_w = dict((latest_item[1] or {}).get("final_weights") or {})
+        except Exception:
+            pass
+        if not target_w and pm is not None:
+            holdings = getattr(pm, "holdings", {}) or {}
+            tot_mv = sum(float(v.get("market_value", 0.0) or 0.0) for v in holdings.values() if isinstance(v, dict))
+            if tot_mv > 0:
+                target_w = {
+                    str(k).zfill(6): round(float(v.get("market_value", 0.0) or 0.0) / tot_mv, 4)
+                    for k, v in holdings.items()
+                    if isinstance(v, dict) and float(v.get("market_value", 0.0) or 0.0) > 0
+                }
+
+        nav_map: Dict[str, float] = {}
+        if target_w:
+            try:
+                nav_df, _, _ = load_elite_lakehouse()
+                if nav_df is not None and not nav_df.empty:
+                    for c in target_w:
+                        if c in nav_df.columns:
+                            s = nav_df[c].dropna()
+                            if not s.empty:
+                                nav_map[c] = round(float(s.iloc[-1]), 4)
+            except Exception:
+                pass
+
+        action_txt = _arbitrate_market_verdict(cur_snap or {}).get("short_label", "NORMAL")
+        return bool(
+            forward_audit_logger.record_daily_verdict_if_needed(
+                regime=regime,
+                target_weights=target_w,
+                fund_nav_map=nav_map,
+                hs300_point=hs300_pt,
+                action_summary=action_txt,
+            )
+        )
+    except Exception:
+        return False
+
+
 def _warmup_engine_background() -> None:
-    """后台异步预热引擎快照与活跃持仓批量行情，避免首个客户端请求承受冷启动阻塞"""
+    """后台异步预热引擎快照、活跃持仓批量行情与每日幂等前瞻实盘审计快照，避免首个客户端请求承受冷启动阻塞"""
     try:
         mlm = MultiLedgerManager.get_instance()
         lid = mlm.get_active_ledger_id() or "combat_29_funds"
         pm = mlm.get_pm(lid)
-        StrategyBridge.get_latest_market_snapshot(force_reload=False)
+        snap = StrategyBridge.get_latest_market_snapshot(force_reload=False)
         codes = list((getattr(pm, "holdings", {}) or {}).keys())
         if codes:
             prefetch_batch_fund_quotes(codes)
         with ThreadPoolExecutor(max_workers=3) as pool:
             for sym in ("sh000300", "sh000688", "sh000922"):
                 pool.submit(fetch_realtime_index_quote, sym, True)
+        _record_daily_forward_audit_snapshot(pm=pm, snap=snap)
     except Exception:
         pass
 
@@ -106,7 +238,7 @@ except Exception:
     pass
 
 
-app = FastAPI(title="AGY2-FundAdvisory Local Quant API", version="2.1.2", lifespan=_lifespan)
+app = FastAPI(title="AGY2-FundAdvisory Local Quant API", version="2.2.0", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_CORS_ORIGINS,
@@ -2042,6 +2174,7 @@ class QuantSolveRequest(BaseModel):
 
 class LakehouseSyncRequest(BaseModel):
     cooldown_minutes: int = 30
+    prefer_bundle: bool = False
 
 
 def _build_blueprint_payload(
@@ -2122,10 +2255,29 @@ def _build_blueprint_payload(
             f"围绕 {h_mon} 个月 +{t_ret:.0f}% 目标与 {tier} 回撤护栏生成。"
         )
         is_c_share = fname.endswith(("C", "C类")) or str(opt_m.get("share_class", "A")) == "C"
+        c_share_code: Optional[str] = None
+        c_share_name: Optional[str] = None
+        if h_mon <= 12 and not is_c_share:
+            sib_c = _lookup_c_share_sibling(code, fname)
+            if sib_c:
+                c_share_code = sib_c["code"]
+                c_share_name = sib_c["name"]
+                share_class_tip = (
+                    f"持有 ≤1 年建议关注同基金 C 类 {c_share_code}（0 申购费 + 满 30 天免赎回费，较 A 类省约 0.4%~0.6% 交易摩擦）"
+                )
+            else:
+                share_class_tip = "持有 ≤1 年可在银行/平台检索同基金 C 类份额（0 申购费 + 满 30 天免赎回费），长拿 ≥1.5 年首选 A 类"
+        elif is_c_share:
+            c_share_code = code
+            c_share_name = fname
+            share_class_tip = "当前即为 C 类份额，持有满 30 天免赎回费；若计划持有超过 1.5 年可优先 A 类省年化销售服务费"
+        else:
+            share_class_tip = "计划持有 >1 年，底仓首选 A 类份额（免每日计提 0.2%~0.4%/年销售服务费）"
+
         fee_note = (
             "C 类持有满 30 天免赎回费，适合作为防御/波段机动仓"
             if is_c_share
-            else "底仓首选 A 类份额，长期持有免每日计提销售服务费"
+            else (share_class_tip if h_mon <= 12 else "底仓首选 A 类份额，长期持有免每日计提销售服务费")
         )
         quota_note = ""
         if d_lim < 1e7 and buy_amt > d_lim:
@@ -2136,12 +2288,15 @@ def _build_blueprint_payload(
             "fund_code": code,
             "fund_name": fname,
             "role": role_text,
+            "bucket_10": str(cm.get("bucket_10") or ""),
             "bucket_label": str(cm.get("bucket_label") or role_text),
+            "style_cluster": str(cm.get("style_cluster") or ""),
             "asset_class": str(cm.get("asset_class") or "equity"),
             "is_active_fund": bool(cm.get("is_active_fund", False)),
             "real_scale_yi": cm.get("real_scale_yi"),
             "max_star": cm.get("max_star", 0),
             "inception_date": str(cm.get("inception_date", ""))[:10],
+            "purchase_status": str(cm.get("purchase_status") or "开放申购"),
             "why": base_why,
             "quant_reason": quant_reason,
             "quant_score": q_score,
@@ -2154,6 +2309,9 @@ def _build_blueprint_payload(
             "crowding_score": crowd_score_val,
             "ret_20d": ret20_val,
             "quadrant_tag": q_tag_val,
+            "c_share_code": c_share_code,
+            "c_share_name": c_share_name,
+            "share_class_tip": share_class_tip,
             "fee_note": fee_note,
             "quota_note": quota_note,
             "action_guide": quota_note or "不限购，可按建议金额分批或一次配置",
@@ -2180,11 +2338,14 @@ def _build_blueprint_payload(
         "model_meta": _QUANT_MODELS_META[model_id],
         "all_models": list(_QUANT_MODELS_META.values()),
         "universe_mode": u_mode,
+        "universe_comparison": _UNIVERSE_COMPARISON_META,
         "fund_count": n_funds,
         "total_amount": round(cap, 2),
         "market_regime": regime_label,
         "goal_analysis": goal_analysis,
         "solver_audit": solver_audit,
+        "walk_forward_audit": solved.get("walk_forward_audit") or {},
+        "survivorship_bias_disclaimer": str(solver_audit.get("survivorship_bias_disclaimer") or ""),
         "constraint_audit": solved.get("constraint_audit") or {"exclude_codes": [], "include_codes": [], "warnings": []},
         "funnel_audit": funnel_audit,
         "real_bt_info": real_bt_info,
@@ -2417,7 +2578,12 @@ def _build_backtest_curves_payload(
         {"start": "2022-01-04", "end": "2022-12-30", "label": "加息杀估值", "color": "rgba(239, 68, 68, 0.08)"},
         {"start": "2023-01-03", "end": "2024-08-30", "label": "高股息避险", "color": "rgba(56, 189, 248, 0.08)"},
         {"start": "2024-09-02", "end": "2025-06-30", "label": "924大转向", "color": "rgba(16, 185, 129, 0.08)"},
-        {"start": "2025-07-01", "end": d_end, "label": "样本外区间", "color": "rgba(139, 92, 246, 0.10)"},
+        {
+            "start": "2025-07-01",
+            "end": d_end,
+            "label": "样本外区间" if mode == "preset_combat_29_vs_6" else "近阶段结构市",
+            "color": "rgba(139, 92, 246, 0.10)" if mode == "preset_combat_29_vs_6" else "rgba(100, 116, 139, 0.08)",
+        },
     ]
     # 仅保留落在真实回测日期区间内的背景切片，避免空 X 轴截断
     slices = []
@@ -2525,13 +2691,18 @@ def api_v1_lakehouse_sync_daily(req: Optional[LakehouseSyncRequest] = None) -> D
     from market_lakehouse import incremental_daily_sync
 
     cd = int(req.cooldown_minutes) if req is not None else 30
-    res = incremental_daily_sync(cooldown_minutes=max(0, min(1440, cd)))
+    if req is not None and bool(getattr(req, "prefer_bundle", False)):
+        from remote_bundle_sync import sync_public_bundle_with_fallback
+        res = sync_public_bundle_with_fallback(cooldown_minutes=max(0, min(1440, cd)))
+    else:
+        res = incremental_daily_sync(cooldown_minutes=max(0, min(1440, cd)))
     if res.get("updated_dates", 0) > 0:
         clear_goal_solver_cache()
         with _BACKTEST_CURVES_LOCK:
             _BACKTEST_CURVES_CACHE.clear()
         with _EXTREME_CYCLE_LOCK:
             _EXTREME_CYCLE_CACHE.clear()
+    _record_daily_forward_audit_snapshot()
     return _sanitize_v1_payload(res)
 
 
@@ -2605,6 +2776,7 @@ def api_v1_quant_solve_start(req: QuantSolveRequest) -> Dict[str, Any]:
                 progress_cb=_cb,
                 exclude_codes=ex_list,
                 include_codes=in_list,
+                investment_amount=cap,
             )
             with _QUANT_JOBS_LOCK:
                 if job_id in _QUANT_JOBS:
@@ -2733,6 +2905,7 @@ def api_v1_recommend_blueprint(
         force_recompute=bool(force),
         exclude_codes=ex_list,
         include_codes=in_list,
+        investment_amount=cap,
     )
     return _build_blueprint_payload(
         solved=solved,

@@ -4336,38 +4336,53 @@ def compute_ten_dimension_votes(
         d6_delta = 0.0
         d6_reason = f"前三大机会赛道平均估值分位 {top3_val_avg:.1f}%，全市场估值中位数 {market_val_median:.1f}%，产业估值处于合理中枢震荡区间"
 
-    # ── 7. 资金情绪多维融合 (两市成交额 + 上涨家数占比 + 14赛道平均拥挤度) ──
+    # ── 7. 资金情绪多维融合 (两市成交额 + 上涨家数占比 + 14赛道反拥挤安全分，严禁静态硬编码兜底) ──
     all_crowds = [float(s.get("crowding_score", s.get("s_crowd", 85.0))) for s in all_sectors if (s.get("crowding_score") is not None or s.get("s_crowd") is not None)]
     avg_crowd = float(np.mean(all_crowds)) if all_crowds else float(snap.get("crowding_score", 85.0))
 
     mb_data = snap.get("market_turnover_sentiment") or snap.get("market_breadth") or kwargs.get("market_breadth")
     if not mb_data:
         try:
-            from AGY2_FundAdvisory.data_loader import DataLoader
+            try:
+                from data_loader import DataLoader
+            except ImportError:
+                from AGY2_FundAdvisory.data_loader import DataLoader
             mb_data = DataLoader.fetch_market_turnover_and_sentiment(use_cache=True)
         except Exception:
             mb_data = {}
-    turnover_str = mb_data.get("turnover_str", "16,763 亿") if mb_data else "16,763 亿"
-    up_pct = float(mb_data.get("up_pct", 64.5)) if mb_data else 64.5
 
+    has_breadth = bool(
+        isinstance(mb_data, dict)
+        and mb_data.get("turnover_str")
+        and (mb_data.get("up_pct") is not None)
+    )
     has_exhaustion = bool(snap.get("momentum_exhaustion_warning", False))
-    is_overheated = has_exhaustion or (up_pct >= 85.0) or (bias_20 > 6.0)
 
-    if avg_crowd < 55.0 or has_exhaustion:
-        d7_score = 40.0
-        d7_vote = "BEAR"
-        d7_delta = -5.0
-        d7_reason = f"14赛道平均拥挤度 {avg_crowd:.1f}分 (<55分) 或触发动量衰竭预警 (两市成交 {turnover_str}，多方占比 {up_pct:.1f}%)，资金情绪退潮承压"
-    elif avg_crowd >= 72.0 and not is_overheated:
-        d7_score = 80.0
-        d7_vote = "BULL"
-        d7_delta = 2.0
-        d7_reason = f"两市成交额 {turnover_str}，多方占比 {up_pct:.1f}%，14赛道平均拥挤度 {avg_crowd:.1f}分 (>=72分且未过热)，情绪健康做多"
-    else:
-        d7_score = 65.0
+    if not has_breadth:
+        d7_score = 50.0
         d7_vote = "NEUTRAL"
         d7_delta = 0.0
-        d7_reason = f"两市成交额 {turnover_str}，多方占比 {up_pct:.1f}%，14赛道平均拥挤度 {avg_crowd:.1f}分，情绪中性平衡"
+        d7_reason = "两市实时成交额与涨跌广度暂未获取，已中立化不参与仓位加减（严禁使用静态兜底数）"
+    else:
+        turnover_str = str(mb_data.get("turnover_str"))
+        up_pct = float(mb_data.get("up_pct"))
+        is_overheated = has_exhaustion or (up_pct >= 85.0) or (bias_20 > 6.0)
+
+        if avg_crowd < 55.0 or has_exhaustion:
+            d7_score = 40.0
+            d7_vote = "BEAR"
+            d7_delta = -5.0
+            d7_reason = f"14赛道反拥挤安全分（分越高越不拥挤）仅 {avg_crowd:.1f}分 (<55分) 或触发动量衰竭预警 (两市成交 {turnover_str}，多方占比 {up_pct:.1f}%)，资金情绪退潮承压"
+        elif avg_crowd >= 72.0 and not is_overheated:
+            d7_score = 80.0
+            d7_vote = "BULL"
+            d7_delta = 2.0
+            d7_reason = f"两市成交额 {turnover_str}，多方占比 {up_pct:.1f}%，14赛道反拥挤安全分（分越高越不拥挤）达 {avg_crowd:.1f}分 (>=72分且未过热)，情绪健康做多"
+        else:
+            d7_score = 65.0
+            d7_vote = "NEUTRAL"
+            d7_delta = 0.0
+            d7_reason = f"两市成交额 {turnover_str}，多方占比 {up_pct:.1f}%，14赛道反拥挤安全分（分越高越不拥挤）为 {avg_crowd:.1f}分，情绪中性平衡"
 
     # 8. 技术信噪比 (新鲜度门禁：若均线与信噪比数据缺失强制中立化)
     if not has_bias_data:
@@ -4481,7 +4496,18 @@ def compute_ten_dimension_votes(
         "C5": (85.0, 65.0, 95.0)
     }
     base_equity, min_eq, max_eq = tier_base_map.get(tier_u, (60.0, 20.0, 85.0))
-    tot_delta = sum(d["delta_pct"] for d in dimensions)
+    raw_delta = sum(d["delta_pct"] for d in dimensions)
+
+    # 熊市趋势-估值折减（统一双脑口径：当底层趋势引擎判定 BEAR 时，低估正向加仓折半且封顶 +8%，防左侧抄底砸穿纯债底线）
+    m_state_code = str(snap.get("market_state_code") or snap.get("market_state") or "").upper()
+    is_bear_regime = ("BEAR" in m_state_code) or ("熊" in m_state_code)
+    bear_damping_applied = False
+    if is_bear_regime and raw_delta > 0.0 and not circuit_breaker_triggered:
+        tot_delta = min(8.0, round(raw_delta * 0.5, 1))
+        bear_damping_applied = True
+    else:
+        tot_delta = raw_delta
+
     raw_target = int(round(base_equity + tot_delta))
     target_equity = int(round(max(min_eq, min(max_eq, raw_target))))
     target_defensive = 100 - target_equity
@@ -4495,16 +4521,23 @@ def compute_ten_dimension_votes(
 
     formula_head = " + ".join(causal_parts).replace("+ -", "- ")
     cb_suffix = f" [🚨 触发黑天鹅/灰犀牛一票否决熔断({circuit_breaker_reason})，低估加仓项已全部物理冻结为0%]" if circuit_breaker_triggered else ""
-    
+    bear_suffix = (
+        f" [🛡️ 熊市趋势-估值折减：{m_state_code} 下正向倾斜 {raw_delta:+.0f}% 折半封顶至 {tot_delta:+.1f}%，守住纯债底线]"
+        if bear_damping_applied
+        else ""
+    )
+
     if raw_target > max_eq:
-        causal_formula = f"{formula_head} = {raw_target}% -> 触及风控上限锁定，当前建议权益仓位 {target_equity}% (防守固收 {target_defensive}%){cb_suffix}"
+        causal_formula = f"{formula_head} = {raw_target}% -> 触及风控上限锁定，当前建议权益仓位 {target_equity}% (防守固收 {target_defensive}%){bear_suffix}{cb_suffix}"
     elif raw_target < min_eq:
-        causal_formula = f"{formula_head} = {raw_target}% -> 触及风控下限锁定，当前建议权益仓位 {target_equity}% (防守固收 {target_defensive}%){cb_suffix}"
+        causal_formula = f"{formula_head} = {raw_target}% -> 触及风控下限锁定，当前建议权益仓位 {target_equity}% (防守固收 {target_defensive}%){bear_suffix}{cb_suffix}"
     else:
-        causal_formula = f"{formula_head} = 当前建议权益仓位 {target_equity}% (防守固收 {target_defensive}%){cb_suffix}"
+        causal_formula = f"{formula_head} = 当前建议权益仓位 {target_equity}% (防守固收 {target_defensive}%){bear_suffix}{cb_suffix}"
 
     if circuit_breaker_triggered:
         verdict = "🚨 极值熔断防御"
+    elif bear_damping_applied:
+        verdict = "熊市左侧审慎蓄力"
     else:
         verdict = "积极做多" if bull_count >= 6 else ("防守防御" if bear_count >= 5 else "稳健攻防")
 
@@ -4544,6 +4577,7 @@ def compute_ten_dimension_votes(
         "equity_tilt_pct": equity_tilt,
         "suggested_equity_ratio": suggested_equity_ratio,
         "suggested_fixed_ratio": suggested_fixed_ratio,
+        "bear_damping_applied": bear_damping_applied,
         "circuit_breaker_triggered": circuit_breaker_triggered,
         "circuit_breaker_reason": f"🚨 黑天鹅/灰犀牛熔断：{circuit_breaker_reason}" if circuit_breaker_triggered else "",
         "circuit_breaker_triggers": cb_triggers

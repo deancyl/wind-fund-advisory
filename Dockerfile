@@ -30,12 +30,15 @@ COPY docs/ ./docs/
 COPY --from=frontend-builder /app/web/dist ./web/dist
 
 # Preserve public market baseline seeds outside /app/data so empty host volume mounts
-# (- ./data:/app/data) NEVER shadow the 7 public seed files; auto-bootstrapped on startup.
+# (- ./data:/app/data) NEVER shadow the 9 public seed files; auto-bootstrapped on startup.
 COPY data/processed/aligned_matrix_total_return.parquet \
      data/processed/market_elite_nav_matrix.parquet \
      data/processed/market_elite_meta.parquet \
      data/processed/market_elite_sync_status.json \
      ./seed_data/processed/
+COPY data/master/fund_catalog.parquet \
+     data/master/fund_trading_rules.parquet \
+     ./seed_data/master/
 COPY data/macro/bond_zh_us_rate.parquet \
      data/macro/chinabond_yield_curve.parquet \
      ./seed_data/macro/

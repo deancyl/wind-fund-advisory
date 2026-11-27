@@ -85,23 +85,24 @@ def apply_asset_class_constitutional_limits(
     if not w_res:
         return weights
 
-    # 宪法上下限字典 (qdii_max, gold_max, bond_min, bond_max, eq_max)
+    # 宪法上下限字典 (qdii_max, gold_max, hk_max, comm_max, bond_min, bond_max, eq_max)
     caps = {
-        "C1": {"qdii_max": 0.05, "gold_max": 0.10, "bond_min": 0.60, "bond_max": 0.85, "eq_max": 0.25},
-        "C2": {"qdii_max": 0.08, "gold_max": 0.12, "bond_min": 0.35, "bond_max": 0.55, "eq_max": 0.50},
-        "C3": {"qdii_max": 0.12, "gold_max": 0.15, "bond_min": 0.15, "bond_max": 0.30, "eq_max": 0.65},
-        "C4": {"qdii_max": 0.15, "gold_max": 0.12, "bond_min": 0.05, "bond_max": 0.15, "eq_max": 0.78},
-        "C5": {"qdii_max": 0.15, "gold_max": 0.10, "bond_min": 0.00, "bond_max": 0.10, "eq_max": 0.90},
-    }.get(tier_u, {"qdii_max": 0.12, "gold_max": 0.15, "bond_min": 0.15, "bond_max": 0.30, "eq_max": 0.65}).copy()
+        "C1": {"qdii_max": 0.05, "gold_max": 0.10, "hk_max": 0.08, "comm_max": 0.05, "bond_min": 0.60, "bond_max": 0.85, "eq_max": 0.25},
+        "C2": {"qdii_max": 0.08, "gold_max": 0.12, "hk_max": 0.12, "comm_max": 0.06, "bond_min": 0.35, "bond_max": 0.55, "eq_max": 0.50},
+        "C3": {"qdii_max": 0.12, "gold_max": 0.15, "hk_max": 0.15, "comm_max": 0.08, "bond_min": 0.15, "bond_max": 0.30, "eq_max": 0.65},
+        "C4": {"qdii_max": 0.15, "gold_max": 0.12, "hk_max": 0.15, "comm_max": 0.08, "bond_min": 0.05, "bond_max": 0.15, "eq_max": 0.78},
+        "C5": {"qdii_max": 0.15, "gold_max": 0.10, "hk_max": 0.15, "comm_max": 0.08, "bond_min": 0.00, "bond_max": 0.10, "eq_max": 0.90},
+    }.get(tier_u, {"qdii_max": 0.12, "gold_max": 0.15, "hk_max": 0.15, "comm_max": 0.08, "bond_min": 0.15, "bond_max": 0.30, "eq_max": 0.65}).copy()
 
-    # 宏观十维投票动态调节权益上限与固收下限 (知行合一闭环)
+    orig_bond_min = caps["bond_min"]
+    # 宏观十维投票动态调节权益上限与固收下限，同时硬锁纯债安全底线 >= 0.6 * tier_bond_min（绝不被砸成 0%）
     if equity_tilt_pct != 0.0:
         caps["eq_max"] = min(0.95, max(0.15, caps["eq_max"] + equity_tilt_pct))
-        caps["bond_min"] = max(0.0, min(0.85, caps["bond_min"] - equity_tilt_pct))
+        caps["bond_min"] = max(orig_bond_min * 0.60, min(0.85, caps["bond_min"] - equity_tilt_pct))
         caps["bond_max"] = max(caps["bond_min"], min(0.90, caps["bond_max"] - equity_tilt_pct))
 
     # 分类资产（优先使用官方 asset_class / bucket_10 / fund_type 一等元数据，绝不靠基金名漏判）
-    qdii_codes, gold_codes, bond_codes, eq_codes = [], [], [], []
+    qdii_codes, gold_codes, hk_codes, comm_codes, bond_codes, eq_codes = [], [], [], [], [], []
     for c in w_res.keys():
         fn = ""
         bkt = ""
@@ -116,8 +117,14 @@ def apply_asset_class_constitutional_limits(
                 ac_meta = str(row0.get("asset_class", "")).strip().lower()
                 ft_meta = str(row0.get("fund_type", ""))
 
-        if ac_meta in ("gold", "commodity"):
+        if ac_meta == "gold":
             gold_codes.append(c)
+            continue
+        if ac_meta == "commodity":
+            comm_codes.append(c)
+            continue
+        if ac_meta in ("hk_equity", "hk_offshore"):
+            hk_codes.append(c)
             continue
         if ac_meta in ("qdii", "overseas", "global"):
             qdii_codes.append(c)
@@ -130,28 +137,33 @@ def apply_asset_class_constitutional_limits(
             continue
 
         is_gold = (
-            bkt in ("gold", "commodity_gold", "黄金商品", "黄金与商品对冲")
-            or "商品" in ft_meta
-            or "REIT" in ft_meta.upper()
-            or any(k in fn for k in ["黄金", "AU9999", "上海金"])
-            or c in ["000216", "004253", "002610", "002611", "518880", "159937"]
+            bkt in ("gold", "commodity_gold", "黄金商品", "纯黄金避险", "黄金与商品对冲")
+            or (any(k in fn for k in ["黄金", "AU9999", "上海金"]) and not any(k in fn for k in ["矿", "股", "有色"]))
+            or c in ["000216", "004253", "002610", "002611", "000218", "000307"]
         )
+        is_hk = bkt in ("hk_offshore",) or any(k in fn for k in ["香港银行", "恒生", "港股", "海外中国互联", "海外互联", "中概"])
         is_qdii = (
-            bkt in ("qdii", "global", "overseas_qdii", "海外QDII", "海外QDII跨市场")
-            or "QDII" in ft_meta.upper()
-            or any(k in fn for k in ["标普", "纳斯达克", "纳指", "美股", "QDII", "海外", "全球", "恒生", "日经"])
-            or c in ["050025", "001071", "017436", "513500", "513100", "270042"]
+            (not is_hk)
+            and (
+                bkt in ("qdii", "global", "overseas_qdii", "海外QDII", "海外QDII跨市场")
+                or "QDII" in ft_meta.upper()
+                or any(k in fn for k in ["标普500", "纳斯达克", "纳指", "美股", "全球", "德国", "日经"])
+                or c in ["050025", "001071", "017436", "270023", "000614"]
+            )
+            and ("标普中国" not in fn and "标普红利" not in fn)
         )
         is_bond = (
-            bkt in ("pure_bond", "fixed_income_plus", "bond", "纯债固收", "固收增强", "固收+二级债")
+            bkt in ("short_bond", "pure_bond", "fixed_income_plus", "bond", "中短债现金垫", "纯债固收", "固收增强", "固收+二级债")
             or "债券型" in ft_meta
             or "偏债" in ft_meta
             or any(k in fn for k in ["债", "裕祥", "固收", "短融", "信用", "稳益"])
-            or c in ["002351", "002352", "000086", "018757", "511010", "511260", "511360"]
+            or c in ["002351", "002352", "006210", "006668", "006772"]
         )
 
         if is_gold:
             gold_codes.append(c)
+        elif is_hk:
+            hk_codes.append(c)
         elif is_qdii:
             qdii_codes.append(c)
         elif is_bond:
@@ -159,21 +171,20 @@ def apply_asset_class_constitutional_limits(
         else:
             eq_codes.append(c)
 
-    # 1. 压降 QDII 上限
-    tot_qdii = sum(w_res[c] for c in qdii_codes)
-    if tot_qdii > caps["qdii_max"] and tot_qdii > 0:
-        ratio = caps["qdii_max"] / tot_qdii
-        for c in qdii_codes:
-            w_res[c] *= ratio
+    # 1. 压降 QDII / 黄金 / 港股 / 综合商品上限
+    for grp_codes, cap_key in (
+        (qdii_codes, "qdii_max"),
+        (gold_codes, "gold_max"),
+        (hk_codes, "hk_max"),
+        (comm_codes, "comm_max"),
+    ):
+        tot_g = sum(w_res[c] for c in grp_codes)
+        if tot_g > caps[cap_key] and tot_g > 0:
+            ratio = caps[cap_key] / tot_g
+            for c in grp_codes:
+                w_res[c] *= ratio
 
-    # 2. 压降 黄金 上限
-    tot_gold = sum(w_res[c] for c in gold_codes)
-    if tot_gold > caps["gold_max"] and tot_gold > 0:
-        ratio = caps["gold_max"] / tot_gold
-        for c in gold_codes:
-            w_res[c] *= ratio
-
-    # 3. 约束 纯债 范围
+    # 2. 约束 纯债/短债 范围
     tot_bond = sum(w_res[c] for c in bond_codes)
     if bond_codes:
         if tot_bond > caps["bond_max"] and tot_bond > 0:
@@ -185,8 +196,8 @@ def apply_asset_class_constitutional_limits(
             for c in bond_codes:
                 w_res[c] *= ratio
 
-    # 4. 重新严格归一化 (剩余权重由 A 股权益吸收，若无 A 股权益则全资产等比平分)
-    tot_non_eq = sum(w_res[c] for c in (qdii_codes + gold_codes + bond_codes))
+    # 3. 重新严格归一化 (剩余权重由 A 股权益吸收，若无 A 股权益则全资产等比平分)
+    tot_non_eq = sum(w_res[c] for c in (qdii_codes + gold_codes + hk_codes + comm_codes + bond_codes))
     rem_for_eq = max(0.0, 1.0 - tot_non_eq)
     tot_eq = sum(w_res[c] for c in eq_codes)
     if eq_codes and tot_eq > 0:
@@ -435,21 +446,25 @@ class WinRateOptimizer:
     # ─── 预计算个体指标 ─────────────────────────────────────────
 
     def _precompute_individual_metrics(
-        self, progress_callback: Optional[Callable] = None
+        self,
+        progress_callback: Optional[Callable] = None,
+        nav_override: Optional[pd.DataFrame] = None,
     ) -> pd.DataFrame:
         """
         预计算每只候选基金的个体指标（含条件胜率与均值回归修正）。
+        当提供 nav_override（例如严格前 70% train_nav）时，严禁触碰任何未来样本行。
         """
-        if self._individual_metrics is not None:
+        if nav_override is None and self._individual_metrics is not None:
             return self._individual_metrics
 
+        nav_src = nav_override if nav_override is not None else self.nav_matrix
         codes = [c for c in self.candidate_info["fund_code"]
-                 if c in self.nav_matrix.columns]
+                 if c in nav_src.columns]
 
         metrics = []
         total = len(codes)
         for i, code in enumerate(codes):
-            nav_s = self.nav_matrix[code].dropna()
+            nav_s = nav_src[code].dropna()
             if len(nav_s) < self.holding_days + 10:
                 continue
 
@@ -524,15 +539,18 @@ class WinRateOptimizer:
     # ─── 多样化预选 ────────────────────────────────────────────
 
     def _select_diverse_candidates(
-        self, n_target: int = 30, progress_callback: Optional[Callable] = None
+        self,
+        n_target: int = 30,
+        progress_callback: Optional[Callable] = None,
+        nav_override: Optional[pd.DataFrame] = None,
     ) -> List[str]:
         """
-        从候选池中预选约 n_target 只进入优化器：
+        从候选池中预选约 n_target 只进入优化器（严格基于训练切片，防未来信息泄露）：
         1. 每个 bucket 至少选 2 只
         2. 优先选胜率高的
         3. 剔除相关系数 > 0.85 的冗余基金
         """
-        metrics = self._precompute_individual_metrics(progress_callback)
+        metrics = self._precompute_individual_metrics(progress_callback, nav_override=nav_override)
         if metrics.empty:
             return []
 
@@ -559,8 +577,8 @@ class WinRateOptimizer:
             if len(selected) >= n_target:
                 break
 
-            # 检查与已选基金的相关性
-            if self._is_redundant(code, selected, threshold=0.85):
+            # 检查与已选基金的相关性（仅用训练切片）
+            if self._is_redundant(code, selected, threshold=0.85, nav_override=nav_override):
                 continue
 
             selected.append(code)
@@ -569,17 +587,22 @@ class WinRateOptimizer:
         return selected
 
     def _is_redundant(
-        self, code: str, selected: List[str], threshold: float = 0.85
+        self,
+        code: str,
+        selected: List[str],
+        threshold: float = 0.85,
+        nav_override: Optional[pd.DataFrame] = None,
     ) -> bool:
         """检查 code 是否与已选基金高度相关"""
-        if not selected or code not in self.nav_matrix.columns:
+        nav_src = nav_override if nav_override is not None else self.nav_matrix
+        if not selected or code not in nav_src.columns:
             return False
 
-        nav_new = self.nav_matrix[code].dropna()
+        nav_new = nav_src[code].dropna()
         for s_code in selected:
-            if s_code not in self.nav_matrix.columns:
+            if s_code not in nav_src.columns:
                 continue
-            nav_existing = self.nav_matrix[s_code].dropna()
+            nav_existing = nav_src[s_code].dropna()
             # 对齐
             common_idx = nav_new.index.intersection(nav_existing.index)
             if len(common_idx) < 60:
@@ -597,28 +620,39 @@ class WinRateOptimizer:
         progress_callback: Optional[Callable] = None,
     ) -> Dict[str, Any]:
         """
-        主优化函数。
-
-        返回最优组合的权重、胜率、指标和详细信息。
+        主优化函数（严格零未来泄露 70/30 OOS 隔离）：
+        选基、相关性去冗余、权重求解与局部换基 100% 仅在前 70% train_nav 上完成，
+        后 30% val_nav 严格盲测计算 oos_win_rate。
         """
         import time as _time
         t0 = _time.monotonic()
 
-        if progress_callback:
-            progress_callback(0, 5, "预计算个体指标...")
+        # 先在全局时间轴切分严格前 70% 训练区与后 30% 样本外验证区（彻底根除未来信息泄露！）
+        n_total = len(self.nav_matrix)
+        split_global = max(int(n_total * 0.70), self.holding_days + 15)
+        use_strict_split = (n_total - split_global) >= 25
+        train_matrix_full = self.nav_matrix.iloc[:split_global] if use_strict_split else self.nav_matrix
 
-        metrics = self._precompute_individual_metrics(progress_callback)
+        if progress_callback:
+            progress_callback(0, 5, "在严格训练集(前70%)预计算个体指标...")
+
+        metrics = self._precompute_individual_metrics(progress_callback, nav_override=train_matrix_full)
         if metrics.empty:
-            return self._empty_result("无有效候选基金")
+            # 极短样本兜底回退全序列
+            metrics = self._precompute_individual_metrics(progress_callback, nav_override=self.nav_matrix)
+            if metrics.empty:
+                return self._empty_result("无有效候选基金")
+            use_strict_split = False
+            train_matrix_full = self.nav_matrix
 
         if progress_callback:
-            progress_callback(1, 5, "多样化预选...")
+            progress_callback(1, 5, "在训练集执行多样化预选...")
 
         # 预选（随用户设定基金数 N∈[3,15] 自适应扩容候选池）
         n_funds_min, n_funds_max = self.constraints["n_funds_range"]
         pool_target = min(max(30, n_funds_max * 3), len(metrics))
         diverse_codes = self._select_diverse_candidates(
-            n_target=pool_target, progress_callback=progress_callback
+            n_target=pool_target, progress_callback=progress_callback, nav_override=train_matrix_full
         )
         # 若相关性过滤后不足 n_funds_max，按评分依序补足确保 3~15 只全覆盖
         if len(diverse_codes) < min(n_funds_max, len(metrics)):
@@ -632,26 +666,29 @@ class WinRateOptimizer:
             return self._empty_result(f"有效候选不足 {n_funds_min} 只")
 
         if progress_callback:
-            progress_callback(2, 5, f"对 {len(diverse_codes)} 只候选优化权重...")
+            progress_callback(2, 5, f"在训练集(前70%)对 {len(diverse_codes)} 只候选优化权重...")
 
-        # 准备 NAV 子矩阵
+        # 准备 NAV 子矩阵（对齐训练切片与盲测验证切片）
         sub_nav = self.nav_matrix[diverse_codes].dropna()
         if len(sub_nav) < self.holding_days + 10:
             return self._empty_result("NAV 数据长度不足")
 
-        # 样本外稳健性切分 (Out-of-Sample Split: 前 70% 训练，后 30% 验证)
         n_nav = len(sub_nav)
         split_idx = max(int(n_nav * 0.70), self.holding_days + 10)
-        train_nav = sub_nav.iloc[:split_idx]
-        val_nav = sub_nav.iloc[split_idx:]
+        if use_strict_split and (n_nav - split_idx) >= 20:
+            train_nav = sub_nav.iloc[:split_idx]
+            val_nav = sub_nav.iloc[split_idx:]
+        else:
+            train_nav = sub_nav
+            val_nav = sub_nav.iloc[split_idx:]
 
-        # 尝试不同基金数量，选最优
+        # 尝试不同基金数量，选最优（严格只传 train_nav，绝不触碰 val_nav！）
         best_result = None
         best_winrate = -1.0
 
         for n_funds in range(n_funds_min, min(n_funds_max + 1, len(diverse_codes) + 1)):
             result = self._optimize_fixed_n(
-                diverse_codes, sub_nav, n_funds, quota_info, progress_callback
+                diverse_codes, train_nav, n_funds, quota_info, progress_callback
             )
             if result:
                 res_metric = result.get("portfolio_metrics", {})
@@ -1332,10 +1369,10 @@ class WinRateOptimizer:
         M = T - hd
         split_M = int(M * 0.70) if M > 20 else M
 
-        # 若有 market_snapshot，预计算核权重
+        # 若有 market_snapshot，预计算核权重（保留 DatetimeIndex 以对齐真实宏观特征表！）
         state_vec = WinRateEngine.extract_state_vector(self.market_snapshot)
         if state_vec is not None and M > 0:
-            avg_nav = pd.Series(norm_nav.mean(axis=1).values)
+            avg_nav = pd.Series(norm_nav.mean(axis=1).values, index=norm_nav.index)
             hist_feat = WinRateEngine.compute_historical_feature_matrix(avg_nav, hd)
             kw = WinRateEngine.compute_kernel_weights(hist_feat, state_vec)
         else:

@@ -57,12 +57,20 @@ def _write_processed_path(filename: str) -> Path:
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
-# 10 大资产风格桶中文名、宪法资产大类映射与默认均衡配额（合计约 360 只）
+# 12 大资产风格桶中文名、宪法资产大类映射与默认均衡配额（含中短债安全垫、港股离岸与综合商品隔离）
 BUCKET_10_CONFIG: Dict[str, Dict[str, Any]] = {
+    "short_bond": {
+        "label": "中短债现金垫",
+        "asset_class": "bond",
+        "quota": 24,
+        "is_active": False,
+        "is_index_eligible": True,
+        "min_scale_yi": 3.0,
+    },
     "pure_bond": {
         "label": "纯债固收",
         "asset_class": "bond",
-        "quota": 45,
+        "quota": 40,
         "is_active": False,
         "is_index_eligible": True,
         "min_scale_yi": 2.0,
@@ -70,7 +78,7 @@ BUCKET_10_CONFIG: Dict[str, Dict[str, Any]] = {
     "fixed_income_plus": {
         "label": "固收+二级债",
         "asset_class": "bond",
-        "quota": 40,
+        "quota": 36,
         "is_active": True,
         "is_index_eligible": False,
         "min_scale_yi": 3.0,
@@ -94,7 +102,7 @@ BUCKET_10_CONFIG: Dict[str, Dict[str, Any]] = {
     "quant_mid_small": {
         "label": "量化与中小盘指增",
         "asset_class": "equity",
-        "quota": 36,
+        "quota": 34,
         "is_active": False,
         "is_index_eligible": True,
         "min_scale_yi": 2.0,
@@ -102,7 +110,15 @@ BUCKET_10_CONFIG: Dict[str, Dict[str, Any]] = {
     "sector_theme_index": {
         "label": "行业主题指数",
         "asset_class": "equity",
-        "quota": 34,
+        "quota": 32,
+        "is_active": False,
+        "is_index_eligible": True,
+        "min_scale_yi": 2.0,
+    },
+    "hk_offshore": {
+        "label": "港股与沪港深",
+        "asset_class": "hk_equity",
+        "quota": 20,
         "is_active": False,
         "is_index_eligible": True,
         "min_scale_yi": 2.0,
@@ -110,7 +126,7 @@ BUCKET_10_CONFIG: Dict[str, Dict[str, Any]] = {
     "active_balanced_equity": {
         "label": "主动绩优均衡",
         "asset_class": "equity",
-        "quota": 55,
+        "quota": 50,
         "is_active": True,
         "is_index_eligible": False,
         "min_scale_yi": 5.0,
@@ -118,7 +134,7 @@ BUCKET_10_CONFIG: Dict[str, Dict[str, Any]] = {
     "active_sector_growth": {
         "label": "主动科技与行业成长",
         "asset_class": "equity",
-        "quota": 42,
+        "quota": 40,
         "is_active": True,
         "is_index_eligible": False,
         "min_scale_yi": 5.0,
@@ -126,77 +142,211 @@ BUCKET_10_CONFIG: Dict[str, Dict[str, Any]] = {
     "overseas_qdii": {
         "label": "海外QDII跨市场",
         "asset_class": "qdii",
-        "quota": 28,
+        "quota": 26,
         "is_active": False,
         "is_index_eligible": True,
         "min_scale_yi": 2.0,
     },
     "commodity_gold": {
-        "label": "黄金与商品对冲",
+        "label": "纯黄金避险",
         "asset_class": "gold",
-        "quota": 18,
+        "quota": 16,
         "is_active": False,
         "is_index_eligible": True,
         "min_scale_yi": 2.0,
     },
+    "other_commodity": {
+        "label": "能源与综合商品",
+        "asset_class": "commodity",
+        "quota": 8,
+        "is_active": True,
+        "is_index_eligible": False,
+        "min_scale_yi": 3.0,
+    },
 }
 
-# 核心标杆种子代码（保证常见核心宽基/红利/债/黄金/美股在精英库内稳定存在，与全市场海选同台竞技）
+# 核心标杆种子代码（100% 场外开放式、零锁定期、零场内 ETF：已剔除 1 年锁定期 000086 与场内 ETF 510300）
 _ANCHOR_SEED_CODES = [
-    "002351", "000086", "005561", "100032", "000216", "050025",
-    "110020", "017436", "011612", "000478", "004194", "090010",
-    "002610", "001071", "161017", "510300",
+    "002351", "006210", "006668", "006772", "005561", "100032",
+    "000216", "000218", "050025", "110020", "017436", "270023",
+    "011612", "000478", "004194", "090010", "002610", "001071", "161017",
 ]
+
+# 定向补强标杆（高流动性大厂开放中短债 + 真实高限额开申大厂全球 QDII）
+_DEFAULT_TOPUP_CODES = [
+    # 12 只高流动性大厂开放中短债（零锁定期、日限额 >= 10 万、费率 <= 0.40%）
+    "006668", "006772", "007901", "007319", "004155", "008505",
+    "008686", "016717", "008448", "015530", "013520", "008820",
+    # 6 只真实非中国高限额开申大厂场外全球/美股 QDII（零中概、零 REITs）
+    "270023", "012920", "012060", "005698", "100055", "000614",
+]
+
+# 锁定期/封闭/后端/外币份额/滚动运作全量黑名单正则（覆盖阿拉伯与中文数字）
+LOCKUP_NAME_PATTERN = re.compile(
+    r"后端|定开|定期开放|封闭|持有期|个月持有|天持有|年持有|滚动持有|天滚动|个月滚动|滚动运作"
+)
+_FX_SHARE_PATTERN = re.compile(r"美元|现汇|现钞|港币|欧元")
+# 纯场内 ETF 代码段（特别注意：519xxx 是上交所场外开放式基金代码段，绝不可误杀！）
+_EXCHANGE_ONLY_PREFIXES = ("510", "511", "512", "513", "515", "516", "517", "518", "159", "560", "561", "562", "563", "588")
 
 _LAKEHOUSE_MEM_LOCK = threading.Lock()
 _LAKEHOUSE_MEM_CACHE: Dict[str, Any] = {"mtime": 0.0, "nav": None, "meta": None}
 
 
-def classify_fund_bucket_10(fund_type: str, fund_name: str) -> str:
-    """结合官方 fund_type 与基金名称精准归入 10 大风格桶（杜绝靠名字漏判大类）。"""
+def is_lockup_or_banned_fund(
+    fund_name: str,
+    fund_code: str = "",
+    purchase_status: str = "",
+) -> bool:
+    """
+    判定标的是否触发中国场外开放式买基硬禁用红线：
+      1. 锁定期 / 持有期 / 滚动运作 / 定期开放 / 封闭 / 后端收费；
+      2. 纯场内交易 ETF（非场外联接、非 LOF 场外申购，防止无券商账户用户买不进去）；
+      3. 美元/港币/欧元外币现汇份额。
+    """
+    fn = str(fund_name or "").strip()
+    fc = str(fund_code or "").strip().zfill(6) if str(fund_code or "").strip().isdigit() else str(fund_code or "").strip()
+    ps = str(purchase_status or "").strip()
+
+    if LOCKUP_NAME_PATTERN.search(fn):
+        return True
+    if _FX_SHARE_PATTERN.search(fn):
+        return True
+    if "场内交易" in ps:
+        return True
+    if fc and fc.startswith(_EXCHANGE_ONLY_PREFIXES) and ("联接" not in fn) and ("LOF" not in fn.upper()):
+        return True
+    return False
+
+
+def classify_fund_bucket_10(
+    fund_type: str,
+    fund_name: str,
+    fund_code: str = "",
+    purchase_status: str = "",
+) -> str:
+    """
+    结合官方 fund_type、基金名称、代码与申购渠道精准归入 12 大风格桶：
+      - 强制拦截货币/理财与纯场内 ETF；
+      - 严格隔离纯黄金联接 vs 油气商品 FOF / 周期有色金属股票基；
+      - 严格隔离真海外 QDII vs 标普冠名 A 股红利 / 中概互联 / 香港银行 / 美国 REITs；
+      - 拆分中短债现金垫 (short_bond) 与中长纯债 (pure_bond)。
+    """
     ft = str(fund_type or "").strip()
     fn = str(fund_name or "").strip()
+    fc = str(fund_code or "").strip().zfill(6) if str(fund_code or "").strip().isdigit() else str(fund_code or "").strip()
+    ps = str(purchase_status or "").strip()
+
     if "货币" in ft or "理财" in ft or "货币" in fn:
         return "EXCLUDE_MONEY"
-    if (
-        "商品" in ft
-        or "REIT" in ft.upper()
-        or any(k in fn for k in ("黄金", "上海金", "白银", "商品", "豆粕", "有色", "原油", "REIT"))
-    ):
+    if "场内交易" in ps or (fc and fc.startswith(_EXCHANGE_ONLY_PREFIXES) and ("联接" not in fn) and ("LOF" not in fn.upper())):
+        return "EXCLUDE_EXCHANGE_ONLY"
+
+    # 1. 纯黄金避险槽位：严禁混入油气 FOF、有色金属股票基、黄金股/矿业股
+    has_gold_kw = any(k in fn for k in ("黄金", "上海金", "AU9999"))
+    has_non_bullion_kw = any(k in fn for k in ("矿", "股", "有色", "油", "通胀", "农业", "资源", "FOF", "商品", "精选"))
+    if has_gold_kw and (not has_non_bullion_kw) and ("股票" not in ft) and ("混合" not in ft):
         return "commodity_gold"
+
+    # 2. 非纯金商品 / 油气 / 抗通胀 / REITs 独立隔离，绝不占黄金或海外股票宽基槽位
     if (
+        "REIT" in ft.upper()
+        or "REIT" in fn.upper()
+        or "商品" in ft
+        or any(k in fn for k in ("抗通胀", "原油", "石油", "豆粕", "能源化工", "天然资源", "房地产指数", "美国房地产"))
+    ):
+        return "other_commodity"
+
+    # 3. 标普/道琼斯冠名的纯国内 A 股指数（如 008163 标普红利低波50、501029 标普中国A股红利）：强制不判海外！
+    is_domestic_sp_index = (
+        any(k in fn for k in ("标普中国", "标普A股", "中国A股"))
+        or ("标普红利" in fn and "美国" not in fn and "QDII" not in ft.upper() and "QDII" not in fn.upper())
+    )
+
+    # 4. 中概互联与港股离岸隔离（中概/港股与 A 股高度正相关，不得冒充欧美海外对冲！）
+    is_china_internet = any(k in fn for k in ("中概", "海外中国互联", "海外互联", "中国互联网"))
+    is_hk_market = any(k in fn for k in ("香港", "恒生", "港股", "H股"))
+    if is_china_internet:
+        return "hk_offshore"
+    if is_hk_market and not any(k in fn for k in ("沪港深红利", "港股通红利")):
+        return "hk_offshore"
+    if ("沪港深" in fn) and any(k in fn for k in ("红利", "高股息")):
+        return "dividend_value"
+
+    # 5. 真正非中国的海外/美股/全球 QDII
+    if (not is_domestic_sp_index) and (
         "QDII" in ft.upper()
-        or any(k in fn for k in ("标普", "纳斯达克", "纳指", "美股", "日经", "恒生", "港股", "海外", "全球", "美国", "德国", "法国", "越南", "印度", "亚太", "欧洲"))
+        or "海外" in ft
+        or any(k in fn for k in ("标普500", "纳斯达克", "纳指", "道琼斯", "美股", "日经", "德国", "法国", "越南", "印度", "亚太", "欧洲", "全球", "美国"))
     ):
         return "overseas_qdii"
-    if any(k in ft for k in ("债券型-长债", "债券型-中短债", "债券型-利率债", "债券型-信用债", "指数型-固收")):
+
+    # 6. 短债现金垫 vs 中长纯债 vs 固收+二级债
+    if "债券" in ft or "固收" in ft:
+        if any(k in ft for k in ("混合", "偏债", "可转债")) or "FOF" in ft.upper():
+            return "fixed_income_plus"
+        if ("中短债" in ft) or any(k in fn for k in ("短债", "超短债", "中短债", "短融", "同业存单")):
+            return "short_bond"
+        if any(k in ft for k in ("长债", "利率债", "信用债", "纯债", "指数型-固收")):
+            return "pure_bond"
         return "pure_bond"
-    if any(k in ft for k in ("债券型-混合", "混合型-偏债", "混合型-绝对收益")) or "FOF" in ft.upper():
+
+    if any(k in ft for k in ("混合型-偏债", "混合型-绝对收益")) or "FOF" in ft.upper():
         return "fixed_income_plus"
+
+    # 7. 红利低波价值
     if any(k in fn for k in ("红利", "高股息", "自由现金流")):
         return "dividend_value"
-    if "指数型" in ft or "ETF" in fn.upper() or "增强" in fn:
-        if any(k in fn for k in ("芯片", "半导体", "医药", "医疗", "军工", "银行", "证券", "白酒", "消费", "光伏", "新能源", "人工智能", "AI", "通信", "算力", "游戏", "传媒", "有色", "煤炭", "电力", "创新药", "机器人", "汽车", "畜牧")):
+
+    # 8. 指数型 / ETF 联接 / 指增（有色金属股票 ETF 明确归入行业主题指数，不再进黄金！）
+    if "指数型" in ft or "ETF" in fn.upper() or "增强" in fn or "联接" in fn:
+        if any(k in fn for k in ("芯片", "半导体", "医药", "医疗", "军工", "银行", "证券", "白酒", "消费", "光伏", "新能源", "人工智能", "AI", "通信", "算力", "游戏", "传媒", "有色", "煤炭", "电力", "创新药", "机器人", "汽车", "畜牧", "一带一路", "黄金股")):
             return "sector_theme_index"
         if any(k in fn for k in ("中证500", "中证1000", "中证2000", "国证2000", "创业板", "科创", "小盘", "增强")):
             return "quant_mid_small"
         if any(k in fn for k in ("沪深300", "上证50", "中证A50", "A500", "中证100", "央企")):
             return "broad_index"
         return "sector_theme_index"
+
+    # 9. 主动行业成长 vs 主动均衡权益
     if any(k in fn for k in ("科技", "芯片", "半导体", "人工智能", "AI", "算力", "医药", "医疗", "消费", "新能源", "光伏", "军工", "制造", "机器人", "电子", "计算机", "创新药", "数字")):
         return "active_sector_growth"
     return "active_balanced_equity"
 
 
-def _is_index_style_fund(fund_type: str, fund_name: str, bucket_10: str) -> bool:
-    """判定是否符合「仅指数/低费工具」筛选口径（纯债、黄金、指数/ETF联接、红利指数、宽基QDII指数）。"""
-    if bucket_10 in ("pure_bond", "commodity_gold", "broad_index", "quant_mid_small", "sector_theme_index"):
-        return True
+def is_index_style_fund(
+    fund_type: str,
+    fund_name: str,
+    bucket_10: str,
+    operating_fee: float = 0.6,
+) -> bool:
+    """
+    严格判定是否符合「低费指数核心池 (index_only)」口径：
+      - 绝不允许 FOF、主动偏股/混合、非纯金高费商品基混入；
+      - 运作总费率必须 <= 0.85%；
+      - 仅放行纯债/中短债、纯黄金联接、以及被动宽基/红利/行业/海外/港股指数与低费标准指增。
+    """
     ft = str(fund_type or "")
     fn = str(fund_name or "")
+    try:
+        fee_v = float(operating_fee) if operating_fee is not None and pd.notna(operating_fee) else 0.6
+    except Exception:
+        fee_v = 0.6
+
+    if bucket_10 in ("other_commodity", "fixed_income_plus", "active_balanced_equity", "active_sector_growth", "EXCLUDE_MONEY", "EXCLUDE_EXCHANGE_ONLY"):
+        return False
+    if "FOF" in ft.upper() or "FOF" in fn.upper() or "混合" in ft or "混合" in fn:
+        return False
+    if fee_v > 0.85:
+        return False
+    if bucket_10 in ("short_bond", "pure_bond", "commodity_gold", "broad_index", "quant_mid_small", "sector_theme_index"):
+        return True
     if "指数" in ft or "ETF" in fn.upper() or "指数" in fn or "联接" in fn:
         return True
     return False
+
+
+_is_index_style_fund = is_index_style_fund
 
 
 def build_local_five_table_screened_candidates(
@@ -268,13 +418,22 @@ def build_local_five_table_screened_candidates(
         df["est_total_operating_fee"] = 0.8
         df["purchase_status"] = "开放申购"
 
-    # 10 大风格桶分类 & 基础清洗
-    df["bucket_10"] = [classify_fund_bucket_10(ft, fn) for ft, fn in zip(df["fund_type"], df["fund_name"])]
-    df = df[df["bucket_10"] != "EXCLUDE_MONEY"].copy()
+    # 12 大风格桶分类 & 100% 场外开放式硬清洗
+    df["bucket_10"] = [
+        classify_fund_bucket_10(ft, fn, fc, ps)
+        for ft, fn, fc, ps in zip(df["fund_type"], df["fund_name"], df["fund_code"], df.get("purchase_status", ""))
+    ]
+    df = df[~df["bucket_10"].isin(["EXCLUDE_MONEY", "EXCLUDE_EXCHANGE_ONLY"])].copy()
 
-    # A/C 去重（保留 A 类主份额，排除后端/定期封闭/FOF-LOF异常后缀，保留核心种子）
+    # A/C 去重（保留 A 类主份额；全量封禁锁定期/滚动持有/外币/纯场内 ETF，种子池亦不得绕过！）
     fn_s = df["fund_name"].astype(str).str.strip()
-    is_bad_suffix = fn_s.str.contains(r"后端|定开|封闭|持有期三年|三年持有|五年持有|两年持有", regex=True, na=False)
+    is_banned = pd.Series(
+        [
+            is_lockup_or_banned_fund(fn, fc, ps)
+            for fn, fc, ps in zip(df["fund_name"], df["fund_code"], df.get("purchase_status", ""))
+        ],
+        index=df.index,
+    )
     is_non_a = fn_s.str.endswith(("C", "C类", "E", "E类", "B", "B类", "I", "I类", "D", "D类", "H"))
     is_anchor = df["fund_code"].isin(_ANCHOR_SEED_CODES)
 
@@ -284,8 +443,8 @@ def build_local_five_table_screened_candidates(
     )
     has_3y = df["return_3y"].notna() if ("return_3y" in df.columns and require_3y) else pd.Series(True, index=df.index)
 
-    # 合规初筛池（相当于 28,177 -> ~8,000~12,500）
-    compliant_mask = (~is_bad_suffix) & (~is_non_a | is_anchor) & (open_buy | is_anchor) & (has_3y | is_anchor)
+    # 合规初筛池（锁定期/场内禁令对所有标的包括种子池严格生效）
+    compliant_mask = (~is_banned) & (~is_non_a | is_anchor) & (open_buy | is_anchor) & (has_3y | is_anchor)
     compliant = df[compliant_mask].copy()
     compliant_count = len(compliant)
 
@@ -387,8 +546,13 @@ def build_local_five_table_screened_candidates(
     elite_df["asset_class"] = elite_df["bucket_10"].map(lambda k: BUCKET_10_CONFIG.get(k, {}).get("asset_class", "equity"))
     elite_df["is_active_fund"] = elite_df["bucket_10"].map(lambda k: bool(BUCKET_10_CONFIG.get(k, {}).get("is_active", False)))
     elite_df["is_index_eligible"] = [
-        _is_index_style_fund(ft, fn, b10)
-        for ft, fn, b10 in zip(elite_df["fund_type"], elite_df["fund_name"], elite_df["bucket_10"])
+        is_index_style_fund(ft, fn, b10, fee)
+        for ft, fn, b10, fee in zip(
+            elite_df["fund_type"],
+            elite_df["fund_name"],
+            elite_df["bucket_10"],
+            elite_df.get("est_total_operating_fee", 0.6),
+        )
     ]
     elite_df = elite_df.drop(columns=["_base_name"], errors="ignore")
 
@@ -659,10 +823,13 @@ def _assemble_lakehouse_parquet(
         sc_info = scale_cache.get(code) or {}
         real_scale = sc_info.get("real_scale_yi")
         b10 = str(row["bucket_10"])
+        fn_str = str(row.get("fund_name", ""))
         is_anchor = code in _ANCHOR_SEED_CODES
         min_scale = float(BUCKET_10_CONFIG.get(b10, {}).get("min_scale_yi", 2.0))
+        if "发起" in fn_str:
+            min_scale = max(min_scale, 5.0)
 
-        # 落实真实单基规模硬门槛（排除百亿经理挂名下的迷你基！核心标杆种子放行）
+        # 落实真实单基规模硬门槛（排除百亿经理挂名下的迷你基与发起式清盘雷！核心标杆种子放行）
         if (not is_anchor) and (real_scale is not None) and float(real_scale) < min_scale:
             continue
 
@@ -924,3 +1091,245 @@ def import_wind_nav_file(input_path: Path) -> Dict[str, Any]:
     with _LAKEHOUSE_MEM_LOCK:
         _LAKEHOUSE_MEM_CACHE["mtime"] = 0.0
     return {"status": "imported", "imported_funds": int(wide.shape[1]), "total_lakehouse_funds": int(merged.shape[1]), "rows": int(len(merged))}
+
+
+def _merge_latest_trading_rules_into_meta(meta_df: pd.DataFrame) -> pd.DataFrame:
+    """将本地最新 master/fund_trading_rules.parquet 的申购状态、单日限额与费率合入湖仓元数据。"""
+    rul_p = runtime_paths.resolve_data_file("master/fund_trading_rules.parquet")
+    if not rul_p.exists():
+        return meta_df
+    try:
+        rul = pd.read_parquet(rul_p)
+        rul["fund_code"] = rul["symbol"].astype(str).str.strip().str.zfill(6)
+        keep_cols = [
+            c for c in ("fund_code", "is_purchase_allowed", "daily_limit_amount", "est_total_operating_fee", "purchase_status")
+            if c in rul.columns
+        ]
+        rul_sub = rul[keep_cols].drop_duplicates(subset=["fund_code"]).set_index("fund_code")
+        out = meta_df.copy()
+        out["fund_code"] = out["fund_code"].astype(str).str.strip().str.zfill(6)
+        for col in keep_cols:
+            if col == "fund_code":
+                continue
+            mapped = out["fund_code"].map(rul_sub[col])
+            if col in out.columns:
+                out[col] = mapped.combine_first(out[col])
+            else:
+                out[col] = mapped
+        return out
+    except Exception:
+        return meta_df
+
+
+def reclassify_and_clean_existing_lakehouse(prune_mini_sponsor: bool = False) -> Dict[str, Any]:
+    """
+    原位重分类并净化已有本地真净值湖仓（0 全量重爬，< 0.5 秒）：
+      1. 合入最新 master/fund_trading_rules.parquet 的申购状态、单日限额与费率；
+      2. 全量重跑 classify_fund_bucket_10 / is_index_style_fund（消灭假海外、假黄金、高费油气 FOF 进指数池）；
+      3. 物理清除全部锁定期/滚动持有/外币份额/纯场内 ETF 列（从 nav_matrix 与 meta 同步移除）；
+      4. 同步更新 market_elite_sync_status.json 并失效内存缓存。
+    """
+    nav_in = _read_elite_nav_path()
+    meta_in = _read_elite_meta_path()
+    if not nav_in.exists() or not meta_in.exists():
+        return {"status": "not_initialized", "removed_count": 0, "remaining_count": 0}
+
+    nav_df = pd.read_parquet(nav_in)
+    nav_df.index = pd.to_datetime(nav_df.index)
+    meta_df = pd.read_parquet(meta_in)
+    meta_df["fund_code"] = meta_df["fund_code"].astype(str).str.strip().str.zfill(6)
+    meta_df = _merge_latest_trading_rules_into_meta(meta_df)
+
+    removed_codes: List[str] = []
+    keep_rows: List[Dict[str, Any]] = []
+    for _, row in meta_df.iterrows():
+        rec = row.to_dict()
+        fc = str(rec.get("fund_code", "")).strip().zfill(6)
+        fn = str(rec.get("fund_name", "")).strip()
+        ft = str(rec.get("fund_type", "")).strip()
+        ps = str(rec.get("purchase_status", "")).strip()
+        fee = rec.get("est_total_operating_fee", 0.6)
+        try:
+            fee_f = float(fee) if fee is not None and pd.notna(fee) else 0.6
+        except Exception:
+            fee_f = 0.6
+
+        if fc not in nav_df.columns:
+            removed_codes.append(fc)
+            continue
+        if is_lockup_or_banned_fund(fn, fc, ps):
+            removed_codes.append(fc)
+            continue
+
+        b10 = classify_fund_bucket_10(ft, fn, fc, ps)
+        if b10 in ("EXCLUDE_MONEY", "EXCLUDE_EXCHANGE_ONLY"):
+            removed_codes.append(fc)
+            continue
+
+        if prune_mini_sponsor and ("发起" in fn) and (fc not in _ANCHOR_SEED_CODES):
+            sc = rec.get("real_scale_yi")
+            if sc is not None and pd.notna(sc) and float(sc) < 5.0:
+                removed_codes.append(fc)
+                continue
+
+        cfg = BUCKET_10_CONFIG.get(b10, {})
+        rec["bucket_10"] = b10
+        rec["bucket_label"] = str(cfg.get("label", "核心配置"))
+        rec["asset_class"] = str(cfg.get("asset_class", "equity"))
+        rec["is_active_fund"] = bool(cfg.get("is_active", False)) or (b10 == "overseas_qdii" and not is_index_style_fund(ft, fn, b10, fee_f))
+        rec["is_index_eligible"] = bool(is_index_style_fund(ft, fn, b10, fee_f))
+        keep_rows.append(rec)
+
+    clean_meta = pd.DataFrame(keep_rows).drop_duplicates(subset=["fund_code"]).reset_index(drop=True)
+    keep_codes = [c for c in clean_meta["fund_code"].tolist() if c in nav_df.columns]
+    clean_nav = nav_df[keep_codes].sort_index()
+    clean_nav.index.name = "date"
+
+    clean_nav.to_parquet(_write_processed_path("market_elite_nav_matrix.parquet"))
+    clean_meta.to_parquet(_write_processed_path("market_elite_meta.parquet"), index=False)
+
+    status_old = get_lakehouse_status()
+    status_old["status"] = "ready"
+    status_old["latest_date"] = str(clean_nav.index[-1])[:10] if len(clean_nav) else ""
+    status_old["start_date"] = str(clean_nav.index[0])[:10] if len(clean_nav) else ""
+    status_old["trading_days"] = int(len(clean_nav))
+    status_old["elite_fund_count"] = int(len(clean_meta))
+    status_old["active_fund_count"] = int(clean_meta["is_active_fund"].sum()) if "is_active_fund" in clean_meta.columns else 0
+    status_old["index_eligible_count"] = int(clean_meta["is_index_eligible"].sum()) if "is_index_eligible" in clean_meta.columns else 0
+    status_old["bucket_counts"] = {str(k): int(v) for k, v in clean_meta["bucket_10"].value_counts().items()}
+    status_old["reclassified_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    _write_processed_path("market_elite_sync_status.json").write_text(
+        json.dumps(status_old, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    with _LAKEHOUSE_MEM_LOCK:
+        _LAKEHOUSE_MEM_CACHE["mtime"] = 0.0
+        _LAKEHOUSE_MEM_CACHE["nav"] = None
+        _LAKEHOUSE_MEM_CACHE["meta"] = None
+
+    return {
+        "status": "cleaned",
+        "removed_count": len(removed_codes),
+        "removed_codes": removed_codes,
+        "remaining_count": int(len(clean_meta)),
+        "bucket_counts": status_old["bucket_counts"],
+    }
+
+
+def topup_targeted_lakehouse_funds(
+    extra_codes: Optional[List[str]] = None,
+    workers: int = 3,
+    min_days: int = 360,
+) -> Dict[str, Any]:
+    """
+    轻量定向补强本地精英湖仓（默认补齐 ~12 只高流动性大厂开放中短债 + ~6 只高限额开申大厂全球 QDII，耗时 < 8 秒）：
+    通过静态 CDN pingzhongdata 拉取红利再投资复权净值并合入现有矩阵，随后自动执行一次原位重分类清洗。
+    """
+    nav_in = _read_elite_nav_path()
+    meta_in = _read_elite_meta_path()
+    if not nav_in.exists() or not meta_in.exists():
+        return {"status": "not_initialized", "added": []}
+
+    nav_df = pd.read_parquet(nav_in)
+    nav_df.index = pd.to_datetime(nav_df.index)
+    meta_df = pd.read_parquet(meta_in)
+    meta_df["fund_code"] = meta_df["fund_code"].astype(str).str.strip().str.zfill(6)
+    existing = set(nav_df.columns.astype(str).tolist())
+
+    targets = [str(c).strip().zfill(6) for c in (extra_codes or _DEFAULT_TOPUP_CODES)]
+    to_fetch = [c for c in dict.fromkeys(targets) if c not in existing]
+    if not to_fetch:
+        clean_res = reclassify_and_clean_existing_lakehouse()
+        return {"status": "ok", "added": [], "failed": [], "clean": clean_res}
+
+    # 从全市场目录表和规则表查静态元数据
+    cat_map: Dict[str, Dict[str, Any]] = {}
+    cat_p = runtime_paths.resolve_data_file("master/fund_catalog.parquet")
+    if cat_p.exists():
+        cat = pd.read_parquet(cat_p)
+        cat["fund_code"] = cat["symbol"].astype(str).str.strip().str.zfill(6)
+        cat_map = {r["fund_code"]: r.to_dict() for _, r in cat.drop_duplicates("fund_code").iterrows()}
+
+    rul_map: Dict[str, Dict[str, Any]] = {}
+    rul_p = runtime_paths.resolve_data_file("master/fund_trading_rules.parquet")
+    if rul_p.exists():
+        rul = pd.read_parquet(rul_p)
+        rul["fund_code"] = rul["symbol"].astype(str).str.strip().str.zfill(6)
+        rul_map = {r["fund_code"]: r.to_dict() for _, r in rul.drop_duplicates("fund_code").iterrows()}
+
+    added_codes: List[str] = []
+    failed_codes: List[str] = []
+    new_meta_rows: List[Dict[str, Any]] = []
+    cal_index = nav_df.index
+
+    def _fetch_one(code: str) -> Tuple[str, Optional[Dict[str, Any]]]:
+        time.sleep(random.uniform(0.15, 0.35))
+        try:
+            return code, _fetch_pingzhongdata_adjusted_nav(code, timeout=10)
+        except Exception:
+            return code, None
+
+    with ThreadPoolExecutor(max_workers=max(1, min(3, int(workers)))) as pool:
+        results = list(pool.map(_fetch_one, to_fetch))
+
+    for code, res in results:
+        if res is None:
+            failed_codes.append(code)
+            continue
+        df_f = res["df"]
+        if len(df_f) < min_days:
+            failed_codes.append(code)
+            continue
+        c_info = cat_map.get(code) or {}
+        r_info = rul_map.get(code) or {}
+        fn = str(r_info.get("fund_name") or c_info.get("fund_name") or code)
+        ft = str(r_info.get("fund_type") or c_info.get("fund_type") or "")
+        ps = str(r_info.get("purchase_status") or "开放申购")
+        if is_lockup_or_banned_fund(fn, code, ps):
+            failed_codes.append(code)
+            continue
+
+        s = df_f.set_index("date")["adj_nav"].astype(float)
+        s = s[s.index >= cal_index[0]]
+        if len(s) < min_days or float(s.iloc[0]) <= 0:
+            failed_codes.append(code)
+            continue
+        s = s / float(s.iloc[0])
+        reindexed = s.reindex(cal_index)
+        fv = reindexed.first_valid_index()
+        if fv is not None:
+            reindexed.loc[fv:] = reindexed.loc[fv:].ffill(limit=5)
+        nav_df[code] = reindexed
+
+        fee_v = float(r_info.get("est_total_operating_fee") if pd.notna(r_info.get("est_total_operating_fee")) else 0.4)
+        b10 = classify_fund_bucket_10(ft, fn, code, ps)
+        cfg = BUCKET_10_CONFIG.get(b10, {})
+        new_meta_rows.append({
+            "fund_code": code,
+            "fund_name": fn,
+            "fund_type": ft,
+            "bucket_10": b10,
+            "bucket_label": str(cfg.get("label", "核心配置")),
+            "asset_class": str(cfg.get("asset_class", "bond")),
+            "is_active_fund": bool(cfg.get("is_active", False)),
+            "is_index_eligible": bool(is_index_style_fund(ft, fn, b10, fee_v)),
+            "is_purchase_allowed": bool(r_info.get("is_purchase_allowed", True)),
+            "daily_limit_amount": float(r_info.get("daily_limit_amount") if pd.notna(r_info.get("daily_limit_amount")) else 1e10),
+            "est_total_operating_fee": fee_v,
+            "purchase_status": ps,
+            "real_scale_yi": res.get("real_scale_yi"),
+            "inception_date": res.get("inception_date", ""),
+            "latest_nav_date": res.get("latest_nav_date", ""),
+            "valid_trading_days": int(len(df_f)),
+            "data_source": "eastmoney_pingzhongdata_adj",
+        })
+        added_codes.append(code)
+
+    if new_meta_rows:
+        meta_df = pd.concat([meta_df, pd.DataFrame(new_meta_rows)], ignore_index=True).drop_duplicates(subset=["fund_code"], keep="last")
+        nav_df.index.name = "date"
+        nav_df.to_parquet(_write_processed_path("market_elite_nav_matrix.parquet"))
+        meta_df.to_parquet(_write_processed_path("market_elite_meta.parquet"), index=False)
+
+    clean_res = reclassify_and_clean_existing_lakehouse()
+    return {"status": "ok", "added": added_codes, "failed": failed_codes, "clean": clean_res}

@@ -4,20 +4,23 @@
   "latest_date": "2026-11-25",
   "start_date": "2018-01-02",
   "trading_days": 2159,
-  "elite_fund_count": 266,
-  "active_fund_count": 87,
-  "index_eligible_count": 153,
+  "elite_fund_count": 269,
+  "active_fund_count": 101,
+  "index_eligible_count": 159,
   "bucket_counts": {
-    "pure_bond": 42,
+    "quant_mid_small": 42,
+    "pure_bond": 40,
     "active_balanced_equity": 34,
-    "fixed_income_plus": 28,
-    "broad_index": 26,
+    "sector_theme_index": 31,
     "active_sector_growth": 25,
-    "quant_mid_small": 24,
-    "overseas_qdii": 24,
-    "sector_theme_index": 24,
-    "dividend_value": 22,
-    "commodity_gold": 17
+    "fixed_income_plus": 23,
+    "dividend_value": 23,
+    "overseas_qdii": 19,
+    "commodity_gold": 12,
+    "short_bond": 12,
+    "hk_offshore": 4,
+    "broad_index": 2,
+    "other_commodity": 2
   },
   "funnel_stats": {
     "total_market_funds": 28177,
@@ -41,5 +44,6 @@
   "failed_count": 0,
   "aborted_by_circuit_breaker": false,
   "elapsed_sec": 158.47,
-  "daily_sync_at": "2026-11-26 10:02:33"
+  "daily_sync_at": "2026-11-26 10:02:33",
+  "reclassified_at": "2026-11-27 23:10:08"
 }

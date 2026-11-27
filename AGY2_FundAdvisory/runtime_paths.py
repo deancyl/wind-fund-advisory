@@ -12,12 +12,14 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# 随仓发布的 7 个 100% 公开市场基准种子文件（0 个人隐私数据，~4.9MB）
+# 随仓发布的 9 个 100% 公开市场基准种子文件（0 个人隐私数据，~7.3MB）
 PUBLIC_SEED_FILES: Tuple[str, ...] = (
     "processed/aligned_matrix_total_return.parquet",
     "processed/market_elite_nav_matrix.parquet",
     "processed/market_elite_meta.parquet",
     "processed/market_elite_sync_status.json",
+    "master/fund_catalog.parquet",
+    "master/fund_trading_rules.parquet",
     "macro/bond_zh_us_rate.parquet",
     "macro/chinabond_yield_curve.parquet",
     "mart/index_valuations.parquet",

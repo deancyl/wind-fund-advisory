@@ -1,0 +1,63 @@
+name: Daily Public Market Data Pipeline
+
+on:
+  schedule:
+    # 工作日 13:40 UTC = 北京时间 21:40（公募收盘官方净值全量公布后）
+    - cron: '40 13 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TZ: Asia/Shanghai
+  PYTHONUTF8: '1'
+
+jobs:
+  build-verify-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+
+      - name: Refresh public market lakehouse & build public/mobile bundles
+        run: |
+          python scripts/build_daily_public_bundle.py --output-dir dist_bundle
+
+      - name: Run mandatory quantitative integrity & anti-leakage gate BEFORE publishing
+        run: |
+          python -m pytest tests/test_phase1_quant_integrity.py tests/test_akshare_compat_and_seed_bootstrap.py -v
+
+      - name: Publish verified public bundles to rolling Release data-latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="data-latest"
+          NOTES="AGY2 Daily Verified Public Market Data Bundle ($(date '+%Y-%m-%d %H:%M CST')). Pure public market data only (0 user data). Verified by Phase 1 quantitative integrity gate."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              dist_bundle/agy2-market-bundle-latest.tar.gz \
+              dist_bundle/agy2-mobile-compact-v1.tar.gz \
+              dist_bundle/manifest.json \
+              --clobber
+            gh release edit "$TAG" --notes "$NOTES"
+          else
+            gh release create "$TAG" \
+              dist_bundle/agy2-market-bundle-latest.tar.gz \
+              dist_bundle/agy2-mobile-compact-v1.tar.gz \
+              dist_bundle/manifest.json \
+              --title "AGY2 Latest Verified Public Market Data" \
+              --notes "$NOTES"
+          fi

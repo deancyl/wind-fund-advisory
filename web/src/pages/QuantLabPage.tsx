@@ -53,9 +53,17 @@ const BACKTEST_PERIODS = [
   { id: 'all', label: '全周期' },
 ];
 
-const UNIVERSE_MODES: Array<{ id: UniverseMode; label: string }> = [
-  { id: 'full_market', label: '全市场海选' },
-  { id: 'index_only', label: '仅指数低费' },
+const UNIVERSE_MODES: Array<{ id: UniverseMode; label: string; hint: string }> = [
+  {
+    id: 'index_only',
+    label: '低费指数核心',
+    hint: '低费透明·无风格漂移，适合多数场外投资者拿稳；注：海外被动指数偶有限购。',
+  },
+  {
+    id: 'full_market',
+    label: '全市场含主动',
+    hint: '含绩优主动/固收+及高限额全球基，弹性更强；注：费率略高且需防风格漂移。',
+  },
 ];
 
 const SOLVE_STAGES = [
@@ -188,7 +196,7 @@ export function QuantLabPage() {
             </button>
             <span className="text-slate-300">|</span>
             <span className="font-semibold text-slate-900">
-              {universeMode === 'full_market' ? '全市场海选' : '仅指数低费'}
+              {universeMode === 'full_market' ? '全市场含主动' : '低费指数核心'}
             </span>
             <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 font-bold">{riskLevel}</span>
             <span className="text-slate-700 font-medium">{effModelName}</span>
@@ -241,7 +249,13 @@ export function QuantLabPage() {
 
             {/* 选基范围 */}
             <div className="space-y-1.5">
-              <div className="text-[11px] font-semibold text-slate-500">选基池范围</div>
+              <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500">
+                <span className="inline-flex items-center">
+                  选基池范围
+                  <MetricTooltip specKey="universe_mode" />
+                </span>
+                <span className="text-[10px] font-normal text-slate-400">100% 场外基金</span>
+              </div>
               <div className="grid grid-cols-2 gap-1 bg-slate-100 p-0.5 rounded-md border border-slate-200" role="group" aria-label="选基范围模式">
                 {UNIVERSE_MODES.map((u) => (
                   <button
@@ -256,6 +270,9 @@ export function QuantLabPage() {
                   </button>
                 ))}
               </div>
+              <p className="text-[10px] leading-snug text-slate-500">
+                {UNIVERSE_MODES.find((u) => u.id === universeMode)?.hint}
+              </p>
             </div>
 
             {/* 风险偏好 C1~C5 */}
@@ -893,17 +910,29 @@ export function QuantLabPage() {
                                 )}
                               </td>
                               <td className="py-2.5 px-3 whitespace-nowrap">
-                                {f.quota_note ? (
-                                  <span
-                                    title={f.quota_note}
-                                    className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-semibold"
+                                <div>
+                                  {f.quota_note ? (
+                                    <span
+                                      title={f.quota_note}
+                                      className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-semibold"
+                                    >
+                                      限购 ¥{Math.round(f.daily_limit).toLocaleString()}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[11px] text-slate-500">
+                                      不限购 · 费率 {(f.factor_profile?.total_fee_pct ?? 0.6).toFixed(2)}%
+                                    </span>
+                                  )}
+                                </div>
+                                {horizonMonths <= 12 && f.share_class_tip && (
+                                  <div
+                                    title={f.share_class_tip}
+                                    className="text-[10px] text-blue-700 font-medium mt-0.5"
                                   >
-                                    限购 ¥{Math.round(f.daily_limit).toLocaleString()}
-                                  </span>
-                                ) : (
-                                  <span className="text-[11px] text-slate-400">
-                                    不限购 · 费率 {(f.factor_profile?.total_fee_pct ?? 0.6).toFixed(2)}%
-                                  </span>
+                                    {f.c_share_code && f.c_share_code !== f.fund_code
+                                      ? `≤1年省费：可看 C 类 ${f.c_share_code}`
+                                      : '≤1年建议关注同基 C 类'}
+                                  </div>
                                 )}
                               </td>
                               <td
@@ -1010,6 +1039,29 @@ export function QuantLabPage() {
                               </div>
                             ))}
                           </div>
+                        </div>
+                      )}
+                      {(blueprint?.walk_forward_audit?.splits?.length || blueprint?.survivorship_bias_disclaimer || solverAudit?.survivorship_bias_disclaimer) && (
+                        <div className="space-y-1.5 pt-2 border-t border-slate-200 text-[11px] text-slate-600">
+                          {blueprint?.walk_forward_audit?.splits && blueprint.walk_forward_audit.splits.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-3 tabular-nums">
+                              <span className="font-bold text-slate-800">3. 严格 Walk-Forward 盲测摘要：</span>
+                              <span>
+                                正收益窗口占比 <strong className="text-slate-900">{blueprint.walk_forward_audit.wf_oos_positive_rate_pct.toFixed(0)}%</strong>
+                              </span>
+                              <span>
+                                盲测均收益 <strong className="text-slate-900">{blueprint.walk_forward_audit.wf_avg_return_pct >= 0 ? '+' : ''}{blueprint.walk_forward_audit.wf_avg_return_pct.toFixed(2)}%</strong>
+                              </span>
+                              <span>
+                                盲测最差回撤 <strong className="text-emerald-700">{blueprint.walk_forward_audit.wf_worst_mdd_pct.toFixed(2)}%</strong>
+                              </span>
+                            </div>
+                          )}
+                          {(blueprint?.survivorship_bias_disclaimer || solverAudit?.survivorship_bias_disclaimer) && (
+                            <p className="text-[10px] text-slate-500 leading-relaxed">
+                              {blueprint?.survivorship_bias_disclaimer || solverAudit?.survivorship_bias_disclaimer}
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>
